@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git log *)",
+      "Bash(composer show *)",
+      "Bash(git ls-tree *)"
+    ]
+  }
+}

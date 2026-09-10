@@ -1,0 +1,11 @@
+=================================================================
+FINAL PRE-CLOSE INTEGRITY GATE â€” adversarial additions
+=================================================================
+GATE  TAGS-after-first-import  PASS  -> Z=0 O=1 TT=2 X=1 total=4
+GATE  TAGS-export-sheet-contract  PASS  -> headers exact; exported pairs=14
+GATE  TAGS-roundtrip-idempotent  PASS  -> status=completed products 54â†’54; AFTER Z=0 O=1 TT=2 X=1 dupPairs=0
+GATE  TAGS-ghost-not-fabricated  PASS  -> unknown slug neither created as tag nor attached
+GATE  ROUTE-CACHED-DISPATCH  PASS  -> UNDER ROUTE CACHE: products/export=true brands/export=1 products/sample=true brands/sample=true
+GATE  ORPHAN-signals  PASS  -> terminal imports with leftover signal files=0
+
+INTEGRITY GATE COMPLETE.

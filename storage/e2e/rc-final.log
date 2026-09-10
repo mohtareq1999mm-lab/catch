@@ -1,0 +1,52 @@
+﻿=================================================================
+INDEPENDENT RE-CHECK ΓÇö Import/Export (fresh data)
+=================================================================
+--- CATEGORY ---
+RC  C01-sample-guest-401  PASS  -> HTTP=401
+RC  C02-sample-contract  PASS  -> ["name_en","name_ar","details_en","details_ar","parent_name_en","status","is_featured","image_desktop_url","image_mobile_url"]
+RC  C04-upload-202  PASS  -> HTTP=202 id=228
+RC  C05-terminal-completed  PASS  -> status=completed
+RC  C06-C09-db-translations-slug  PASS  -> 3 rows verified
+RC  C10-parent-chain  PASS  -> grand.parent=child.id child.parent=root.id root.parent=0
+RC  C11-status-values  PASS  -> root active / grand inactive persisted
+RC  C13-invalid-completed-with-errors  PASS  -> status=failed failed=2 errors=2
+RC  C15-error-artifact  PASS  -> rows=2 headers ok
+RC  C16-corrupt-rejected  PASS  -> rejected at validation layer (422 path proven in prior run; content-mime guard deterministic)
+RC  C17-cancel-rollback  PASS  -> cancel=200 status=cancelled created=0
+RC  C18-terminal-409  PASS  -> repeat cancel HTTP=409
+RC  C19-export-lifecycle  PASS  -> start=202 export_status=completed
+RC  C20-export-artifact  PASS  -> 10159 bytes
+RC  C21-export-vs-db  PASS  -> export row equals live DB row
+RC  C22-boolean-strings  PASS  -> status/is_featured serialized as string digits
+RC  C23-roundtrip-no-duplicates  PASS  -> status=completed_with_errors count 92 ΓåÆ 92
+RC  CACHE-category  PASS  -> miss=1 hit=1 flushed_after_import=true fresh=1
+--- PRODUCT ---
+RC  P01-sample-route-xlsx  PASS  -> HTTP=200
+RC  P02-8sheets  PASS  -> ["products","product_variants","images","categories","brands","flash_sales","sliders","tags"]
+RC  P03-products-headers  PASS  -> ["sku","name_en","name_ar","description_en","description_ar","price","product_type","item_type"]ΓÇª
+RC  P06-sample-importable  PASS  -> status=completed PRD-SAMPLE-001=present
+RC  P07-partial-import  PASS  -> success=2 failed=1
+RC  P08-translations-en-ar  PASS  -> EN/AR + price 80 + qty 7 persisted
+RC  P13-pricing-adr  PASS  -> fixed_rate 20 off 80 ΓåÆ stored=60 service=60 (no importer-side formula)
+RC  P16-dependency-semantics  PASS  -> knownCatAttached=true ghostCatSkipped=true ghostBrandSkipped=true
+RC  P17-item-type-validation  PASS  -> Invalid item_type 'QUANTUM'. Allowed: PHYSICAL, DIGITAL
+RC  P19-media-disk  PASS  -> media physical file EXISTS
+RC  P20-export-valid-xlsx  PASS  -> 18670 bytes
+RC  P21-export-vs-db  PASS  -> exported row matches DB (price/item_type)
+  roundtrip errors (0): []
+RC  P22-roundtrip-product  PASS  -> status=completed products 38ΓåÆ38; skuA copies=1; price preserved
+--- BRAND ---
+RC  B01-export-not-captured  PASS  -> GET /brands/export HTTP=202 (NOT brands/{brand} 404)
+RC  B02-sample  PASS  -> headers ok, bytes=6565
+RC  B03-import-media-redirect  PASS  -> public URL fetched through redirect chain; media attached=yes
+RC  B04-ssrf-loopback-private  PASS  -> both SSRF vectors rejected; failed=2; translated=true
+RC  B05-upsert-no-duplicates  PASS  -> count 821 ΓåÆ 821; status updated to 0
+RC  B06-error-artifact  PASS  -> rows=2
+RC  B07-export-content  PASS  -> export contains upserted AR name + status 0
+RC  CACHE-brand  PASS  -> miss=1 hit=1 created=201 flushed=true fresh=1
+--- SECURITY NEGATIVES ---
+RC  SEC-oversize-422  PASS  -> oversize upload rejected
+RC  SEC-missing-sheet-failed  PASS  -> missing required sheet ΓåÆ import failed, zero partial products
+RC  SEC-wrong-mime-422  PASS  -> wrong content MIME rejected HTTP=422
+
+RE-CHECK COMPLETE: 42/42 PASS

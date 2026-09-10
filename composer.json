@@ -1,0 +1,99 @@
+{
+    "name": "redq/marvel",
+    "type": "project",
+    "description": "Marvel, a complete e-commerce engine",
+    "keywords": [
+        "marvel",
+        "graphql",
+        "rest-api"
+    ],
+    "license": "MIT",
+    "require": {
+        "php": "^8.0|^8.1",
+        "barryvdh/laravel-dompdf": "2.0.1",
+        "chillerlan/php-qrcode": "*",
+        "codezero/laravel-unique-translation": "*",
+        "darkaonline/l5-swagger": "8.5",
+        "doctrine/dbal": "3.7.1",
+        "guzzlehttp/guzzle": "7.8.0",
+        "karim007/laravel-bkash-tokenize": "dev-main",
+        "kingflamez/laravelrave": "dev-master",
+        "kreait/firebase-php": "6.7",
+        "laravel/framework": "10.30.1",
+        "laravel/scout": "*",
+        "laravel/socialite": "5.10.0",
+        "laravel/tinker": "2.8.2",
+        "marvel/shop": "dev-main",
+        "meilisearch/meilisearch-php": "^1.17",
+        "messagebird/php-rest-api": "3.1.4",
+        "mpdf/mpdf": "8.2",
+        "mpdf/psr-http-message-shim": "1.0",
+        "predis/predis": "^3.6",
+        "psr/log": "3.0.0",
+        "resend/resend-php": "^1.5",
+        "spatie/eloquent-sortable": "*",
+        "spatie/laravel-activitylog": "*",
+        "spatie/laravel-one-time-passwords": "^1.0",
+        "spatie/laravel-translatable": "*",
+        "stevebauman/purify": "6.0.2",
+        "symfony/http-client": "6.3.7",
+        "symfony/mailgun-mailer": "6.3.6"
+    },
+    "require-dev": {
+        "fakerphp/faker": "1.21.0",
+        "laravel/sail": "1.21.0",
+        "mockery/mockery": "1.5.1",
+        "nunomaduro/collision": "7.0.5",
+        "phpunit/phpunit": "10.0.13",
+        "spatie/laravel-ignition": "2.0.0",
+        "squizlabs/php_codesniffer": "3.7.2"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        },
+        "audit": {
+            "block-insecure": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi"
+        ]
+    },
+    "repositories": {
+        "marvel/shop": {
+            "type": "path",
+            "url": "packages/marvel"
+        }
+    }
+}

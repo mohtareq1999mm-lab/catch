@@ -1,0 +1,105 @@
+﻿=================================================================
+IMPORT/EXPORT E2E - CATEGORY GATE
+=================================================================
+RESULT  IE-CAT-SAMPLE-HTTP  PASS  -> HTTP=200 bytes=6662 mime=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+RESULT  IE-CAT-SAMPLE-STRUCTURE  PASS  -> sheets=["categories"] headers=["name_en","name_ar","details_en","details_ar","parent_name_en","status","is_featured","image_desktop_url","image_mobile_url"]
+RESULT  IE-CAT-PERM-SAMPLE  PASS  -> guest=401 customer=403
+RESULT  IE-CAT-PERM-IMPORT  PASS  -> import guest=401 customer=403
+RESULT  IE-CAT-PERM-EXPORT  PASS  -> export guest=401 customer=403
+RESULT  IE-CAT-UPLOAD  PASS  -> HTTP=202 import_id=141 status=pending
+RESULT  IE-CAT-RECORD  PASS  -> imports row type=category status=pending total_rows=5
+RESULT  IE-CAT-COMPLETED  PASS  -> status=completed success=4 failed=0
+RESULT  IE-CAT-DB-ROWS  PASS  -> all rows persisted with translations + deterministic slugs
+RESULT  IE-CAT-HIERARCHY  PASS  -> RootΓåÆPhones(child)ΓåÆSmartphones(grandchild) chain verified in parent_id
+RESULT  IE-CAT-INVALID-MATRIX  PASS  -> status=completed_with_errors failed=3 errorCount=3
+RESULT  IE-CAT-ERROR-ARTIFACT  PASS  -> HTTP=200 rows=3 headers=["Sheet","Row","Name (EN)","Name (AR)","Parent Name (EN)","Error Message"]
+RESULT  IE-CAT-CORRUPT  PASS  -> corrupt xlsx handled cleanly: HTTP=422 path=validation-layer
+RESULT  IE-CAT-CANCEL  PASS  -> cancel HTTP=200 status=cancelled bulkRowsCreated=0 (rollback proven)
+RESULT  IE-CAT-CANCEL-409  PASS  -> cancel on terminal state HTTP=409
+
+CATEGORY GATE PART 1 COMPLETE.
+=================================================================
+IMPORT/EXPORT E2E - CATEGORY EXPORT / ROUND-TRIP / CACHE
+=================================================================
+RESULT  IE-EXP-START  PASS  -> HTTP=202 export_id=144
+RESULT  IE-EXP-COMPLETED  PASS  -> status=completed rows=54 success=54
+RESULT  IE-EXP-ARTIFACT  PASS  -> HTTP=200 bytes=9024 mime=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+RESULT  IE-EXP-HEADERS  PASS  -> ["name_en","name_ar","details_en","details_ar","parent_name_en","status","is_featured","image_desktop_url","image_mobile_url"]
+RESULT  IE-EXP-CONTENT  PASS  -> exported row matches live DB: exported ar='┘à┘â╪▒╪▒' db_ar='┘à┘â╪▒╪▒' status cell=1 db=1 featured cell=0 db=
+
+   ErrorException 
+
+  Undefined variable $parentMapped
+
+  at storage\e2e\_ie2.php:83
+     79Γûò     }
+     80Γûò }
+     81Γûò record('IE-EXP-HEADERS', $headers === $expectedHeaders, json_encode($headers));
+     82Γûò record('IE-EXP-CONTENT', $rowOk, 'exported row matches live DB: ' . $detail);
+  Γ₧£  83Γûò record('IE-EXP-PARENT-MAP', $parentMapped, 'child row parent_name_en resolves parent EN name');
+     84Γûò $wb->disconnectWorksheets();
+     85Γûò 
+     86Γûò // ---- ROUND-TRIP: re-import exported file ΓåÆ update-in-place, no duplicates ------
+     87Γûò $countBefore = Category::count();
+
+  1   storage\e2e\_ie2.php:83
+      Illuminate\Foundation\Bootstrap\HandleExceptions::Illuminate\Foundation\Bootstrap\{closure}("Undefined variable $parentMapped", "D:\meem-commerce\storage\e2e\_ie2.php")
+
+=================================================================
+IMPORT/EXPORT E2E - PRODUCT (multi-sheet XLSX)
+=================================================================
+RESULT  IE-PRD-BRAND-SEED  PASS  -> brand HTTP=201 slug=e2e-brand-4768
+RESULT  IE-PRD-UPLOAD  PASS  -> HTTP=202 import_id=145
+RESULT  IE-PRD-PARTIAL  PASS  -> status=completed_with_errors success=2 failed=1 (2 valid + 1 invalid item_type; relation-sheet rows w/o product row are ignored by design)
+RESULT  IE-PRD-DB-ROW1  PASS  -> translations+price+qty persisted
+RESULT  IE-PRD-CATEGORY-PIVOT  PASS  -> productΓåöcategory pivot via category_slug=ie-cat-b2a1-electronics
+RESULT  IE-PRD-BRAND-PIVOT  PASS  -> known brand_slug attached via brand_product pivot
+RESULT  IE-PRD-DEPENDENCY-SEMANTICS  PASS  -> relation sheets attach only known slugs; unknown slugs skipped by design (no fabricated fallback)
+RESULT  IE-PRD-BAD-TYPE  PASS  -> invalid item_type rejected: msg=Invalid item_type 'TELEPATHIC'. Allowed: PHYSICAL, DIGITAL
+RESULT  IE-PRD-MEDIA-DISK  PASS  -> media id=113 physical=EXISTS
+RESULT  IE-PRD-PRICING-ADR  PASS  -> stored price_after_discount=75 | service=75.0 | manual(25% of 100)=75 ΓÇö import uses ProductPricingService as single authority
+RESULT  IE-PRD-ERROR-ARTIFACT  PASS  -> HTTP=200 headers=["Sheet","Row","SKU","Error Message"]
+RESULT  IE-PRD-EXPORT-LIVE  PASS  -> GET /api/v1/products/export HTTP=200 xlsx=true (routed in closure pass; async job variant remains unused-by-design)
+
+PRODUCT PHASE COMPLETE.
+=================================================================
+IMPORT/EXPORT E2E - BRAND GATE (new implementation)
+=================================================================
+RESULT  IE-BRD-SAMPLE-HTTP  PASS  -> HTTP=200 bytes=6565
+RESULT  IE-BRD-SAMPLE-STRUCTURE  PASS  -> sheets=["brands"] headers=["name_en","name_ar","details_en","details_ar","status","image_desktop_url","image_mobile_url"]
+RESULT  IE-BRD-PERM-SAMPLE  PASS  -> guest=401 customer=403
+RESULT  IE-BRD-PERM-IMPORT  PASS  -> import guest=401 customer=403
+RESULT  IE-BRD-PERM-EXPORT  PASS  -> export guest=401 customer=403
+RESULT  IE-BRD-UPLOAD  PASS  -> HTTP=202 import_id=146
+RESULT  IE-BRD-RECORD  PASS  -> imports row type=brand status=pending
+RESULT  IE-BRD-COMPLETED  PASS  -> status=completed success=2
+RESULT  IE-BRD-DB-ROWS  PASS  -> both brands persisted with translations + deterministic slugs
+RESULT  IE-BRD-UPSERT  PASS  -> re-import updated in place: count=811 to 811; ar='╪ú┘ä┘ü╪º ┘à╪¡╪»╪½╪⌐ IE-BRD-9baf' status=0
+RESULT  IE-BRD-MEDIA  PASS  -> import status=completed media rows attached=2 (public URL fetched through redirect chain; SSRF guard active)
+  msg compare: expected=["ImageURLisnotallowed","\u0631\u0627\u0628\u0637\u0627\u0644\u0635\u0648\u0631\u0629\u063a\u064a\u0631\u0645\u0633\u0645\u0648\u062d\u0628\u0647"] actual='╪▒╪º╪¿╪╖ ╪º┘ä╪╡┘ê╪▒╪⌐ ╪║┘è╪▒ ┘à╪│┘à┘ê╪¡ ╪¿┘ç'
+  clause dump: {"status":true,"failedRows":true,"msgOk":true,"noRawKey":true,"brandAbsent":true} st='failed' failed_rows=1
+RESULT  IE-BRD-MEDIA-FAIL  PASS  -> SSRF-blocked loopback URL ΓåÆ row rejected, no partial record; msg='╪▒╪º╪¿╪╖ ╪º┘ä╪╡┘ê╪▒╪⌐ ╪║┘è╪▒ ┘à╪│┘à┘ê╪¡ ╪¿┘ç'
+RESULT  IE-BRD-ERROR-ARTIFACT  PASS  -> HTTP=200 headers=["Sheet","Row","Name (EN)","Name (AR)","Error Message"]
+RESULT  IE-BRD-CANCEL  PASS  -> attempt=1 cancel HTTP=200 status=cancelled created=0 rolledBack=true
+RESULT  IE-BRD-EXPORT-START  PASS  -> HTTP=202 export_id=151
+RESULT  IE-BRD-EXPORT-COMPLETED  PASS  -> status=completed rows=812
+RESULT  IE-BRD-EXPORT-ARTIFACT  PASS  -> HTTP=200 bytes=24677 headers ok, updated AR value present in artifact
+RESULT  IE-BRD-CACHE  PASS  -> miss=1 hit=1 created(HTTP=201) flushed_after_create=true
+
+BRAND GATE COMPLETE.
+=================================================================
+FINAL CLOSURE - PRODUCT EXPORT / SAMPLE ROUND-TRIP / SECURITY
+=================================================================
+RESULT  FC-EXP-PERM  PASS  -> guest=401 customer=403
+RESULT  FC-EXP-AUTHORIZED  PASS  -> admin HTTP=200 bytes=16566 mime=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+RESULT  FC-EXP-FILTER-OK  PASS  -> status=1 filter HTTP=200
+RESULT  FC-EXP-FILTER-422  PASS  -> product_type=invalid HTTP=422
+RESULT  FC-SAMPLE-PERM  PASS  -> guest=401 customer=403 (sample sits under import controller)
+RESULT  FC-SAMPLE-STRUCTURE  PASS  -> 8 sheets incl. tags; products headers lead with sku, include item_type
+RESULT  FC-SAMPLE-ROUNDTRIP  PASS  -> downloaded sample imported: status=completed products created=2 variant= true
+RESULT  FC-EXPORT-REFLECTS-DB  PASS  -> post-import export contains newly imported sample SKUs (total skus=24)
+RESULT  SEC-MIME-OVERSIZE  PASS  -> wrong-mime HTTP=422 oversize(21MB) HTTP=422 ΓÇö both rejected before processing
+RESULT  SEC-CANCELLED-ERRFILE  PASS  -> error-file access on cancelled import -> HTTP=404
+RESULT  SEC-NO-RAW-KEYS  PASS  -> recent import error messages contain no raw translation keys
+
+FINAL CLOSURE ADDITIONS COMPLETE.

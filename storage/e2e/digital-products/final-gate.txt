@@ -1,0 +1,27 @@
+﻿PASS: schema: digital_assets exists
+PASS: schema: digital_entitlements exists
+PASS: schema: digital_license_keys exists
+PASS: schema: digital_download_logs exists
+PASS: schema: digital_asset_entitlement exists
+PASS: schema: assets.path nullable
+PASS: registry: 4 creatable types
+PASS: registry: pdf still active
+PASS: registry: media activated (A3)
+PASS: perm db: manage-digital-access
+PASS: perm db: manage-digital-licenses
+PASS: perm db: view-products
+PASS: perm db: create-product
+PASS: perm db: update-product
+PASS: upload FILE ΓåÆ 201
+PASS: fs: physical file exists at recorded path
+PASS: fs: stored checksum == sha256(file)
+PASS: fulfillment delivered entitlement
+PASS: download byte-exact vs fixture
+PASS: credit incremented to 1
+PASS: audit row written
+PASS: response exposes no path/disk
+PASS: trans en: ERROR.DIGITAL_DOWNLOAD_LIMIT_REACHED resolves
+PASS: trans ar: ERROR.DIGITAL_LICENSE_ALREADY_REVEALED resolves
+PASS: trans de: ERROR.DIGITAL_ASSET_NOT_REPLACEABLE resolves
+
+==== W8 FINAL GATE: 25/25 ====

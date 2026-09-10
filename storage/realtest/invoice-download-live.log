@@ -1,0 +1,26 @@
+=================================================================
+INVOICE DOWNLOAD PERMISSION — LIVE HTTP VERIFICATION
+DB: chawkbazar driver=mysql
+CACHE_DRIVER: redis
+QUEUE: redis
+super admin user id=1
+invoice id=1 uuid=c2489b8b-90f9-4ca2-b18b-95e1bb16286e number=INV-2026-938453
+URL: /api/v1/invoices/c2489b8b-90f9-4ca2-b18b-95e1bb16286e/download
+RESULT TC-LIVE-001 PASS -> unauthenticated download HTTP=401 (expect 401)
+RESULT TC-LIVE-002 PASS -> owner download HTTP=200 fileExists=true
+RESULT TC-LIVE-003 PASS -> permission-user download HTTP=200
+RESULT TC-LIVE-004 PASS -> view-invoice-only HTTP=404 (expect 404, DENIED)
+RESULT TC-LIVE-005 PASS -> stranger HTTP=404 (expect 404)
+RESULT TC-LIVE-006 PASS -> super admin HTTP=200 (expect 200)
+RESULT TC-LIVE-007 PASS -> downloaded_at set in DB: '2026-08-18 13:44:39'
+RESULT TC-LIVE-008 PASS -> invoice_timeline downloaded event exists
+RESULT TC-LIVE-009 PASS -> unknown uuid HTTP=404 (expect 404)
+RESULT TC-LIVE-010 PASS -> invalid uuid format HTTP=404 (expect 404)
+RESULT TC-LIVE-011 PASS -> permission rows=1 super_admin(role=9003) assigned=true
+
+CLEANUP...
+Cleanup complete. Remaining invoices: 0 (expect 0)
+
+SUMMARY
+PASS: 11  FAIL: 0
+LIVE VERDICT: PASS

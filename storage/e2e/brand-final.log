@@ -1,0 +1,25 @@
+﻿=================================================================
+IMPORT/EXPORT E2E - BRAND GATE (new implementation)
+=================================================================
+RESULT  IE-BRD-SAMPLE-HTTP  PASS  -> HTTP=200 bytes=6565
+RESULT  IE-BRD-SAMPLE-STRUCTURE  PASS  -> sheets=["brands"] headers=["name_en","name_ar","details_en","details_ar","status","image_desktop_url","image_mobile_url"]
+RESULT  IE-BRD-PERM-SAMPLE  PASS  -> guest=401 customer=403
+RESULT  IE-BRD-PERM-IMPORT  PASS  -> import guest=401 customer=403
+RESULT  IE-BRD-PERM-EXPORT  PASS  -> export guest=401 customer=403
+RESULT  IE-BRD-UPLOAD  PASS  -> HTTP=202 import_id=117
+RESULT  IE-BRD-RECORD  PASS  -> imports row type=brand status=pending
+RESULT  IE-BRD-COMPLETED  PASS  -> status=completed success=2
+RESULT  IE-BRD-DB-ROWS  PASS  -> both brands persisted with translations + deterministic slugs
+RESULT  IE-BRD-UPSERT  PASS  -> re-import updated in place: count=800 to 800; ar='╪ú┘ä┘ü╪º ┘à╪¡╪»╪½╪⌐ IE-BRD-e881' status=0
+RESULT  IE-BRD-MEDIA  PASS  -> import status=completed media rows attached=2 (public URL fetched through redirect chain; SSRF guard active)
+  msg compare: expected=["ImageURLisnotallowed","\u0631\u0627\u0628\u0637\u0627\u0644\u0635\u0648\u0631\u0629\u063a\u064a\u0631\u0645\u0633\u0645\u0648\u062d\u0628\u0647"] actual='╪▒╪º╪¿╪╖ ╪º┘ä╪╡┘ê╪▒╪⌐ ╪║┘è╪▒ ┘à╪│┘à┘ê╪¡ ╪¿┘ç'
+  clause dump: {"status":true,"failedRows":true,"msgOk":true,"noRawKey":true,"brandAbsent":true} st='failed' failed_rows=1
+RESULT  IE-BRD-MEDIA-FAIL  PASS  -> SSRF-blocked loopback URL ΓåÆ row rejected, no partial record; msg='╪▒╪º╪¿╪╖ ╪º┘ä╪╡┘ê╪▒╪⌐ ╪║┘è╪▒ ┘à╪│┘à┘ê╪¡ ╪¿┘ç'
+RESULT  IE-BRD-ERROR-ARTIFACT  PASS  -> HTTP=200 headers=["Sheet","Row","Name (EN)","Name (AR)","Error Message"]
+RESULT  IE-BRD-CANCEL  PASS  -> attempt=1 cancel HTTP=200 status=cancelled created=0 rolledBack=true
+RESULT  IE-BRD-EXPORT-START  PASS  -> HTTP=202 export_id=122
+RESULT  IE-BRD-EXPORT-COMPLETED  PASS  -> status=completed rows=801
+RESULT  IE-BRD-EXPORT-ARTIFACT  PASS  -> HTTP=200 bytes=23857 headers ok, updated AR value present in artifact
+RESULT  IE-BRD-CACHE  PASS  -> miss=1 hit=1 created(HTTP=201) flushed_after_create=true
+
+BRAND GATE COMPLETE.

@@ -1,0 +1,7 @@
+﻿PASS: fixture: FILE asset created via multipart HTTP
+PASS: S1 exactly one 200 and one 403 across racers
+PASS: S1 counter incremented exactly once
+PASS: S2 unlimited: four racers ALL delivered
+PASS: S2 unlimited counter tracks every delivery atomically
+
+==== W6 CONCURRENCY RESULT: 5/5 ====

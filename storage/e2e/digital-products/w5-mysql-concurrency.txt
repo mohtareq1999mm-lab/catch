@@ -1,0 +1,16 @@
+﻿== driver=mysql ==
+== scenario 1: 8 concurrent workers raced order 1 ==
+PASS: S1 exactly one entitlement
+PASS: S1 exactly one key assigned
+PASS: S1 assigned key bound to THE entitlement
+PASS: S1 three keys still available
+PASS: S1 entitlement delivered
+PASS: S1 replay allocates nothing new
+== scenario 2: 12 workers raced 6 orders over 3 scarce keys ==
+PASS: S2 exactly 3 keys assigned (pool respected)
+PASS: S2 no duplicate allocation (unique entitlements)
+PASS: S2 zero available remain
+PASS: S2 no entitlement holds >1 key
+PASS: S2 all six entitlements exist (fulfillment never blocked)
+
+==== RESULT: 11/11 checks passed ====

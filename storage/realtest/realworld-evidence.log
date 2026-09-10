@@ -1,0 +1,413 @@
+=================================================================
+PHASE 0 — ENVIRONMENT / TEST DATABASE PROOF
+APP_ENV            = testing
+DB_CONNECTION      = sqlite
+DB_DATABASE        = D:\meem-commerce\database\realtest.sqlite
+DB_DRIVER          = sqlite
+CACHE_DRIVER       = array
+QUEUE_CONNECTION   = sync
+SESSION_DRIVER     = array
+RESULT  TC-ENV-001  PASS  -> real test DB path=D:\meem-commerce\database\realtest.sqlite
+
+Rate limiters registered (real values):
+  api = 60/min key=127.0.0.1
+  public-api = 120/min key=127.0.0.1
+  admin = error: Attempt to read property "id" on null
+
+=================================================================
+PHASE 1 — BASELINE DATABASE SNAPSHOT
+  content_pages = 0
+  sections = 0
+  section_types = 0
+  section_type_settings = 0
+  products = 0
+  categories = 0
+  brands = 0
+  banners = 0
+  sliders = 0
+  promotions = 0
+  tags = 0
+  flash_sales = 0
+  coupons = 0
+  cache[content_pages] initial = ["(array store: getKeys unsupported)"]
+
+=================================================================
+PHASE 2 — SETUP
+  admin user id=1 token=***e8b7
+  section-type seed via API: {"banners":200,"sliders":200,"promotions":200,"tags":200,"categories":200,"products":200,"flash-sales":200,"brands":200,"coupons":200}
+  section_types row id=1 type=banners
+  section_types row id=2 type=sliders
+  section_types row id=3 type=promotions
+  section_types row id=4 type=tags
+  section_types row id=5 type=categories
+  section_types row id=6 type=products
+  section_types row id=7 type=flash-sales
+  section_types row id=8 type=brands
+  section_types row id=9 type=coupons
+  custom type create via API: HTTP=200
+  custom type DB row: {"id":10,"type":"new-arrivals","created_at":"2026-08-18 11:37:05","updated_at":"2026-08-18 11:37:05"}
+RESULT  TC-ST-CUSTOM-CREATE  PASS  -> HTTP=200 type=new-arrivals
+
+=================================================================
+PHASE 3 — CONTENT PAGE CREATE MATRIX
+  BEFORE content_pages=0
+  TC-CP-001 HTTP=201 returned id=1
+  TC-CP-001 DB row: {"id":1,"title":"{\"en\":\"Home Electronics\",\"ar\":\"\u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629 \u0625\u0644\u0643\u062a\u0631\u0648\u0646\u064a\u0627\u062a\"}","slug":"home-electronics","is_active":1,"created_at":"2026-08-18 11:37:05","updated_at":"2026-08-18 11:37:05"}
+RESULT  TC-CP-001  PASS  -> active page, slug=home-electronics, JSON title stored
+RESULT  TC-CP-002  PASS  -> HTTP=201 id=2
+RESULT  TC-CP-003  PASS  -> HTTP=201 id=3
+RESULT  TC-CP-004  PASS  -> HTTP=422 before=3 after=3
+RESULT  TC-CP-005  PASS  -> HTTP=422 before=3 after=3
+RESULT  TC-CP-006  PASS  -> HTTP=422 before=3 after=3
+RESULT  TC-CP-007  PASS  -> HTTP=422 before=3 after=3 (unique-translation guard)
+RESULT  TC-CP-008  PASS  -> HTTP=403 before=3 after=3
+RESULT  TC-CP-009  PASS  -> HTTP=401 before=3 after=3
+  AFTER content_pages=3  (expected +3)
+
+=================================================================
+PHASE 4 — CONTENT PAGE UPDATE
+  BEFORE row: {"id":2,"title":"{\"en\":\"Mobile Phones\",\"ar\":\"\u0627\u0644\u0647\u0648\u0627\u062a\u0641 \u0627\u0644\u0645\u062d\u0645\u0648\u0644\u0629\"}","slug":"mobile-phones","is_active":1,"created_at":"2026-08-18 11:37:05","updated_at":"2026-08-18 11:37:05"}
+  HTTP=200 response data.title="Smartphones & Tablets"
+  AFTER  row: {"id":2,"title":"{\"en\":\"Smartphones & Tablets\",\"ar\":\"\u0627\u0644\u0647\u0648\u0627\u062a\u0641 \u0627\u0644\u0630\u0643\u064a\u0629\"}","slug":"mobile-phones","is_active":0,"created_at":"2026-08-18 11:37:05","updated_at":"2026-08-18 11:37:05"}
+RESULT  TC-CP-U-001  PASS  -> title+is_active changed, slug/created_at unchanged, updated_at persisted
+RESULT  TC-CP-U-002  PASS  -> API response title matches DB (en)
+
+=================================================================
+PHASE 5 — CONTENT PAGE DELETE
+  created sections ids=[1,2]
+  attach HTTP=200 -> DB content_page_id=[4,4]
+  DELETE HTTP=200
+  sections after delete: [{"id":1,"type":"banners","title":"{\"en\":\"Hero Banners\",\"ar\":\"\u0628\u0627\u0646\u0631\u0627\u062a \u0631\u0626\u064a\u0633\u064a\u0629\"}","order":1,"endpoint":"general\/banners","content_page_id":null,"is_active":1,"title_visible":1,"setting":null,"created_at":"2026-08-18 11:37:05","updated_at":"2026-08-18 11:37:05"},{"id":2,"type":"banners","title":"{\"en\":\"Active Promotions\",\"ar\":\"\u0639\u0631\u0648\u0636 \u0646\u0634\u0637\u0629\"}","order":2,"endpoint":"general\/banners","content_page_id":null,"is_active":1,"title_visible":1,"setting":null,"created_at":"2026-08-18 11:37:05","updated_at":"2026-08-18 11:37:06"}]
+RESULT  TC-CP-D-001  PASS  -> hard delete confirmed
+RESULT  TC-CP-D-002  PASS  -> sections survive as orphans (content_page_id=NULL) — FK nullOnDelete
+
+=================================================================
+PHASE 6 — PUBLIC ACTIVE / INACTIVE
+  inactive page id=5 toggle HTTP=200 DB is_active=0
+RESULT  TC-PB-DB-001  PASS  -> active page exists is_active=1
+RESULT  TC-PB-DB-002  PASS  -> inactive page exists is_active=0
+  public index slugs: ["home-electronics","featured-products"]
+RESULT  TC-PB-001  PASS  -> active appears, inactive hidden
+RESULT  TC-PB-002  PASS  -> active show HTTP=200
+RESULT  TC-PB-003  PASS  -> inactive show hidden HTTP=404
+
+=================================================================
+PHASE 7 — SECTION TYPE CRUD
+  update type new-arrivals -> latest-arrivals HTTP=200
+RESULT  TC-ST-U-001  PASS  -> DB type=latest-arrivals
+RESULT  TC-ST-V-001  PASS  -> duplicate type HTTP=422
+RESULT  TC-ST-V-002  PASS  -> unknown type settings HTTP=404
+RESULT  TC-ST-D-001  PASS  -> type delete HTTP=200
+  testimonials type id=11 settings rows=2 section id=3
+RESULT  TC-ST-D-002  PASS  -> settings cascaded (before=2 after=0)
+RESULT  TC-ST-D-003  PASS  -> section survives as orphan (no FK on sections.type)
+
+=================================================================
+PHASE 8 — SECTION TYPE SETTINGS
+  HTTP=200 settings rows: [{"id":4,"section_type_id":6,"setting_key":"back","value":"{\"limit\":8,\"sort\":\"desc\"}","created_at":"2026-08-18 11:37:06","updated_at":"2026-08-18 11:37:06"},{"id":3,"section_type_id":6,"setting_key":"front","value":"{\"title\":\"Best Selling Products\",\"columns\":4}","created_at":"2026-08-18 11:37:06","updated_at":"2026-08-18 11:37:06"}]
+RESULT  TC-SS-001  PASS  -> front+back persisted with correct values/types
+  after replace: [{"id":6,"section_type_id":6,"setting_key":"back","value":"{\"limit\":12}","created_at":"2026-08-18 11:37:06","updated_at":"2026-08-18 11:37:06"},{"id":5,"section_type_id":6,"setting_key":"front","value":"{\"title\":\"Best Selling Products\",\"columns\":6}","created_at":"2026-08-18 11:37:06","updated_at":"2026-08-18 11:37:06"}]
+RESULT  TC-SS-002  PASS  -> bulk-delete replaced settings; old back.sort gone, no duplicates
+RESULT  TC-SS-003  PASS  -> GET settings returns persisted back.limit=12
+
+=================================================================
+PHASE 9 — SECTION CREATE
+  section "Hero Banners" HTTP=200 id=4
+  section "Featured Categories" HTTP=200 id=5
+  section "Best Selling Products" HTTP=200 id=6
+  section "New Arrivals" HTTP=200 id=7
+  section "Featured Brands" HTTP=200 id=8
+  section "Active Promotions" HTTP=200 id=9
+  DB section row: {"id":4,"type":"banners","title":"{\"en\":\"Hero Banners\",\"ar\":\"\u0628\u0627\u0646\u0631\u0627\u062a \u0631\u0626\u064a\u0633\u064a\u0629\"}","order":4,"endpoint":"general\/banners","content_page_id":null,"is_active":1,"title_visible":1,"setting":"{\"front\":{\"heading\":\"Featured\"},\"back\":[]}","created_at":"2026-08-18 11:37:06","updated_at":"2026-08-18 11:37:06"}
+  DB section row: {"id":5,"type":"categories","title":"{\"en\":\"Featured Categories\",\"ar\":\"\u0627\u0644\u062a\u0635\u0646\u064a\u0641\u0627\u062a \u0627\u0644\u0645\u0645\u064a\u0632\u0629\"}","order":5,"endpoint":"general\/categories","content_page_id":null,"is_active":1,"title_visible":1,"setting":null,"created_at":"2026-08-18 11:37:06","updated_at":"2026-08-18 11:37:06"}
+  DB section row: {"id":6,"type":"products","title":"{\"en\":\"Best Selling Products\",\"ar\":\"\u0627\u0644\u0623\u0643\u062b\u0631 \u0645\u0628\u064a\u0639\u0627\u064b\"}","order":6,"endpoint":"general\/products","content_page_id":null,"is_active":1,"title_visible":1,"setting":"{\"front\":[],\"back\":{\"limit\":5,\"type\":\"best_selling\"}}","created_at":"2026-08-18 11:37:07","updated_at":"2026-08-18 11:37:07"}
+  DB section row: {"id":7,"type":"products","title":"{\"en\":\"New Arrivals\",\"ar\":\"\u0648\u0635\u0644 \u062d\u062f\u064a\u062b\u0627\u064b\"}","order":7,"endpoint":"general\/products","content_page_id":null,"is_active":1,"title_visible":1,"setting":"{\"front\":[],\"back\":{\"limit\":5,\"type\":\"new_arrivals\"}}","created_at":"2026-08-18 11:37:07","updated_at":"2026-08-18 11:37:07"}
+  DB section row: {"id":8,"type":"brands","title":"{\"en\":\"Featured Brands\",\"ar\":\"\u0639\u0644\u0627\u0645\u0627\u062a \u0645\u0645\u064a\u0632\u0629\"}","order":8,"endpoint":"general\/brands","content_page_id":null,"is_active":1,"title_visible":1,"setting":null,"created_at":"2026-08-18 11:37:07","updated_at":"2026-08-18 11:37:07"}
+  DB section row: {"id":9,"type":"promotions","title":"{\"en\":\"Active Promotions\",\"ar\":\"\u0639\u0631\u0648\u0636 \u0646\u0634\u0637\u0629\"}","order":9,"endpoint":"general\/promotions","content_page_id":null,"is_active":1,"title_visible":1,"setting":null,"created_at":"2026-08-18 11:37:07","updated_at":"2026-08-18 11:37:07"}
+RESULT  TC-SC-001  PASS  -> sections before=3 after=9 (expected +6)
+RESULT  TC-SC-002  PASS  -> every persisted field verified for Hero Banners (order auto-assigned=4)
+
+=================================================================
+PHASE 10 — ATTACH / DETACH
+  orphan sections before attach: content_page_id=[null,null,null]
+  after attach HTTP=200 : [{"id":10,"content_page_id":6},{"id":11,"content_page_id":6},{"id":12,"content_page_id":6}]
+RESULT  TC-AT-001  PASS  -> sections 101/102/103 -> page content_page_id
+RESULT  TC-AT-002  PASS  -> subset re-attach is additive; no partial-detach endpoint in contract
+RESULT  TC-AT-003  PASS  -> unrelated section NOT modified
+RESULT  TC-AT-004  PASS  -> detach-all: content_page_id=NULL for exactly the 3 expected sections
+RESULT  TC-AT-005  PASS  -> invalid section id HTTP=422 zero mutation
+
+=================================================================
+PHASE 11 — REORDER EXTREME
+  BEFORE order: {"14":14,"15":15,"16":16,"17":17}
+  AFTER reorder HTTP=200 : [{"id":17,"order":1},{"id":15,"order":2},{"id":14,"order":3},{"id":16,"order":4}]
+RESULT  TC-RO-001  PASS  -> D=1 B=2 A=3 C=4 persisted in DB
+  public order HTTP=200: [17,15,14,16]
+  public raw: {"status":200,"message":"Data fetched successfully","success":true,"data":{"id":7,"title":"Reorder Page","slug":"reorder-page","is_active":true,"sections":[{"id":17,"type":"tags","title":"Section D","is_active":true,"endpoint":"general\/tags?","order":1,"setting":{"front":[],"back":[]}},{"id":15,"type":"tags","title":"Section B","is_active":true,"endpoint":"general\/tags?","order":2,"setting":{"fr
+RESULT  TC-RO-002  PASS  -> public API returns same DB order
+  invalid reorder (empty array): HTTP=422 orderUnchanged=yes
+  invalid reorder (duplicate ids): HTTP=422 orderUnchanged=yes
+  invalid reorder (unknown id): HTTP=422 orderUnchanged=yes
+  invalid reorder (string id): HTTP=422 orderUnchanged=yes
+  invalid reorder (float id): HTTP=422 orderUnchanged=yes
+  invalid reorder (null id): HTTP=422 orderUnchanged=yes
+  invalid reorder (missing sections): HTTP=422 orderUnchanged=yes
+  invalid reorder (wrong type): HTTP=422 orderUnchanged=yes
+RESULT  TC-RO-003  PASS  -> 8 invalid cases -> 422 + ZERO order mutation
+
+=================================================================
+PHASE 12 — TOGGLE STATUS
+  toggle OFF HTTP=200 DB is_active=0
+RESULT  TC-TG-001  PASS  -> DB is_active=0
+RESULT  TC-TG-002  PASS  -> DB is_active back to 1
+
+=================================================================
+PHASE 13 — SECTION UPDATE
+  BEFORE: {"id":9,"type":"promotions","title":"{\"en\":\"Active Promotions\",\"ar\":\"\u0639\u0631\u0648\u0636 \u0646\u0634\u0637\u0629\"}","order":9,"endpoint":"general\/promotions","content_page_id":null,"is_active":1,"title_visible":1,"setting":null,"created_at":"2026-08-18 11:37:07","updated_at":"2026-08-18 11:37:07"}
+  HTTP=200 AFTER: {"id":9,"type":"promotions","title":"{\"en\":\"Hot Promotions\",\"ar\":\"\u0639\u0631\u0648\u0636 \u0633\u0627\u062e\u0646\u0629\"}","order":9,"endpoint":"general\/promotions","content_page_id":null,"is_active":0,"title_visible":0,"setting":"{\"front\":{\"badge\":\"HOT\"},\"back\":[]}","created_at":"2026-08-18 11:37:07","updated_at":"2026-08-18 11:37:08"}
+RESULT  TC-SU-001  PASS  -> title/is_active/title_visible/setting updated; content_page_id + type unchanged []
+
+=================================================================
+PHASE 14 — SECTION DELETE
+RESULT  TC-SD-001  PASS  -> hard delete; sections 17 -> 16
+
+=================================================================
+PHASE 15 — PUBLIC ENDPOINTS: EVERY SECTION TYPE
+  storefront page id=8 slug=public-storefront
+  entities created: {"banners":1,"sliders":1,"promotions":1,"tags":1,"categories":1,"products":1,"flash-sales":1,"brands":1,"coupons":1}
+  attached 9 sections to storefront (HTTP=200)
+  public storefront HTTP=200 section count=9
+  | type | section DB id | generated endpoint | HTTP | returned ids | ids exist in DB | result |
+RESULT  TC-PE-BANNERS  PASS  -> banners
+  | banners | 18 | general/banners?bannersId%5B0%5D=1 | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-SLIDERS  PASS  -> sliders
+  | sliders | 19 | general/sliders? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-PROMOTIONS  PASS  -> promotions
+  | promotions | 20 | general/promotions? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-TAGS  PASS  -> tags
+  | tags | 21 | general/tags? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-CATEGORIES  PASS  -> categories
+  | categories | 22 | general/categories? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-PRODUCTS  PASS  -> products
+  | products | 23 | general/products?limit=5&type=new_arrivals | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-FLASH_SALES  PASS  -> flash-sales
+  | flash-sales | 24 | general/flash-sales? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-BRANDS  PASS  -> brands
+  | brands | 25 | general/brands? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-COUPONS  PASS  -> coupons
+  | coupons | 26 | general/coupons? | 200 | [1] | 1/1 | PASS |
+RESULT  TC-PE-PRODUCTS-REAL  PASS  -> created product id 1 returned by generated endpoint
+
+=================================================================
+PHASE 16 — ENDPOINT GENERATION
+  stored endpoint=general/WRONG; public page endpoints: ["general\/banners?bannersId%5B0%5D=1","general\/sliders?","general\/promotions?","general\/tags?","general\/categories?","general\/products?limit=5&type=new_arrivals","general\/flash-sales?","general\/brands?","general\/coupons?","general\/sliders?"]
+RESULT  TC-EG-001  PASS  -> stored value ignored; generated general/sliders? authoritative
+RESULT  TC-EG-002  PASS  -> generated endpoint returns real DB slider
+
+=================================================================
+PHASE 17 — TRANSLATIONS
+  content_pages.title stored JSON: {"en":"Home Electronics","ar":"الرئيسية إلكترونيات"}
+  sections.title stored JSON:      {"en":"Featured Categories","ar":"التصنيفات المميزة"}
+  locale=en title=Home Electronics | locale=ar title=الرئيسية إلكترونيات
+RESULT  TC-TR-001  PASS  -> content page title en/ar via API
+  section title locale=en='Featured Categories' | locale=ar='التصنيفات المميزة'
+RESULT  TC-TR-002  PASS  -> section title en/ar via public API
+
+=================================================================
+PHASE 18 — OBSERVER / ELOCUENT LIFECYCLE COUNTERS
+
+=================================================================
+PHASE 19 — REAL CACHE VERIFICATION (tag=content_pages, array store)
+  home page id=9 slug=home
+RESULT  TC-CA-PAGE-CREATE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-SECTION-CREATE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-SECTION-UPDATE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-ATTACH  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-REORDER  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-TOGGLE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-PAGE-TOGGLE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-PAGE-UPDATE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-PAGE-DELETE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-SECTION-DELETE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-DETACH-SUBSET  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-DETACH-ALL  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-TYPE-CREATE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-TYPE-UPDATE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-TYPE-DELETE  PASS  -> cacheBefore=yes cacheAfter=no
+RESULT  TC-CA-SETTINGS-UPDATE  PASS  -> cacheBefore=yes cacheAfter=no
+  Eloquent event counters after scenarios: {"ContentPage.created":2,"ContentPage.updated":2,"ContentPage.deleted":1,"Section.created":4,"Section.updated":6,"Section.deleted":1,"SectionType.created":1,"SectionType.updated":1,"SectionType.deleted":1,"SectionTypeSetting.created":1,"SectionTypeSetting.deleted":0}
+RESULT  TC-OB-001  PASS  -> ContentPageObserver lifecycle fired (created/updated/deleted) + flush observed
+RESULT  TC-OB-002  PASS  -> SectionObserver lifecycle fired + flush observed
+RESULT  TC-OB-003  PASS  -> SectionTypeObserver lifecycle fired + flush observed
+RESULT  TC-OB-004  PASS  -> SectionTypeSettingObserver create lifecycle fired; bulk-delete path (query builder) fires NO deleted events by design — explicit flush proven by TC-CA-SETTINGS-UPDATE
+  bypass check — reorder Section.updated: before=6 after=6 | settings SectionTypeSetting.deleted: before=0 after=0 | detach-all content_page_id count: 0 -> 0
+RESULT  TC-OB-005  PASS  -> reorder + settings-bulk-delete use query builders (no model events fired) — explicit flush is the required mechanism
+
+=================================================================
+PHASE 20 — CACHE ISOLATION
+  populated content_pages + products caches; markers planted
+RESULT  TC-CI-001  PASS  -> content_pages tag flushed (marker + home key gone)
+RESULT  TC-CI-002  PASS  -> products tag marker intact (NOT flushed)
+RESULT  TC-CI-003  PASS  -> products payload byte-identical after section mutation
+
+=================================================================
+PHASE 21 — N+1 / QUERY COUNT VERIFICATION
+  PUBLIC page show (sections=10): status=200 totalQueries=4 cat={"content_pages":1,"sections":1,"section_types":1,"section_type_settings":1}
+RESULT  TC-N1-001  PASS  -> eager loaded: 1 query per table regardless of 10 sections (no per-section queries)
+  PUBLIC index (pages=8): status=200 totalQueries=5 cat={"content_pages":2,"sections":1,"section_types":1,"section_type_settings":1}
+RESULT  TC-N1-002  PASS  -> index eager loads sections once
+  ADMIN sections index (sections=30): status=200 totalQueries=6 cat={"content_pages":0,"sections":1,"section_types":1,"section_type_settings":1}
+RESULT  TC-N1-003  PASS  -> admin sections index eager loads once
+  ADMIN content page show: status=200 totalQueries=7 cat={"content_pages":1,"sections":1,"section_types":1,"section_type_settings":1}
+RESULT  TC-N1-004  PASS  -> admin show eager loads once
+
+=================================================================
+PHASE 22 — AUTHORIZATION MATRIX
+  AZ targets: cp=11 section=33
+  GET /content-pages [/api/v1/content-pages]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-aa9e04d6  PASS  -> GET /content-pages guest=401 viewer=200 admin=200
+  GET /content-pages/{id} [/api/v1/content-pages/1]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-9bff6af2  PASS  -> GET /content-pages/{id} guest=401 viewer=200 admin=200
+  POST /content-pages [/api/v1/content-pages]: guest=401 viewer=403 admin=201 -> PASS
+RESULT  TC-AZ-eaf92af6  PASS  -> POST /content-pages guest=401 viewer=403 admin=201
+  PUT /content-pages/{id} [/api/v1/content-pages/1]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-83a2d0f8  PASS  -> PUT /content-pages/{id} guest=401 viewer=403 admin=200
+  PATCH toggle-active [/api/v1/content-pages/1/toggle-active]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-8105a4a3  PASS  -> PATCH toggle-active guest=401 viewer=403 admin=200
+  POST attach-sections [/api/v1/content-pages/1/attach-sections]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-a115b70b  PASS  -> POST attach-sections guest=401 viewer=403 admin=200
+  DELETE /content-pages/{id} [/api/v1/content-pages/11]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-2421ce7b  PASS  -> DELETE /content-pages/{id} guest=401 viewer=403 admin=200
+  GET /sections [/api/v1/sections]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-b2b06c76  PASS  -> GET /sections guest=401 viewer=200 admin=200
+  POST /sections [/api/v1/sections]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-5774d932  PASS  -> POST /sections guest=401 viewer=403 admin=200
+  GET /sections/{id} [/api/v1/sections/1]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-d6360d9a  PASS  -> GET /sections/{id} guest=401 viewer=200 admin=200
+  PUT /sections/{id} [/api/v1/sections/1]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-b71bbff0  PASS  -> PUT /sections/{id} guest=401 viewer=403 admin=200
+  PATCH toggle-active [/api/v1/sections/1/toggle-active]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-3cf637da  PASS  -> PATCH toggle-active guest=401 viewer=403 admin=200
+  POST /sections/reorder [/api/v1/sections/reorder]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-cf9deefe  PASS  -> POST /sections/reorder guest=401 viewer=403 admin=200
+  DELETE /sections/{id} [/api/v1/sections/33]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-cb5f39e2  PASS  -> DELETE /sections/{id} guest=401 viewer=403 admin=200
+  GET /section-types [/api/v1/section-types]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-465e002d  PASS  -> GET /section-types guest=401 viewer=200 admin=200
+  POST /section-types [/api/v1/section-types]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-d26401c3  PASS  -> POST /section-types guest=401 viewer=403 admin=200
+  GET /section-types/{type} [/api/v1/section-types/banners]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-785b6318  PASS  -> GET /section-types/{type} guest=401 viewer=200 admin=200
+  GET settings [/api/v1/section-types/banners/settings]: guest=401 viewer=200 admin=200 -> PASS
+RESULT  TC-AZ-03cb734a  PASS  -> GET settings guest=401 viewer=200 admin=200
+  POST settings [/api/v1/section-types/banners/settings]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-274d79f3  PASS  -> POST settings guest=401 viewer=403 admin=200
+  PUT /section-types/{type} [/api/v1/section-types/az-type]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-8ca00575  PASS  -> PUT /section-types/{type} guest=401 viewer=403 admin=200
+  DELETE /section-types/{type} [/api/v1/section-types/az-type]: guest=401 viewer=403 admin=200 -> PASS
+RESULT  TC-AZ-e25762a6  PASS  -> DELETE /section-types/{type} guest=401 viewer=403 admin=200
+  plain user on GET /sections: guest=401 plain=403
+RESULT  TC-AZ-PLAIN  PASS  -> unauthenticated 401 / no-permission 403
+
+=================================================================
+PHASE 23 — VALIDATION + ZERO DB MUTATION
+  invalid (content page missing title): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-21f033d6  PASS  -> content page missing title HTTP=422
+  invalid (content page missing title.en): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-4c6f1b1b  PASS  -> content page missing title.en HTTP=422
+  invalid (content page title not array): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-5235be66  PASS  -> content page title not array HTTP=422
+  invalid (content page title too long): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-e8d6460f  PASS  -> content page title too long HTTP=422
+  invalid (content page update bad is_active): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-d1ea2d3c  PASS  -> content page update bad is_active HTTP=422
+  invalid (section missing type): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-c95901b0  PASS  -> section missing type HTTP=422
+  invalid (section invalid type): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-783df6a3  PASS  -> section invalid type HTTP=422
+  invalid (section missing title): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-d4dc4435  PASS  -> section missing title HTTP=422
+  invalid (section bad is_active): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-1a1dc05d  PASS  -> section bad is_active HTTP=422
+  invalid (section bad title_visible): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-4e198808  PASS  -> section bad title_visible HTTP=422
+  invalid (attach invalid section ids): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-6471a0c2  PASS  -> attach invalid section ids HTTP=422
+  invalid (reorder empty): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-eb884ecb  PASS  -> reorder empty HTTP=422
+  invalid (reorder duplicate): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-e6ef68dc  PASS  -> reorder duplicate HTTP=422
+  invalid (reorder non-integer): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-ed0b8afe  PASS  -> reorder non-integer HTTP=422
+  invalid (reorder non-existent): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-38572960  PASS  -> reorder non-existent HTTP=422
+  invalid (section type empty): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-b8ebef0c  PASS  -> section type empty HTTP=422
+  invalid (section type duplicate): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-46186879  PASS  -> section type duplicate HTTP=422
+  invalid (settings not array): HTTP=422 zeroMutation=yes -> PASS
+RESULT  TC-VA-c4103aef  PASS  -> settings not array HTTP=422
+RESULT  TC-VA-ALL  PASS  -> 18 invalid requests -> 422 with ZERO unintended DB mutation
+
+=================================================================
+PHASE 24 — REAL QUEUE VERIFICATION
+  QUEUE_CONNECTION = sync
+  jobs table exists=yes jobs=0
+RESULT  TC-Q-001  PASS  -> Pages/Sections mutations are synchronous; no queued jobs
+
+=================================================================
+PHASE 25 — DATABASE INTEGRITY
+  duplicate content_pages.slug = 0
+RESULT  TC-IN-001  PASS  -> duplicate slugs=0
+  duplicate (section_type_id, setting_key) = 0
+RESULT  TC-IN-002  PASS  -> duplicate settings=0
+  orphan settings (no section_type) = 0
+RESULT  TC-IN-003  PASS  -> orphan settings=0
+  sections with broken content_page_id = 0
+RESULT  TC-IN-004  PASS  -> broken FK references=0
+  sections whose type has no section_types row (orphan type) = 1  [architecture intentionally allows this after type delete]
+RESULT  TC-IN-005  PASS  -> orphan-type sections allowed by design (1)
+  invalid is_active values = 0
+RESULT  TC-IN-006  PASS  -> is_active only 0/1
+  empty/null titles = 0
+RESULT  TC-IN-007  PASS  -> no empty titles
+
+=================================================================
+PHASE 26 — TEST DATA ACCOUNTING
+  content_pages            baseline=0 final=9 delta=+9
+  sections                 baseline=0 final=31 delta=+31
+  section_types            baseline=0 final=10 delta=+10
+  section_type_settings    baseline=0 final=2 delta=+2
+  products                 baseline=0 final=1 delta=+1
+  categories               baseline=0 final=1 delta=+1
+  brands                   baseline=0 final=1 delta=+1
+  banners                  baseline=0 final=1 delta=+1
+  sliders                  baseline=0 final=1 delta=+1
+  promotions               baseline=0 final=1 delta=+1
+  tags                     baseline=0 final=1 delta=+1
+  flash_sales              baseline=0 final=1 delta=+1
+  coupons                  baseline=0 final=1 delta=+1
+
+  content_pages lifecycle: created Home Electronics, Mobile Phones, Featured Products, Promotions Page,
+  Storefront Home, Reorder Page, Public Storefront, Home, Offers Archive, Cache Temp, AZ Temp, AZ Temp 2
+  deleted: Promotions Page, Cache Temp, AZ Temp, AZ Temp 2  -> net visible pages accounted in final count
+
+=================================================================
+PHASE 27 — FINAL SNAPSHOT
+  content_pages            = 9
+  sections                 = 31
+  section_types            = 10
+  section_type_settings    = 2
+  products                 = 1
+  categories               = 1
+  brands                   = 1
+  banners                  = 1
+  sliders                  = 1
+  promotions               = 1
+  tags                     = 1
+  flash_sales              = 1
+  coupons                  = 1
+
+=================================================================
+SUMMARY — total checks: 134  PASS: 134  FAIL: 0
+Evidence written to: D:\meem-commerce\storage\realtest\realworld-evidence.log

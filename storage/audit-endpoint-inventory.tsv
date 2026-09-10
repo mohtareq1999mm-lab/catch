@@ -1,0 +1,379 @@
+GET	api/documentation	l5-swagger.default.api	\L5Swagger\Http\Controllers\SwaggerController@api	L5Swagger\Http\Middleware\Config
+GET	docs/{jsonFile?}	l5-swagger.default.docs	\L5Swagger\Http\Controllers\SwaggerController@docs	L5Swagger\Http\Middleware\Config
+GET	docs/asset/{asset}	l5-swagger.default.asset	\L5Swagger\Http\Controllers\SwaggerAssetController@index	L5Swagger\Http\Middleware\Config
+GET	api/oauth2-callback	l5-swagger.default.oauth2_callback	\L5Swagger\Http\Controllers\SwaggerController@oauth2Callback	L5Swagger\Http\Middleware\Config
+GET	bkash/payment		App\Http\Controllers\BkashTokenizePaymentController@index	web
+GET	bkash/create-payment	bkash-create-payment	App\Http\Controllers\BkashTokenizePaymentController@createPayment	web
+GET	bkash/callback	bkash-callBack	App\Http\Controllers\BkashTokenizePaymentController@callBack	web
+GET	bkash/search/{trxID}	bkash-serach	App\Http\Controllers\BkashTokenizePaymentController@searchTnx	web
+GET	bkash/refund	bkash-refund	App\Http\Controllers\BkashTokenizePaymentController@refund	web
+GET	bkash/refund/status	bkash-refund-status	App\Http\Controllers\BkashTokenizePaymentController@refundStatus	web
+GET	sanctum/csrf-cookie	sanctum.csrf-cookie	Laravel\Sanctum\Http\Controllers\CsrfCookieController@show	web
+GET	playground	graphiql	MLL\GraphiQL\GraphiQLController	
+GET|POST	graphql	graphql	Nuwave\Lighthouse\Support\Http\Controllers\GraphQLController	Nuwave\Lighthouse\Support\Http\Middleware\AcceptJson,Nuwave\Lighthouse\Support\Http\Middleware\AttemptAuthentication
+POST	_ignition/execute-solution	ignition.executeSolution	Spatie\LaravelIgnition\Http\Controllers\ExecuteSolutionController	Spatie\LaravelIgnition\Http\Middleware\RunnableSolutionsEnabled
+POST	_ignition/update-config	ignition.updateConfig	Spatie\LaravelIgnition\Http\Controllers\UpdateConfigController	Spatie\LaravelIgnition\Http\Middleware\RunnableSolutionsEnabled
+GET|POST	broadcasting/auth		\Illuminate\Broadcasting\BroadcastController@authenticate	web
+GET	api/v1/general/nav-data		App\Http\Controllers\Api\General\HomeController@navData	api,throttle:public-api
+GET	api/v1/general/categories		App\Http\Controllers\Api\General\CategoryController@index	api,throttle:public-api
+GET	api/v1/general/categories/{slug}		App\Http\Controllers\Api\General\CategoryController@getCategoryBySlug	api,throttle:public-api
+GET	api/v1/general/brands		App\Http\Controllers\Api\General\BrandController@index	api,throttle:public-api
+GET	api/v1/general/brands/{slug}		App\Http\Controllers\Api\General\BrandController@getBrandBySlug	api,throttle:public-api
+GET	api/v1/general/brands-products		App\Http\Controllers\Api\General\BrandController@getBrandsProductsByQtySet	api,throttle:public-api
+GET	api/v1/general/banners		App\Http\Controllers\Api\General\BannerController@index	api,throttle:public-api
+GET	api/v1/general/banners/{slug}		App\Http\Controllers\Api\General\BannerController@getBannerBySlug	api,throttle:public-api
+GET	api/v1/general/sliders		App\Http\Controllers\Api\General\SliderController@index	api,throttle:public-api
+GET	api/v1/general/sliders/{slug}		App\Http\Controllers\Api\General\SliderController@getSliderBySlug	api,throttle:public-api
+GET	api/v1/general/tags		App\Http\Controllers\Api\General\TagController@index	api,throttle:public-api
+GET	api/v1/general/tags/{slug}		App\Http\Controllers\Api\General\TagController@show	api,throttle:public-api
+GET	api/v1/general/promotions		App\Http\Controllers\Api\General\PromotionController@index	api,throttle:public-api
+GET	api/v1/general/promotions/{slug}		App\Http\Controllers\Api\General\PromotionController@getPromotionBySlug	api,throttle:public-api
+GET	api/v1/general/coupons		App\Http\Controllers\Api\General\CouponController@index	api,throttle:public-api
+GET	api/v1/general/content-pages	general-content-page-index	App\Http\Controllers\Api\General\ContentPageController@index	api,throttle:public-api
+GET	api/v1/general/content-pages/{slug}	general-content-page-show	App\Http\Controllers\Api\General\ContentPageController@show	api,throttle:public-api
+GET	api/v1/general/static-pages	general-static-page-index	App\Http\Controllers\Api\General\StaticPageController@index	api,throttle:public-api
+GET	api/v1/general/static-pages/{slug}	general-static-page-show	App\Http\Controllers\Api\General\StaticPageController@show	api,throttle:public-api
+GET	api/v1/general/products		App\Http\Controllers\Api\General\ProductController@index	api,throttle:public-api
+GET	api/v1/general/products/{slug}		App\Http\Controllers\Api\General\ProductController@getProductBySlug	api,throttle:public-api
+GET	api/v1/general/flash-sales		App\Http\Controllers\Api\General\FlashSaleController@index	api,throttle:public-api
+GET	api/v1/general/flash-sales/{slug}		App\Http\Controllers\Api\General\FlashSaleController@getFlashSaleBySlug	api,throttle:public-api
+GET	api/v1/general/flash-sale-products		App\Http\Controllers\Api\General\FlashSaleController@getFlashSalesAndHereProductsByQtySet	api,throttle:public-api
+GET	api/v1/general/flash-sale-products-ending-this-week		App\Http\Controllers\Api\General\FlashSaleController@getFlashSaleProductsEndingThisWeek	api,throttle:public-api
+GET	api/v1/general/flash-sale-products-ending-today		App\Http\Controllers\Api\General\FlashSaleController@getFlashSaleProductsEndingToday	api,throttle:public-api
+GET	api/v1/general/settings	settings.front	App\Http\Controllers\Api\General\SettingController@index	api,throttle:public-api
+GET	api/v1/general/faqs		App\Http\Controllers\Api\General\FAQController@index	api,throttle:public-api
+GET	api/v1/general/governorates		App\Http\Controllers\Api\General\GovernorateController@index	api,throttle:public-api
+GET	api/v1/general/governorates/{id}		App\Http\Controllers\Api\General\GovernorateController@show	api,throttle:public-api
+GET	api/v1/general/countries		App\Http\Controllers\Api\General\CountryController@index	api,throttle:public-api
+GET	api/v1/general/countries/{id}		App\Http\Controllers\Api\General\CountryController@show	api,throttle:public-api
+GET	api/v1/general/cities		App\Http\Controllers\Api\General\CityController@index	api,throttle:public-api
+GET	api/v1/general/cities/{id}		App\Http\Controllers\Api\General\CityController@show	api,throttle:public-api
+GET	api/v1/general/pickup-locations		App\Http\Controllers\Api\General\PickupLocationController@index	api,throttle:public-api
+GET	api/v1/general/pickup-locations/{id}		App\Http\Controllers\Api\General\PickupLocationController@show	api,throttle:public-api
+GET	api/v1/general/fast-shipping/status		App\Http\Controllers\Api\General\FastShippingController@status	api,throttle:public-api
+GET	api/v1/general/site-reviews		App\Http\Controllers\Api\General\SiteReviewController@index	api,throttle:public-api
+GET	api/v1/general/currencies		App\Http\Controllers\Api\Currency\CurrencyController@index	api,throttle:public-api
+POST	api/v1/general/currencies/select		App\Http\Controllers\Api\Currency\CurrencyController@select	api,throttle:public-api
+GET|POST|PUT|PATCH|DELETE|OPTIONS	api/v1/general/checkout/callback	api.checkout.callback	App\Http\Controllers\Api\General\OrderController@checkoutCallback	api,throttle:public-api
+GET|POST|PUT|PATCH|DELETE|OPTIONS	api/v1/general/checkout/error-callback	api.checkout.errorCallback	App\Http\Controllers\Api\General\OrderController@checkoutErrorCallback	api,throttle:public-api
+POST	api/v1/general/coupons/apply		App\Http\Controllers\Api\General\CouponController@applyCoupon	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/checkout/promotions		App\Http\Controllers\Api\General\OrderController@eligiblePromotions	api,auth:sanctum,throttle:authenticated
+POST	api/v1/general/checkout		App\Http\Controllers\Api\General\OrderController@checkout	api,auth:sanctum,throttle:authenticated
+POST	api/v1/general/checkout/cod/{orderId}/mark-paid		App\Http\Controllers\Api\General\OrderController@markCodAsPaid	api,auth:sanctum,throttle:authenticated,permission:update-order-status
+POST	api/v1/general/checkout/cashier/{orderId}/mark-paid		App\Http\Controllers\Api\General\OrderController@markCas
+        hierPaid	api,auth:sanctum,throttle:authenticated,permission:update-order-status
+POST	api/v1/general/fast-shipping/checkout		App\Http\Controllers\Api\General\FastShippingController@checkout	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/orders		App\Http\Controllers\Api\General\OrderController@index	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/orders/{orderId}/invoice		App\Http\Controllers\Api\General\OrderController@invoiceByOrderId	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/orders/{id}		App\Http\Controllers\Api\General\OrderController@show	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/digital/downloads		App\Http\Controllers\Api\General\DigitalDownloadController@index	api,auth:sanctum,throttle:authenticated
+POST	api/v1/general/products/{id}/reviews		App\Http\Controllers\Api\General\ProductController@addProductReview	api,auth:sanctum,throttle:authenticated
+PUT	api/v1/general/products/reviews/{id}		App\Http\Controllers\Api\General\ProductController@updateProductReview	api,auth:sanctum,throttle:authenticated
+POST	api/v1/general/device-tokens		App\Http\Controllers\Api\General\DeviceTokenController@store	api,auth:sanctum,throttle:authenticated
+DELETE	api/v1/general/device-tokens		App\Http\Controllers\Api\General\DeviceTokenController@destroy	api,auth:sanctum,throttle:authenticated
+POST	api/v1/general/site-reviews		App\Http\Controllers\Api\General\SiteReviewController@store	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/invoices/my-invoices		App\Http\Controllers\Api\InvoiceController@myInvoices	api,auth:sanctum,throttle:authenticated
+GET	api/v1/general/invoices/verify/{uuid}		App\Http\Controllers\Api\InvoiceController@verify	api,auth:sanctum,throttle:authenticated,throttle:5,1
+GET	api/v1/general/invoices/view/{uuid}	general.invoices.view	App\Http\Controllers\Api\InvoiceController@viewByUuidSigned	api,signed
+GET	api/v1/general/invoices/download/{uuid}	general.invoices.download	App\Http\Controllers\Api\InvoiceController@downloadByUuidSigned	api,signed
+GET	api/v1/general/digital/download/{entitlement}/{asset}	general.digital.download	App\Http\Controllers\Api\General\DigitalDownloadController@download	api,signed,throttle:30,1
+GET	/		Closure	web
+GET	test-pusher		Closure	web
+GET|POST	api/v1/broadcasting/auth		\Illuminate\Broadcasting\BroadcastController@authenticate	api,auth:sanctum
+POST	api/v1/register		Marvel\Http\Controllers\UserController@register	api,throttle:login
+POST	api/v1/token		Marvel\Http\Controllers\UserController@token	api,throttle:login
+POST	api/v1/admin-login		Marvel\Http\Controllers\UserController@adminToken	api,throttle:login
+GET	api/v1/social/redirect		Marvel\Http\Controllers\SocialController@redirectFromQuery	api,throttle:login
+POST	api/v1/social/exchange		Marvel\Http\Controllers\SocialController@exchange	api,throttle:login
+GET	api/v1/social/{provider}		Marvel\Http\Controllers\SocialController@redirect	api,throttle:login
+GET	api/v1/social/{provider}/callback		Marvel\Http\Controllers\SocialController@callback	api,throttle:login
+POST	api/v1/logout		Marvel\Http\Controllers\UserController@logout	api,auth:sanctum
+GET	api/v1/me		Marvel\Http\Controllers\UserController@me	api,auth:sanctum,throttle:admin
+POST	api/v1/forget-password		Marvel\Http\Controllers\UserController@forgetPassword	api,throttle:sensitive
+POST	api/v1/verify-forget-password-token		Marvel\Http\Controllers\UserController@verifyForgetPasswordToken	api,throttle:sensitive
+POST	api/v1/reset-password		Marvel\Http\Controllers\UserController@resetPassword	api,throttle:sensitive
+POST	api/v1/send-otp-code		Marvel\Http\Controllers\UserController@sendUserOtp	api,throttle:otp
+POST	api/v1/otp-login		Marvel\Http\Controllers\UserController@otpLogin	api,throttle:otp
+POST	api/v1/change-password		Marvel\Http\Controllers\UserController@changePassword	api,auth:sanctum
+POST	api/v1/update-contact		Marvel\Http\Controllers\UserController@updateContact	api,auth:sanctum
+GET	api/v1/address	address.index	Marvel\Http\Controllers\AddressController@index	api,auth:sanctum
+POST	api/v1/address	address.store	Marvel\Http\Controllers\AddressController@store	api,auth:sanctum
+GET	api/v1/address/{address}	address.show	Marvel\Http\Controllers\AddressController@show	api,auth:sanctum
+PUT|PATCH	api/v1/address/{address}	address.update	Marvel\Http\Controllers\AddressController@update	api,auth:sanctum
+DELETE	api/v1/address/{address}	address.destroy	Marvel\Http\Controllers\AddressController@destroy	api,auth:sanctum
+POST	api/v1/contacts/{id}/reply		Marvel\Http\Controllers\ContactController@sendReply	api,throttle:sensitive,permission:update-contact
+POST	api/v1/contact-us		Marvel\Http\Controllers\ContactController@store	api,throttle:sensitive
+DELETE	api/v1/contacts/delete-all		Marvel\Http\Controllers\ContactController@deleteAll	api,throttle:sensitive,permission:delete-contact
+DELETE	api/v1/contacts/delete-all-read		Marvel\Http\Controllers\ContactController@deleteAllReadContacts	api,throttle:sensitive,permission:delete-read-contacts
+GET	api/v1/contacts	contacts.index	Marvel\Http\Controllers\ContactController@index	api,throttle:sensitive,permission:view-contacts
+POST	api/v1/contacts	contacts.store	Marvel\Http\Controllers\ContactController@store	api,throttle:sensitive
+GET	api/v1/contacts/{contact}	contacts.show	Marvel\Http\Controllers\ContactController@show	api,throttle:sensitive,permission:update-contact
+DELETE	api/v1/contacts/{contact}	contacts.destroy	Marvel\Http\Controllers\ContactController@destroy	api,throttle:sensitive,permission:delete-contact
+GET	api/v1/settings		Marvel\Http\Controllers\SettingsController@index	api,auth:sanctum,throttle:admin,permission:view-settings
+PUT	api/v1/settings		Marvel\Http\Controllers\SettingsController@update	api,auth:sanctum,throttle:admin,permission:update-settings
+GET	api/v1/fast-shipping/settings		Marvel\Http\Controllers\FastShippingController@getSettings	api,auth:sanctum,throttle:admin,permission:view-fast-shipping
+PUT	api/v1/fast-shipping/settings		Marvel\Http\Controllers\FastShippingController@updateSettings	api,auth:sanctum,throttle:admin,permission:update-fast-shipping
+POST	api/v1/admin-users/add		Marvel\Http\Controllers\UserController@adminAddUsers	api,auth:sanctum,throttle:admin,permission:create-user
+PUT	api/v1/admin-users/update-activation		Marvel\Http\Controllers\UserController@adminUpdateActivationUsers	api,auth:sanctum,throttle:admin,permission:edit-user
+DELETE	api/v1/admin-users/delete/{id}		Marvel\Http\Controllers\UserController@adminDeleteUsers	api,auth:sanctum,throttle:admin,permission:delete-user
+PUT	api/v1/admin-users/restore/{id}		Marvel\Http\Controllers\UserController@adminRestoreUser	api,auth:sanctum,throttle:admin,permission:restore-user
+GET	api/v1/admin-users/trashed		Marvel\Http\Controllers\UserController@adminTrashedUsers	api,auth:sanctum,throttle:admin,permission:view-users
+DELETE	api/v1/admin-users/delete-forever/{id}		Marvel\Http\Controllers\UserController@adminDeleteUsersForever	api,auth:sanctum,throttle:admin,permission:delete-user
+PUT	api/v1/brands/reorder		Marvel\Http\Controllers\BrandController@reorder	api,auth:sanctum,throttle:admin,permission:update-brand
+GET	api/v1/brands	brands.index	Marvel\Http\Controllers\BrandController@index	api,auth:sanctum,throttle:admin,permission:view-brands
+POST	api/v1/brands	brands.store	Marvel\Http\Controllers\BrandController@store	api,auth:sanctum,throttle:admin,permission:create-brand
+GET	api/v1/brands/{brand}	brands.show	Marvel\Http\Controllers\BrandController@show	api,auth:sanctum,throttle:admin,permission:view-brands
+PUT|PATCH	api/v1/brands/{brand}	brands.update	Marvel\Http\Controllers\BrandController@update	api,auth:sanctum,throttle:admin,permission:update-brand
+DELETE	api/v1/brands/{brand}	brands.destroy	Marvel\Http\Controllers\BrandController@destroy	api,auth:sanctum,throttle:admin,permission:delete-brand
+PATCH	api/v1/sliders/change-status		Marvel\Http\Controllers\SliderController@changeStatus	api,auth:sanctum,throttle:admin,permission:update-slider
+PUT	api/v1/sliders/reorder		Marvel\Http\Controllers\SliderController@reorder	api,auth:sanctum,throttle:admin,permission:update-slider
+GET	api/v1/sliders	sliders.index	Marvel\Http\Controllers\SliderController@index	api,auth:sanctum,throttle:admin,permission:view-slider
+POST	api/v1/sliders	sliders.store	Marvel\Http\Controllers\SliderController@store	api,auth:sanctum,throttle:admin,permission:create-slider
+GET	api/v1/sliders/{slider}	sliders.show	Marvel\Http\Controllers\SliderController@show	api,auth:sanctum,throttle:admin,permission:view-slider
+PUT|PATCH	api/v1/sliders/{slider}	sliders.update	Marvel\Http\Controllers\SliderController@update	api,auth:sanctum,throttle:admin,permission:update-slider
+DELETE	api/v1/sliders/{slider}	sliders.destroy	Marvel\Http\Controllers\SliderController@destroy	api,auth:sanctum,throttle:admin,permission:delete-slider
+PUT	api/v1/categories/feature		Marvel\Http\Controllers\CategoryController@addOrRemoveCategoryFromFeature	api,auth:sanctum,throttle:admin,permission:update-category
+POST	api/v1/categories/import	admin.categories.import	Marvel\Http\Controllers\CategoryImportController@import	api,auth:sanctum,throttle:admin,permission:import-category|super_admin
+GET	api/v1/categories/import/sample	admin.categories.import.sample	Marvel\Http\Controllers\CategoryImportController@downloadSample	api,auth:sanctum,throttle:admin,permission:import-category|super_admin
+GET	api/v1/categories/import/{id}	admin.categories.import.status	Marvel\Http\Controllers\CategoryImportController@status	api,auth:sanctum,throttle:admin,permission:import-category|super_admin
+POST	api/v1/categories/import/{id}/cancel	admin.categories.import.cancel	Marvel\Http\Controllers\CategoryImportController@cancel	api,auth:sanctum,throttle:admin,permission:import-category|super_admin
+GET	api/v1/categories/import/{id}/download-errors	admin.categories.import.download-errors	Marvel\Http\Controllers\CategoryImportController@downloadErrors	api,auth:sanctum,throttle:admin,permission:import-category|super_admin
+GET	api/v1/categories/export	admin.categories.export	Marvel\Http\Controllers\CategoryExportController@export	api,auth:sanctum,throttle:admin,permission:export-category|super_admin
+GET	api/v1/categories/export/{id}	admin.categories.export.status	Marvel\Http\Controllers\CategoryExportController@status	api,auth:sanctum,throttle:admin,permission:export-category|super_admin
+GET	api/v1/categories/export/{id}/download	admin.categories.export.download	Marvel\Http\Controllers\CategoryExportController@download	api,auth:sanctum,throttle:admin,permission:export-category|super_admin
+POST	api/v1/categories/bulk-delete	admin.categories.bulk-delete	Marvel\Http\Controllers\CategoryController@bulkDelete	api,auth:sanctum,throttle:admin,permission:delete-category
+GET	api/v1/categories/bulk-delete/{id}	admin.categories.bulk-delete.status	Marvel\Http\Controllers\CategoryController@bulkDeleteStatus	api,auth:sanctum,throttle:admin,permission:delete-category
+POST	api/v1/categories/bulk-delete/{id}/cancel	admin.categories.bulk-delete.cancel	Marvel\Http\Controllers\CategoryController@cancelBulkDelete	api,auth:sanctum,throttle:admin,permission:delete-category
+GET	api/v1/categories	categories.index	Marvel\Http\Controllers\CategoryController@index	api,auth:sanctum,throttle:admin,permission:view-categories
+POST	api/v1/categories	categories.store	Marvel\Http\Controllers\CategoryController@store	api,auth:sanctum,throttle:admin,permission:create-category
+GET	api/v1/categories/{category}	categories.show	Marvel\Http\Controllers\CategoryController@show	api,auth:sanctum,throttle:admin,permission:view-categories
+PUT|PATCH	api/v1/categories/{category}	categories.update	Marvel\Http\Controllers\CategoryController@update	api,auth:sanctum,throttle:admin,permission:update-category
+DELETE	api/v1/categories/{category}	categories.destroy	Marvel\Http\Controllers\CategoryController@destroy	api,auth:sanctum,throttle:admin,permission:delete-category
+GET	api/v1/pickup-locations	pickup-locations.index	Marvel\Http\Controllers\PickupLocationController@index	api,auth:sanctum,throttle:admin,permission:view-pickup-locations
+POST	api/v1/pickup-locations	pickup-locations.store	Marvel\Http\Controllers\PickupLocationController@store	api,auth:sanctum,throttle:admin,permission:create-pickup-location
+GET	api/v1/pickup-locations/{pickup_location}	pickup-locations.show	Marvel\Http\Controllers\PickupLocationController@show	api,auth:sanctum,throttle:admin,permission:view-pickup-locations
+PUT|PATCH	api/v1/pickup-locations/{pickup_location}	pickup-locations.update	Marvel\Http\Controllers\PickupLocationController@update	api,auth:sanctum,throttle:admin,permission:update-pickup-location
+DELETE	api/v1/pickup-locations/{pickup_location}	pickup-locations.destroy	Marvel\Http\Controllers\PickupLocationController@destroy	api,auth:sanctum,throttle:admin,permission:delete-pickup-location
+GET	api/v1/attributes	attributes.index	Marvel\Http\Controllers\AttributeController@index	api,auth:sanctum,throttle:admin,permission:view-attributes
+POST	api/v1/attributes	attributes.store	Marvel\Http\Controllers\AttributeController@store	api,auth:sanctum,throttle:admin,permission:create-attribute
+GET	api/v1/attributes/{attribute}	attributes.show	Marvel\Http\Controllers\AttributeController@show	api,auth:sanctum,throttle:admin,permission:view-attributes
+PUT|PATCH	api/v1/attributes/{attribute}	attributes.update	Marvel\Http\Controllers\AttributeController@update	api,auth:sanctum,throttle:admin,permission:update-attribute
+DELETE	api/v1/attributes/{attribute}	attributes.destroy	Marvel\Http\Controllers\AttributeController@destroy	api,auth:sanctum,throttle:admin,permission:delete-attribute
+GET	api/v1/orders	orders.index	Marvel\Http\Controllers\Order\OrderController@index	api,auth:sanctum,throttle:admin,permission:view-orders
+GET	api/v1/orders/{id}	orders.show	Marvel\Http\Controllers\Order\OrderController@show	api,auth:sanctum,throttle:admin,permission:view-order
+PATCH	api/v1/orders/{id}/status	orders.update-status	Marvel\Http\Controllers\Order\OrderController@updateStatus	api,auth:sanctum,throttle:admin,permission:update-order-status
+PUT	api/v1/banner/change-status		Marvel\Http\Controllers\BannerController@changeStatus	api,auth:sanctum,throttle:admin,permission:update-banners
+POST	api/v1/banner/reorder		Marvel\Http\Controllers\BannerController@reorder	api,auth:sanctum,throttle:admin,permission:update-banners
+GET	api/v1/banners	banners.index	Marvel\Http\Controllers\BannerController@index	api,auth:sanctum,throttle:admin,permission:view-banners
+POST	api/v1/banners	banners.store	Marvel\Http\Controllers\BannerController@store	api,auth:sanctum,throttle:admin,permission:create-banners
+GET	api/v1/banners/{banner}	banners.show	Marvel\Http\Controllers\BannerController@show	api,auth:sanctum,throttle:admin,permission:view-banners
+PUT|PATCH	api/v1/banners/{banner}	banners.update	Marvel\Http\Controllers\BannerController@update	api,auth:sanctum,throttle:admin,permission:update-banners
+DELETE	api/v1/banners/{banner}	banners.destroy	Marvel\Http\Controllers\BannerController@destroy	api,auth:sanctum,throttle:admin,permission:delete-banners
+GET	api/v1/countries	countries.index	Marvel\Http\Controllers\CountryController@index	api,auth:sanctum,throttle:admin,permission:view-country
+POST	api/v1/countries	countries.store	Marvel\Http\Controllers\CountryController@store	api,auth:sanctum,throttle:admin,permission:create-country
+GET	api/v1/countries/{country}	countries.show	Marvel\Http\Controllers\CountryController@show	api,auth:sanctum,throttle:admin,permission:view-country
+PUT|PATCH	api/v1/countries/{country}	countries.update	Marvel\Http\Controllers\CountryController@update	api,auth:sanctum,throttle:admin,permission:update-country
+DELETE	api/v1/countries/{country}	countries.destroy	Marvel\Http\Controllers\CountryController@destroy	api,auth:sanctum,throttle:admin,permission:delete-country
+GET	api/v1/countries/{id}/governorates		Marvel\Http\Controllers\CountryController@governorates	api,auth:sanctum,throttle:admin
+POST	api/v1/countries/change-status		Marvel\Http\Controllers\CountryController@bulkStatus	api,auth:sanctum,throttle:admin
+PUT	api/v1/governorates/change-status		Marvel\Http\Controllers\GovernorateController@bulkStatus	api,auth:sanctum,throttle:admin
+PUT	api/v1/governorates/{id}/fast-shipping		Marvel\Http\Controllers\GovernorateController@toggleFastShipping	api,auth:sanctum,throttle:admin
+GET	api/v1/governorates/{id}/cities		Marvel\Http\Controllers\GovernorateController@cities	api,auth:sanctum,throttle:admin
+GET	api/v1/governorates	governorates.index	Marvel\Http\Controllers\GovernorateController@index	api,auth:sanctum,throttle:admin,permission:view-governorate
+POST	api/v1/governorates	governorates.store	Marvel\Http\Controllers\GovernorateController@store	api,auth:sanctum,throttle:admin,permission:create-governorate
+GET	api/v1/governorates/{governorate}	governorates.show	Marvel\Http\Controllers\GovernorateController@show	api,auth:sanctum,throttle:admin,permission:view-governorate
+PUT|PATCH	api/v1/governorates/{governorate}	governorates.update	Marvel\Http\Controllers\GovernorateController@update	api,auth:sanctum,throttle:admin,permission:update-governorate
+DELETE	api/v1/governorates/{governorate}	governorates.destroy	Marvel\Http\Controllers\GovernorateController@destroy	api,auth:sanctum,throttle:admin,permission:delete-governorate
+GET	api/v1/cities	cities.index	Marvel\Http\Controllers\CityController@index	api,auth:sanctum,throttle:admin,permission:view-city
+POST	api/v1/cities	cities.store	Marvel\Http\Controllers\CityController@store	api,auth:sanctum,throttle:admin,permission:create-city
+GET	api/v1/cities/{city}	cities.show	Marvel\Http\Controllers\CityController@show	api,auth:sanctum,throttle:admin,permission:view-city
+PUT|PATCH	api/v1/cities/{city}	cities.update	Marvel\Http\Controllers\CityController@update	api,auth:sanctum,throttle:admin,permission:update-city
+DELETE	api/v1/cities/{city}	cities.destroy	Marvel\Http\Controllers\CityController@destroy	api,auth:sanctum,throttle:admin,permission:delete-city
+GET	api/v1/shipping-prices	shipping-prices.index	Marvel\Http\Controllers\ShippingPriceController@index	api,auth:sanctum,throttle:admin
+POST	api/v1/shipping-prices	shipping-prices.store	Marvel\Http\Controllers\ShippingPriceController@store	api,auth:sanctum,throttle:admin,permission:manage-shipping-prices
+GET	api/v1/shipping-prices/{shipping_price}	shipping-prices.show	Marvel\Http\Controllers\ShippingPriceController@show	api,auth:sanctum,throttle:admin
+PUT|PATCH	api/v1/shipping-prices/{shipping_price}	shipping-prices.update	Marvel\Http\Controllers\ShippingPriceController@update	api,auth:sanctum,throttle:admin,permission:manage-shipping-prices
+DELETE	api/v1/shipping-prices/{shipping_price}	shipping-prices.destroy	Marvel\Http\Controllers\ShippingPriceController@destroy	api,auth:sanctum,throttle:admin,permission:manage-shipping-prices
+PATCH	api/v1/reviews/{id}/toggle-approve		Marvel\Http\Controllers\ReviewController@toggleApproveReview	api,auth:sanctum,throttle:admin,permission:approve-reviews
+GET	api/v1/reviews	reviews.index	Marvel\Http\Controllers\ReviewController@index	api,auth:sanctum,throttle:admin
+POST	api/v1/reviews	reviews.store	Marvel\Http\Controllers\ReviewController@store	api,auth:sanctum,throttle:admin
+GET	api/v1/reviews/{review}	reviews.show	Marvel\Http\Controllers\ReviewController@show	api,auth:sanctum,throttle:admin
+PUT|PATCH	api/v1/reviews/{review}	reviews.update	Marvel\Http\Controllers\ReviewController@update	api,auth:sanctum,throttle:admin
+DELETE	api/v1/reviews/{review}	reviews.destroy	Marvel\Http\Controllers\ReviewController@destroy	api,auth:sanctum,throttle:admin,permission:delete-reviews
+GET	api/v1/site-reviews		Marvel\Http\Controllers\SiteReviewController@index	api,auth:sanctum,throttle:admin,permission:view-site-reviews
+GET	api/v1/site-reviews/{id}		Marvel\Http\Controllers\SiteReviewController@show	api,auth:sanctum,throttle:admin,permission:view-site-reviews
+PATCH	api/v1/site-reviews/{id}/approve		Marvel\Http\Controllers\SiteReviewController@approve	api,auth:sanctum,throttle:admin,permission:approve-site-reviews
+PATCH	api/v1/site-reviews/{id}/reject		Marvel\Http\Controllers\SiteReviewController@reject	api,auth:sanctum,throttle:admin,permission:reject-site-reviews
+GET	api/v1/currencies	currencies.index	Marvel\Http\Controllers\CurrencyController@index	api,auth:sanctum,throttle:admin,permission:view-currencies
+POST	api/v1/currencies	currencies.store	Marvel\Http\Controllers\CurrencyController@store	api,auth:sanctum,throttle:admin,permission:create-currency
+GET	api/v1/currencies/{currency}	currencies.show	Marvel\Http\Controllers\CurrencyController@show	api,auth:sanctum,throttle:admin,permission:view-currencies
+PUT|PATCH	api/v1/currencies/{currency}	currencies.update	Marvel\Http\Controllers\CurrencyController@update	api,auth:sanctum,throttle:admin,permission:update-currency
+DELETE	api/v1/currencies/{currency}	currencies.destroy	Marvel\Http\Controllers\CurrencyController@destroy	api,auth:sanctum,throttle:admin,permission:delete-currency
+POST	api/v1/currencies/{id}/set-base		Marvel\Http\Controllers\CurrencyController@setBase	api,auth:sanctum,throttle:admin,permission:set-base-currency
+POST	api/v1/currencies/{id}/set-catalog		Marvel\Http\Controllers\CurrencyController@setCatalog	api,auth:sanctum,throttle:admin,permission:set-catalog-currency
+GET	api/v1/currency-rates	currency-rates.index	Marvel\Http\Controllers\CurrencyRateController@index	api,auth:sanctum,throttle:admin,permission:view-exchange-rates
+POST	api/v1/currency-rates	currency-rates.store	Marvel\Http\Controllers\CurrencyRateController@store	api,auth:sanctum,throttle:admin,permission:create-exchange-rate
+GET	api/v1/currency-rates/{currency_rate}	currency-rates.show	Marvel\Http\Controllers\CurrencyRateController@show	api,auth:sanctum,throttle:admin,permission:view-exchange-rates
+PUT|PATCH	api/v1/currency-rates/{currency_rate}	currency-rates.update	Marvel\Http\Controllers\CurrencyRateController@update	api,auth:sanctum,throttle:admin,permission:update-exchange-rate
+DELETE	api/v1/currency-rates/{currency_rate}	currency-rates.destroy	Marvel\Http\Controllers\CurrencyRateController@destroy	api,auth:sanctum,throttle:admin,permission:delete-exchange-rate
+POST	api/v1/products/bulk-delete		Marvel\Http\Controllers\ProductController@destroyBulk	api,auth:sanctum,throttle:admin,permission:delete-product
+DELETE	api/v1/products/all		Marvel\Http\Controllers\ProductController@destroyAll	api,auth:sanctum,throttle:admin,permission:delete-product
+POST	api/v1/products/import	admin.products.import	Marvel\Http\Controllers\ProductImportController@import	api,auth:sanctum,throttle:admin,permission:create-product|super_admin
+GET	api/v1/products/import/{id}	admin.products.import.status	Marvel\Http\Controllers\ProductImportController@status	api,auth:sanctum,throttle:admin,permission:create-product|super_admin
+POST	api/v1/products/import/{id}/cancel	admin.products.import.cancel	Marvel\Http\Controllers\ProductImportController@cancel	api,auth:sanctum,throttle:admin,permission:create-product|super_admin
+GET	api/v1/products/import/{id}/download-errors	admin.products.import.download-errors	Marvel\Http\Controllers\ProductImportController@downloadErrors	api,auth:sanctum,throttle:admin,permission:create-product|super_admin
+GET	api/v1/products	products.index	Marvel\Http\Controllers\ProductController@index	api,auth:sanctum,throttle:admin,permission:view-products
+POST	api/v1/products	products.store	Marvel\Http\Controllers\ProductController@store	api,auth:sanctum,throttle:admin,permission:create-product
+GET	api/v1/products/{product}	products.show	Marvel\Http\Controllers\ProductController@show	api,auth:sanctum,throttle:admin,permission:view-products
+PUT|PATCH	api/v1/products/{product}	products.update	Marvel\Http\Controllers\ProductController@update	api,auth:sanctum,throttle:admin,permission:update-product
+DELETE	api/v1/products/{product}	products.destroy	Marvel\Http\Controllers\ProductController@destroy	api,auth:sanctum,throttle:admin,permission:delete-product
+GET	api/v1/products/{product}/digital-assets		Marvel\Http\Controllers\DigitalAssetController@index	api,auth:sanctum,throttle:admin,permission:view-products
+POST	api/v1/products/{product}/digital-assets	admin.products.digital-assets.store	Marvel\Http\Controllers\DigitalAssetController@store	api,auth:sanctum,throttle:admin,permission:create-product
+PUT	api/v1/digital-assets/{uuid}	admin.digital-assets.update	Marvel\Http\Controllers\DigitalAssetController@update	api,auth:sanctum,throttle:admin,permission:update-product
+DELETE	api/v1/digital-assets/{uuid}	admin.digital-assets.destroy	Marvel\Http\Controllers\DigitalAssetController@destroy	api,auth:sanctum,throttle:admin,permission:update-product
+PUT	api/v1/flash-sale/reorder		Marvel\Http\Controllers\FlashSaleController@reorder	api,auth:sanctum,throttle:admin,permission:update-flash-sale
+GET	api/v1/flash-sale	flash-sale.index	Marvel\Http\Controllers\FlashSaleController@index	api,auth:sanctum,throttle:admin,permission:view-flash-sale
+POST	api/v1/flash-sale	flash-sale.store	Marvel\Http\Controllers\FlashSaleController@store	api,auth:sanctum,throttle:admin,permission:create-flash-sale
+GET	api/v1/flash-sale/{flash_sale}	flash-sale.show	Marvel\Http\Controllers\FlashSaleController@show	api,auth:sanctum,throttle:admin,permission:view-flash-sale
+PUT|PATCH	api/v1/flash-sale/{flash_sale}	flash-sale.update	Marvel\Http\Controllers\FlashSaleController@update	api,auth:sanctum,throttle:admin,permission:update-flash-sale
+DELETE	api/v1/flash-sale/{flash_sale}	flash-sale.destroy	Marvel\Http\Controllers\FlashSaleController@destroy	api,auth:sanctum,throttle:admin,permission:delete-flash-sale
+GET	api/v1/product-flash-sale-info		Marvel\Http\Controllers\FlashSaleController@getFlashSaleInfoByProductID	api,auth:sanctum,throttle:admin
+PUT	api/v1/faqs/reorder		Marvel\Http\Controllers\FaqsController@reorder	api,auth:sanctum,throttle:admin,permission:update-faq
+GET	api/v1/faqs	faqs.index	Marvel\Http\Controllers\FaqsController@index	api,auth:sanctum,throttle:admin,permission:view-faqs
+POST	api/v1/faqs	faqs.store	Marvel\Http\Controllers\FaqsController@store	api,auth:sanctum,throttle:admin,permission:create-faq
+GET	api/v1/faqs/{faq}	faqs.show	Marvel\Http\Controllers\FaqsController@show	api,auth:sanctum,throttle:admin,permission:view-faqs
+PUT|PATCH	api/v1/faqs/{faq}	faqs.update	Marvel\Http\Controllers\FaqsController@update	api,auth:sanctum,throttle:admin,permission:update-faq
+DELETE	api/v1/faqs/{faq}	faqs.destroy	Marvel\Http\Controllers\FaqsController@destroy	api,auth:sanctum,throttle:admin,permission:delete-faq
+GET	api/v1/coupons/{coupon}/assignments		Marvel\Http\Controllers\CouponAssignmentController@index	api,auth:sanctum,throttle:admin,permission:view-coupon-assignments
+POST	api/v1/coupons/{coupon}/assignments		Marvel\Http\Controllers\CouponAssignmentController@store	api,auth:sanctum,throttle:admin,permission:create-coupon-assignment
+GET	api/v1/coupons/{coupon}/assignments/{assignment}		Marvel\Http\Controllers\CouponAssignmentController@show	api,auth:sanctum,throttle:admin,permission:view-coupon-assignments
+PUT	api/v1/coupons/{coupon}/assignments/{assignment}		Marvel\Http\Controllers\CouponAssignmentController@update	api,auth:sanctum,throttle:admin,permission:update-coupon-assignment
+DELETE	api/v1/coupons/{coupon}/assignments/{assignment}		Marvel\Http\Controllers\CouponAssignmentController@destroy	api,auth:sanctum,throttle:admin,permission:delete-coupon-assignment
+GET	api/v1/coupons	coupons.index	Marvel\Http\Controllers\CouponController@index	api,auth:sanctum,throttle:admin,permission:view-coupons
+POST	api/v1/coupons	coupons.store	Marvel\Http\Controllers\CouponController@store	api,auth:sanctum,throttle:admin,permission:create-coupon
+GET	api/v1/coupons/{coupon}	coupons.show	Marvel\Http\Controllers\CouponController@show	api,auth:sanctum,throttle:admin,permission:view-coupons
+PUT|PATCH	api/v1/coupons/{coupon}	coupons.update	Marvel\Http\Controllers\CouponController@update	api,auth:sanctum,throttle:admin,permission:update-coupon
+DELETE	api/v1/coupons/{coupon}	coupons.destroy	Marvel\Http\Controllers\CouponController@destroy	api,auth:sanctum,throttle:admin,permission:delete-coupon
+PATCH	api/v1/wishlists/toggle		Marvel\Http\Controllers\WishlistController@toggle	api,auth:sanctum,throttle:admin
+GET	api/v1/wishlists	wishlists.index	Marvel\Http\Controllers\WishlistController@index	api,auth:sanctum,throttle:admin
+POST	api/v1/wishlists	wishlists.store	Marvel\Http\Controllers\WishlistController@store	api,auth:sanctum,throttle:admin
+GET	api/v1/wishlists/in_wishlist/{product_id}		Marvel\Http\Controllers\WishlistController@in_wishlist	api,auth:sanctum,throttle:admin
+GET	api/v1/promotions	promotions.index	Marvel\Http\Controllers\PromotionController@index	api,auth:sanctum,throttle:admin,permission:view-promotion
+POST	api/v1/promotions	promotions.store	Marvel\Http\Controllers\PromotionController@store	api,auth:sanctum,throttle:admin,permission:create-promotion
+GET	api/v1/promotions/{promotion}	promotions.show	Marvel\Http\Controllers\PromotionController@show	api,auth:sanctum,throttle:admin,permission:view-promotion
+PUT|PATCH	api/v1/promotions/{promotion}	promotions.update	Marvel\Http\Controllers\PromotionController@update	api,auth:sanctum,throttle:admin,permission:update-promotion
+DELETE	api/v1/promotions/{promotion}	promotions.destroy	Marvel\Http\Controllers\PromotionController@destroy	api,auth:sanctum,throttle:admin,permission:delete-promotion
+GET	api/v1/tags	tags.index	Marvel\Http\Controllers\TagController@index	api,auth:sanctum,throttle:admin,permission:view-tags
+POST	api/v1/tags	tags.store	Marvel\Http\Controllers\TagController@store	api,auth:sanctum,throttle:admin,permission:create-tags
+GET	api/v1/tags/{tag}	tags.show	Marvel\Http\Controllers\TagController@show	api,auth:sanctum,throttle:admin,permission:view-tags
+PUT|PATCH	api/v1/tags/{tag}	tags.update	Marvel\Http\Controllers\TagController@update	api,auth:sanctum,throttle:admin,permission:update-tags
+DELETE	api/v1/tags/{tag}	tags.destroy	Marvel\Http\Controllers\TagController@destroy	api,auth:sanctum,throttle:admin,permission:delete-tags
+GET	api/v1/roles		Marvel\Http\Controllers\RoleAndPermissionController@getAllRoles	api,auth:sanctum,throttle:admin,permission:view-roles
+GET	api/v1/roles/{id}		Marvel\Http\Controllers\RoleAndPermissionController@showRole	api,auth:sanctum,throttle:admin,permission:view-role
+POST	api/v1/roles		Marvel\Http\Controllers\RoleAndPermissionController@addRole	api,auth:sanctum,throttle:admin,permission:create-roles
+PUT	api/v1/roles/{id}		Marvel\Http\Controllers\RoleAndPermissionController@updateRole	api,auth:sanctum,throttle:admin,permission:update-roles
+DELETE	api/v1/roles/{id}		Marvel\Http\Controllers\RoleAndPermissionController@destroyRole	api,auth:sanctum,throttle:admin,permission:delete-roles
+POST	api/v1/users/{userId}/assign-role		Marvel\Http\Controllers\RoleAndPermissionController@assignRole	api,auth:sanctum,throttle:admin,permission:assign-role
+POST	api/v1/users/{userId}/remove-role		Marvel\Http\Controllers\RoleAndPermissionController@removeRoleFromUser	api,auth:sanctum,throttle:admin,permission:remove-role
+GET	api/v1/permissions		Marvel\Http\Controllers\RoleAndPermissionController@getAllPermissions	api,auth:sanctum,throttle:admin,role:super_admin
+POST	api/v1/roles/{roleId}/permissions		Marvel\Http\Controllers\RoleAndPermissionController@assignPermissionToRole	api,auth:sanctum,throttle:admin,role:super_admin
+POST	api/v1/users/{userId}/permissions		Marvel\Http\Controllers\RoleAndPermissionController@givePermission	api,auth:sanctum,throttle:admin,role:super_admin
+PUT	api/v1/users/{userId}/permissions		Marvel\Http\Controllers\RoleAndPermissionController@syncPermissions	api,auth:sanctum,throttle:admin,role:super_admin
+DELETE	api/v1/users/{userId}/permissions		Marvel\Http\Controllers\RoleAndPermissionController@removePermission	api,auth:sanctum,throttle:admin,role:super_admin
+POST	api/v1/content-pages/{content_page}/attach-sections		Marvel\Http\Controllers\ContentPageController@attachSections	api,auth:sanctum,throttle:admin,permission:update-content-pages
+PATCH	api/v1/content-pages/{content_page}/toggle-active		Marvel\Http\Controllers\ContentPageController@toggleActive	api,auth:sanctum,throttle:admin,permission:update-content-pages
+GET	api/v1/content-pages	content-pages.index	Marvel\Http\Controllers\ContentPageController@index	api,auth:sanctum,throttle:admin,permission:view-content-pages
+POST	api/v1/content-pages	content-pages.store	Marvel\Http\Controllers\ContentPageController@store	api,auth:sanctum,throttle:admin,permission:create-content-pages
+GET	api/v1/content-pages/{content_page}	content-pages.show	Marvel\Http\Controllers\ContentPageController@show	api,auth:sanctum,throttle:admin,permission:view-content-pages
+PUT|PATCH	api/v1/content-pages/{content_page}	content-pages.update	Marvel\Http\Controllers\ContentPageController@update	api,auth:sanctum,throttle:admin,permission:update-content-pages
+DELETE	api/v1/content-pages/{content_page}	content-pages.destroy	Marvel\Http\Controllers\ContentPageController@destroy	api,auth:sanctum,throttle:admin,permission:delete-content-pages
+POST	api/v1/sections/reorder		Marvel\Http\Controllers\SectionController@reorder	api,auth:sanctum,throttle:admin,permission:update-sections
+GET	api/v1/sections/types		Marvel\Http\Controllers\SectionController@getTypeSection	api,auth:sanctum,throttle:admin,permission:view-sections
+PATCH	api/v1/sections/{section}/toggle-active		Marvel\Http\Controllers\SectionController@toggleStatus	api,auth:sanctum,throttle:admin,permission:update-sections
+GET	api/v1/sections	sections.index	Marvel\Http\Controllers\SectionController@index	api,auth:sanctum,throttle:admin,permission:view-sections
+POST	api/v1/sections	sections.store	Marvel\Http\Controllers\SectionController@store	api,auth:sanctum,throttle:admin,permission:create-sections
+GET	api/v1/sections/{section}	sections.show	Marvel\Http\Controllers\SectionController@show	api,auth:sanctum,throttle:admin,permission:view-sections
+PUT|PATCH	api/v1/sections/{section}	sections.update	Marvel\Http\Controllers\SectionController@update	api,auth:sanctum,throttle:admin,permission:update-sections
+DELETE	api/v1/sections/{section}	sections.destroy	Marvel\Http\Controllers\SectionController@destroy	api,auth:sanctum,throttle:admin,permission:delete-sections
+GET	api/v1/section-types	section-types.index	Marvel\Http\Controllers\SectionTypeController@index	api,auth:sanctum,throttle:admin,permission:view-section-types
+POST	api/v1/section-types	section-types.store	Marvel\Http\Controllers\SectionTypeController@store	api,auth:sanctum,throttle:admin,permission:create-section-types
+GET	api/v1/section-types/{section_type}	section-types.show	Marvel\Http\Controllers\SectionTypeController@show	api,auth:sanctum,throttle:admin,permission:view-section-types
+PUT|PATCH	api/v1/section-types/{section_type}	section-types.update	Marvel\Http\Controllers\SectionTypeController@update	api,auth:sanctum,throttle:admin,permission:update-section-types
+DELETE	api/v1/section-types/{section_type}	section-types.destroy	Marvel\Http\Controllers\SectionTypeController@destroy	api,auth:sanctum,throttle:admin,permission:delete-section-types
+POST	api/v1/section-types/{type}/settings		Marvel\Http\Controllers\SectionTypeController@updateSettings	api,auth:sanctum,throttle:admin,permission:update-section-types
+GET	api/v1/section-types/{type}/settings		Marvel\Http\Controllers\SectionTypeController@settings	api,auth:sanctum,throttle:admin,permission:view-section-types
+GET	api/v1/static-pages		Marvel\Http\Controllers\StaticPageController@index	api,auth:sanctum,throttle:admin,permission:view-static-pages
+GET	api/v1/static-pages/{static_page}		Marvel\Http\Controllers\StaticPageController@show	api,auth:sanctum,throttle:admin,permission:view-static-pages
+PUT	api/v1/static-pages/{static_page}		Marvel\Http\Controllers\StaticPageController@update	api,auth:sanctum,throttle:admin,permission:update-static-pages
+POST	api/v1/static-pages/{static_page}/sections		Marvel\Http\Controllers\StaticPageController@storeSection	api,auth:sanctum,throttle:admin,permission:create-static-sections
+POST	api/v1/static-pages/{static_page}/sections/reorder		Marvel\Http\Controllers\StaticPageController@reorderSections	api,auth:sanctum,throttle:admin,permission:update-static-sections
+PUT	api/v1/static-pages/{static_page}/sections/{static_section}		Marvel\Http\Controllers\StaticPageController@updateSection	api,auth:sanctum,throttle:admin,permission:update-static-sections
+DELETE	api/v1/static-pages/{static_page}/sections/{static_section}		Marvel\Http\Controllers\StaticPageController@destroySection	api,auth:sanctum,throttle:admin,permission:delete-static-sections
+GET	api/v1/users	users.index	Marvel\Http\Controllers\UserController@index	api,auth:sanctum,throttle:admin,permission:view-users
+POST	api/v1/users	users.store	Marvel\Http\Controllers\UserController@store	api,auth:sanctum,throttle:admin
+GET	api/v1/users/{user}	users.show	Marvel\Http\Controllers\UserController@show	api,auth:sanctum,throttle:admin,permission:view-users
+PUT|PATCH	api/v1/users/{user}	users.update	Marvel\Http\Controllers\UserController@update	api,auth:sanctum,throttle:admin,permission:edit-user
+DELETE	api/v1/users/{user}	users.destroy	Marvel\Http\Controllers\UserController@destroy	api,auth:sanctum,throttle:admin,permission:delete-user
+POST	api/v1/users/block-user		Marvel\Http\Controllers\UserController@banUser	api,auth:sanctum,throttle:admin,permission:ban-user
+POST	api/v1/users/unblock-user		Marvel\Http\Controllers\UserController@activeUser	api,auth:sanctum,throttle:admin,permission:activate-user
+POST	api/v1/add-points		Marvel\Http\Controllers\UserController@addPoints	api,auth:sanctum,throttle:admin,permission:add-points
+POST	api/v1/users/make-admin		Marvel\Http\Controllers\UserController@makeOrRevokeAdmin	api,auth:sanctum,throttle:admin
+GET	api/v1/product-type		Closure	api,auth:sanctum,throttle:admin
+GET	api/v1/cart		Marvel\Http\Controllers\CartController@index	api,auth:sanctum,throttle:cart
+POST	api/v1/cart		Marvel\Http\Controllers\CartController@store	api,auth:sanctum,throttle:cart
+GET	api/v1/cart/{id}		Marvel\Http\Controllers\CartController@show	api,auth:sanctum,throttle:cart
+POST	api/v1/cart/bulk-items		Marvel\Http\Controllers\CartController@pluckItemsToCart	api,auth:sanctum,throttle:cart
+PUT	api/v1/cart/update-item		Marvel\Http\Controllers\CartController@update	api,auth:sanctum,throttle:cart
+DELETE	api/v1/cart/delete-item/{itemId}		Marvel\Http\Controllers\CartController@deleteItemFromCart	api,auth:sanctum,throttle:cart
+DELETE	api/v1/cart/delete-items		Marvel\Http\Controllers\CartController@destroy	api,auth:sanctum,throttle:cart
+GET	api/v1/dashboard/overview		App\Http\Controllers\Api\General\DashboardController@overview	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/revenue		App\Http\Controllers\Api\General\DashboardController@revenue	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/order-stats		App\Http\Controllers\Api\General\DashboardController@orderStats	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/recent-orders		App\Http\Controllers\Api\General\DashboardController@recentOrders	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/top-products		App\Http\Controllers\Api\General\DashboardController@topProducts	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/category-stats		App\Http\Controllers\Api\General\DashboardController@categoryStats	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/low-stock		App\Http\Controllers\Api\General\DashboardController@lowStock	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/sales		App\Http\Controllers\Api\General\DashboardController@salesAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/customers		App\Http\Controllers\Api\General\DashboardController@customerAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/products		App\Http\Controllers\Api\General\DashboardController@productAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/orders		App\Http\Controllers\Api\General\DashboardController@orderAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/categories		App\Http\Controllers\Api\General\DashboardController@categoryAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/coupons		App\Http\Controllers\Api\General\DashboardController@couponAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/cart		App\Http\Controllers\Api\General\DashboardController@cartAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/finance		App\Http\Controllers\Api\General\DashboardController@financeAnalytics	api,auth:sanctum,throttle:analytics
+GET	api/v1/dashboard/reconciliation		App\Http\Controllers\Api\General\DashboardController@reconciliation	api,auth:sanctum,throttle:analytics
+GET	api/v1/admin/notifications		Marvel\Http\Controllers\NotificationController@index	api,permission:view-notifications,auth:sanctum
+GET	api/v1/admin/notifications/unread		Marvel\Http\Controllers\NotificationController@unread	api,permission:view-notifications,auth:sanctum
+PATCH	api/v1/admin/notifications/{id}/read		Marvel\Http\Controllers\NotificationController@markAsRead	api,permission:manage-notifications,auth:sanctum
+PATCH	api/v1/admin/notifications/read-all		Marvel\Http\Controllers\NotificationController@markAllAsRead	api,permission:manage-notifications,auth:sanctum
+DELETE	api/v1/admin/notifications/{id}		Marvel\Http\Controllers\NotificationController@destroy	api,permission:manage-notifications,auth:sanctum
+DELETE	api/v1/admin/notifications		Marvel\Http\Controllers\NotificationController@destroyAll	api,permission:manage-notifications,auth:sanctum
+GET	api/v1/notifications		Marvel\Http\Controllers\NotificationController@index	api,auth:sanctum
+GET	api/v1/notifications/unread		Marvel\Http\Controllers\NotificationController@unread	api,auth:sanctum
+GET	api/v1/notifications/{id}		Marvel\Http\Controllers\NotificationController@show	api,auth:sanctum
+PATCH	api/v1/notifications/{id}/read		Marvel\Http\Controllers\NotificationController@markAsRead	api,auth:sanctum
+POST	api/v1/notifications/read-all		Marvel\Http\Controllers\NotificationController@markAllAsRead	api,auth:sanctum
+DELETE	api/v1/notifications/{id}		Marvel\Http\Controllers\NotificationController@destroy	api,auth:sanctum
+GET	api/v1/refunds	refunds.index	Marvel\Http\Controllers\RefundController@index	api,throttle:refunds
+POST	api/v1/refunds	refunds.store	Marvel\Http\Controllers\RefundController@store	api,throttle:refunds
+GET	api/v1/refunds/{refund}	refunds.show	Marvel\Http\Controllers\RefundController@show	api,throttle:refunds
+PUT|PATCH	api/v1/refunds/{refund}	refunds.update	Marvel\Http\Controllers\RefundController@update	api,throttle:refunds
+DELETE	api/v1/refunds/{refund}	refunds.destroy	Marvel\Http\Controllers\RefundController@destroy	api,throttle:refunds
+GET	api/v1/shipments		App\Http\Controllers\Api\ShipmentController@index	api,auth:sanctum,permission:view-shipments
+GET	api/v1/shipments/uuid/{uuid}		App\Http\Controllers\Api\ShipmentController@showByUuid	api,auth:sanctum,permission:view-shipment
+GET	api/v1/shipments/{id}		App\Http\Controllers\Api\ShipmentController@show	api,auth:sanctum,permission:view-shipment
+POST	api/v1/shipments		App\Http\Controllers\Api\ShipmentController@store	api,auth:sanctum,permission:create-shipment
+PUT	api/v1/shipments/{id}/status		App\Http\Controllers\Api\ShipmentController@updateStatus	api,auth:sanctum,permission:update-shipment
+PUT	api/v1/shipments/{id}		App\Http\Controllers\Api\ShipmentController@update	api,auth:sanctum,permission:update-shipment
+GET	api/v1/invoices		App\Http\Controllers\Api\InvoiceController@index	api,auth:sanctum,permission:view-invoices
+GET	api/v1/invoices/{uuid}/download		App\Http\Controllers\Api\InvoiceController@download	api,auth:sanctum,throttle:30,1
+GET	api/v1/invoices/{uuid}/view		App\Http\Controllers\Api\InvoiceController@view	api,auth:sanctum,throttle:30,1
+GET	api/v1/invoices/{id}		App\Http\Controllers\Api\InvoiceController@show	api,auth:sanctum,permission:view-invoice
+POST	api/v1/invoices/{id}/regenerate		App\Http\Controllers\Api\InvoiceController@regenerate	api,auth:sanctum,permission:regenerate-invoice
+POST	api/v1/invoices/{id}/correct		App\Http\Controllers\Api\InvoiceController@correct	api,auth:sanctum,permission:correct-invoice
+POST	api/v1/invoices/{id}/cancel		App\Http\Controllers\Api\InvoiceController@cancel	api,auth:sanctum,permission:cancel-invoice
+POST	api/v1/invoices/{id}/debit-note		App\Http\Controllers\Api\InvoiceController@issueDebitNote	api,auth:sanctum,permission:issue-debit-note
+GET	api/v1/invoices/verify/{uuid}		App\Http\Controllers\Api\InvoiceController@verify	api,auth:sanctum,throttle:5,1
+GET	api/v1/invoices/uuid/{uuid}		App\Http\Controllers\Api\InvoiceController@showByUuid	api,auth:sanctum,permission:view-invoice
+GET	api/v1/check-card-payment		Closure	api
+GET	api/v1/enum-types		Closure	api

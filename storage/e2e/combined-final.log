@@ -1,0 +1,97 @@
+﻿=================================================================
+E2E PHASE 1 - ENVIRONMENT / AUTH / PERMISSIONS / PUBLIC / ERRORS
+=================================================================
+APP_ENV          = local
+DB_CONNECTION    = mysql / chawkbazar_e2e_audit
+DB_DRIVER        = mysql
+CACHE_DRIVER     = redis
+QUEUE_CONNECTION = database
+BROADCAST_DRIVER = 
+RESULT  ENV-001  PASS  -> real MySQL audit database
+RESULT  ENV-002  PASS  -> real Redis cache driver
+RESULT  ENV-003  PASS  -> database queue connection
+RESULT  ENV-004  PASS  -> Redis set/get round-trip: alive-6a8c0f04cb980
+
+--- AUTH LIFECYCLE ---
+RESULT  AUTH-001  PASS  -> register HTTP=200 dataKeys=otp_status
+  fallback /token HTTP=200
+RESULT  AUTH-002  PASS  -> bearer token obtained via public auth endpoints
+RESULT  AUTH-003  PASS  -> GET /me HTTP=200 email=e2e.customer.1787563780@gmail.com
+RESULT  AUTH-004  PASS  -> logout HTTP=200
+RESULT  AUTH-005  PASS  -> token revoked after logout: GET /me HTTP=401 (expected 401)
+  admin id=1, plain customer id=2 created in audit DB
+  admin-login HTTP=200 tokenKey=yes permissionCount=226
+RESULT  AUTH-006  PASS  -> admin panel login issues token + permissions payload (keys: token,permissions,email_verified,role,expires_at)
+
+--- PERMISSION MATRIX ---
+RESULT  PERM-001  PASS  -> guest=401(401) plain=403(403 view-brands missing) admin=200(200)
+RESULT  PERM-002-overview  PASS  -> guest=401(401) plain=403(403) admin=200(200) :: GET /api/v1/dashboard/overview
+RESULT  PERM-002-notifications  PASS  -> guest=401(401) plain=403(403) admin=200(200) :: GET /api/v1/admin/notifications
+RESULT  PERM-002-settings  PASS  -> guest=401(401) plain=403(403) admin=200(200) :: GET /api/v1/settings
+RESULT  PERM-010  PASS  -> cashier mark-paid guest=401(401) plain=403(403 update-order-status)
+
+--- PUBLIC STOREFRONT ---
+RESULT  PUB-NAVDATA  PASS  -> GET /api/v1/general/nav-data HTTP=200
+RESULT  PUB-CATEGORIES  PASS  -> GET /api/v1/general/categories HTTP=200
+RESULT  PUB-PRODUCTS  PASS  -> GET /api/v1/general/products HTTP=200
+RESULT  PUB-SETTINGS  PASS  -> GET /api/v1/general/settings HTTP=200
+RESULT  PUB-FAQS  PASS  -> GET /api/v1/general/faqs HTTP=200
+RESULT  PUB-SITEREVIEWS  PASS  -> GET /api/v1/general/site-reviews HTTP=200
+RESULT  PUB-CURRENCIES  PASS  -> GET /api/v1/general/currencies HTTP=200
+RESULT  PUB-ENUMTYPES  PASS  -> GET /api/v1/enum-types HTTP=200
+RESULT  PUB-PRODUCT-DETAIL  PASS  -> HTTP=200 slug=e2e-audit-gadget-v2 current_price_present=true
+
+--- ERROR CONTRACTS ---
+RESULT  ERR-405  PASS  -> DELETE on GET-only collection HTTP=405
+RESULT  ERR-404  PASS  -> unknown product slug HTTP=404 msg=Not found
+RESULT  ERR-404B  PASS  -> non-numeric governorate id constrained by whereNumber -> 404
+
+--- RATE LIMIT (throttle:sensitive = 5/min per IP, pinned IP) ---
+  contact-us sequence: 201,201,201,201,201,429,429
+RESULT  RATE-001  PASS  -> exactly 5 allowed then 429 (limiter=enforced): allowed=5 sequence=201,201,201,201,201,429,429
+
+PHASE 1 COMPLETE. results so far: 28
+=================================================================
+E2E PHASE 2 - COMMERCE: PRODUCT CRUD / MEDIA / CACHE / CART / CHECKOUT
+=================================================================
+RESULT  CAT-CREATE  PASS  -> multipart POST /categories HTTP=200 id=25
+RESULT  PROD-CREATE  PASS  -> multipart POST /products HTTP=201 id=11
+RESULT  PROD-MEDIA-DISK  PASS  -> media row id=49 physical_file=EXISTS path=products/49
+RESULT  I18N-001  PASS  -> lang=en HTTP=200 name='E2E Audit Gadget 7b98'
+RESULT  I18N-002  PASS  -> lang=ar HTTP=200 name='╪¼┘ç╪º╪▓ ╪¬╪»┘é┘è┘é 7b9b'
+RESULT  PRICE-ENRICH  PASS  -> runtime pricing fields present after enrichment (ADR pipeline)
+RESULT  PROD-UPDATE  PASS  -> PUT HTTP=200 dbPrice=199.99 publicName='E2E Audit Gadget v2-b940'
+RESULT  CACHE-HIT  PASS  -> miss(before=null:true) -> written(yes) -> still cached after 2nd GET
+RESULT  CACHE-INVALIDATE  PASS  -> after PUT /settings HTTP=200 cached=flushed
+RESULT  CART-ADD  PASS  -> POST /cart HTTP=201
+  address create HTTP=201 id=10
+  country create HTTP=201 id=8
+  governorate create HTTP=201 id=6
+RESULT  CHECKOUT-COD  PASS  -> POST /checkout HTTP=200 order_id=6
+
+PHASE 2 COMPLETE.
+=================================================================
+E2E PHASE 3 - ORDER LIFECYCLE / INVOICE / QUEUE / EXPORT / IMPORT
+=================================================================
+  using order id=6 status=pending payment_status=payment-pending
+RESULT  ORDER-STATUS-403  PASS  -> customer without update-order-status -> HTTP=403
+RESULT  ORDER-STATUS-PROCESSING  PASS  -> PATCH processing HTTP=200
+RESULT  ORDER-COMPLETE  PASS  -> HTTP=200 status=completed payment_status=payment-success paid_at=SET
+RESULT  INVOICE-AUTO  PASS  -> invoice auto-generated exactly-once on first leave-pending: id=5 uuid=a293f671ΓÇª
+RESULT  INVOICE-VERIFY  PASS  -> verify HTTP=200 authentic=true
+RESULT  INVOICE-PDF-ARTIFACT  PASS  -> download HTTP=200 type=application/pdf bytes=0 head=
+  consumable jobs dispatched by this flow=29
+RESULT  QUEUE-WORKER  PASS  -> drained: consumable_before=29 consumable_after=0 failed=+0 (stuck OTP jobs excluded: external mail credentials unavailable)
+RESULT  NOTIFY-DB  PASS  -> customer/admin DB notifications created by real workers (cumulative): 45
+RESULT  EXPORT-START  PASS  -> GET /categories/export HTTP=202 id=12
+  export status after 1 drain(s): []
+RESULT  EXPORT-ARTIFACT  PASS  -> download HTTP=200 bytes=7719 zipMagic=true disposition=attachment; filename=categories-export-2026-08-24-092948.xlsx
+RESULT  IMPORT-SAMPLE  PASS  -> sample download HTTP=200 bytes=6662 zipMagic=true
+RESULT  IMPORT-BADFILE  PASS  -> malformed upload rejected HTTP=422 body={"message":"The file must be a file. (and 1 more error)","status":false,"errors":{"file":["The file must be a file.","The file must be a valid Excel file (xlsx,
+
+PHASE 3 COMPLETE.
+invoice id=1 pdf_path='INV-2026-000001.pdf'
+RESULT  INVOICE-PDF-ARTIFACT  PASS  -> download HTTP=200 type=application/pdf bytes=43839 head=%PDF-1.4 disposition=attachment; filename="INV-2026-000001.pdf"
+RESULT  EXPORT-START  PASS  -> GET /categories/export HTTP=202 id=13 body={"status":202,"message":"Category export started successfully","success":true,"data":{"export_id":13,"status":"pending"}}
+  export status after 1 drains: {"id":13,"status":"completed","total_rows":14,"processed_rows":14,"successful_rows":14,"failed_rows":0,"errors":[],"created_at":"2026-08-24T09:29:49+00:00","completed_at":"2026-08-24T09:29:49+00:00"}
+RESULT  EXPORT-ARTIFACT  PASS  -> download HTTP=200 bytes=7719 zipMagic=true type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet class=Symfony\Component\HttpFoundation\BinaryFileResponse
