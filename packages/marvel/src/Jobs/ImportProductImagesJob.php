@@ -26,7 +26,7 @@ class ImportProductImagesJob implements ShouldQueue
     {
         $this->importId = $importId;
         $this->imageRows = $imageRows;
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
     }
 
     public function handle(): void

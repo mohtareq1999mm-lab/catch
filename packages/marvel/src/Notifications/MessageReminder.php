@@ -23,7 +23,7 @@ class MessageReminder extends Notification implements ShouldQueue
      */
     public function __construct($participant)
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
 
         $this->participant = $participant;
     }

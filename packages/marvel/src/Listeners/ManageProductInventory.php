@@ -10,7 +10,7 @@ use Marvel\Events\OrderCreated;
 
 class ManageProductInventory implements ShouldQueue
 {
-    public $queue = 'meem-high';
+    public $queue = 'catch-high';
     protected function updateProductInventory($product)
     {
         try {

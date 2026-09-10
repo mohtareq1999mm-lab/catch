@@ -31,7 +31,7 @@ class BulkDeleteCategoriesJob implements ShouldQueue
     public function __construct(int $importId)
     {
         $this->importId = $importId;
-        $this->onQueue('meem-high');
+        $this->onQueue('catch-medium');
     }
 
     protected function signalPath(string $type): ?string

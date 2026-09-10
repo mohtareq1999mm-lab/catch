@@ -79,7 +79,7 @@ class AsyncQueuePersistenceAuditTest extends NotificationE2ETestCase
         $user->notify($notification);
 
         $jobs = DB::table('jobs')->get();
-        $this->assertCount(2, $jobs, 'Expected 2 SendQueuedNotifications jobs (database + broadcast).');
+        $this->assertCount(3, $jobs, 'Expected 3 SendQueuedNotifications jobs (database + broadcast).');
 
         foreach ($jobs as $job) {
             $payload = json_decode($job->payload, true);
@@ -200,13 +200,13 @@ class AsyncQueuePersistenceAuditTest extends NotificationE2ETestCase
      * Pop and process every job across the queues used by the notification
      * pipeline through the real queue worker machinery.
      *
-     * - meem-medium : the two SendQueuedNotifications channel jobs
+     * - catch-medium : the two SendQueuedNotifications channel jobs
      * - default     : the BroadcastEvent job produced when a ShouldBroadcast
      *                 event is queued by the BroadcastManager
      */
     protected function processAllQueuedJobs(bool $throwOnFailure = true): void
     {
-        foreach (['meem-medium', 'default'] as $queue) {
+        foreach (['catch-high', 'catch-medium', 'default'] as $queue) {
             $connection = Queue::connection('database');
 
             while (true) {

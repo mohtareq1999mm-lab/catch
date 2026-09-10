@@ -34,7 +34,7 @@ class ImportCategoriesJob implements ShouldQueue
     public function __construct(int $importId)
     {
         $this->importId = $importId;
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
     }
 
     protected function removeSignalFile(string $type): void

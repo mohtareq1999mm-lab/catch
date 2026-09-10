@@ -25,7 +25,7 @@ class PaymentReconciliationJob implements ShouldQueue
 
     public function __construct()
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
     }
 
     public function handle(PaymentGatewayFactory $gatewayFactory): void

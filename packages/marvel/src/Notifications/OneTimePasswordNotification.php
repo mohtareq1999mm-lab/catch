@@ -15,7 +15,7 @@ class OneTimePasswordNotification extends SpatieNotification implements ShouldQu
     public function __construct(OneTimePassword $oneTimePassword)
     {
         parent::__construct($oneTimePassword);
-        $this->onQueue('meem-high');
+        $this->onQueue('catch-high');
     }
 
     public function backoff(): array

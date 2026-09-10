@@ -14,7 +14,7 @@ class SendOrderStatusEmail implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    public $queue = 'notifications';
+    public $queue = 'catch-high';
     public $tries = 3;
     public $backoff = [60, 300, 900];
 

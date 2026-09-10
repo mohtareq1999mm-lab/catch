@@ -24,7 +24,7 @@ class NewReviewCreated extends Notification implements ShouldQueue
      */
     public function __construct(Review $review)
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
 
         $this->review = $review;
     }

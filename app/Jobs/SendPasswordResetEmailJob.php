@@ -23,7 +23,7 @@ class SendPasswordResetEmailJob implements ShouldQueue
         public string $email,
         public string $token,
     ) {
-        $this->onQueue('meem-high');
+        $this->onQueue('catch-medium');
     }
 
     public function handle(): void

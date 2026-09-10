@@ -11,7 +11,7 @@ use Tests\TestCase;
 /**
  * CATEGORY D — HAPPY PATH (regenerate)
  * CATEGORY E — STATE TRANSITIONS
- * CATEGORY G/I — EVENT + JOB/QUEUE dispatch (queue name verified: meem-medium)
+ * CATEGORY G/I — EVENT + JOB/QUEUE dispatch (queue name verified: catch-medium)
  * CATEGORY N — ERROR HANDLING / invalid transitions
  * CATEGORY F — repeated regenerate attempts counter
  */
@@ -54,7 +54,7 @@ class AdminInvoiceRegenerateTest extends TestCase
         ]);
 
         // Job dispatched on the REAL configured queue (source: GenerateInvoicePdfJob constructor).
-        Queue::assertPushedOn('meem-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
         Queue::assertPushed(GenerateInvoicePdfJob::class, 1);
     }
 
@@ -139,7 +139,7 @@ class AdminInvoiceRegenerateTest extends TestCase
             'invoice_id' => $invoice->id,
             'event' => 'pdf_regenerated',
         ]);
-        Queue::assertPushedOn('meem-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
         Queue::assertPushed(GenerateInvoicePdfJob::class, 1);
 
         // Job success path completes the loop: pdf_generating → ready.
@@ -173,7 +173,7 @@ class AdminInvoiceRegenerateTest extends TestCase
 
         $invoice->refresh();
         $this->assertSame('pdf_generating', $invoice->status);
-        Queue::assertPushedOn('meem-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
     }
 }
 

@@ -9,7 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendUserOrderDeliveredNotification implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public function handle(OrderDelivered $event): void
     {

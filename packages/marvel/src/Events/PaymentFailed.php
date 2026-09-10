@@ -8,7 +8,7 @@ use Marvel\Database\Models\Order;
 
 class PaymentFailed implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     /**
      * @var Order

@@ -14,7 +14,7 @@ class NewOrderNotification extends Notification implements ShouldQueue
     public function __construct(
         public $order,
     ) {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
     }
 
     public function via(): array
@@ -49,7 +49,7 @@ class NewOrderNotification extends Notification implements ShouldQueue
 
     public function toBroadcast($notifiable)
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('meem-medium');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-high');
     }
 
     public function broadcastType(): string

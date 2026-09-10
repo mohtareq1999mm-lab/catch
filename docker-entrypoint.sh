@@ -37,8 +37,8 @@ php artisan view:cache
 # 4. Start Supervisor (manages web + queue workers + scheduler via cron)
 # =============================================================================
 echo ""
-echo "✅ Laravel ready! Starting Supervisor (web + meem-high + meem-medium) on port ${PORT:-8080}..."
-echo "   Workers: meem-high (1 proc, timeout 1300) + meem-medium (1 proc, timeout 1300)"
+echo "✅ Laravel ready! Starting Supervisor (web + catch-high + catch-medium) on port ${PORT:-8080}..."
+echo "   Workers: catch-high (1 proc, timeout 1300) + catch-medium (1 proc, timeout 1300)"
 echo "   Scheduler: via dcron (schedule:run every minute)"
 
 # Ensure log directory exists and is writable

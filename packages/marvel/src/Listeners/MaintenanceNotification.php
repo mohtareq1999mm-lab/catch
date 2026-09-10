@@ -18,7 +18,7 @@ use Marvel\Notifications\StoreNoticeNotification;
 
 class MaintenanceNotification
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
 
     /**
      * Create the event listener.

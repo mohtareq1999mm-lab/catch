@@ -18,7 +18,7 @@ use Marvel\Traits\UsersTrait;
 
 class StoredOrderNotifyLogsListener implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
 
     use UsersTrait;
 

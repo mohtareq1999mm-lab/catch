@@ -12,10 +12,10 @@ use Throwable;
 class FulfillDigitalProducts implements ShouldQueue
 {
     /**
-     * Payment-critical latency — matches the meem-high supervisor worker
+     * Payment-critical latency — matches the catch-high supervisor worker
      * (tries=5, timeout=90s). Retries are safe: fulfillment is idempotent.
      */
-    public $queue = 'meem-high';
+    public $queue = 'catch-high';
 
     public $afterCommit = true;
 

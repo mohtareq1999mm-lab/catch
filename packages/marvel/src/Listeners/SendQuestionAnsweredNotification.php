@@ -12,7 +12,7 @@ use Marvel\Traits\SmsTrait;
 
 class SendQuestionAnsweredNotification implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
     use SmsTrait;
     /**
      * Handle the event.

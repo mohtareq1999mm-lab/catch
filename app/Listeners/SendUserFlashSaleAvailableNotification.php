@@ -9,7 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendUserFlashSaleAvailableNotification implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public function handle(FlashSaleActivated $event): void
     {

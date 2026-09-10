@@ -83,7 +83,7 @@ class ImportRetrySemanticsTest extends TestCase
         $queueJob = \Mockery::mock(QueueJobContract::class);
         $queueJob->shouldReceive('attempts')->andReturn($attempt);
         $queueJob->shouldReceive('getConnectionName')->zeroOrMoreTimes()->andReturn('database');
-        $queueJob->shouldReceive('getQueue')->zeroOrMoreTimes()->andReturn('meem-high');
+        $queueJob->shouldReceive('getQueue')->zeroOrMoreTimes()->andReturn('catch-high');
 
         return $queueJob;
     }

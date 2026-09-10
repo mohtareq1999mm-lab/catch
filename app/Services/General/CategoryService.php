@@ -22,7 +22,7 @@ class CategoryService
         $parent = $request->query('parent', false);
         $categoriesId = $request->query('categoriesId');
         $order = $this->resolveOrder($request);
-        $query = Category::query()->active()->withCount('products')->with('media');
+        $query = Category::query()->active()->withCount(['products' => fn($q) => $q->active()])->with('media');
 
         if (!empty($categoriesId)) {
             $ids = is_array($categoriesId) ? $categoriesId : explode(',', $categoriesId);
@@ -58,12 +58,12 @@ class CategoryService
         $category = Category::query()
             ->active()
             ->with([
-                'products' => fn($q) => $this->applyChannelHomeFilter($q),
+                'products' => fn($q) => $q->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq)),
                 'children' => function ($query) {
-                    $query->active()->withCount('products');
+                    $query->active()->withCount(['products' => fn($q) => $q->active()]);
                 },
             ])
-            ->withCount(['products' => fn($q) => $this->applyChannelHomeFilter($q)])
+            ->withCount(['products' => fn($q) => $q->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq))])
             ->where('slug', $slug)
             ->firstOrFail();
 

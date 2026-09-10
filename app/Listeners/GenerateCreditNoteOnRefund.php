@@ -14,7 +14,7 @@ class GenerateCreditNoteOnRefund implements ShouldQueue
 {
     public $afterCommit = true;
 
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public function __construct(
         private CreditNoteService $creditNoteService,

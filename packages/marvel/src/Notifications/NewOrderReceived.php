@@ -23,7 +23,7 @@ class NewOrderReceived extends Notification implements ShouldQueue
      */
     public function __construct(Order $order, string $receiver = 'storeOwner')
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
 
         $this->order = $order;
         $this->receiver = $receiver;

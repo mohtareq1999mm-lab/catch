@@ -12,7 +12,7 @@ class SendUserProductDiscountChangedNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public function handle(ProductDiscountChanged $event): void
     {

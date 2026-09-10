@@ -20,7 +20,7 @@ use Marvel\Traits\UsersTrait;
 
 class CommissionRateUpdateListener
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
 
     use SmsTrait, UsersTrait;
 

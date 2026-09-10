@@ -21,7 +21,15 @@ trait HasCache
     ): mixed {
         $ttl ??= now()->addHours(4);
 
-        return Cache::tags([$tag])->remember($key, $ttl, $data instanceof Closure ? $data : fn() => $data);
+        $callback = $data instanceof Closure ? $data : fn() => $data;
+
+        // Preferred path for redis/memcached etc. — fallback for file/database/array
+        // which throw BadMethodCallException during artisan db:seed.
+        try {
+            return Cache::tags([$tag])->remember($key, $ttl, $callback);
+        } catch (\BadMethodCallException) {
+            return Cache::remember($tag . ':' . $key, $ttl, $callback);
+        }
     }
 
     /**
@@ -44,6 +52,15 @@ trait HasCache
 
     protected function flushTag(string $tag): bool
     {
-        return Cache::tags([$tag])->flush();
+        try {
+            return Cache::tags([$tag])->flush();
+        } catch (\BadMethodCallException) {
+            // Store does not support tagging (used during db:seed with file/database
+            // cache). Silently succeed so seeders/observers do not throw.
+            // We intentionally do NOT flush the entire cache here to avoid wiping
+            // unrelated keys when tagging is unavailable; the prefixed keys from
+            // remember() will expire via TTL.
+            return true;
+        }
     }
 }

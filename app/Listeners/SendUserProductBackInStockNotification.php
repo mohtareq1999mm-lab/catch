@@ -12,7 +12,7 @@ class SendUserProductBackInStockNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public function handle(ProductBackInStock $event): void
     {

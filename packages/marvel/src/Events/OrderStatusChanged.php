@@ -9,7 +9,7 @@ use Marvel\Database\Models\Order;
 
 class OrderStatusChanged implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     /**
      * @var Order

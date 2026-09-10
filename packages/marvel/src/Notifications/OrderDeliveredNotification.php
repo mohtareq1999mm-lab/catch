@@ -22,7 +22,7 @@ class OrderDeliveredNotification extends Notification implements ShouldQueue
      */
     public function __construct(Order $order)
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
 
         $this->order = $order;
     }

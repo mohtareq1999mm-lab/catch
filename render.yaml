@@ -126,7 +126,7 @@ services:
         value: redis
 
       - key: QUEUE_CONNECTION
-        value: database  # Queued jobs stored in the jobs table, processed by Supervisor workers (meem-high/meem-medium)
+        value: database  # Queued jobs stored in the jobs table, processed by Supervisor workers (catch-high/catch-medium)
       
       # =======================================================================
       # Migration Control
@@ -146,21 +146,21 @@ services:
   # ===========================================================================
   # Background Worker — Queue Processing (alternative to in-container Supervisor)
   # ===========================================================================
-  # The web container now runs Supervisor (meem-high + meem-medium) via
+  # The web container now runs Supervisor (catch-high + catch-medium) via
   # docker-entrypoint.sh. If you prefer Render's native background workers
   # (recommended for larger scale), create two pserv services instead:
   #
   #   - type: pserv
-  #     name: meem-worker-high
+  #     name: catch-worker-high
   #     runtime: docker
   #     dockerfilePath: ./Dockerfile
-  #     dockerCommand: php artisan queue:work database --queue=meem-high --tries=5 --timeout=1200 --sleep=1 --memory=256 --max-jobs=1000 --max-time=3600
+  #     dockerCommand: php artisan queue:work database --queue=catch-high --tries=5 --timeout=1200 --sleep=1 --memory=256 --max-jobs=1000 --max-time=3600
   #
   #   - type: pserv
-  #     name: meem-worker-medium
+  #     name: catch-worker-medium
   #     runtime: docker
   #     dockerfilePath: ./Dockerfile
-  #     dockerCommand: php artisan queue:work database --queue=meem-medium --tries=3 --timeout=900 --sleep=3 --memory=256 --max-jobs=1000 --max-time=3600
+  #     dockerCommand: php artisan queue:work database --queue=catch-medium --tries=3 --timeout=900 --sleep=3 --memory=256 --max-jobs=1000 --max-time=3600
   #
   # Either model is valid, but do NOT run both simultaneously.
 

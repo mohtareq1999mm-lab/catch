@@ -268,11 +268,11 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
         $this->assertContains('database', $channels);
         $this->assertContains('broadcast', $channels);
 
-        // The real listener pins its queue to meem-medium.
+        // The real listener pins its queue to catch-high.
         $listener = app(\App\Listeners\SendUserOrderCreatedNotification::class);
-        $this->assertEquals('meem-medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
 
-        fwrite(STDERR, "\n[REPORT F] QUEUE OK — via() = [" . implode(',', $channels) . "] on queue meem-medium\n");
+        fwrite(STDERR, "\n[REPORT F] QUEUE OK — via() = [" . implode(',', $channels) . "] on queue catch-high\n");
     }
 
     // ==================== G+H+I — DB CHANNEL -> INSERT ====================
@@ -476,7 +476,7 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
 
         // Process them like a real worker: DB job fails, broadcast succeeds.
         $connection = \Illuminate\Support\Facades\Queue::connection('database');
-        foreach (['meem-medium', 'default'] as $queue) {
+        foreach (['catch-high', 'catch-medium', 'default'] as $queue) {
             while ($job = $connection->pop($queue)) {
                 try {
                     $job->fire();

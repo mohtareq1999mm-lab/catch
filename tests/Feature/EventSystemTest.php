@@ -550,7 +550,7 @@ class EventSystemTest extends TestCase
     public function restore_product_inventory_uses_medium_queue()
     {
         $listener = app(RestoreProductInventory::class);
-        $this->assertEquals('medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
     }
 
     // ========== Listener: RestoreInventoryOnRefund ==========
@@ -670,7 +670,7 @@ class EventSystemTest extends TestCase
     public function restore_inventory_on_refund_uses_medium_queue()
     {
         $listener = app(RestoreInventoryOnRefund::class);
-        $this->assertEquals('medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
     }
 
     // ========== Gateway: MyFatoorahGateway::refund() ==========
@@ -795,7 +795,7 @@ class EventSystemTest extends TestCase
     public function order_cancelled_notification_uses_medium_queue()
     {
         $listener = app(SendOrderCancelledNotification::class);
-        $this->assertEquals('medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
     }
 
     // ========== Listener: SendOrderStatusChangedNotification ==========
@@ -833,7 +833,7 @@ class EventSystemTest extends TestCase
     public function order_status_changed_notification_uses_medium_queue()
     {
         $listener = app(SendOrderStatusChangedNotification::class);
-        $this->assertEquals('medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
     }
 
     // ========== Listener: SendPaymentSucceededNotification ==========
@@ -871,7 +871,7 @@ class EventSystemTest extends TestCase
     public function payment_succeeded_notification_uses_medium_queue()
     {
         $listener = app(SendPaymentSucceededNotification::class);
-        $this->assertEquals('medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
     }
 
     // ========== Listener: SendPaymentFailedNotification ==========
@@ -909,7 +909,7 @@ class EventSystemTest extends TestCase
     public function payment_failed_notification_uses_medium_queue()
     {
         $listener = app(SendPaymentFailedNotification::class);
-        $this->assertEquals('medium', $listener->queue);
+        $this->assertEquals('catch-high', $listener->queue);
     }
 
     // ========== Service: OrderService dispatches App Events ==========

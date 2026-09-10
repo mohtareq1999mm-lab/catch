@@ -13,7 +13,7 @@ use Tests\TestCase;
  * CATEGORY — END-TO-END FLOW
  *
  * Full business outcome without mocking the application:
- *   admin index → correct (creates correction + dispatches job on meem-medium)
+ *   admin index → correct (creates correction + dispatches job on catch-medium)
  *   → execute the real PDF job (DomPDF) against a fake storage disk
  *   → correction becomes READY with a stored file + checksum
  *   → cancel the ORIGINAL invoice afterwards

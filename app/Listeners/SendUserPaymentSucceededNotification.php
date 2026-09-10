@@ -17,7 +17,7 @@ class SendUserPaymentSucceededNotification implements ShouldQueue
      */
     public $afterCommit = true;
 
-    public $queue = \App\Enums\QueueName::MEDIUM->value;
+    public $queue = \App\Enums\QueueName::HIGH->value;
 
     public function handle(PaymentSucceeded $event): void
     {

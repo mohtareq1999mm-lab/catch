@@ -37,7 +37,7 @@ return [
         'database' => [
             'driver' => 'database',
             'table' => 'jobs',
-            'queue' => 'meem-medium',
+            'queue' => 'catch-medium',
             // Must exceed the highest effective timeout on this connection
             // to avoid premature re-release / duplicate execution.
             // retry_after (1800) > worker timeout (1300) > job timeout (1200) > p99 runtime (~600s for 10k)

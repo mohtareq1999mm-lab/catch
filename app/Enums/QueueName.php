@@ -8,6 +8,6 @@ namespace App\Enums;
  */
 enum QueueName: string
 {
-    case HIGH = 'meem-high';
-    case MEDIUM = 'meem-medium';
+    case HIGH = 'catch-high';
+    case MEDIUM = 'catch-medium';
 }

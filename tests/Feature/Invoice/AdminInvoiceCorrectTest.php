@@ -96,7 +96,7 @@ class AdminInvoiceCorrectTest extends TestCase
         Event::assertDispatchedTimes(InvoiceCreated::class, 1);
         Event::assertDispatched(InvoiceCreated::class, fn ($e) => $e->invoice->is_correction === true);
 
-        Queue::assertPushedOn('meem-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
     }
 
     // ─── C: focused validation tests ────────────────────────────────────────

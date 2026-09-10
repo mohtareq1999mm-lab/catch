@@ -21,7 +21,7 @@ class ProductApprovedNotification extends Notification implements ShouldQueue
      */
     public function __construct(Product $product)
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
 
         $this->product = $product;
     }

@@ -26,7 +26,7 @@ class ShopMaintenanceNotification extends Notification implements ShouldQueue
      */
     public function __construct($shop, $body, $message)
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
 
         $this->shop = $shop;
         $this->body = $body;

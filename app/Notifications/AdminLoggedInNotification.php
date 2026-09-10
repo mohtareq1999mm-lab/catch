@@ -16,7 +16,7 @@ class AdminLoggedInNotification extends Notification implements ShouldQueue
         public string $ip,
         public string $userAgent,
     ) {
-        $this->onQueue('meem-high');
+        $this->onQueue('catch-medium');
     }
 
     public function via($notifiable): array
@@ -51,7 +51,7 @@ class AdminLoggedInNotification extends Notification implements ShouldQueue
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('meem-medium');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-medium');
     }
 
     public function broadcastType(): string

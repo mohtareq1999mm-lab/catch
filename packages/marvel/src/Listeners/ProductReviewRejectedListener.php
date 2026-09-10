@@ -8,7 +8,7 @@ use Marvel\Notifications\ProductRejectedNotification;
 
 class ProductReviewRejectedListener implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
     /**
      * Handle the event.
      *

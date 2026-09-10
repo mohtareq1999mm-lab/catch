@@ -9,7 +9,7 @@ use Marvel\Database\Models\Variation;
 
 class ProductInventoryDecrement implements ShouldQueue
 {
-    public $queue = 'meem-high';
+    public $queue = 'catch-high';
     protected function updateProductInventory($eventData)
     {
         try {

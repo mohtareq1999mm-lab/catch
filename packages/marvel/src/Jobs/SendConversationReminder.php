@@ -27,7 +27,7 @@ class SendConversationReminder implements ShouldQueue
      */
     public function __construct(Participant $participant)
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
 
         $this->participant = $participant;
     }

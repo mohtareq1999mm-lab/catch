@@ -12,7 +12,7 @@ use Marvel\Traits\SmsTrait;
 
 class SendRefundRequestedNotification implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
     use SmsTrait, OrderSmsTrait;
 
     /**

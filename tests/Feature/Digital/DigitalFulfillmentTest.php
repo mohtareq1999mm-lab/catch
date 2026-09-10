@@ -382,7 +382,7 @@ class DigitalFulfillmentTest extends TestCase
             function (\App\Notifications\UserDigitalProductsAvailableNotification $notification) use ($realUser, $order) {
                 $payload = $notification->toDatabase($realUser);
 
-                $this->assertSame('meem-medium', $notification->queue);
+                $this->assertSame('catch-medium', $notification->queue);
                 $this->assertSame('digital.products_available', $notification->broadcastType());
                 $this->assertSame('order', $payload['resource_type']);
                 $this->assertSame($order->id, $payload['resource_id']);
@@ -454,7 +454,7 @@ class DigitalFulfillmentTest extends TestCase
         \Illuminate\Support\Facades\Notification::assertSentTo(
             $admin,
             \App\Notifications\AdminDigitalDeliveryFailedNotification::class,
-            fn ($n) => $n->queue === 'meem-medium'
+            fn ($n) => $n->queue === 'catch-medium'
                 && str_contains($n->toDatabase($admin)['message']['en'], 'boom')
         );
     }
@@ -477,7 +477,7 @@ class DigitalFulfillmentTest extends TestCase
         fwrite(STDERR, "\nPUSHED: " . json_encode($pushed) . "\n");
 
         \Illuminate\Support\Facades\Queue::assertPushedOn(
-            'meem-high',
+            'catch-high',
             \Illuminate\Events\CallQueuedListener::class,
             fn (\Illuminate\Events\CallQueuedListener $job) => str_contains($job->class, 'FulfillDigitalProducts')
         );
@@ -486,12 +486,12 @@ class DigitalFulfillmentTest extends TestCase
     public function test_fulfillment_notification_listener_targets_meem_medium()
     {
         $listener = new \App\Listeners\SendUserDigitalProductsAvailableNotification();
-        $this->assertSame('meem-medium', $listener->queue);
+        $this->assertSame('catch-medium', $listener->queue);
 
         $notification = new \App\Notifications\UserDigitalProductsAvailableNotification(
             $this->makeOrderWithDigitalItem()[0]
         );
-        $this->assertSame('meem-medium', $notification->queue);
+        $this->assertSame('catch-medium', $notification->queue);
     }
 
     public function test_order_resource_exposes_digital_downloads_after_fulfillment()

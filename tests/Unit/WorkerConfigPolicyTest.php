@@ -8,8 +8,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Queue worker configuration policy (closure gate):
- *  - meem-high: tries=5, timeout=1200, sleep=1, queue=meem-high ONLY.
- *  - meem-medium: tries=3, timeout=900, queues=meem-medium,default.
+ *  - catch-high: tries=5, timeout=1300, sleep=1, queue=catch-high ONLY.
+ *  - catch-medium: tries=3, timeout=1300, queues=catch-medium.
  *  - No active worker may remain at --timeout=90.
  *
  * These are the repository-owned deployment artifacts; production process
@@ -39,26 +39,26 @@ class WorkerConfigPolicyTest extends TestCase
 
     public function test_meem_high_worker_matches_policy(): void
     {
-        $cmd = $this->commandLine($this->readConf('laravel-worker-meem-high.conf'));
+        $cmd = $this->commandLine($this->readConf('laravel-worker-catch-high.conf'));
 
-        $this->assertStringContainsString('--queue=meem-high', $cmd);
+        $this->assertStringContainsString('--queue=catch-high', $cmd);
         $this->assertStringContainsString('--tries=5', $cmd);
-        $this->assertStringContainsString('--timeout=1200', $cmd);
+        $this->assertStringContainsString('--timeout=1300', $cmd);
         $this->assertStringContainsString('--sleep=1', $cmd);
     }
 
     public function test_meem_medium_worker_matches_policy(): void
     {
-        $cmd = $this->commandLine($this->readConf('laravel-worker-meem-medium.conf'));
+        $cmd = $this->commandLine($this->readConf('laravel-worker-catch-medium.conf'));
 
-        $this->assertStringContainsString('--queue=meem-medium,default', $cmd);
+        $this->assertStringContainsString('--queue=catch-medium', $cmd);
         $this->assertStringContainsString('--tries=3', $cmd);
-        $this->assertStringContainsString('--timeout=900', $cmd);
+        $this->assertStringContainsString('--timeout=1300', $cmd);
     }
 
     public function test_no_worker_remains_at_timeout_90(): void
     {
-        foreach (['laravel-worker-meem-high.conf', 'laravel-worker-meem-medium.conf'] as $file) {
+        foreach (['laravel-worker-catch-high.conf', 'laravel-worker-catch-medium.conf'] as $file) {
             $conf = $this->readConf($file);
 
             $this->assertSame(

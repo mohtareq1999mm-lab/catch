@@ -8,16 +8,16 @@ use PHPUnit\Framework\TestCase;
  * W8 — SYSTEM-WIDE QUEUE POLICY (static source audit).
  *
  * Policy: every ShouldQueue implementer in application code MUST resolve to
- * `meem-high` or `meem-medium`. Allowed exceptions:
+ * `catch-high` or `catch-medium`. Allowed exceptions:
  *   - config-driven assignment with a compliant default
- *     (config('frontend.queue', 'meem-high'|'meem-medium'));
+ *     (config('frontend.queue', 'catch-high'|'catch-medium'));
  *   - events whose queue is supplied by an activated listener chain.
  *
  * This is the static half; runtime dispatch proofs live in the Feature suite.
  */
 class QueueStandardizationStaticTest extends TestCase
 {
-    private const ALLOWED = ['meem-high', 'meem-medium'];
+    private const ALLOWED = ['catch-high', 'catch-medium'];
 
     private array $violations = [];
     private int $checked = 0;
@@ -33,7 +33,7 @@ class QueueStandardizationStaticTest extends TestCase
 
         // Config-driven assignment with compliant default (SendFcmNotificationJob / SendFrontendWebhookJob pattern).
         if (str_contains($src, "config('frontend.queue'")) {
-            // Both jobs use QueueName::MEDIUM or 'meem-high' as fallback — both are allowed.
+            // Both jobs use QueueName::MEDIUM or 'catch-high' as fallback — both are allowed.
             // If the file contains a disallowed literal like 'default' or 'meem-bulk', the literal checks below would catch it,
             // but config-driven with enum is always compliant for this codebase.
             $this->assertTrue(true);

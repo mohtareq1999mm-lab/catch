@@ -10,7 +10,7 @@ use Marvel\Traits\SmsTrait;
 
 class SendOrderReceivedNotification implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
     use SmsTrait;
     /**
      * Handle the event.

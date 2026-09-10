@@ -24,7 +24,7 @@ class RefundUpdate extends Notification implements ShouldQueue
      */
     public function __construct(Refund $refund, $receiver = 'admin')
     {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
 
         $this->refund = $refund;
         $this->receiver = $receiver;

@@ -14,7 +14,7 @@ class SendOrderPushNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    public $queue = 'notifications';
+    public $queue = 'catch-high';
     public $tries = 2;
 
     public function __construct(private PushNotificationService $pushService) {}

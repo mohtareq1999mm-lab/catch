@@ -12,7 +12,7 @@ use Marvel\Traits\SmsTrait;
 
 class SendOrderStatusChangedNotification implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
     use SmsTrait, OrderSmsTrait;
 
     /**

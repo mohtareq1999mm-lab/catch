@@ -8,7 +8,7 @@ use Marvel\Database\Models\PaymentMethod;
 
 class PaymentMethods implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
 
     /**
      * @var PaymentMethod

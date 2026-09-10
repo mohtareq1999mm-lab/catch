@@ -418,7 +418,7 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         // (table missing); the broadcast job succeeds.
         $connection = \Illuminate\Support\Facades\Queue::connection('database');
         $processed = 0;
-        foreach (['meem-medium', 'default'] as $queue) {
+        foreach (['catch-medium', 'default'] as $queue) {
             while ($job = $connection->pop($queue)) {
                 try {
                     $job->fire();

@@ -368,7 +368,7 @@ class DeepVerificationTest extends TestCase
         }
     }
 
-    // 4.43 Queue deep - meem-medium is canonical for imports/exports
+    // 4.43 Queue deep - catch-medium is canonical for imports/exports
     public function test_all_six_jobs_use_meem_bulk(): void
     {
         $map = [
@@ -380,10 +380,10 @@ class DeepVerificationTest extends TestCase
         ];
         foreach ($map as $cls => $arg) {
             $job = new $cls($arg);
-            $this->assertEquals('meem-medium', $job->queue, "$cls must be meem-medium, got {$job->queue}");
+            $this->assertEquals('catch-medium', $job->queue, "$cls must be catch-medium, got {$job->queue}");
         }
         $job = new ExportProductsJob([]);
-        $this->assertEquals('meem-medium', $job->queue, "ExportProductsJob must be meem-medium, got {$job->queue}");
+        $this->assertEquals('catch-medium', $job->queue, "ExportProductsJob must be catch-medium, got {$job->queue}");
     }
 
     // 4.46 Database deep

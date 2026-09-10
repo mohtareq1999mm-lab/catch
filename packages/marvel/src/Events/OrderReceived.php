@@ -8,7 +8,7 @@ use Marvel\Database\Models\Order;
 
 class OrderReceived implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public $order;
 

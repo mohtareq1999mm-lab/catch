@@ -14,7 +14,7 @@ class UserCouponAvailableNotification extends Notification implements ShouldQueu
     public function __construct(
         public $coupon,
     ) {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
     }
 
     public function via($notifiable): array
@@ -46,7 +46,7 @@ class UserCouponAvailableNotification extends Notification implements ShouldQueu
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('meem-medium');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-high');
     }
 
     public function broadcastType(): string

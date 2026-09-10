@@ -70,7 +70,15 @@ class ProductService
 
     private function productRelations(): array
     {
-        return ['categories.parent', 'variations', 'brands', 'media', 'flash_sales' => fn($q) => $q->valid(), 'tags'];
+        return [
+            'categories' => fn($q) => $q->active(),
+            'categories.parent' => fn($q) => $q->active(),
+            'variations',
+            'brands' => fn($q) => $q->active(),
+            'media',
+            'flash_sales' => fn($q) => $q->valid(),
+            'tags',
+        ];
     }
 
     /**

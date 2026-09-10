@@ -17,5 +17,5 @@ return [
 
     'user_agent' => env('FRONTEND_WEBHOOK_USER_AGENT', 'MeemCommerce-Webhook/1.0'),
 
-    'queue' => env('FRONTEND_WEBHOOK_QUEUE', 'meem-high'),
+    'queue' => env('FRONTEND_WEBHOOK_QUEUE', 'catch-high'),
 ];

@@ -13,7 +13,7 @@ class SendUserPromotionPriceDropNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    public $queue = 'meem-medium';
+    public $queue = 'catch-high';
 
     public function handle(PromotionActivated $event): void
     {

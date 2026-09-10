@@ -17,9 +17,9 @@ use Tests\TestCase;
  *
  * Audit gap: no test in the suite asserted the ACTUAL queue names.
  * Verified from source (constructors):
- *   ImportCategoriesJob::onQueue('meem-high')   (line 33)
- *   ExportCategoriesJob::onQueue('meem-high')   (line 27)
- *   BulkDeleteCategoriesJob::onQueue('meem-high') (line 31)
+ *   ImportCategoriesJob::onQueue('catch-high')   (line 33)
+ *   ExportCategoriesJob::onQueue('catch-high')   (line 27)
+ *   BulkDeleteCategoriesJob::onQueue('catch-high') (line 31)
  */
 class CategoryQueueAssignmentTest extends TestCase
 {
@@ -48,7 +48,7 @@ class CategoryQueueAssignmentTest extends TestCase
         $this->postJson(self::PREFIX . '/categories/import', ['file' => $file])
             ->assertStatus(202);
 
-        Queue::assertPushedOn('meem-high', ImportCategoriesJob::class);
+        Queue::assertPushedOn('catch-medium', ImportCategoriesJob::class);
         Queue::assertPushed(ImportCategoriesJob::class, 1);
     }
 
@@ -59,7 +59,7 @@ class CategoryQueueAssignmentTest extends TestCase
         $this->getJson(self::PREFIX . '/categories/export')
             ->assertStatus(202);
 
-        Queue::assertPushedOn('meem-high', ExportCategoriesJob::class);
+        Queue::assertPushedOn('catch-medium', ExportCategoriesJob::class);
         Queue::assertPushed(ExportCategoriesJob::class, 1);
     }
 
@@ -77,7 +77,7 @@ class CategoryQueueAssignmentTest extends TestCase
         $this->postJson(self::PREFIX . '/categories/bulk-delete', ['ids' => [$categoryId]])
             ->assertStatus(202);
 
-        Queue::assertPushedOn('meem-high', BulkDeleteCategoriesJob::class);
+        Queue::assertPushedOn('catch-medium', BulkDeleteCategoriesJob::class);
         Queue::assertPushed(BulkDeleteCategoriesJob::class, 1);
     }
 

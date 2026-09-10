@@ -9,7 +9,7 @@ use Marvel\Events\PaymentMethods;
 
 class CheckAndSetDefaultCard implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
 
     protected function fetchAllPaymentMethods()
     {

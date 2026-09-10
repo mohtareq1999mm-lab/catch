@@ -9,7 +9,7 @@ use Marvel\Database\Models\Order;
 
 class FlashSaleProcessed implements ShouldQueue
 {
-    public $queue = 'meem-medium';
+    public $queue = 'catch-medium';
 
 
     public $action;

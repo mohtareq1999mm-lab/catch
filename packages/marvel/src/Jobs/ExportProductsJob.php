@@ -37,7 +37,7 @@ class ExportProductsJob implements ShouldQueue
         }
         $this->importId = (int) $importId;
         $this->filters = $filters;
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-medium');
     }
 
     public function handle(): void

@@ -12,7 +12,7 @@ use Marvel\Traits\SmsTrait;
 
 class SendPaymentSuccessNotification implements ShouldQueue
 {
-    public $queue = 'meem-high';
+    public $queue = 'catch-high';
     use SmsTrait, OrderSmsTrait;
 
     /**

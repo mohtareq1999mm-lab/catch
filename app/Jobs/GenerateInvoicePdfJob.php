@@ -23,7 +23,7 @@ class GenerateInvoicePdfJob implements ShouldQueue
     public function __construct(
         public Invoice $invoice,
     ) {
-        $this->onQueue('meem-medium');
+        $this->onQueue('catch-high');
     }
 
     public function handle(): void
