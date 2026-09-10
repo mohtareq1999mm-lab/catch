@@ -50,7 +50,7 @@ public function paginateFlashSales($request)
         $FlashSale = FlashSale::valid()->search('slug', $slug, app()->getLocale())->first();
         if ($FlashSale) {
             $FlashSale->load(['products' => function ($q) {
-                $this->applyChannelHomeFilter($q);
+                $q->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq));
                 $q->with(['media'])->withAvg(['reviews' => fn($q) => $q->approved()], 'rating');
             }]);
             $this->productService->enrichCollectionWithPricing($FlashSale->products);
@@ -72,7 +72,7 @@ public function paginateFlashSales($request)
             })
             ->with([
                 'products' => function ($query) use ($qty) {
-                    $this->applyChannelHomeFilter($query);
+                    $query->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq));
                     $query->with([
                         'media',
                         'flash_sales' => fn($q) => $q->valid(),
@@ -91,8 +91,8 @@ public function paginateFlashSales($request)
         $limit = $this->capLimit($request->query('limit', 10), 10);
         $weekEnd = now()->endOfWeek();
 
-        $products = Product::query()
-            ->with(['categories', 'variations', 'brands', 'media', 'flash_sales' => fn($q) => $q->valid()])
+        $products = Product::query()->active()
+            ->with(['categories' => fn($q) => $q->active(), 'variations', 'brands' => fn($q) => $q->active(), 'media', 'flash_sales' => fn($q) => $q->valid()])
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->select([
                 'id', 'name', 'slug', 'price', 'quantity',
@@ -101,7 +101,6 @@ public function paginateFlashSales($request)
                 'start_date', 'end_date',
             ])
             ->whereNull('deleted_at')
-            ->activeStatus()
             ->where('has_flash_sale', true)
             ->whereExists(function ($query) use ($weekEnd) {
                 $query->select(DB::raw(1))
@@ -123,8 +122,8 @@ public function paginateFlashSales($request)
     {
         $limit = $this->capLimit($request->query('limit', 10), 10);
 
-        $products = Product::query()
-            ->with(['categories', 'variations', 'brands', 'media', 'flash_sales' => fn($q) => $q->valid()])
+        $products = Product::query()->active()
+            ->with(['categories' => fn($q) => $q->active(), 'variations', 'brands' => fn($q) => $q->active(), 'media', 'flash_sales' => fn($q) => $q->valid()])
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->select([
                 'id', 'name', 'slug', 'price', 'quantity',
@@ -133,7 +132,6 @@ public function paginateFlashSales($request)
                 'start_date', 'end_date',
             ])
             ->whereNull('deleted_at')
-            ->activeStatus()
             ->where('has_flash_sale', true)
             ->whereExists(function ($query) {
                 $query->select(DB::raw(1))

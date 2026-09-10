@@ -40,7 +40,7 @@ class SliderService
     {
         $slider = Slider::active()->where('slug', $slug)->first();
         if ($slider) {
-            $slider->load(['products' => fn($q) => $this->applyChannelHomeFilter($q)]);
+            $slider->load(['products' => fn($q) => $q->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq))]);
             app(ProductService::class)->enrichCollectionWithPricing($slider->products);
         }
         return $slider;

@@ -168,7 +168,7 @@ class ProductService
         $limit = $this->getLimit($request);
         $order = $request->query('order', 'desc');
 
-        $query = Product::query()
+        $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn(Builder $builder) => $builder->approved()], 'rating')
             ->withCount(['reviews' => fn(Builder $builder) => $builder->approved()]);
@@ -231,10 +231,9 @@ class ProductService
     public function getDiscountEndingTodayOrLowStockProducts($request)
     {
         $limit = $request->query('limit', 10);
-        $query = Product::query()
+        $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
-            ->activeStatus()
             ->where(function ($query) {
                 $query->where(function ($q) {
                     $q->where('has_discount', true)
@@ -290,7 +289,7 @@ class ProductService
             })
             ->with([
                 'products' => function ($query) use ($qty) {
-                    $query->with($this->productRelations())
+                    $query->active()->with($this->productRelations())
                         ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
                         ->limit($qty);
                 }
@@ -311,7 +310,7 @@ class ProductService
         $limit = $request->query('limit', 10);
         $weekEnd = now()->endOfWeek();
 
-        $query = Product::query()
+        $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->select([
@@ -320,7 +319,6 @@ class ProductService
                 'start_date', 'end_date',
             ])
             ->whereNull('deleted_at')
-            ->activeStatus()
             ->where('has_flash_sale', true)
             ->whereExists(function ($query) use ($weekEnd) {
                 $query->select(DB::raw(1))
@@ -352,7 +350,7 @@ class ProductService
     {
         $limit = $request->query('limit', 10);
 
-        $query = Product::query()
+        $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->select([
@@ -361,7 +359,6 @@ class ProductService
                 'start_date', 'end_date',
             ])
             ->whereNull('deleted_at')
-            ->activeStatus()
             ->where('has_flash_sale', true)
             ->whereExists(function ($query) {
                 $query->select(DB::raw(1))
@@ -392,7 +389,7 @@ class ProductService
     public function getAllDiscountProducts($request)
     {
         $limit = $request->query('limit', 10);
-        $query = Product::query()
+        $query = Product::query()->active()
             ->select([
                 'id', 'name', 'slug', 'price', 'quantity',
                 'has_discount', 'discount_type', 'discount_amount', 'discount_status',
@@ -401,7 +398,6 @@ class ProductService
             ->with(array_merge($this->productRelations(), ['reviews']))
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->whereNull('deleted_at')
-            ->activeStatus()
             ->where('has_discount', true);
 
         $this->applyChannelHomeFilter($query);
@@ -432,7 +428,7 @@ class ProductService
                 $query->where('created_at', '<=', $end_date);
             })
             ->with(['products' => function ($query) use ($qty) {
-                $this->applyChannelHomeFilter($query);
+                $query->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq));
                 $query->with($this->productRelations())
                     ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
                     ->limit($qty);
@@ -452,7 +448,7 @@ class ProductService
     public function getNewArrivals($request)
     {
         $limit = $request->get('limit', 10);
-        $query = Product::query()
+        $query = Product::query()->active()
             ->select([
                 'id', 'name', 'slug', 'price', 'quantity',
                 'has_discount', 'discount_type', 'discount_amount', 'discount_status',
@@ -461,7 +457,6 @@ class ProductService
             ->with(array_merge($this->productRelations(), ['reviews']))
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->whereNull('deleted_at')
-            ->activeStatus()
             ->where('has_flash_sale', false)
             ->whereDate('created_at', '>=', now()->subDays(15));
 

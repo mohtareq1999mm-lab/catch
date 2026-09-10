@@ -39,7 +39,7 @@ class BannerService
     {
         $banner = Banner::active()->search('slug', $slug, app()->getLocale())->first();
         if ($banner && $with_products !== 'false') {
-            $banner->load(['products' => fn($q) => $this->applyChannelHomeFilter($q)]);
+            $banner->load(['products' => fn($q) => $q->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq))]);
             app(ProductService::class)->enrichCollectionWithPricing($banner->products);
         }
         return $banner;

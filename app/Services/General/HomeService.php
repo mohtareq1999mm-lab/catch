@@ -377,7 +377,7 @@ private function cacheKey(string $key): string
         $parent = Category::query()->active()
             ->whereNull('parent_id')
             ->where('id', '=', $id)
-            ->withCount('products')
+            ->withCount(['products' => fn($q) => $q->active()])
             ->first();
 
         if (!$parent) {
@@ -386,7 +386,7 @@ private function cacheKey(string $key): string
 
         return $parent->children()
             ->active()
-            ->withCount('products')
+            ->withCount(['products' => fn($q) => $q->active()])
             ->orderBy('id')
             ->get();
     }
@@ -395,7 +395,7 @@ private function cacheKey(string $key): string
     private function getCategories(): Collection
     {
         $categories = Category::query()->active()
-            ->withCount('products')
+            ->withCount(['products' => fn($q) => $q->active()])
             ->orderByDesc('products_count')
             ->limit(20)
             ->get();
@@ -409,7 +409,7 @@ private function cacheKey(string $key): string
         return Category::query()
             ->active()
             ->whereNull('parent_id')
-            ->withCount('products')
+            ->withCount(['products' => fn($q) => $q->active()])
             ->with($this->categoryChildrenWith($maxDepth))
             ->orderByDesc('products_count')
             ->get();
@@ -423,7 +423,7 @@ private function cacheKey(string $key): string
 
         return [
             'children' => function ($query) use ($remainingDepth) {
-                $query->active()->withCount('products');
+                $query->active()->withCount(['products' => fn($q) => $q->active()]);
                 $query->with($this->categoryChildrenWith($remainingDepth - 1));
             },
         ];

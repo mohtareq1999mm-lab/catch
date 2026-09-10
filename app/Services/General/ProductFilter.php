@@ -23,12 +23,19 @@ class ProductFilter
     private function resolveIds(string $modelClass, array $values): array
     {
         $locale = app()->getLocale();
-        return $modelClass::where(function ($q) use ($values, $locale) {
+        $query = $modelClass::where(function ($q) use ($values, $locale) {
             foreach ($values as $val) {
                 $q->orWhere("name->{$locale}", $val)
                   ->orWhere('slug', $val);
             }
-        })->pluck('id')->toArray();
+        });
+        // Public visibility: only resolve active records when the model has an active scope.
+        if (in_array($modelClass, [Brand::class, Category::class], true)) {
+            $query->active();
+        } elseif (in_array($modelClass, [Banner::class, Slider::class], true) && method_exists($modelClass, 'scopeActive')) {
+            $query->active();
+        }
+        return $query->pluck('id')->toArray();
     }
 
     /**
@@ -40,7 +47,7 @@ class ProductFilter
     public function expandWithDescendants(array $ids): array
     {
         $allIds = $ids;
-        $children = Category::whereIn('parent_id', $ids)->pluck('id')->toArray();
+        $children = Category::active()->whereIn('parent_id', $ids)->pluck('id')->toArray();
         if (!empty($children)) {
             $allIds = array_merge($allIds, $this->expandWithDescendants($children));
         }
@@ -113,7 +120,7 @@ class ProductFilter
         if (!empty($filters['banner'])) {
             $bannerSlugs = is_array($filters['banner']) ? $filters['banner'] : explode(',', $filters['banner']);
             $locale = app()->getLocale();
-            $bannerIds = Banner::where(function ($q) use ($bannerSlugs, $locale) {
+            $bannerIds = Banner::active()->where(function ($q) use ($bannerSlugs, $locale) {
                 foreach ($bannerSlugs as $slug) {
                     $q->orWhere("title->{$locale}", $slug)
                       ->orWhere('slug', $slug);
@@ -146,7 +153,7 @@ class ProductFilter
         // 5c. Filter by Slider
         if (!empty($filters['slider'])) {
             $sliderSlugs = is_array($filters['slider']) ? $filters['slider'] : explode(',', $filters['slider']);
-            $sliderIds = Slider::where(function ($q) use ($sliderSlugs) {
+            $sliderIds = Slider::active()->where(function ($q) use ($sliderSlugs) {
                 foreach ($sliderSlugs as $slug) {
                     $q->orWhere('slug', $slug);
                 }
