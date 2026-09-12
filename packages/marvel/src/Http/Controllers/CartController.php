@@ -162,7 +162,8 @@ class CartController extends CoreController
         });
 
         $userId = $request->user()->id;
-        $existingIds = Product::whereIn('id', $items->pluck('product_id'))
+        $existingIds = Product::query()->active()
+            ->whereIn('id', $items->pluck('product_id'))
             ->whereNull('deleted_at')
             ->pluck('id')
             ->toArray();

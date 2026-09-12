@@ -476,7 +476,7 @@ class ProductService
     {
         try {
             DB::beginTransaction();
-            $product = Product::find($id);
+            $product = Product::query()->active()->find($id);
             if (!$product) {
                 return null;
             }
@@ -558,7 +558,7 @@ class ProductService
     public function getProductForParentCategory($request)
     {
         $limit = $request->integer('limit', 10);
-        $ParentCategories = Category::query()->whereNull('parent_id')->pluck('id');
+        $ParentCategories = Category::query()->active()->whereNull('parent_id')->pluck('id');
 
         $query = Product::query()
             ->active()

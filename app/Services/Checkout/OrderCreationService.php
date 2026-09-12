@@ -324,7 +324,7 @@ $quantity = max(1, (int) ($item->quantity ?? 0));
         if (!empty($giftItems)) {
             foreach ($giftItems as $gift) {
                 try {
-                    $giftProduct = \Marvel\Database\Models\Product::query()->find((int) ($gift['product_id'] ?? 0));
+                    $giftProduct = \Marvel\Database\Models\Product::query()->active()->find((int) ($gift['product_id'] ?? 0));
                     if (!$giftProduct) {
                         return false;
                     }

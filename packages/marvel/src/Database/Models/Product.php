@@ -81,6 +81,30 @@ class Product extends Model implements HasMedia
         ];
     }
 
+    /**
+     * Scout index hygiene: only active products are searchable publicly.
+     * Prevents inactive products from occupying Meilisearch hits/pagination slots.
+     * DB-side active gate remains in ProductService::buildScoutSearchQuery.
+     */
+    public function shouldBeSearchable(): bool
+    {
+        $isStatusActive = $this->status === true
+            || $this->status === 1
+            || $this->status === '1'
+            || $this->status === ProductStatus::PUBLISH;
+
+        if (! $isStatusActive) {
+            return false;
+        }
+
+        if ($this->in_stock) {
+            return true;
+        }
+
+        $available = (int) ($this->stock_quantity ?? 0) - (int) ($this->reserved_quantity ?? 0);
+
+        return $available > 0;
+    }
 
     protected $casts = [
         'discount_status' => 'boolean',
