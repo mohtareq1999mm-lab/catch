@@ -548,8 +548,11 @@ class Product extends Model implements HasMedia
     public function scopeActiveStatus($query)
     {
         return $query->where(function ($q) {
+            // Type-safe: boolean column (tinyint) must not coerce 'publish' string to 0
+            // `status = 'publish'` matches 0 via MySQL string→int cast (0='publish' true).
+            // Use CAST to force string comparison so 0 never matches 'publish'.
             $q->where('status', true)
-                ->orWhere('status', ProductStatus::PUBLISH);
+                ->orWhereRaw('CAST(status AS CHAR) = ?', [ProductStatus::PUBLISH]);
         });
     }
 
