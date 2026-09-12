@@ -558,6 +558,12 @@ class Product extends Model implements HasMedia
         return $query->activeStatus()->where(function ($builder) {
             $builder->where('in_stock', true)
                 ->orWhereRaw('(COALESCE(stock_quantity, 0) - COALESCE(reserved_quantity, 0)) > 0');
+        })->where(function ($q) {
+            $q->whereDoesntHave('categories')
+              ->orWhereHas('categories', fn($cq) => $cq->active());
+        })->where(function ($q) {
+            $q->whereDoesntHave('brands')
+              ->orWhereHas('brands', fn($bq) => $bq->active());
         });
     }
 
