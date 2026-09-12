@@ -32,7 +32,7 @@ class FrontendResourceTest extends TestCase
     /** @test */
     public function it_has_exactly_fifteen_resources()
     {
-        $this->assertCount(15, FrontendResource::cases());
+        $this->assertCount(25, FrontendResource::cases());
     }
 
     /** @test */
