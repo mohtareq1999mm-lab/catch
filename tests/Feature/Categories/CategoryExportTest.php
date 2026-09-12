@@ -146,7 +146,7 @@ class CategoryExportTest extends TestCase
 
     public function test_download_returns_file_when_completed(): void
     {
-        Storage::fake('public');
+        Storage::fake('imports');
 
         Sanctum::actingAs($this->adminUser);
 
@@ -161,7 +161,7 @@ class CategoryExportTest extends TestCase
             'failed_rows' => 0,
             'created_by' => $this->adminUser->id]);
 
-        Storage::disk('public')->put('categories-export-test.xlsx', 'fake-content');
+        Storage::disk('imports')->put('categories-export-test.xlsx', 'fake-content');
 
         $response = $this->getJson(self::PREFIX . "/categories/export/{$import->id}/download");
 
@@ -245,7 +245,7 @@ class CategoryExportTest extends TestCase
 
     public function test_export_job_completes_and_writes_file(): void
     {
-        Storage::fake('public');
+        Storage::fake('imports');
 
         Category::create(['name' => ['en' => 'Electronics'], 'slug' => 'electronics']);
 
@@ -268,6 +268,7 @@ class CategoryExportTest extends TestCase
         $this->assertEquals('completed', $import->status);
         $this->assertEquals(1, $import->success_rows);
         $this->assertNotEmpty($import->file_path);
-        Storage::disk('public')->assertExists($import->file_path);
+        $this->assertStringContainsString((string) $import->id, $import->file_path);
+        Storage::disk('imports')->assertExists($import->file_path);
     }
 }

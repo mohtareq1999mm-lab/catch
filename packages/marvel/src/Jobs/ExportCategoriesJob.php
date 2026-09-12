@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Storage;
 use Marvel\Database\Models\Import;
 use Marvel\Exports\CategoriesExport;
 use Throwable;
@@ -38,21 +39,34 @@ class ExportCategoriesJob implements ShouldQueue
             return;
         }
 
-        $import->update([
-            'status' => 'processing',
-            'processed_rows' => 0,
-            'success_rows' => 0,
-            'failed_rows' => 0,
-        ]);
+        $updated = Import::where('id', $this->importId)
+            ->whereIn('status', ['pending', 'processing'])
+            ->update([
+                'status' => 'processing',
+                'processed_rows' => 0,
+                'success_rows' => 0,
+                'failed_rows' => 0,
+            ]);
+        $import->refresh();
+        if ($updated === 0 && $import->status !== 'processing') {
+            if ($import->isTerminal()) {
+                return;
+            }
+        }
 
+        $filename = null;
         try {
             $export = new CategoriesExport();
 
             $rowCount = $export->collection()->count();
 
-            $filename = 'categories-export-' . now()->format('Y-m-d-His') . '.xlsx';
+            $filename = 'categories-export-' . $this->importId . '-' . now()->format('Y-m-d-His') . '.xlsx';
 
             $export->store($filename, 'imports');
+
+            if (! \Illuminate\Support\Facades\Storage::disk('imports')->exists($filename)) {
+                throw new \RuntimeException('Export file was not created');
+            }
 
             $import->update([
                 'status' => 'completed',
@@ -80,6 +94,15 @@ class ExportCategoriesJob implements ShouldQueue
                 ]
             );
         } catch (Throwable $e) {
+            if ($filename !== null) {
+                try {
+                    if (\Illuminate\Support\Facades\Storage::disk('imports')->exists($filename)) {
+                        \Illuminate\Support\Facades\Storage::disk('imports')->delete($filename);
+                    }
+                } catch (Throwable $cleanup) {
+                    report($cleanup);
+                }
+            }
             $import->update(['status' => 'failed']);
 
             $this->broadcastFileOperationTerminal(
