@@ -2,13 +2,16 @@
 
 namespace Marvel\Jobs;
 
+use App\Enums\FrontendResource;
 use App\Events\FileOperationEvent;
+use App\Services\General\HomeService;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use Marvel\Database\Models\Import;
@@ -269,6 +272,10 @@ class ImportCategoriesJob implements ShouldQueue
                 'errors' => $failedRows,
             ]);
 
+            if ($successCount > 0) {
+                $this->invalidateFrontendCaches();
+            }
+
             $this->broadcastCategoryImportTerminal($status, !empty($failedRows), [
                 'progress' => 100.0,
                 'total_rows' => $successCount + count($failedRows),
@@ -416,5 +423,23 @@ class ImportCategoriesJob implements ShouldQueue
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');
         }
+    }
+
+    protected function invalidateFrontendCaches(): void
+    {
+        try {
+            $needsFlush = false;
+            foreach ([FrontendResource::CATEGORIES->value, FrontendResource::PRODUCTS->value, FrontendResource::BRANDS_PRODUCTS->value] as $tag) {
+                try {
+                    Cache::tags([$tag])->flush();
+                    if (! Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
+                        $needsFlush = true;
+                    }
+                } catch (\BadMethodCallException) { $needsFlush = true; }
+            }
+            if ($needsFlush) Cache::flush();
+            HomeService::clearCache();
+            Cache::increment('api_cache_version');
+        } catch (\Throwable $e) { report($e); }
     }
 }

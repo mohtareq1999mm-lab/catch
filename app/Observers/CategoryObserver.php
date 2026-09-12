@@ -6,6 +6,7 @@ use App\Enums\FrontendResource;
 use App\Jobs\LogActivityJob;
 use App\Services\General\HomeService;
 use App\Traits\HasCache;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Category;
 
@@ -16,7 +17,9 @@ class CategoryObserver
     public function created(Category $category): void
     {
         HomeService::clearCache();
-        $this->flushTag(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
+        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
 
         LogActivityJob::dispatch(
             get_class($category),
@@ -38,7 +41,9 @@ class CategoryObserver
         }
 
         HomeService::clearCache();
-        $this->flushTag(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
+        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
 
         $statusChanged = array_key_exists('status', $dirty);
         $hasOtherChanges = count($dirty) > ($statusChanged ? 1 : 0);
@@ -86,7 +91,9 @@ class CategoryObserver
     public function deleted(Category $category): void
     {
         HomeService::clearCache();
-        $this->flushTag(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
+        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
 
         LogActivityJob::dispatch(
             get_class($category),
@@ -101,6 +108,22 @@ class CategoryObserver
     public function restored(Category $category): void
     {
         HomeService::clearCache();
-        $this->flushTag(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
+        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
+    }
+
+    private function flushTagWithFallback(string $tag): void
+    {
+        try {
+            $this->flushTag($tag);
+            if (! Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
+                Cache::flush();
+            }
+        } catch (\BadMethodCallException) {
+            Cache::flush();
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

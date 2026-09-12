@@ -97,6 +97,8 @@ class FastShippingService
                 throw new \InvalidArgumentException('Cart is empty.');
             }
 
+            $this->assertCartProductsActive($cart);
+
             if ($cart->coupon) {
                 $validation = CouponValidator::validateByCode($cart->coupon, $user, $cart->items);
                 if (!$validation['valid']) {
@@ -209,5 +211,17 @@ class FastShippingService
         }
 
         return min($limit, 100);
+    }
+
+    private function assertCartProductsActive(\Marvel\Database\Models\Cart $cart): void
+    {
+        $productIds = $cart->items->pluck('product_id')->filter()->unique()->values();
+        if ($productIds->isEmpty()) {
+            return;
+        }
+        $activeCount = \Marvel\Database\Models\Product::query()->active()->whereIn('id', $productIds)->count();
+        if ($activeCount !== $productIds->count()) {
+            throw new \InvalidArgumentException(__('product.not_available'));
+        }
     }
 }

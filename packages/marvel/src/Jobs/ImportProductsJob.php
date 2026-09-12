@@ -4,6 +4,9 @@ namespace Marvel\Jobs;
 
 use App\Events\FileOperationEvent;
 use App\Traits\BroadcastsFileOperationProgress;
+use App\Enums\FrontendResource;
+use App\Services\General\HomeService;
+use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\ImportStatus;
 use Marvel\Exceptions\ImportCancelledException;
@@ -292,6 +295,11 @@ class ImportProductsJob implements ShouldQueue
                 'status' => $status,
             ]);
 
+            // Invalidate frontend caches if any product rows were mutated (even if partially succeeded)
+            if ($successCount > 0 || $service->getVariantSuccessCount() > 0) {
+                $this->invalidateFrontendCaches();
+            }
+
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
                 'product-import',
@@ -463,6 +471,38 @@ class ImportProductsJob implements ShouldQueue
             );
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');
+        }
+    }
+
+    protected function invalidateFrontendCaches(): void
+    {
+        try {
+            $needsFlush = false;
+            $tags = [FrontendResource::PRODUCTS->value];
+            try {
+                $resolver = app(\App\Services\General\ProductEngine\ProductStrategyResolver::class);
+                foreach ($resolver->supportedTypes() as $type) {
+                    $tags[] = FrontendResource::PRODUCTS->value . '_' . $type;
+                }
+            } catch (\Throwable $e) {}
+            $tags = array_merge($tags, [FrontendResource::CATEGORIES->value, FrontendResource::BRANDS->value, FrontendResource::BRANDS_PRODUCTS->value]);
+            foreach ($tags as $tag) {
+                try {
+                    Cache::tags([$tag])->flush();
+                    if (! Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
+                        $needsFlush = true;
+                    }
+                } catch (\BadMethodCallException) {
+                    $needsFlush = true;
+                }
+            }
+            if ($needsFlush) {
+                Cache::flush();
+            }
+            HomeService::clearCache();
+            Cache::increment('api_cache_version');
+        } catch (\Throwable $e) {
+            report($e);
         }
     }
 }

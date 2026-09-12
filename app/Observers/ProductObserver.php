@@ -7,9 +7,11 @@ use App\Events\ProductBackInStock;
 use App\Events\ProductDiscountChanged;
 use App\Events\ProductPriceDrop;
 use App\Jobs\LogActivityJob;
+use App\Services\General\HomeService;
 use App\Services\General\ProductEngine\ProductStrategyResolver;
 use App\Traits\HasCache;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Product;
 
 class ProductObserver
@@ -185,10 +187,35 @@ class ProductObserver
      */
     private function flushProductCaches(): void
     {
-        $this->flushTag(FrontendResource::PRODUCTS->value);
+        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
 
         foreach (app(ProductStrategyResolver::class)->supportedTypes() as $type) {
-            $this->flushTag(FrontendResource::PRODUCTS->value . '_' . $type);
+            $this->flushTagWithFallback(FrontendResource::PRODUCTS->value . '_' . $type);
+        }
+
+        // Product mutations affect home page product sections and category/brand aggregations
+        HomeService::clearCache();
+        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
+        $this->flushTagWithFallback(FrontendResource::BRANDS->value);
+        $this->flushTagWithFallback(FrontendResource::BRANDS_PRODUCTS->value);
+
+        try {
+            Cache::increment('api_cache_version');
+        } catch (\Throwable $e) {
+        }
+    }
+
+    private function flushTagWithFallback(string $tag): void
+    {
+        try {
+            $this->flushTag($tag);
+            if (! Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
+                Cache::flush();
+            }
+        } catch (\BadMethodCallException) {
+            Cache::flush();
+        } catch (\Throwable $e) {
+            report($e);
         }
     }
 }

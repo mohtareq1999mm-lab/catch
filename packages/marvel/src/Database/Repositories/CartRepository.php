@@ -145,7 +145,7 @@ $affected = $cart->items()
             return false;
         }
 
-        $product = Product::findOrFail($productId);
+        $product = Product::query()->active()->findOrFail($productId);
         $productName = is_array($product->name) ? ($product->name[app()->getLocale()] ?? $product->name['en'] ?? '') : $product->name;
 
         if ($shippingMethod === ShippingMethod::FAST && !$product->is_fast_shipping_available) {

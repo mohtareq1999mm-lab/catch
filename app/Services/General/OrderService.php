@@ -197,6 +197,7 @@ class OrderService
                 }
 
             $this->refreshCartItemPrices($cart);
+            $this->assertCartProductsActive($cart);
 
             $freeShippingCoupon = false;
             if ($cart->coupon) {
@@ -1044,6 +1045,22 @@ private function canTransitionOrderStatus(string $from, string $to): bool
 
         if (Schema::hasColumn('orders', 'coupon_consumed')) {
             $order->update(['coupon_consumed' => true]);
+        }
+    }
+
+    /**
+     * Public checkout must not create an order for inactive products.
+     * Inactive = status != publish OR out-of-stock with no available quantity.
+     */
+    private function assertCartProductsActive(Cart $cart): void
+    {
+        $productIds = $cart->items->pluck('product_id')->filter()->unique()->values();
+        if ($productIds->isEmpty()) {
+            return;
+        }
+        $activeCount = Product::query()->active()->whereIn('id', $productIds)->count();
+        if ($activeCount !== $productIds->count()) {
+            throw new \InvalidArgumentException(__('product.not_available'));
         }
     }
 }

@@ -656,9 +656,15 @@ class ProductImportService
             if ($this->urlHandler && $this->urlHandler->isValidUrl($imageUrl)) {
                 $downloaded = $this->urlHandler->download($imageUrl);
                 if ($downloaded) {
-                    $this->urlHandler->attachToModel($product, $downloaded, 'products');
-                    $this->urlHandler->cleanup($downloaded);
-                    $handled = true;
+                    // Idempotency: skip if identical file already attached (hash comparison)
+                    if ($this->isDuplicateMedia($product, $downloaded)) {
+                        $this->urlHandler->cleanup($downloaded);
+                        $handled = true;
+                    } else {
+                        $this->urlHandler->attachToModel($product, $downloaded, 'products');
+                        $this->urlHandler->cleanup($downloaded);
+                        $handled = true;
+                    }
                 } else {
                     $this->imageErrors[] = [
                         'sheet' => 'images',
@@ -668,8 +674,12 @@ class ProductImportService
                     ];
                 }
             } elseif (file_exists($imageUrl)) {
-                $product->addMedia($imageUrl)->toMediaCollection('products');
-                $handled = true;
+                if ($this->isDuplicateMedia($product, $imageUrl)) {
+                    $handled = true;
+                } else {
+                    $product->addMedia($imageUrl)->toMediaCollection('products');
+                    $handled = true;
+                }
             } else {
                 $this->imageErrors[] = [
                     'sheet' => 'images',
@@ -1002,6 +1012,37 @@ class ProductImportService
         }
         if (is_string($value)) {
             return in_array(strtolower($value), ['1', 'true', 'yes', 'publish', 'approved']);
+        }
+        return false;
+    }
+
+    /**
+     * Check if the given file is already attached to the product (by content hash) to ensure re-import idempotency.
+     */
+    protected function isDuplicateMedia(Product $product, string $filePath): bool
+    {
+        try {
+            if (!file_exists($filePath)) {
+                return false;
+            }
+            $newHash = @md5_file($filePath);
+            if ($newHash === false) {
+                return false;
+            }
+            $product->loadMissing('media');
+            foreach ($product->getMedia('products') as $media) {
+                $existingPath = $media->getPath();
+                if (!file_exists($existingPath)) {
+                    continue;
+                }
+                $existingHash = @md5_file($existingPath);
+                if ($existingHash !== false && hash_equals($existingHash, $newHash)) {
+                    return true;
+                }
+                // Fallback: same file size + same mime exact length comparison already covered by hash
+            }
+        } catch (\Throwable $e) {
+            report($e);
         }
         return false;
     }
