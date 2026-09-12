@@ -23,7 +23,7 @@ class ExportProductsJob implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 900;
+    public int $timeout = 1200;
 
     protected int $importId;
 
