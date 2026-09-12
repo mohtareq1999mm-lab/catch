@@ -13,7 +13,7 @@
 
 Upload an Excel file and queue an asynchronous brand import.
 
-The HTTP request **only queues the import**. The actual Excel processing happens asynchronously via `ImportBrandsJob` on the `meem-medium` queue.
+The HTTP request **only queues the import**. The actual Excel processing happens asynchronously via `ImportBrandsJob` on the `catch-medium` queue (verified `ImportBrandsJob.php:40` `onQueue('catch-medium')`; legacy docs referenced `meem-medium`).
 
 **Authentication**: `auth:sanctum`, permission: `import-brand` (or `super_admin`)
 
@@ -77,7 +77,7 @@ curl -X POST "http://example.com/api/v1/brands/import" \
 - `total_rows` is estimated via PhpSpreadsheet `getHighestDataRow()` across all sheets (may over-count; reconciled by job)
 - An `imports` row is created with `type = brand` (DB stores `brand`; `ImportType::BRAND_IMPORT` is `brand-import`), `status = pending`, `created_by = user.id`
 - A `progress_{id}.json` signal file is seeded with `{processed:0, success:0, failed:0}`
-- `ImportBrandsJob` is dispatched on `meem-medium` (tries 3, timeout 1500s, backoff 60/120/240)
+- `ImportBrandsJob` is dispatched on `catch-medium` (tries 3, timeout 1500s, backoff 60/120/240) — verified `onQueue('catch-medium')`
 - Track progress with `GET /brands/import/{id}` using the returned `import_id`
 
 ---
@@ -296,17 +296,23 @@ curl -X GET "http://example.com/api/v1/brands/import/42/download-errors" \
 
 ---
 
-### GET /api/v1/brands/export
+### GET /api/v1/brands/export + POST /api/v1/brands/export
 
-Queue an asynchronous Excel export of all brands.
+Queue an asynchronous Excel export of all brands. **Both** `GET /brands/export` (legacy) and `POST /brands/export` (`admin.brands.export.post`) dispatch the same controller `BrandExportController@export` and are interchangeable. `POST` is the preferred method for clients that send `Idempotency-Key`.
 
-The request **only queues the export**. File generation runs via `ExportBrandsJob` on `meem-medium`.
+The request **only queues the export**. File generation runs via `ExportBrandsJob` on `catch-medium` (verified `packages/marvel/src/Jobs/ExportBrandsJob.php:32` `onQueue('catch-medium')`; earlier docs referenced `meem-medium`).
 
-**Authentication**: `auth:sanctum`, permission: `export-brand` (or `super_admin`)
+**Authentication**: `auth:sanctum` (`Rest/Routes.php` admin group) + permission: `export-brand` (or `super_admin` via `BrandExportController::__construct` `permission:export-brand|super_admin`)
+
+**Headers (optional, POST only)**:
+
+| Header | Type | Purpose |
+|--------|------|---------|
+| `Idempotency-Key` / `X-Idempotency-Key` | string | Deduplicate retries. Value is scoped to `userId + key` → `Cache::has('idempotency:brand-export:{user}:{key}')`. If hit and `Import::whereOperationType(BRAND_EXPORT)->find(cachedId)` exists, controller returns `202` replay with same `export_id` (no new row). TTL 24h. Without header, each request creates a new pending row. |
 
 **Query Parameters**: None. Exports **all** brands ordered by `id` asc. No filters.
 
-**Response 202**:
+**Response 202** (new or replay):
 ```json
 {
   "status": 202,
@@ -316,18 +322,27 @@ The request **only queues the export**. File generation runs via `ExportBrandsJo
 }
 ```
 
-**Quick Test**:
+**Quick Test (GET legacy)**:
 ```bash
 curl -X GET "http://example.com/api/v1/brands/export" \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer [REDACTED:Authorization header]" \
+  -H "Accept: application/json"
+```
+
+**Quick Test (POST preferred with idempotency)**:
+```bash
+curl -X POST "http://example.com/api/v1/brands/export" \
+  -H "Authorization: Bearer [REDACTED:Authorization header]" \
+  -H "Idempotency-Key: brand-export-$(uuidgen)" \
   -H "Accept: application/json"
 ```
 
 **Business Rules**:
-- Creates `imports` row with `type='brand-export'`, `status='pending'`, `file_path=''`, `file_name=''`, `total_rows=0`
-- Dispatches `ExportBrandsJob` on `meem-medium` (tries 2, timeout 600s)
-- File is written to the `imports` disk (`../../storage/app/imports` by convention) as `brands-export-{Y-m-d-His}.xlsx`
-- Poll `GET /brands/export/{id}` with `export_id`
+- Creates `imports` row with `type='brand-export'` (`FileOperationType::BRAND_EXPORT`), `status='pending'`, `file_path=''`, `file_name=''`, `total_rows=0`, `created_by=userId`
+- If `Idempotency-Key` present, caches mapping `idempotency:brand-export:{user}:{key} → export_id` for 24h
+- Dispatches `ExportBrandsJob` on `catch-medium` (tries 2, timeout 600s, `retry_after 1800` in `config/queue.php:database`)
+- File is written to the `imports` disk (`storage/app/private/imports`, `config/filesystems.php:imports` private) as `brands-export-{id}-{Y-m-d-His}.xlsx` (id included to prevent `His`-second collision; verified `ExportBrandsJob.php:88`)
+- Poll `GET /brands/export/{id}` with `export_id`; then `GET /brands/export/{id}/download` when `completed`
 
 ---
 
@@ -393,26 +408,27 @@ Download the generated brand export file.
 |-----------|------|-------------|
 | id | int | Export ID |
 
-**Response 200**: Binary `.xlsx` (`brands-export-{timestamp}.xlsx`, content-type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`)
+**Response 200**: Binary `.xlsx` (`brands-export-{id}-{timestamp}.xlsx`, e.g. `brands-export-58-2026-09-12-120000.xlsx`, content-type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`)
 
 **Response 409** (not ready):
 ```json
 { "status": 409, "message": "Export file is not ready yet", "success": false }
 ```
 
-**Response 404**: not found / wrong type.
+**Response 404**: not found / wrong type (`Import whereOperationType BRAND_EXPORT` scoped to `created_by` unless `SUPER_ADMIN`).
 
 **Quick Test**:
 ```bash
 curl -X GET "http://example.com/api/v1/brands/export/58/download" \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer [REDACTED:Authorization header]" \
   -o brands-export.xlsx
 ```
 
 **Business Rules**:
-- Only when `status='completed'` **and** file exists on the `imports` disk (`Storage::disk('imports')->exists(file_path)`)
-- Returns **409** (`EXPORT_NOT_READY`) while `pending`/`processing`/`failed` or file missing
-- The exported Excel uses the exact 7 import columns and can be re-imported
+- Only when `status='completed'` **and** file exists on the `imports` disk (`Storage::disk('imports')->exists(file_path)` in `BrandExportController.php:133`; verified private disk `storage/app/private/imports`)
+- Guard: `authorize('download', $import)` via `ImportPolicy` (owner or `SUPER_ADMIN`); non-owner scoped `where(created_by=user)` returns 404, not 403 (no enumeration)
+- Returns **409** (`EXPORT_NOT_READY`) while `pending`/`processing`/`failed` or file missing; also 404 if `id` not owned / wrong type
+- The exported Excel uses the exact 7 import columns (`name_en`, `name_ar`, `details_en`, `details_ar`, `status`, `image_desktop_url`, `image_mobile_url`) ordered `id` asc and can be re-imported; image URLs resolved from `brands-desktop`/`brands-mobile` media on `brands` disk
 
 ---
 

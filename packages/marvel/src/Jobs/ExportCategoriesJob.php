@@ -67,6 +67,20 @@ class ExportCategoriesJob implements ShouldQueue
             if (! \Illuminate\Support\Facades\Storage::disk('imports')->exists($filename)) {
                 throw new \RuntimeException('Export file was not created');
             }
+            $path = \Illuminate\Support\Facades\Storage::disk('imports')->path($filename);
+            if (!is_file($path) || filesize($path) === 0) {
+                throw new \RuntimeException('Export file is empty');
+            }
+            $zip = new \ZipArchive();
+            $zipRes = $zip->open($path);
+            if ($zipRes !== true) {
+                throw new \RuntimeException('Export file is not a valid ZIP (XLSX) — ZipArchive open failed: ' . $zipRes);
+            }
+            if ($zip->locateName('[Content_Types].xml') === false || $zip->locateName('xl/workbook.xml') === false) {
+                $zip->close();
+                throw new \RuntimeException('Export file is not a valid XLSX package (missing [Content_Types].xml or xl/workbook.xml)');
+            }
+            $zip->close();
 
             $import->update([
                 'status' => 'completed',

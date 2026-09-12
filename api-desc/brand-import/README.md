@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Brand Excel Import/Export module lets administrators bulk import and export brands through Excel files. Both flows are fully asynchronous: the HTTP request creates a tracking row in the `imports` table and dispatches a queued job on the `meem-medium` queue. Progress is shared through JSON signal files under `../../storage/app/imports` (`progress_{id}.json`, `cancel_{id}.json`) plus the `imports` table itself.
+The Brand Excel Import/Export module lets administrators bulk import and export brands through Excel files. Both flows are fully asynchronous: the HTTP request creates a tracking row in the `imports` table and dispatches a queued job on the `catch-medium` queue (`packages/marvel/src/Jobs/ImportBrandsJob.php:40`, `ExportBrandsJob.php:32` `onQueue('catch-medium')`). Progress is shared through JSON signal files under `storage/app/imports` (`progress_{id}.json`, `cancel_{id}.json`) plus the `imports` table itself. Export is reachable via **both** `GET /brands/export` (legacy) and `POST /brands/export` (preferred, idempotency-ready) — both create the same pending operation.
 
 Import identity is the normalized English name (`name_en`). A matching `name_en` updates the existing brand in place; a new `name_en` creates a brand with a deterministic `Str::slug(name_en)`. Image URLs are downloaded with SSRF protection into Spatie media collections (`brands-desktop`, `brands-mobile`).
 
@@ -47,14 +47,14 @@ The module is Marvel-owned but exposed through the admin `auth:sanctum` + `throt
 | Permission | Value | Required For |
 |------------|-------|--------------|
 | `IMPORT_BRAND` | `import-brand` | `POST /brands/import`, `GET /brands/import/*` (sample, status, cancel, download-errors) |
-| `EXPORT_BRAND` | `export-brand` | `GET /brands/export*` |
+| `EXPORT_BRAND` | `export-brand` | `GET /brands/export`, `POST /brands/export`, `GET /brands/export/*` |
 | `SUPER_ADMIN` | `super_admin` | Bypasses both checks (OR) |
 
 Controller constructor: `$this->middleware('permission:' . Permission::IMPORT_BRAND . '|' . Permission::SUPER_ADMIN)` (import) and `EXPORT_BRAND` (export). Route group adds `auth:sanctum` + `throttle:admin`.
 
 ## Routes
 
-### Admin (`/api/v1/brands`) — `../../packages/marvel/src/Rest/Routes.php`
+### Admin (`/api/v1/brands`) — `../../packages/marvel/src/Rest/Routes.php` (lines 136-144)
 
 | Method | URL | Name | Auth | Purpose |
 |--------|-----|------|------|---------|
@@ -63,7 +63,8 @@ Controller constructor: `$this->middleware('permission:' . Permission::IMPORT_BR
 | GET | `/api/v1/brands/import/{id}` | `admin.brands.import.status` | sanctum + `import-brand` | Poll import progress |
 | POST | `/api/v1/brands/import/{id}/cancel` | `admin.brands.import.cancel` | sanctum + `import-brand` | Cancel import |
 | GET | `/api/v1/brands/import/{id}/download-errors` | `admin.brands.import.download-errors` | sanctum + `import-brand` | Download error report |
-| GET | `/api/v1/brands/export` | `admin.brands.export` | sanctum + `export-brand` | Queue Excel export |
+| GET | `/api/v1/brands/export` | `admin.brands.export` | sanctum + `export-brand` | Queue Excel export (legacy GET) |
+| POST | `/api/v1/brands/export` | `admin.brands.export.post` | sanctum + `export-brand` | Queue Excel export (preferred) |
 | GET | `/api/v1/brands/export/{id}` | `admin.brands.export.status` | sanctum + `export-brand` | Poll export status |
 | GET | `/api/v1/brands/export/{id}/download` | `admin.brands.export.download` | sanctum + `export-brand` | Download export file |
 

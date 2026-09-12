@@ -14,6 +14,16 @@ class CacheApiResponse
         'api/general/checkout',
         'api/general/checkout/*',
         'api/general/coupons/apply',
+        'api/*/brands/import*',
+        'api/*/brands/export*',
+        'api/*/categories/import*',
+        'api/*/categories/export*',
+        'api/*/products/import*',
+        'api/*/products/export*',
+        'api/*/import/*',
+        'api/*/export/*',
+        'api/*/download-errors',
+        'api/*/download',
     ];
 
     protected int $ttl = 3600;
@@ -45,6 +55,17 @@ class CacheApiResponse
         $response = $next($request);
 
         if ($response->isSuccessful()) {
+            // Never cache file downloads (BinaryFileResponse/StreamedResponse) — getContent() is empty for streamed files
+            // and would cache an empty body, causing Excel "invalid format" on replay.
+            if ($response instanceof \Symfony\Component\HttpFoundation\BinaryFileResponse
+                || $response instanceof \Symfony\Component\HttpFoundation\StreamedResponse) {
+                return $response;
+            }
+            $contentType = $response->headers->get('Content-Type', '');
+            if (str_contains($contentType, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                || str_contains($contentType, 'application/octet-stream')) {
+                return $response;
+            }
             Cache::put($key, [
                 'content' => $response->getContent(),
                 'status'  => $response->getStatusCode(),

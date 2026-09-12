@@ -2,13 +2,13 @@
 
 ## Overview
 
-The Brand Excel Import/Export module is an async bulk-operation surface built atop the shared `imports` table. Every request creates a tracking row and dispatches a queued job on `meem-medium`; progress is mirrored in JSON signal files (`storage/app/imports/progress_{id}.json`, `cancel_{id}.json`) and in broadcasts (`FileOperationEvent`). Import identity is the normalized English name; slugging is deterministic via `Str::slug`. Images are fetched SSRF-safe into Spatie media collections.
+The Brand Excel Import/Export module is an async bulk-operation surface built atop the shared `imports` table. Every request creates a tracking row and dispatches a queued job on `catch-medium` (`ImportBrandsJob.php:40`, `ExportBrandsJob.php:32` — verified `onQueue('catch-medium')`; earlier docs referenced `meem-medium` which is the legacy name); progress is mirrored in JSON signal files (`storage/app/imports/progress_{id}.json`, `cancel_{id}.json`) and in broadcasts (`FileOperationEvent`). Import identity is the normalized English name; slugging is deterministic via `Str::slug`. Images are fetched SSRF-safe into Spatie media collections.
 
-Unlike Category import, Brand import has **no hierarchy** (no `parent_name_en`, no `is_featured`, no level/cycle logic), and export is a flat `id-asc` dump. Brand jobs run on `meem-medium` (category runs on `meem-high`).
+Unlike Category import, Brand import has **no hierarchy** (no `parent_name_en`, no `is_featured`, no level/cycle logic), and export is a flat `id-asc` dump. Brand jobs run on `catch-medium` (consistent with `ProductExport`/`Import` classification: file workloads → `catch-medium`, not `catch-high` order pipeline).
 
 ## Endpoints
 
-### Admin API (`/api/v1/brands`)
+### Admin API (`/api/v1/brands`) — 9 routes
 
 | Method | URL | Auth | Permission | Purpose |
 |--------|-----|------|------------|---------|
@@ -17,7 +17,8 @@ Unlike Category import, Brand import has **no hierarchy** (no `parent_name_en`, 
 | GET | `/api/v1/brands/import/{id}` | `auth:sanctum` | `import-brand` | Fetch import status/progress |
 | POST | `/api/v1/brands/import/{id}/cancel` | `auth:sanctum` | `import-brand` | Cancel pending/processing import |
 | GET | `/api/v1/brands/import/{id}/download-errors` | `auth:sanctum` | `import-brand` | Download failed rows as xlsx |
-| GET | `/api/v1/brands/export` | `auth:sanctum` | `export-brand` | Queue brand Excel export |
+| GET | `/api/v1/brands/export` | `auth:sanctum` | `export-brand` | Queue brand Excel export (legacy GET) |
+| POST | `/api/v1/brands/export` | `auth:sanctum` | `export-brand` | Queue brand Excel export (preferred) |
 | GET | `/api/v1/brands/export/{id}` | `auth:sanctum` | `export-brand` | Fetch export status |
 | GET | `/api/v1/brands/export/{id}/download` | `auth:sanctum` | `export-brand` | Download export xlsx |
 
@@ -25,19 +26,20 @@ Unlike Category import, Brand import has **no hierarchy** (no `parent_name_en`, 
 
 ## Route Definitions
 
-**File:** `../../packages/marvel/src/Rest/Routes.php` (admin group, inside `auth:sanctum` + `throttle:admin`)
+**File:** `../../packages/marvel/src/Rest/Routes.php` (admin group, `auth:sanctum` + `throttle:admin`, `whereNumber('id')` + `authorize('view'|'download')` in controllers)
 
 ```
-Line 139: Route::post('brands/import',           [BrandImportController::class, 'import'])->name('admin.brands.import');
-Line 140: Route::get('brands/import/sample',     [BrandImportController::class, 'downloadSample'])->name('admin.brands.import.sample');
-Line 141: Route::get('brands/import/{id}',       [BrandImportController::class, 'status'])->whereNumber('id')->name('admin.brands.import.status');
-Line 142: Route::post('brands/import/{id}/cancel',[BrandImportController::class, 'cancel'])->whereNumber('id')->name('admin.brands.import.cancel');
-Line 143: Route::get('brands/import/{id}/download-errors', [BrandImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.brands.import.download-errors');
-Line 144: Route::get('brands/export',            [BrandExportController::class, 'export'])->name('admin.brands.export');
-Line 145: Route::get('brands/export/{id}',       [BrandExportController::class, 'status'])->whereNumber('id')->name('admin.brands.export.status');
-Line 146: Route::get('brands/export/{id}/download', [BrandExportController::class, 'download'])->whereNumber('id')->name('admin.brands.export.download');
-Line 147: Route::put('brands/reorder',           [BrandController::class, 'reorder']);
-Line 148: Route::apiResource('brands',           BrandController::class);
+Line 136: Route::post('brands/import',           [BrandImportController::class, 'import'])->name('admin.brands.import');
+Line 137: Route::get('brands/import/sample',     [BrandImportController::class, 'downloadSample'])->name('admin.brands.import.sample');
+Line 138: Route::get('brands/import/{id}',       [BrandImportController::class, 'status'])->whereNumber('id')->name('admin.brands.import.status');
+Line 139: Route::post('brands/import/{id}/cancel',[BrandImportController::class, 'cancel'])->whereNumber('id')->name('admin.brands.import.cancel');
+Line 140: Route::get('brands/import/{id}/download-errors', [BrandImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.brands.import.download-errors');
+Line 141: Route::get('brands/export',            [BrandExportController::class, 'export'])->name('admin.brands.export');
+Line 142: Route::post('brands/export',           [BrandExportController::class, 'export'])->name('admin.brands.export.post');
+Line 143: Route::get('brands/export/{id}',       [BrandExportController::class, 'status'])->whereNumber('id')->name('admin.brands.export.status');
+Line 144: Route::get('brands/export/{id}/download', [BrandExportController::class, 'download'])->whereNumber('id')->name('admin.brands.export.download');
+Line 145: Route::put('brands/reorder',           [BrandController::class, 'reorder']);
+Line 146: Route::apiResource('brands',           BrandController::class);
 ```
 
 > **Order matters:** import/export static routes are **before** `apiResource('brands')` so `GET /brands/export` and `GET /brands/import/sample` are not captured by `brands/{brand}`.
@@ -117,38 +119,44 @@ GET /brands/import/{id}/download-errors
 ```
 
 ### BrandExportController
-**File:** `../../packages/marvel/src/Http/Controllers/BrandExportController.php` (106 lines)
+**File:** `../../packages/marvel/src/Http/Controllers/BrandExportController.php` (145 lines)
 **Traits:** `ApiResponse`
+**Idempotency:** `Idempotency-Key` / `X-Idempotency-Key` header → `Cache::has('idempotency:brand-export:{userId}:{key}')` → 202 replay with existing `export_id` (24h TTL); otherwise creates new pending row.
 
 ```
-GET /brands/export
-  → BrandExportController@export(Request)
-    → Import::create(type='brand-export', file_path='', file_name='', status='pending', created_by)
-    → ExportBrandsJob::dispatch(import_id) [meem-medium]
-    → 202 { export_id, status }
+GET  /brands/export  +  POST /brands/export   (both map to same export() → 202)
+  → BrandExportController@export(Request)  [GET legacy, POST preferred]
+    → if Idempotency-Key header present and Cache::has(idempotency:brand-export:{user}:{key}) → Import::whereOperationType(BRAND_EXPORT)->find(cachedId) → 202 replay {export_id,status}
+    → else Import::create(type='brand-export', file_path='', file_name='', status='pending', created_by, total_rows=0)
+    → Cache::put(idempotency:brand-export:{user}:{key}, export_id, 24h) if header present
+    → ExportBrandsJob::dispatch(import_id) [catch-medium, tries 2, timeout 600]
+    → 202 { export_id, status:pending }  (message BRAND_EXPORT_STARTED)
 
 GET /brands/export/{id}
   → BrandExportController@status(id)
-    → Import::where(type=BRAND_EXPORT)->select([...])->findOrFail(id); authorize('view')
-    → 200 { id, status, total_rows, processed_rows, successful_rows, failed_rows, errors, created_at, completed_at }
-    → Cache-Control no-cache
+    → Import::whereOperationType(BRAND_EXPORT)->where(created_by=user unless SUPER_ADMIN)->select([...])->findOrFail(id); authorize('view', $import) [ImportPolicy owner/SUPER_ADMIN]
+    → isTerminal = in(completed,completed_with_errors,failed,cancelled)
+    → 200 { id, status, total_rows, processed_rows, successful_rows, failed_rows, errors, error_count, created_at, completed_at:isTerminal?updated_at:null }
+    → headers: Cache-Control: no-cache, no-store, must-revalidate / Pragma: no-cache / Expires: 0
 
 GET /brands/export/{id}/download
   → BrandExportController@download(id)
-    → Import::where(type=BRAND_EXPORT)->select([id,status,file_path,file_name,created_by])->findOrFail(id); authorize('view')
-    → if status !== 'completed' || !file_path || !Storage::disk('imports')->exists(file_path) → 409 EXPORT_NOT_READY
-    → response()->download(Storage::disk('imports')->path(file_path), file_name ?: basename(file_path), Content-Type xlsx)
+    → same scoped findOrFail + authorize('download', $import) [ImportPolicy@download — owner or SUPER_ADMIN]
+    → if status !== 'completed' || !file_path || !Storage::disk('imports')->exists(file_path) → 409 EXPORT_NOT_READY (message/message/MESSAGE.EXPORT_NOT_READY)
+    → filename = file_name ?: basename(file_path)   (actual file: brands-export-{id}-{Y-m-d-His}.xlsx on disk 'imports' → storage/app/private/imports)
+    → response()->download(Storage::disk('imports')->path(file_path), filename, ['Content-Type'=>'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
 ```
 
 ## Jobs
 
 ### ImportBrandsJob
-**File:** `../../packages/marvel/src/Jobs/ImportBrandsJob.php` (271 lines)
+**File:** `../../packages/marvel/src/Jobs/ImportBrandsJob.php` (271 lines, verified 2026-09-12)
 **Traits:** `BroadcastsFileOperationProgress`
+**Queue verified:** `onQueue('catch-medium')` — the legacy doc reference `meem-medium` is the same logical queue (renamed to `catch-medium` in `config/queue.php` default `catch-medium`, `retry_after 1800`); do not rename.
 
 | Property | Value |
 |----------|-------|
-| Queue | `meem-medium` |
+| Queue | `catch-medium` (DB, `retry_after 1800`) |
 | Tries | 3 |
 | Timeout | 1500 |
 | Backoff | [60, 120, 240] |
@@ -187,25 +195,29 @@ Signal helpers: removeSignalFile(type), cancelSignalFileExists(), cleanSignals()
 ```
 
 ### ExportBrandsJob
-**File:** `../../packages/marvel/src/Jobs/ExportBrandsJob.php` (120 lines)
+**File:** `../../packages/marvel/src/Jobs/ExportBrandsJob.php` (166 lines, verified 2026-09-12)
 
 | Property | Value |
 |----------|-------|
-| Queue | `meem-medium` |
+| Queue | `catch-medium` (DB) |
 | Tries | 2 |
 | Timeout | 600 |
 
 ```
 handle():
-  1. Import::findOrFail(importId); if already terminal → return
-  2. update status→'processing', reset counters
-  3. $export = new BrandsExport(); rowCount = export->collection()->count()
-  4. filename = 'brands-export-' + now(Y-m-d-His) + '.xlsx'; export->store(filename, 'imports')
-  5. update imports row → completed, file_path=filename, file_name=filename, total/processed/success=rowCount, failed=0, errors=[]
-  6. broadcastFileOperationTerminal(BRAND_EXPORT_COMPLETED, 'brand-export', id, completed, false, {progress:100, total:rowCount,...})
+  1. Import::findOrFail(importId); normalize type via FileOperationType::BRAND_EXPORT else mark failed and return
+  2. if status in (completed,completed_with_errors,failed,cancelled) → return
+  3. atomic: Import::where(id)->whereIn(status pending,processing)->update(status processing, reset counters); refresh; if updated===0 && !processing && isTerminal → return (prevents duplicate worker)
+  4. $export = new BrandsExport(); rowCount = export->collection()->count()
+  5. filename = 'brands-export-{id}-'+ now(Y-m-d-His) + '.xlsx'  (id included, verified 2026-09-12; previous doc omitted id and risked His-second collision)
+  6. export->store(filename, 'imports') on disk 'imports' (private, storage/app/private/imports)
+  7. verify Storage::disk('imports')->exists(filename) else throw 'Export file was not created'
+  8. update imports row → completed, file_path=filename, file_name=filename, total/processed/success=rowCount, failed=0, errors=[]
+  9. broadcastFileOperationTerminal(BRAND_EXPORT_COMPLETED, 'brand-export', id, completed, false, {progress:100, total:rowCount,...})
   catch Throwable:
-    update failed; broadcast BRAND_EXPORT_FAILED; throw
-failed(exception): if processing → update failed + broadcast
+    report(e); if filename set && Storage::disk('imports')->exists(filename) delete(filename) (cleanup partial)
+    update status failed; broadcast BRAND_EXPORT_FAILED; throw
+failed(exception): if status===processing → update failed + broadcast (queued Job::failed hook)
 ```
 
 ## Import Service
@@ -349,8 +361,8 @@ Broadcast is on `private:users.{userId}` (`ShouldBroadcastNow`). Payload is whit
 
 | Job | Queue | Tries | Timeout | Backoff |
 |-----|-------|-------|---------|---------|
-| `ImportBrandsJob` | `meem-medium` | 3 | 1500 | [60,120,240] |
-| `ExportBrandsJob` | `meem-medium` | 2 | 600 | — |
+| `ImportBrandsJob` | `catch-medium` | 3 | 1500 | [60,120,240] |
+| `ExportBrandsJob` | `catch-medium` | 2 | 600 | — |
 
 ## Permissions & Policies
 

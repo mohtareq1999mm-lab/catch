@@ -24,7 +24,7 @@ Client → POST /api/v1/brands/import (multipart/form-data, file=brands.xlsx)
          ↓
     writeSignalFile('progress', {processed:0, success:0, failed:0})
          ↓
-    ImportBrandsJob::dispatch(import_id) → meem-medium
+    ImportBrandsJob::dispatch(import_id) → catch-medium (`ImportBrandsJob.php:40` verified)
          ↓
     202 { status:202, message:BRAND_IMPORT_STARTED, success:true, data:{import_id, status:'pending'} }
 ```
@@ -32,15 +32,15 @@ Client → POST /api/v1/brands/import (multipart/form-data, file=brands.xlsx)
 ## Flow 2: Import Job Execution (Async, meem-medium)
 
 ```
-Worker → ImportBrandsJob@handle(importId)
+Worker → ImportBrandsJob@handle(importId) on `catch-medium` (tries 3, timeout 1500, backoff 60/120/240)
          ↓
     Import::select([id,status,file_path,file_name])->findOrFail
          ↓
-    cancelled? (DB status==='cancelled' || cancel signal exists) → Storage::disk('public')->delete(file); remove cancel signal; return
+    cancelled? (DB status==='cancelled' || cancel signal exists) → Storage::disk('imports')->delete(file); remove cancel signal; return
          ↓
     Already terminal (completed/completed_with_errors/failed)? → return
          ↓
-    status→'processing', reset processed/success/failed=0
+    atomic: Import::where(id)->whereIn(pending,processing)->update(status processing, reset counters); refresh; if updated===0 && !processing && isTerminal → return
          ↓
     $service = new BrandImportService(importId); service->writeExplicitProgress(1.0)
          ↓
@@ -197,46 +197,51 @@ Client → GET /api/v1/brands/import/sample
     is_file? → download as 'brand-import-sample.xlsx' (application/vnd.openxmlformats...) : 404 IMPORT.SAMPLE_NOT_FOUND
 ```
 
-## Flow 7: Queue Brand Export
+## Flow 7: Queue Brand Export (both GET and POST)
 
 ```
-Client → GET /api/v1/brands/export
+Client → GET  /api/v1/brands/export  (legacy)  ─┐
+Client → POST /api/v1/brands/export  (preferred) ┤
+         ↓                                      ├─→ BrandExportController@export(Request)
+    [auth:sanctum] → [permission:export-brand|super_admin] → [throttle:admin]
          ↓
-    [auth:sanctum] → [permission:export-brand|super_admin]
-         ↓
-    BrandExportController@export()
-         ↓
-    Import::create(type='brand-export', file_path='', file_name='', status='pending', created_by)
-         ↓
-    ExportBrandsJob::dispatch(import_id) → meem-medium
-         ↓
-    202 { status:202, message:BRAND_EXPORT_STARTED, data:{export_id, status:'pending'} }
+    Idempotency-Key check: header Idempotency-Key / X-Idempotency-Key → Cache::has('idempotency:brand-export:{user}:{key}')
+      → hit && Import::whereOperationType(BRAND_EXPORT)->find(cachedId) → 202 replay {export_id:cachedId, status}
+      → miss → Import::create(type='brand-export', file_path='', file_name='', status='pending', created_by, total_rows=0)
+             → Cache::put('idempotency:brand-export:{user}:{key}', export_id, 24h) if header present
+             → ExportBrandsJob::dispatch(export_id) → catch-medium (tries 2, timeout 600)
+             → 202 { status:202, message:BRAND_EXPORT_STARTED, data:{export_id, status:'pending'} }
 ```
 
-## Flow 8: Export Job Execution (Async, meem-medium)
+## Flow 8: Export Job Execution (Async, catch-medium)
 
 ```
-Worker → ExportBrandsJob@handle(importId)
+Worker → ExportBrandsJob@handle(importId)  [catch-medium, tries 2, timeout 600, FileOperationType::BRAND_EXPORT]
          ↓
-    Import::findOrFail(importId); if already terminal → return
+    Import::findOrFail(importId); normalize type → if not BRAND_EXPORT → mark failed + broadcast BRAND_EXPORT_FAILED → return
          ↓
-    status→'processing', reset counters
+    if status in (completed,completed_with_errors,failed,cancelled) → return
          ↓
-    new BrandsExport() → Brand::query()->select([id,name,details,slug,status])->orderBy(id)->get()
-      → map each brand -> {name_en, name_ar, details_en, details_ar, status, image_desktop_url, image_mobile_url}
+    atomic: Import::where(id)->whereIn(pending,processing)->update(status processing, reset counters); refresh; if updated===0 && !processing && isTerminal → return
+         ↓
+    new BrandsExport() → Brand::query()->orderBy(id)->get() with translations
+      → map each brand -> {name_en, name_ar, details_en, details_ar, status, image_desktop_url, image_mobile_url} (URLs from Spatie media 'brands-desktop'/'brands-mobile' on 'brands' disk)
          ↓
     rowCount = collection()->count()
          ↓
-    filename = 'brands-export-' + now(Y-m-d-His) + '.xlsx'
+    filename = 'brands-export-{id}-' + now(Y-m-d-His) + '.xlsx'  (id included, verified ExportBrandsJob.php:88; earlier docs omitted id and risked His-second collision)
          ↓
-    export->store(filename, 'imports') → storage/app/imports/filename (disk 'imports')
+    export->store(filename, 'imports') → Storage::disk('imports') → storage/app/private/imports/filename
+         ↓
+    verify Storage::disk('imports')->exists(filename) else throw 'Export file was not created'
          ↓
     Import update {status:'completed', file_path:filename, file_name:filename,
                    total:rowCount, processed:rowCount, success:rowCount, failed:0, errors:[]}
          ↓
     broadcastFileOperationTerminal(BRAND_EXPORT_COMPLETED, 'brand-export', id, completed, false, {progress:100, total:rowCount,...})
          ↓
-    On Throwable → update failed; broadcast BRAND_EXPORT_FAILED; throw (failed() also guards processing→failed)
+    On Throwable → report(e); if filename set && Storage::disk('imports')->exists(filename) delete(filename) (cleanup partial)
+                 → update status failed; broadcast BRAND_EXPORT_FAILED; throw (Job::failed() also handles processing→failed)
 ```
 
 ## Flow 9: Export Status Polling

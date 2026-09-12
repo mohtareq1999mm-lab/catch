@@ -76,6 +76,8 @@ class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMap
             'weight',
             'tax_enabled',
             'tax_rate',
+            'pieces',
+            'has_flash_sale',
         ];
     }
 
@@ -107,6 +109,8 @@ class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMap
             'weight' => $product->weight,
             'tax_enabled' => $product->tax_enabled ? '1' : '0',
             'tax_rate' => $product->tax_rate,
+            'pieces' => $product->pieces ?? '',
+            'has_flash_sale' => $product->has_flash_sale ? '1' : '0',
         ];
     }
 }
