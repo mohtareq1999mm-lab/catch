@@ -7,6 +7,7 @@ use App\Jobs\LogActivityJob;
 use App\Services\General\HomeService;
 use App\Traits\HasCache;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Brand;
 
 class BrandObserver
@@ -112,7 +113,7 @@ class BrandObserver
         HomeService::clearCache();
         // Generic API cache version bump for CacheApiResponse middleware
         try {
-            \Illuminate\Support\Facades\Cache::increment('api_cache_version');
+            Cache::increment('api_cache_version');
         } catch (\Throwable $e) {
         }
     }
@@ -121,15 +122,13 @@ class BrandObserver
     {
         try {
             $this->flushTag($tag);
-            // Fallback for non-taggable stores (array/file during tests/seed): HasCache::flushTag no-ops,
-            // so ensure stale prefixed keys are also cleared by flushing entire cache.
-            if (! \Illuminate\Support\Facades\Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
-                \Illuminate\Support\Facades\Cache::flush();
-            }
+            Cache::flush();
+            HomeService::clearCache();
         } catch (\BadMethodCallException) {
-            \Illuminate\Support\Facades\Cache::flush();
+            Cache::flush();
         } catch (\Throwable $e) {
             report($e);
+            Cache::flush();
         }
     }
 }

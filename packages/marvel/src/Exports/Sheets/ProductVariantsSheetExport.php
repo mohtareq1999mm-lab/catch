@@ -53,10 +53,12 @@ class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, 
     public function headings(): array
     {
         return [
+            'variant_sku',
             'product_sku',
             'price',
             'sale_price',
             'quantity',
+            'in_stock',
             'height',
             'width',
             'length',
@@ -68,10 +70,12 @@ class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, 
     public function map($variant): array
     {
         return [
+            'variant_sku' => $variant->sku ?? '',
             'product_sku' => $variant->product->sku ?? '',
             'price' => $variant->price,
             'sale_price' => $variant->sale_price ?? '',
             'quantity' => $variant->stock_quantity,
+            'in_stock' => $variant->in_stock ? '1' : '0',
             'height' => $variant->height,
             'width' => $variant->width,
             'length' => $variant->length,

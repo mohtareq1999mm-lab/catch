@@ -209,13 +209,15 @@ class ProductObserver
     {
         try {
             $this->flushTag($tag);
-            if (! Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
-                Cache::flush();
-            }
+            // Always flush full cache as safety net for stale HasCache (file fallback) and
+            // ensures inactive products never survive via cached general response.
+            Cache::flush();
+            HomeService::clearCache();
         } catch (\BadMethodCallException) {
             Cache::flush();
         } catch (\Throwable $e) {
             report($e);
+            Cache::flush();
         }
     }
 }

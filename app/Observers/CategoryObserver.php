@@ -117,13 +117,13 @@ class CategoryObserver
     {
         try {
             $this->flushTag($tag);
-            if (! Cache::getStore() instanceof \Illuminate\Cache\TaggableStore) {
-                Cache::flush();
-            }
+            Cache::flush();
+            HomeService::clearCache();
         } catch (\BadMethodCallException) {
             Cache::flush();
         } catch (\Throwable $e) {
             report($e);
+            Cache::flush();
         }
     }
 }
