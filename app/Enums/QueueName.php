@@ -3,11 +3,48 @@
 namespace App\Enums;
 
 /**
- * Canonical queue names. Single source of truth for queue classification.
- * Existing Supervisor workers consume exactly these names — never rename.
+ * Canonical queue names — semantic roles, physical names are deployment config.
+ *
+ *   QueueName::HIGH->value   = default physical name (fallback before config loads)
+ *   QueueName::high()        = config('queue.queues.high') — runtime physical name
+ *   QueueName::medium()      = config('queue.queues.medium')
+ *   $enum->resolved()        = same, instance helper
+ *
+ * Application code must use ::high()/::medium() or config('queue.queues.*'),
+ * never hard-coded strings. Supervisor workers consume the same env values.
+ *
+ * The enum values remain the catch-* defaults so that `->value` is a safe
+ * fallback when config is not yet booted (e.g. early service providers).
  */
 enum QueueName: string
 {
     case HIGH = 'catch-high';
     case MEDIUM = 'catch-medium';
+
+    /**
+     * Resolve this semantic role to its deployment-specific physical queue name.
+     */
+    public function resolved(): string
+    {
+        return match ($this) {
+            self::HIGH => (string) config('queue.queues.high', $this->value),
+            self::MEDIUM => (string) config('queue.queues.medium', $this->value),
+        };
+    }
+
+    /**
+     * Physical name for the high-priority queue.
+     */
+    public static function high(): string
+    {
+        return (string) config('queue.queues.high', self::HIGH->value);
+    }
+
+    /**
+     * Physical name for the medium-priority queue.
+     */
+    public static function medium(): string
+    {
+        return (string) config('queue.queues.medium', self::MEDIUM->value);
+    }
 }

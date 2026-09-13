@@ -22,7 +22,7 @@ class MaintenanceReminder extends Notification implements ShouldQueue
      */
     public function __construct($settings)
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
 
         $this->settings = $settings;
     }

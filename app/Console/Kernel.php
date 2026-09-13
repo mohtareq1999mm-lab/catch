@@ -33,7 +33,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('products:purge-old-deleted --days=30')->dailyAt('02:30')->withoutOverlapping();
 
         // Payment gateway reconciliation: dispatches the existing
-        // PaymentReconciliationJob (catch-medium, tries=1). withoutOverlapping
+        // PaymentReconciliationJob (medium queue via config queue.queues.medium, tries=1). withoutOverlapping
         // prevents concurrent reconciliation runs.
         // P2-3: Increased from hourly to every 15 minutes to reduce
         // pending → paid window from 60m to 15m for missed callbacks.

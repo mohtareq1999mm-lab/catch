@@ -14,7 +14,7 @@ class UserFlashSaleEndingSoonNotification extends Notification implements Should
     public function __construct(
         public $flashSale,
     ) {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
     }
 
     public function via($notifiable): array
@@ -45,7 +45,7 @@ class UserFlashSaleEndingSoonNotification extends Notification implements Should
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-high');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(config('queue.queues.high'));
     }
 
     public function broadcastType(): string

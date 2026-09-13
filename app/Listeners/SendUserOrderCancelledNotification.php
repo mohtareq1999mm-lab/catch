@@ -9,7 +9,10 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendUserOrderCancelledNotification implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
 
     public function handle(OrderCancelled $event): void
     {

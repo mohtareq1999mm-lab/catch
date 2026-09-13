@@ -18,8 +18,6 @@ use Marvel\Notifications\StoreNoticeNotification;
 
 class MaintenanceNotification
 {
-    public $queue = 'catch-medium';
-
     /**
      * Create the event listener.
      *
@@ -67,5 +65,9 @@ class MaintenanceNotification
         } catch (Exception $th) {
         }
         return $shouldSendEmail;
+    }
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::medium();
     }
 }

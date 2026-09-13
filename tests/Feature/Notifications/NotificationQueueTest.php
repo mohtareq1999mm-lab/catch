@@ -31,12 +31,12 @@ class NotificationQueueTest extends NotificationE2ETestCase
         event(new OrderCreated($order));
 
         Queue::assertPushedOn(
-            'catch-high',
+            config('queue.queues.high'),
             CallQueuedListener::class,
             fn ($job) => $job->class === SendUserOrderCreatedNotification::class
         );
         Queue::assertPushedOn(
-            'catch-high',
+            config('queue.queues.high'),
             CallQueuedListener::class,
             fn ($job) => $job->class === SendNewOrderNotification::class
         );
@@ -52,14 +52,14 @@ class NotificationQueueTest extends NotificationE2ETestCase
         $user->notify(new UserOrderCreatedNotification($order));
 
         Queue::assertPushedOn(
-            'catch-high',
+            config('queue.queues.high'),
             SendQueuedNotifications::class,
             fn ($job) => $job->displayName() === UserOrderCreatedNotification::class
         );
 
         // The notification instance itself carries the queue contract.
         $notification = new UserOrderCreatedNotification($order);
-        $this->assertEquals('catch-high', $notification->queue);
+        $this->assertEquals(config('queue.queues.high'), $notification->queue);
         $this->assertInstanceOf(\Illuminate\Contracts\Queue\ShouldQueue::class, $notification);
     }
 
@@ -72,13 +72,13 @@ class NotificationQueueTest extends NotificationE2ETestCase
         $admin->notify(new AdminLoggedInNotification($admin, '127.0.0.1', 'Agent/1.0'));
 
         Queue::assertPushedOn(
-            'catch-medium',
+            config('queue.queues.medium'),
             SendQueuedNotifications::class,
             fn ($job) => $job->displayName() === AdminLoggedInNotification::class
         );
 
         $notification = new AdminLoggedInNotification($admin, '127.0.0.1', 'Agent/1.0');
-        $this->assertEquals('catch-medium', $notification->queue);
+        $this->assertEquals(config('queue.queues.medium'), $notification->queue);
     }
 
     public function test_all_user_notifications_are_queued_on_meem_medium(): void
@@ -117,7 +117,7 @@ class NotificationQueueTest extends NotificationE2ETestCase
         foreach ($notifications as $notification) {
             $this->assertInstanceOf(\Illuminate\Contracts\Queue\ShouldQueue::class, $notification);
             $this->assertEquals(
-                'catch-high',
+                config('queue.queues.high'),
                 $notification->queue,
                 get_class($notification) . ' must run on catch-high'
             );

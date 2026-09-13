@@ -8,7 +8,7 @@ use Marvel\Database\Models\Product;
 
 class ProductReviewRejected implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public string $queue;
 
     /**
      * @var Product
@@ -23,6 +23,7 @@ class ProductReviewRejected implements ShouldQueue
      */
     public function __construct(Product $product)
     {
+        $this->queue = \App\Enums\QueueName::medium();
         $this->product = $product;
     }
 }

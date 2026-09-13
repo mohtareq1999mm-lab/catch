@@ -12,9 +12,12 @@ use Illuminate\Support\Facades\Log;
 
 class SendOrderPushNotification implements ShouldQueue
 {
-    use InteractsWithQueue;
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
 
-    public $queue = 'catch-high';
+    use InteractsWithQueue;
     public $tries = 2;
 
     public function __construct(private PushNotificationService $pushService) {}

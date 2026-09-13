@@ -380,10 +380,10 @@ class DeepVerificationTest extends TestCase
         ];
         foreach ($map as $cls => $arg) {
             $job = new $cls($arg);
-            $this->assertEquals('catch-medium', $job->queue, "$cls must be catch-medium, got {$job->queue}");
+            $this->assertEquals(config('queue.queues.medium'), $job->queue, "$cls must be catch-medium, got {$job->queue}");
         }
         $job = new ExportProductsJob([]);
-        $this->assertEquals('catch-medium', $job->queue, "ExportProductsJob must be catch-medium, got {$job->queue}");
+        $this->assertEquals(config('queue.queues.medium'), $job->queue, "ExportProductsJob must be catch-medium, got {$job->queue}");
     }
 
     // 4.46 Database deep

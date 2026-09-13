@@ -27,7 +27,7 @@ class SendConversationReminder implements ShouldQueue
      */
     public function __construct(Participant $participant)
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
 
         $this->participant = $participant;
     }

@@ -18,7 +18,10 @@ use Marvel\Traits\UsersTrait;
 
 class StoredMessagedNotifyLogsListener implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::medium();
+    }
 
     use UsersTrait;
 

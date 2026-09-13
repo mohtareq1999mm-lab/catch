@@ -37,7 +37,7 @@ class ImportProductsJob implements ShouldQueue
     public function __construct(int $importId)
     {
         $this->importId = $importId;
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
     }
 
     protected function removeSignalFile(string $type): void
@@ -246,7 +246,7 @@ class ImportProductsJob implements ShouldQueue
                 'errors' => array_slice($service->getAllErrors(), 0, 1000),
             ]);
 
-            // Phase 2: image processing in bounded async chunks (catch-medium)
+            // Phase 2: image processing in bounded async chunks (medium queue via config queue.queues.medium)
             $this->dispatchImageJobs($filePath, $service);
             $service->writeExplicitProgress(99.0);
 

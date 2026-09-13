@@ -335,7 +335,7 @@ class UserPromotionFlashSaleNotificationTest extends TestCase
         $notifiable = new \stdClass();
 
         $this->assertEquals(['database', 'fcm', 'broadcast'], $notification->via($notifiable));
-        $this->assertEquals('catch-high', $notification->queue);
+        $this->assertEquals(config('queue.queues.high'), $notification->queue);
 
         $data = $notification->toDatabase($notifiable);
         $this->assertEquals('promotion', $data['resource_type']);
@@ -391,7 +391,7 @@ class UserPromotionFlashSaleNotificationTest extends TestCase
         $notifiable = new \stdClass();
 
         $this->assertEquals(['database', 'fcm', 'broadcast'], $notification->via($notifiable));
-        $this->assertEquals('catch-high', $notification->queue);
+        $this->assertEquals(config('queue.queues.high'), $notification->queue);
 
         $data = $notification->toDatabase($notifiable);
         $this->assertEquals('flash_sale', $data['resource_type']);

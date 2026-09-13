@@ -8,10 +8,13 @@ use PHPUnit\Framework\TestCase;
  * W8 — SYSTEM-WIDE QUEUE POLICY (static source audit).
  *
  * Policy: every ShouldQueue implementer in application code MUST resolve to
- * `catch-high` or `catch-medium`. Allowed exceptions:
- *   - config-driven assignment with a compliant default
- *     (config('frontend.queue', 'catch-high'|'catch-medium'));
- *   - events whose queue is supplied by an activated listener chain.
+ * the semantic high/medium queues via configuration, never hard-coded strings.
+ *
+ * Allowed patterns:
+ *   - config('queue.queues.high') / config('queue.queues.medium')
+ *   - QueueName::high() / QueueName::medium() / ->resolved()
+ *   - config('frontend.queue', config('queue.queues.high')) (frontend alias)
+ *   - literal 'catch-high'/'catch-medium' ONLY in QueueName enum defaults and config fallbacks
  *
  * This is the static half; runtime dispatch proofs live in the Feature suite.
  */
@@ -31,23 +34,34 @@ class QueueStandardizationStaticTest extends TestCase
             $this->markTestSkipped("No longer queued: {$file}");
         }
 
-        // Config-driven assignment with compliant default (SendFcmNotificationJob / SendFrontendWebhookJob pattern).
-        if (str_contains($src, "config('frontend.queue'")) {
-            // Both jobs use QueueName::MEDIUM or 'catch-high' as fallback — both are allowed.
-            // If the file contains a disallowed literal like 'default' or 'meem-bulk', the literal checks below would catch it,
-            // but config-driven with enum is always compliant for this codebase.
+        // New canonical config-driven patterns (preferred).
+        if (str_contains($src, "config('queue.queues.high')") || str_contains($src, 'config("queue.queues.high")')) {
+            $this->assertTrue(true);
+            return;
+        }
+        if (str_contains($src, "config('queue.queues.medium')") || str_contains($src, 'config("queue.queues.medium")')) {
+            $this->assertTrue(true);
+            return;
+        }
+        if (preg_match("/QueueName::(high|medium)\(\)/", $src) || str_contains($src, '->resolved()')) {
             $this->assertTrue(true);
             return;
         }
 
-        // Enum-driven assignment e.g. onQueue(\App\Enums\QueueName::MEDIUM->value) or QueueName::HIGH
+        // Legacy frontend alias (still config-driven).
+        if (str_contains($src, "config('frontend.queue'")) {
+            $this->assertTrue(true);
+            return;
+        }
+
+        // Enum-driven assignment e.g. onQueue(\App\Enums\QueueName::MEDIUM->value) or QueueName::HIGH (legacy, before config refactor)
         if (preg_match("/onQueue\(\s*\\\\?App\\\\Enums\\\\QueueName::(HIGH|MEDIUM)->value/", $src) ||
             preg_match("/onQueue\(\s*QueueName::(HIGH|MEDIUM)->value/", $src)) {
             $this->assertTrue(true);
             return;
         }
 
-        // Explicit property assignment must be an approved queue (literal or enum).
+        // Explicit property assignment must be an approved queue (literal or enum). Legacy path.
         if (preg_match("/public\s+\\\$queue\s*=\s*\\\\App\\\\Enums\\\\QueueName::(HIGH|MEDIUM)->value/", $src) ||
             preg_match("/public\s+\\\$queue\s*=\s*QueueName::(HIGH|MEDIUM)->value/", $src)) {
             $this->assertTrue(true);
@@ -61,7 +75,7 @@ class QueueStandardizationStaticTest extends TestCase
             return;
         }
 
-        // onQueue literal assignments.
+        // onQueue literal assignments (legacy).
         if (preg_match_all("/onQueue\('([^']+)'\)/", $src, $m)) {
             foreach ($m[1] as $q) {
                 $this->assertContains($q, self::ALLOWED, "{$file} onQueue disallowed queue '{$q}'");

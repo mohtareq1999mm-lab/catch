@@ -9,7 +9,7 @@ use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Generic realtime notification for long-running file operations
- * (imports / exports / bulk deletes) processed on the catch-high queue.
+ * (imports / exports / bulk deletes) processed on the high queue (config queue.queues.high).
  *
  * This event is a wake-up signal only. The `imports` table remains the
  * single source of truth; clients must reconcile through the existing

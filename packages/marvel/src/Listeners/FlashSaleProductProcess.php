@@ -12,7 +12,11 @@ use Marvel\Events\FlashSaleProcessed;
 
 class FlashSaleProductProcess implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     public function handle(FlashSaleProcessed $event)
     {
         $flash_sales_action = $event->action;

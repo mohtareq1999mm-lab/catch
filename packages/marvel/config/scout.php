@@ -43,7 +43,7 @@ return [
 
     'queue' => [
         'connection' => env('QUEUE_CONNECTION', 'database'),
-        'queue' => env('SCOUT_QUEUE_NAME', 'meem-high'),
+        'queue' => env('SCOUT_QUEUE_NAME', env('QUEUE_HIGH', 'catch-high')),
     ],
 
     /*

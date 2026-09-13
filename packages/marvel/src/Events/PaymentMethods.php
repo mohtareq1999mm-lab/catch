@@ -8,7 +8,7 @@ use Marvel\Database\Models\PaymentMethod;
 
 class PaymentMethods implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public string $queue;
 
     /**
      * @var PaymentMethod
@@ -23,6 +23,7 @@ class PaymentMethods implements ShouldQueue
      */
     public function __construct(PaymentMethod $payment_methods)
     {
+        $this->queue = \App\Enums\QueueName::medium();
         $this->payment_methods = $payment_methods;
     }
 }

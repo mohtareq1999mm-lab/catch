@@ -626,7 +626,7 @@ class RealAuthenticatedUserNotificationE2ETest extends NotificationE2ETestCase
         // Process the real jobs.
         $connection = \Illuminate\Support\Facades\Queue::connection('database');
         $processed = 0;
-        foreach (['catch-high', 'catch-medium', 'default'] as $queue) {
+        foreach ([config('queue.queues.high'), config('queue.queues.medium'), 'default'] as $queue) {
             while ($job = $connection->pop($queue)) {
                 $job->fire();
                 $job->delete();

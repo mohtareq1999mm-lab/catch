@@ -17,7 +17,7 @@ class DispatchFrontendCacheInvalidation
         );
 
         // P5: queue the webhook instead of executing it inline. The job keeps
-        // its catch-high classification and retry semantics; observers firing
+        // its high queue classification (config queue.queues.high) and retry semantics; observers firing
         // many invalidations per request no longer block the HTTP response.
         SendFrontendWebhookJob::dispatch($payload);
     }

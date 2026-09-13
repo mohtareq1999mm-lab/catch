@@ -10,10 +10,12 @@ use Illuminate\Queue\InteractsWithQueue;
 
 class SendUserReviewApprovedNotification implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     use InteractsWithQueue;
-
-    public $queue = 'catch-high';
-
     public function handle(ReviewApproved $event): void
     {
         $user = $event->review->user;

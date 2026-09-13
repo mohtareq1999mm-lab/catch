@@ -20,8 +20,6 @@ use Marvel\Traits\UsersTrait;
 
 class CommissionRateUpdateListener
 {
-    public $queue = 'catch-medium';
-
     use SmsTrait, UsersTrait;
 
     /**
@@ -48,5 +46,9 @@ class CommissionRateUpdateListener
         }
 
    
+    }
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::medium();
     }
 }

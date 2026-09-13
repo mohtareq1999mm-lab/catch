@@ -25,7 +25,7 @@ class StoreNoticeNotification extends Notification implements ShouldQueue
      */
     public function __construct(StoreNotice $storeNotice, ?string $action)
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
 
         $this->storeNotice = $storeNotice;
         $this->action = $action;

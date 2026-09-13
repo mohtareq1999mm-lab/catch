@@ -9,7 +9,10 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendUserOrderDeliveredNotification implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
 
     public function handle(OrderDelivered $event): void
     {

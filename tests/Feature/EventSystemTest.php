@@ -550,7 +550,7 @@ class EventSystemTest extends TestCase
     public function restore_product_inventory_uses_medium_queue()
     {
         $listener = app(RestoreProductInventory::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
     // ========== Listener: RestoreInventoryOnRefund ==========
@@ -670,7 +670,7 @@ class EventSystemTest extends TestCase
     public function restore_inventory_on_refund_uses_medium_queue()
     {
         $listener = app(RestoreInventoryOnRefund::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
     // ========== Gateway: MyFatoorahGateway::refund() ==========
@@ -795,7 +795,7 @@ class EventSystemTest extends TestCase
     public function order_cancelled_notification_uses_medium_queue()
     {
         $listener = app(SendOrderCancelledNotification::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
     // ========== Listener: SendOrderStatusChangedNotification ==========
@@ -833,7 +833,7 @@ class EventSystemTest extends TestCase
     public function order_status_changed_notification_uses_medium_queue()
     {
         $listener = app(SendOrderStatusChangedNotification::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
     // ========== Listener: SendPaymentSucceededNotification ==========
@@ -871,7 +871,7 @@ class EventSystemTest extends TestCase
     public function payment_succeeded_notification_uses_medium_queue()
     {
         $listener = app(SendPaymentSucceededNotification::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
     // ========== Listener: SendPaymentFailedNotification ==========
@@ -909,7 +909,7 @@ class EventSystemTest extends TestCase
     public function payment_failed_notification_uses_medium_queue()
     {
         $listener = app(SendPaymentFailedNotification::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
     // ========== Service: OrderService dispatches App Events ==========

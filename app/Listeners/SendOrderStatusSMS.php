@@ -12,9 +12,12 @@ use Illuminate\Support\Facades\Log;
 
 class SendOrderStatusSMS implements ShouldQueue
 {
-    use InteractsWithQueue;
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
 
-    public $queue = 'catch-high';
+    use InteractsWithQueue;
     public $tries = 3;
     public $backoff = [60, 300, 900];
 

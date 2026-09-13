@@ -24,7 +24,7 @@ class SendFcmNotificationJob implements ShouldQueue
         public array $data,
         public ?int $notifiableUserId = null,
     ) {
-        $this->onQueue(config('frontend.queue', \App\Enums\QueueName::MEDIUM->value));
+        $this->onQueue(config('frontend.queue', config('queue.queues.high')));
     }
 
     public function handle(FcmService $fcm): void

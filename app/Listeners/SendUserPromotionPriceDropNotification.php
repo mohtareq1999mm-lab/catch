@@ -11,10 +11,12 @@ use Marvel\Database\Models\Promotion;
 
 class SendUserPromotionPriceDropNotification implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     use InteractsWithQueue;
-
-    public $queue = 'catch-high';
-
     public function handle(PromotionActivated $event): void
     {
         $promotion = $event->promotion;

@@ -270,7 +270,7 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
 
         // The real listener pins its queue to catch-high.
         $listener = app(\App\Listeners\SendUserOrderCreatedNotification::class);
-        $this->assertEquals('catch-high', $listener->queue);
+        $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
 
         fwrite(STDERR, "\n[REPORT F] QUEUE OK — via() = [" . implode(',', $channels) . "] on queue catch-high\n");
     }
@@ -476,7 +476,7 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
 
         // Process them like a real worker: DB job fails, broadcast succeeds.
         $connection = \Illuminate\Support\Facades\Queue::connection('database');
-        foreach (['catch-high', 'catch-medium', 'default'] as $queue) {
+        foreach ([config('queue.queues.high'), config('queue.queues.medium'), 'default'] as $queue) {
             while ($job = $connection->pop($queue)) {
                 try {
                     $job->fire();

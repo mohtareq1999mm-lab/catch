@@ -12,10 +12,12 @@ use Marvel\Database\Models\ProductVariant;
 
 class RestoreInventoryOnRefund implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     public $afterCommit = true;
-
-    public $queue = 'catch-high';
-
     public function handle(RefundApproved $event)
     {
         try {

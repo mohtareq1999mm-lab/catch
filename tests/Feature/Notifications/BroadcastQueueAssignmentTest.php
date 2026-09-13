@@ -31,7 +31,7 @@ class BroadcastQueueAssignmentTest extends NotificationE2ETestCase
         // must push its BroadcastEvent onto catch-medium.
         $user->notifyNow(new UserOrderCreatedNotification($order));
 
-        Queue::assertPushedOn('catch-high', BroadcastEvent::class, function (BroadcastEvent $job) {
+        Queue::assertPushedOn(config('queue.queues.high'), BroadcastEvent::class, function (BroadcastEvent $job) {
             return $job->event instanceof BroadcastNotificationCreated;
         });
     }
@@ -49,7 +49,7 @@ class BroadcastQueueAssignmentTest extends NotificationE2ETestCase
         $this->assertArrayHasKey(BroadcastEvent::class, $pushedJobs, 'No BroadcastEvent was queued.');
 
         foreach ($pushedJobs[BroadcastEvent::class] as $pushed) {
-            $this->assertSame('catch-high', $pushed['queue'], 'BroadcastEvent must not land on the default queue.');
+            $this->assertSame(config('queue.queues.high'), $pushed['queue'], 'BroadcastEvent must not land on the default queue.');
         }
     }
 
@@ -75,6 +75,6 @@ class BroadcastQueueAssignmentTest extends NotificationE2ETestCase
         // Queued path: the notification job itself must use catch-medium.
         $user->notify(new UserOrderCreatedNotification($order));
 
-        Queue::assertPushedOn('catch-high', \Illuminate\Notifications\SendQueuedNotifications::class);
+        Queue::assertPushedOn(config('queue.queues.high'), \Illuminate\Notifications\SendQueuedNotifications::class);
     }
 }

@@ -11,7 +11,7 @@ use Marvel\Database\Models\Wishlist;
  * Centralizes wishlist-based fan-out for product-centric notifications
  * (Discount Changed, Price Drop, Back in Stock, Ending Soon).
  *
- * Reuses the existing catch-medium queue + database/broadcast architecture.
+ * Reuses the existing medium queue (config queue.queues.medium) + database/broadcast architecture.
  * Only targets end users (UserType::USER) and chunks to avoid memory blowups.
  */
 class NotifyWishlistUsersOfProduct

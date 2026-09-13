@@ -206,7 +206,7 @@ class AsyncQueuePersistenceAuditTest extends NotificationE2ETestCase
      */
     protected function processAllQueuedJobs(bool $throwOnFailure = true): void
     {
-        foreach (['catch-high', 'catch-medium', 'default'] as $queue) {
+        foreach ([config('queue.queues.high'), config('queue.queues.medium'), 'default'] as $queue) {
             $connection = Queue::connection('database');
 
             while (true) {

@@ -8,7 +8,11 @@ use Marvel\Notifications\ProductApprovedNotification;
 
 class ProductReviewApprovedListener implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     /**
      * Handle the event.
      *

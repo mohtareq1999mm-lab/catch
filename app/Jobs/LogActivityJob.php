@@ -22,7 +22,7 @@ class LogActivityJob implements ShouldQueue
         public ?string $description,
         public array $properties = [],
     ) {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
     }
 
     public function handle(): void

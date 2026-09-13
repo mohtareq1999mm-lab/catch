@@ -123,7 +123,7 @@ class BrandImportExportTest extends TestCase
         $response->assertStatus(202);
         $response->assertJsonPath('success', true);
         Queue::assertPushed(ImportBrandsJob::class);
-        Queue::assertPushedOn('catch-medium', ImportBrandsJob::class);
+        Queue::assertPushedOn(config('queue.queues.medium'), ImportBrandsJob::class);
     }
 
     /** @test */

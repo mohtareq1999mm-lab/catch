@@ -29,7 +29,7 @@ class ImportProductImagesJob implements ShouldQueue
     {
         $this->importId = $importId;
         $this->imageRows = $imageRows;
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
     }
 
     public function handle(): void

@@ -24,7 +24,7 @@ class OrderPlacedSuccessfully extends Notification implements ShouldQueue
      */
     public function __construct(array $invoiceData)
     {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
 
         $this->invoiceData = $invoiceData;
     }

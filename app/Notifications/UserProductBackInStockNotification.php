@@ -14,7 +14,7 @@ class UserProductBackInStockNotification extends Notification implements ShouldQ
     public function __construct(
         public $product,
     ) {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
     }
 
     public function via($notifiable): array
@@ -44,7 +44,7 @@ class UserProductBackInStockNotification extends Notification implements ShouldQ
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-high');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(config('queue.queues.high'));
     }
 
     public function broadcastType(): string

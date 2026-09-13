@@ -10,7 +10,7 @@ use Marvel\Database\Models\OwnershipTransfer;
 
 class OwnershipTransferStatusControl implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public string $queue;
 
     /**
      * @var OwnershipTransfer
@@ -26,6 +26,7 @@ class OwnershipTransferStatusControl implements ShouldQueue
      */
     public function __construct(OwnershipTransfer $ownershipTransfer)
     {
+        $this->queue = \App\Enums\QueueName::medium();
         $this->ownershipTransfer = $ownershipTransfer;
     }
 }

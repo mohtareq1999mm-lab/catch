@@ -9,7 +9,7 @@ use Marvel\Database\Models\User;
 
 class ProcessOwnershipTransition implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public string $queue;
 
     /**
      * @var Shop
@@ -40,6 +40,7 @@ class ProcessOwnershipTransition implements ShouldQueue
      */
     public function __construct(Shop $shop, User $previousOwner, User $newOwner, $optional = null)
     {
+        $this->queue = \App\Enums\QueueName::medium();
         $this->shop = $shop;
         $this->previousOwner = $previousOwner;
         $this->newOwner = $newOwner;

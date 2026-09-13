@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\Log;
 
 class GenerateCreditNoteOnRefund implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     public $afterCommit = true;
-
-    public $queue = 'catch-high';
-
     public function __construct(
         private CreditNoteService $creditNoteService,
         private InvoiceTimelineService $timelineService,

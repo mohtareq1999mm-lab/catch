@@ -9,7 +9,7 @@ use Marvel\Database\Models\Order;
 
 class FlashSaleProcessed implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public string $queue;
 
 
     public $action;
@@ -25,6 +25,7 @@ class FlashSaleProcessed implements ShouldQueue
      */
     public function __construct($action, $language = null, $optional_data = null)
     {
+        $this->queue = \App\Enums\QueueName::medium();
         $this->action = $action;
         $this->language = $language;
         $this->optional_data = $optional_data;

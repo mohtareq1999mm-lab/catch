@@ -10,7 +10,11 @@ use Marvel\Events\OrderCreated;
 
 class ManageProductInventory implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     protected function updateProductInventory($product)
     {
         try {

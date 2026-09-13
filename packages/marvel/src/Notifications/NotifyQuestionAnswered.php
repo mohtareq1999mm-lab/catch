@@ -24,7 +24,7 @@ class NotifyQuestionAnswered extends Notification implements ShouldQueue
      */
     public function __construct(Question $question)
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
 
         $this->question = $question;
     }

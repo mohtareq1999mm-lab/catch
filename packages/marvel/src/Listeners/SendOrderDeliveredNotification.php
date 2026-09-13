@@ -13,7 +13,11 @@ use Marvel\Traits\SmsTrait;
 
 class SendOrderDeliveredNotification implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     use SmsTrait, OrderSmsTrait;
 
     /**

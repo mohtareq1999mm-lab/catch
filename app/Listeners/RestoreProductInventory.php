@@ -11,10 +11,12 @@ use Marvel\Database\Models\ProductVariant;
 
 class RestoreProductInventory implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     public $afterCommit = true;
-
-    public $queue = 'catch-high';
-
     public function handle($event)
     {
         try {

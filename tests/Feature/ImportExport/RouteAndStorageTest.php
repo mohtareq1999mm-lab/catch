@@ -233,14 +233,14 @@ class RouteAndStorageTest extends TestCase
         $ref = new \ReflectionObject($job);
         // queue is stored in $job->queue property from Queueable trait
         $queue = $job->queue ?? null;
-        $this->assertEquals('catch-medium', $queue, 'ImportProductsJob should be on catch-medium. Currently: '.$queue);
+        $this->assertEquals(config('queue.queues.medium'), $queue, 'ImportProductsJob should be on catch-medium. Currently: '.$queue);
     }
 
     public function test_export_jobs_dispatched_to_meem_bulk(): void
     {
         $job = new \Marvel\Jobs\ExportCategoriesJob(1);
         $queue = $job->queue ?? null;
-        $this->assertEquals('catch-medium', $queue, 'Export job should be on catch-medium. Currently: '.$queue);
+        $this->assertEquals(config('queue.queues.medium'), $queue, 'Export job should be on catch-medium. Currently: '.$queue);
     }
 
     // Terminal status

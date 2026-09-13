@@ -10,10 +10,12 @@ use Illuminate\Queue\InteractsWithQueue;
 
 class SendUserProductDiscountChangedNotification implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     use InteractsWithQueue;
-
-    public $queue = 'catch-high';
-
     public function handle(ProductDiscountChanged $event): void
     {
         app(NotifyWishlistUsersOfProduct::class)->handle(

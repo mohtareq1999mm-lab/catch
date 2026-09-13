@@ -18,7 +18,7 @@ use Marvel\Exceptions\MarvelException;
 
 class StoreNoticeEvent implements ShouldQueue, ShouldBroadcast
 {
-    public $queue = 'catch-medium';
+    public string $queue;
 
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -54,6 +54,7 @@ class StoreNoticeEvent implements ShouldQueue, ShouldBroadcast
      */
     public function __construct(StoreNotice $storeNotice, ?string $action, User $user)
     {
+        $this->queue = \App\Enums\QueueName::medium();
         $this->storeNotice = $storeNotice;
         $this->action = $action;
         $this->user = $user;

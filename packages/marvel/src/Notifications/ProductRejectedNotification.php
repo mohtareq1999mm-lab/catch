@@ -21,7 +21,7 @@ class ProductRejectedNotification extends Notification implements ShouldQueue
      */
     public function __construct(Product $product)
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
 
         $this->product = $product;
     }

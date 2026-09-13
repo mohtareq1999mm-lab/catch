@@ -9,7 +9,11 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class RevokePendingDigitalEntitlements implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     public $afterCommit = true;
 
     public function __construct(private DigitalFulfillmentService $fulfillmentService) {}

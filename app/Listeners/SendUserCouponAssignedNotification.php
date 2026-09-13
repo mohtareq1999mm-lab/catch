@@ -9,7 +9,10 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendUserCouponAssignedNotification implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
 
     public function handle(CouponAssigned $event): void
     {

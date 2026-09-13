@@ -8,6 +8,11 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendPaymentSucceededNotification implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     /**
      * P2: forward-compatible declaration. Laravel 10.30 ignores this on
      * queued listeners — commit-safety is guaranteed by PaymentSucceeded
@@ -15,9 +20,6 @@ class SendPaymentSucceededNotification implements ShouldQueue
      * upgrade honors per-listener deferral too.
      */
     public $afterCommit = true;
-
-    public $queue = \App\Enums\QueueName::HIGH->value;
-
     public function handle(PaymentSucceeded $event): void
     {
         $order = $event->order;

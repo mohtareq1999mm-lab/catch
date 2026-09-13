@@ -11,12 +11,15 @@ use Throwable;
 
 class FulfillDigitalProducts implements ShouldQueue
 {
-    /**
-     * Payment-critical latency — matches the catch-high supervisor worker
-     * (tries=5, timeout=90s). Retries are safe: fulfillment is idempotent.
-     */
-    public $queue = 'catch-high';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
 
+    /**
+     * Payment-critical latency — matches the high-queue supervisor worker
+     * (tries=5, timeout=90s, config queue.queues.high). Retries are safe: fulfillment is idempotent.
+     */
     public $afterCommit = true;
 
     public function __construct(private DigitalFulfillmentService $fulfillmentService) {}

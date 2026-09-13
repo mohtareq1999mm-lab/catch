@@ -9,10 +9,12 @@ use Illuminate\Support\Facades\Log;
 
 class GenerateInvoiceListener implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     public $afterCommit = true;
-
-    public $queue = 'catch-high';
-
     public $tries = 5;
 
     public $backoff = [10, 30, 60, 120, 300];

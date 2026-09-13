@@ -8,12 +8,12 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Queue worker configuration policy (closure gate):
- *  - catch-high: tries=5, timeout=1300, sleep=1, queue=catch-high ONLY.
- *  - catch-medium: tries=3, timeout=1300, queues=catch-medium.
+ *  - high: tries=5, timeout=1300, sleep=1, queue=${QUEUE_HIGH:-catch-high}
+ *  - medium: tries=3, timeout=1300, queue=${QUEUE_MEDIUM:-catch-medium}
  *  - No active worker may remain at --timeout=90.
  *
- * These are the repository-owned deployment artifacts; production process
- * state is verified separately on the server (see closure report).
+ * Workers are config-driven: physical names come from QUEUE_HIGH/QUEUE_MEDIUM,
+ * defaults are catch-* (meem-* on meem deployments).
  */
 class WorkerConfigPolicyTest extends TestCase
 {
@@ -41,7 +41,8 @@ class WorkerConfigPolicyTest extends TestCase
     {
         $cmd = $this->commandLine($this->readConf('laravel-worker-catch-high.conf'));
 
-        $this->assertStringContainsString('--queue=catch-high', $cmd);
+        $this->assertStringContainsString('QUEUE_HIGH', $cmd, 'Worker must be config-driven via QUEUE_HIGH');
+        $this->assertStringContainsString('catch-high', $cmd, 'Worker fallback must remain catch-high');
         $this->assertStringContainsString('--tries=5', $cmd);
         $this->assertStringContainsString('--timeout=1300', $cmd);
         $this->assertStringContainsString('--sleep=1', $cmd);
@@ -51,7 +52,8 @@ class WorkerConfigPolicyTest extends TestCase
     {
         $cmd = $this->commandLine($this->readConf('laravel-worker-catch-medium.conf'));
 
-        $this->assertStringContainsString('--queue=catch-medium', $cmd);
+        $this->assertStringContainsString('QUEUE_MEDIUM', $cmd, 'Worker must be config-driven via QUEUE_MEDIUM');
+        $this->assertStringContainsString('catch-medium', $cmd, 'Worker fallback must remain catch-medium');
         $this->assertStringContainsString('--tries=3', $cmd);
         $this->assertStringContainsString('--timeout=1300', $cmd);
     }

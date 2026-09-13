@@ -12,7 +12,11 @@ use Marvel\Traits\SmsTrait;
 
 class SendQuestionAnsweredNotification implements ShouldQueue
 {
-    public $queue = 'catch-medium';
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::medium();
+    }
+
     use SmsTrait;
     /**
      * Handle the event.

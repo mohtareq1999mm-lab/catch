@@ -54,7 +54,7 @@ class AdminInvoiceRegenerateTest extends TestCase
         ]);
 
         // Job dispatched on the REAL configured queue (source: GenerateInvoicePdfJob constructor).
-        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn(config('queue.queues.medium'), GenerateInvoicePdfJob::class);
         Queue::assertPushed(GenerateInvoicePdfJob::class, 1);
     }
 
@@ -139,7 +139,7 @@ class AdminInvoiceRegenerateTest extends TestCase
             'invoice_id' => $invoice->id,
             'event' => 'pdf_regenerated',
         ]);
-        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn(config('queue.queues.medium'), GenerateInvoicePdfJob::class);
         Queue::assertPushed(GenerateInvoicePdfJob::class, 1);
 
         // Job success path completes the loop: pdf_generating → ready.
@@ -173,7 +173,7 @@ class AdminInvoiceRegenerateTest extends TestCase
 
         $invoice->refresh();
         $this->assertSame('pdf_generating', $invoice->status);
-        Queue::assertPushedOn('catch-medium', GenerateInvoicePdfJob::class);
+        Queue::assertPushedOn(config('queue.queues.medium'), GenerateInvoicePdfJob::class);
     }
 }
 

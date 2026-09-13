@@ -14,7 +14,7 @@ class UserOrderRefundedNotification extends Notification implements ShouldQueue
     public function __construct(
         public $refund,
     ) {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
     }
 
     public function via($notifiable): array
@@ -47,7 +47,7 @@ class UserOrderRefundedNotification extends Notification implements ShouldQueue
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-high');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(config('queue.queues.high'));
     }
 
     public function broadcastType(): string

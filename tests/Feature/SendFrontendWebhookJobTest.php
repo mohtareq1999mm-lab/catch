@@ -18,7 +18,7 @@ class SendFrontendWebhookJobTest extends TestCase
     {
         parent::setUp();
 
-        Config::set('frontend.queue', 'catch-high');
+        Config::set('frontend.queue', config('queue.queues.high'));
     }
 
     /** @test */
@@ -32,7 +32,7 @@ class SendFrontendWebhookJobTest extends TestCase
 
         SendFrontendWebhookJob::dispatch($payload);
 
-        Queue::assertPushedOn('catch-high', SendFrontendWebhookJob::class);
+        Queue::assertPushedOn(config('queue.queues.high'), SendFrontendWebhookJob::class);
     }
 
     /** @test */

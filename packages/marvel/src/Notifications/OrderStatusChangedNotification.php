@@ -22,7 +22,7 @@ class OrderStatusChangedNotification extends Notification implements ShouldQueue
      */
     public function __construct(Order $order)
     {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
 
         $this->order = $order;
     }

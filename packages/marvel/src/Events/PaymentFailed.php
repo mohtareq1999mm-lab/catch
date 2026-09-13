@@ -8,7 +8,7 @@ use Marvel\Database\Models\Order;
 
 class PaymentFailed implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public string $queue;
 
     /**
      * @var Order
@@ -23,6 +23,7 @@ class PaymentFailed implements ShouldQueue
      */
     public function __construct(Order $order)
     {
+        $this->queue = \App\Enums\QueueName::high();
         $this->order = $order;
     }
 }

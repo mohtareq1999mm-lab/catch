@@ -24,7 +24,7 @@ use Marvel\Traits\UsersTrait;
 
 class OrderCreated implements ShouldQueue, ShouldBroadcast
 {
-    public $queue = 'catch-high';
+    public string $queue;
 
     use Dispatchable, InteractsWithSockets, SerializesModels, UsersTrait;
 
@@ -49,6 +49,7 @@ class OrderCreated implements ShouldQueue, ShouldBroadcast
      */
     public function __construct(Order $order, array $invoiceData, ?User $user)
     {
+        $this->queue = \App\Enums\QueueName::high();
         $this->order = $order;
         $this->invoiceData = $invoiceData;
         $this->user = $user;

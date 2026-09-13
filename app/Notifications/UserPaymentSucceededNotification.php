@@ -14,7 +14,7 @@ class UserPaymentSucceededNotification extends Notification implements ShouldQue
     public function __construct(
         public $order,
     ) {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
     }
 
     public function via($notifiable): array
@@ -47,7 +47,7 @@ class UserPaymentSucceededNotification extends Notification implements ShouldQue
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-high');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(config('queue.queues.high'));
     }
 
     public function broadcastType(): string

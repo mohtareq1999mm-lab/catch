@@ -37,7 +37,7 @@ class ExportProductsJob implements ShouldQueue
         }
         $this->importId = (int) $importId;
         $this->filters = $filters;
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
     }
 
     public function handle(): void

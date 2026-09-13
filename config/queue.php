@@ -17,6 +17,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Queue Names — Semantic Roles (config-driven)
+    |--------------------------------------------------------------------------
+    |
+    | Physical queue names are deployment configuration (catch-*, meem-*).
+    | Application code must reference the semantic role, never the physical
+    | name. Workers consume the same env values via supervisor.
+    |
+    |   config('queue.queues.high')   → env('QUEUE_HIGH')
+    |   config('queue.queues.medium') → env('QUEUE_MEDIUM')
+    |
+    */
+
+    'queues' => [
+        'high' => env('QUEUE_HIGH', 'catch-high'),
+        'medium' => env('QUEUE_MEDIUM', 'catch-medium'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------
     |
@@ -37,7 +56,7 @@ return [
         'database' => [
             'driver' => 'database',
             'table' => 'jobs',
-            'queue' => 'catch-medium',
+            'queue' => env('QUEUE_MEDIUM', 'catch-medium'),
             // Must exceed the highest effective timeout on this connection
             // to avoid premature re-release / duplicate execution.
             // retry_after (1800) > worker timeout (1300) > job timeout (1200) > p99 runtime (~600s for 10k)

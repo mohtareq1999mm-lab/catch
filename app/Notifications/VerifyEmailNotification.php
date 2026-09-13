@@ -12,6 +12,6 @@ class VerifyEmailNotification extends BaseVerifyEmail implements ShouldQueue
 
     public function __construct()
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
     }
 }

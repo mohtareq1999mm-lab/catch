@@ -14,7 +14,7 @@ class UserPromotionEndingSoonNotification extends Notification implements Should
     public function __construct(
         public $promotion,
     ) {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
     }
 
     public function via($notifiable): array
@@ -45,7 +45,7 @@ class UserPromotionEndingSoonNotification extends Notification implements Should
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue('catch-medium');
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(config('queue.queues.medium'));
     }
 
     public function broadcastType(): string

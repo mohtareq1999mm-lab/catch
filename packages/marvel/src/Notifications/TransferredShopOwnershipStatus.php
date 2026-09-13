@@ -34,7 +34,7 @@ class TransferredShopOwnershipStatus extends Notification implements ShouldQueue
      */
     public function __construct($shop, $previousOwner, $newOwner, $optional = null)
     {
-        $this->onQueue('catch-medium');
+        $this->onQueue(config('queue.queues.medium'));
 
         $this->shop = $shop;
         $this->previousOwner = $previousOwner;

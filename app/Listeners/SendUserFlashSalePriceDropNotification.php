@@ -11,10 +11,12 @@ use Marvel\Database\Models\FlashSale;
 
 class SendUserFlashSalePriceDropNotification implements ShouldQueue
 {
+    public function viaQueue($event = null): string
+    {
+        return \App\Enums\QueueName::high();
+    }
+
     use InteractsWithQueue;
-
-    public $queue = 'catch-high';
-
     public function handle(FlashSaleActivated $event): void
     {
         $flashSale = $event->flashSale;

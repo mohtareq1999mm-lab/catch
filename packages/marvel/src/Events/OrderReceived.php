@@ -8,7 +8,7 @@ use Marvel\Database\Models\Order;
 
 class OrderReceived implements ShouldQueue
 {
-    public $queue = 'catch-high';
+    public string $queue;
 
     public $order;
 
@@ -19,6 +19,7 @@ class OrderReceived implements ShouldQueue
      */
     public function __construct(Order $order)
     {
+        $this->queue = \App\Enums\QueueName::high();
         $this->order = $order;
     }
 }

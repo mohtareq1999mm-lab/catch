@@ -26,7 +26,7 @@ class SendFrontendWebhookJob implements ShouldQueue
     public function __construct(
         public readonly FrontendCachePayload $payload,
     ) {
-        $this->onQueue(config('frontend.queue', 'catch-high'));
+        $this->onQueue(config('frontend.queue', config('queue.queues.high')));
     }
 
     public function handle(FrontendWebhookDispatcher $dispatcher): void

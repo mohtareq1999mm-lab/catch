@@ -24,7 +24,7 @@ class RefundRequested extends Notification implements ShouldQueue
      */
     public function __construct(Refund $refund, $receiver = 'admin')
     {
-        $this->onQueue('catch-high');
+        $this->onQueue(config('queue.queues.high'));
 
         $this->refund = $refund;
         $this->receiver = $receiver;
