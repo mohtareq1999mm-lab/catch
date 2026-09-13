@@ -90,8 +90,8 @@ class BrandImportController extends Controller
                 $idempotencyLock = null;
             }
 
-            if (Cache::has($idempotencyCacheKey)) {
-                $cachedId = Cache::get($idempotencyCacheKey);
+            if (Cache::store('file')->has($idempotencyCacheKey)) {
+                $cachedId = Cache::store('file')->get($idempotencyCacheKey);
                 $existing = Import::whereOperationType(FileOperationType::BRAND_IMPORT)->where('id', $cachedId)->first();
 
                 if ($existing) {
@@ -128,12 +128,12 @@ class BrandImportController extends Controller
             if ($recentDuplicate) {
                 $hashCacheKey = 'brand-import:hash:' . $request->user()->id . ':' . $fileHash;
 
-                if (Cache::has($hashCacheKey)) {
-                    $cachedId = Cache::get($hashCacheKey);
+                if (Cache::store('file')->has($hashCacheKey)) {
+                    $cachedId = Cache::store('file')->get($hashCacheKey);
 
                     if ((int) $cachedId === (int) $recentDuplicate->id) {
                         if ($idempotencyKey) {
-                            Cache::put('idempotency:brand-import:' . $request->user()->id . ':' . $idempotencyKey, $recentDuplicate->id, now()->addHours(24));
+                            Cache::store('file')->put('idempotency:brand-import:' . $request->user()->id . ':' . $idempotencyKey, $recentDuplicate->id, now()->addHours(24));
                         }
 
                         return $this->apiResponse(__('message.MESSAGE.BRAND_IMPORT_STARTED'), 202, true, [
@@ -164,9 +164,17 @@ class BrandImportController extends Controller
             'failed_rows' => 0,
         ]);
 
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::BRAND_IMPORT_QUEUED,
+            'brand-import',
+            $import->id,
+            $import->total_rows ?: null,
+            'Brand import queued.'
+        );
+
         // Store idempotency mappings
         if ($idempotencyKey && $idempotencyCacheKey) {
-            Cache::put($idempotencyCacheKey, $import->id, now()->addHours(24));
+            Cache::store('file')->put($idempotencyCacheKey, $import->id, now()->addHours(24));
 
             if ($idempotencyLock) {
                 try {
@@ -182,7 +190,7 @@ class BrandImportController extends Controller
         }
 
         if (isset($fileHash)) {
-            Cache::put('brand-import:hash:' . $request->user()->id . ':' . $fileHash, $import->id, now()->addMinutes(10));
+            Cache::store('file')->put('brand-import:hash:' . $request->user()->id . ':' . $fileHash, $import->id, now()->addMinutes(10));
         }
 
         ImportBrandsJob::dispatch($import->id);
@@ -316,6 +324,13 @@ class BrandImportController extends Controller
 
         $this->writeSignalFile($import->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
 
+        $this->broadcastFileOperationCancelling(
+            FileOperationEvent::BRAND_IMPORT_CANCELLING,
+            'brand-import',
+            $import->id,
+            'Brand import cancelling.'
+        );
+
         try {
             $affected = Import::where('id', $import->id)
                 ->whereIn('status', ['pending', 'processing'])
@@ -336,11 +351,12 @@ class BrandImportController extends Controller
         }
 
         $this->broadcastFileOperationTerminal(
-            FileOperationEvent::BRAND_IMPORT_PROGRESS,
+            FileOperationEvent::BRAND_IMPORT_CANCELLED,
             'brand-import',
             $import->id,
             'cancelled',
-            false
+            false,
+            ['progress' => 100.0, 'download_available' => false]
         );
 
         return $this->apiResponse(__('message.MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY'), 200, true, [

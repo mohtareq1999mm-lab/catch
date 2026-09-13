@@ -68,7 +68,7 @@ class ExportProductsJob implements ShouldQueue
         // If filters not passed (retry from queue serialization may lose?), try cache
         $filters = $this->filters;
         if (empty($filters)) {
-            $cached = Cache::get('product-export:filters:' . $this->importId);
+            $cached = Cache::store('file')->get('product-export:filters:' . $this->importId);
             if (is_array($cached)) {
                 $filters = $cached;
             }
@@ -169,7 +169,7 @@ class ExportProductsJob implements ShouldQueue
             } else {
                 $exportOperation->refresh();
             }
-            Cache::forget('product-export:filters:' . $this->importId);
+            Cache::store('file')->forget('product-export:filters:' . $this->importId);
 
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::PRODUCT_EXPORT_COMPLETED,

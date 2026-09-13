@@ -78,8 +78,8 @@ class ProductImportController extends Controller
             } catch (\Throwable $e) {
                 $idempotencyLock = null;
             }
-            if (Cache::has($idempotencyCacheKey)) {
-                $cachedId = Cache::get($idempotencyCacheKey);
+            if (Cache::store('file')->has($idempotencyCacheKey)) {
+                $cachedId = Cache::store('file')->get($idempotencyCacheKey);
                 $existing = Import::whereOperationType(FileOperationType::PRODUCT_IMPORT)->where('id', $cachedId)->first();
                 if ($existing) {
                     if ($idempotencyLock) {
@@ -106,11 +106,11 @@ class ProductImportController extends Controller
                 ->first();
             if ($recentDuplicate) {
                 $hashCacheKey = 'product-import:hash:' . $request->user()->id . ':' . $fileHash;
-                if (Cache::has($hashCacheKey)) {
-                    $cachedId = Cache::get($hashCacheKey);
+                if (Cache::store('file')->has($hashCacheKey)) {
+                    $cachedId = Cache::store('file')->get($hashCacheKey);
                     if ((int) $cachedId === (int) $recentDuplicate->id) {
                         if ($idempotencyKey) {
-                            Cache::put('idempotency:product-import:' . $request->user()->id . ':' . $idempotencyKey, $recentDuplicate->id, now()->addHours(24));
+                            Cache::store('file')->put('idempotency:product-import:' . $request->user()->id . ':' . $idempotencyKey, $recentDuplicate->id, now()->addHours(24));
                         }
                         if ($idempotencyLock) {
                             try { $idempotencyLock->release(); } catch (\Throwable $e) {}
@@ -143,7 +143,7 @@ class ProductImportController extends Controller
         ]);
 
         if ($idempotencyKey && $idempotencyCacheKey) {
-            Cache::put($idempotencyCacheKey, $import->id, now()->addHours(24));
+            Cache::store('file')->put($idempotencyCacheKey, $import->id, now()->addHours(24));
             if ($idempotencyLock) {
                 try { $idempotencyLock->release(); } catch (\Throwable $e) {}
             }
@@ -152,7 +152,7 @@ class ProductImportController extends Controller
         }
 
         if ($fileHash !== null) {
-            Cache::put('product-import:hash:' . $request->user()->id . ':' . $fileHash, $import->id, now()->addMinutes(10));
+            Cache::store('file')->put('product-import:hash:' . $request->user()->id . ':' . $fileHash, $import->id, now()->addMinutes(10));
         }
 
         // Pusher lifecycle: queued must precede dispatch to guarantee ordering

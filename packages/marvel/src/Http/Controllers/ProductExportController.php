@@ -43,8 +43,8 @@ class ProductExportController extends Controller
         $idempotencyKey = $request->header('Idempotency-Key') ?: $request->header('X-Idempotency-Key');
         if ($idempotencyKey) {
             $cacheKey = 'idempotency:product-export:' . $request->user()->id . ':' . $idempotencyKey;
-            if (Cache::has($cacheKey)) {
-                $cachedId = Cache::get($cacheKey);
+            if (Cache::store('file')->has($cacheKey)) {
+                $cachedId = Cache::store('file')->get($cacheKey);
                 $existing = Import::whereOperationType(FileOperationType::PRODUCT_EXPORT)->where('id', $cachedId)->first();
                 if ($existing) {
                     return $this->apiResponse(__('message.MESSAGE.EXPORT_STARTED_SUCCESSFULLY'), 202, true, [
@@ -65,14 +65,14 @@ class ProductExportController extends Controller
         ]);
 
         if ($idempotencyKey) {
-            Cache::put('idempotency:product-export:' . $request->user()->id . ':' . $idempotencyKey, $exportOperation->id, now()->addHours(24));
+            Cache::store('file')->put('idempotency:product-export:' . $request->user()->id . ':' . $idempotencyKey, $exportOperation->id, now()->addHours(24));
         }
 
         // Persist filters in errors field temporarily? Instead pass via job constructor filters
         // Store filters in file_name placeholder or cache; we pass via job
         // For idempotent replay we need to persist filters — store as json in errors temporarily or add column? Use cache.
         if (!empty($filters)) {
-            Cache::put('product-export:filters:' . $exportOperation->id, $filters, now()->addHours(2));
+            Cache::store('file')->put('product-export:filters:' . $exportOperation->id, $filters, now()->addHours(2));
         }
 
         $this->broadcastFileOperationQueued(

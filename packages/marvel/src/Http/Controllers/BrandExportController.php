@@ -33,8 +33,8 @@ class BrandExportController extends Controller
         if ($idempotencyKey) {
             $cacheKey = 'idempotency:brand-export:' . $request->user()->id . ':' . $idempotencyKey;
 
-            if (Cache::has($cacheKey)) {
-                $cachedId = Cache::get($cacheKey);
+            if (Cache::store('file')->has($cacheKey)) {
+                $cachedId = Cache::store('file')->get($cacheKey);
                 $existing = Import::whereOperationType(FileOperationType::BRAND_EXPORT)->where('id', $cachedId)->first();
 
                 if ($existing) {
@@ -59,7 +59,7 @@ class BrandExportController extends Controller
         ]);
 
         if ($idempotencyKey) {
-            Cache::put('idempotency:brand-export:' . $request->user()->id . ':' . $idempotencyKey, $exportOperation->id, now()->addHours(24));
+            Cache::store('file')->put('idempotency:brand-export:' . $request->user()->id . ':' . $idempotencyKey, $exportOperation->id, now()->addHours(24));
         }
 
         $this->broadcastFileOperationQueued(
