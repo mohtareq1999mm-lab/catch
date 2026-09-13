@@ -27,6 +27,40 @@ class ProductExportController extends Controller
         $this->middleware('permission:' . Permission::EXPORT_PRODUCT);
     }
 
+    protected function readSignalFile(int $operationId, string $signalType): ?array
+    {
+        $path = storage_path("app/imports/{$signalType}_{$operationId}.json");
+        clearstatcache(true, $path);
+        if (!file_exists($path)) {
+            return null;
+        }
+        try {
+            return json_decode((string) file_get_contents($path), true) ?: null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    protected function signalFileExists(int $operationId, string $signalType): bool
+    {
+        $path = storage_path("app/imports/{$signalType}_{$operationId}.json");
+        clearstatcache(true, $path);
+        return file_exists($path);
+    }
+
+    protected function writeSignalFile(int $operationId, string $signalType, array $data = []): void
+    {
+        $dir = storage_path('app/imports');
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        try {
+            file_put_contents($dir . "/{$signalType}_{$operationId}.json", json_encode($data), LOCK_EX);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     public function export(\Illuminate\Http\Request $request): JsonResponse
     {
         // Validate filters via ProductExportRequest rules manually to support both GET/POST
@@ -104,6 +138,8 @@ class ProductExportController extends Controller
 
         $this->authorize('view', $exportOperation);
 
+        $cancelPending = $this->signalFileExists($id, 'cancel');
+        $effectiveStatus = $cancelPending ? 'cancelling' : $exportOperation->status;
         $isTerminal = in_array($exportOperation->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true);
 
         return response()
@@ -113,7 +149,7 @@ class ProductExportController extends Controller
                 'success' => true,
                 'data' => [
                     'id' => $exportOperation->id,
-                    'status' => $exportOperation->status,
+                    'status' => $effectiveStatus,
                     'total_rows' => $exportOperation->total_rows,
                     'processed_rows' => $exportOperation->processed_rows,
                     'successful_rows' => $exportOperation->success_rows,
@@ -153,5 +189,63 @@ class ProductExportController extends Controller
             $filename,
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
         );
+    }
+
+    public function cancel(int $id): JsonResponse
+    {
+        $user = auth()->user();
+        $baseQuery = Import::whereOperationType(FileOperationType::PRODUCT_EXPORT);
+        if ($user && ! $user->hasRole(Role::SUPER_ADMIN)) {
+            $baseQuery->where('created_by', $user->id);
+        }
+        $exportOperation = $baseQuery
+            ->select(['id', 'status', 'created_by'])
+            ->findOrFail($id);
+
+        $this->authorize('cancel', $exportOperation);
+
+        if (in_array($exportOperation->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
+            return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
+        }
+
+        $this->writeSignalFile($exportOperation->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
+
+        $this->broadcastFileOperationCancelling(
+            FileOperationEvent::PRODUCT_EXPORT_CANCELLING,
+            'product-export',
+            $exportOperation->id,
+            'Product export cancelling.'
+        );
+
+        try {
+            $affected = Import::where('id', $exportOperation->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->update(['status' => 'cancelled']);
+
+            if ($affected === 0) {
+                $exportOperation->refresh();
+                if ($exportOperation->isTerminal()) {
+                    return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
+                }
+            } else {
+                $exportOperation->refresh();
+            }
+        } catch (QueryException $e) {
+            report($e);
+        }
+
+        $this->broadcastFileOperationTerminal(
+            FileOperationEvent::PRODUCT_EXPORT_CANCELLED,
+            'product-export',
+            $exportOperation->id,
+            'cancelled',
+            false,
+            ['progress' => 100.0, 'download_available' => false]
+        );
+
+        return $this->apiResponse(__('message.MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY'), 200, true, [
+            'export_id' => $exportOperation->id,
+            'status' => 'cancelled',
+        ]);
     }
 }

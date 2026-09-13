@@ -40,6 +40,26 @@ class ExportProductsJob implements ShouldQueue
         $this->onQueue(config('queue.queues.medium'));
     }
 
+    protected function removeSignalFile(string $type): void
+    {
+        $path = storage_path("app/imports/{$type}_{$this->importId}.json");
+        if (file_exists($path)) {
+            @unlink($path);
+        }
+    }
+
+    protected function cancelSignalFileExists(): bool
+    {
+        $path = storage_path("app/imports/cancel_{$this->importId}.json");
+        clearstatcache(true, $path);
+        return file_exists($path);
+    }
+
+    protected function cleanSignals(): void
+    {
+        $this->removeSignalFile('cancel');
+    }
+
     public function handle(): void
     {
         $exportOperation = Import::findOrFail($this->importId);
@@ -62,6 +82,14 @@ class ExportProductsJob implements ShouldQueue
         }
 
         if (in_array($exportOperation->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
+            return;
+        }
+
+        if ($this->cancelSignalFileExists()) {
+            if ($exportOperation->status !== 'cancelled') {
+                Import::where('id', $exportOperation->id)->whereIn('status', ['pending', 'processing'])->update(['status' => 'cancelled']);
+            }
+            $this->removeSignalFile('cancel');
             return;
         }
 
@@ -149,6 +177,28 @@ class ExportProductsJob implements ShouldQueue
             }
             $zip->close();
 
+            if ($this->cancelSignalFileExists()) {
+                try {
+                    if (Storage::disk('imports')->exists($filename)) {
+                        Storage::disk('imports')->delete($filename);
+                    }
+                } catch (Throwable $cleanup) {
+                    report($cleanup);
+                }
+                $this->removeSignalFile('cancel');
+                Import::where('id', $exportOperation->id)->whereIn('status', ['pending', 'processing'])->update(['status' => 'cancelled']);
+                $exportOperation->refresh();
+                $this->broadcastFileOperationTerminal(
+                    FileOperationEvent::PRODUCT_EXPORT_CANCELLED,
+                    'product-export',
+                    $this->importId,
+                    'cancelled',
+                    false,
+                    ['progress' => 100.0, 'download_available' => false]
+                );
+                return;
+            }
+
             $affected = Import::where('id', $exportOperation->id)
                 ->whereIn('status', ['pending', 'processing'])
                 ->update([
@@ -164,6 +214,16 @@ class ExportProductsJob implements ShouldQueue
             if ($affected === 0) {
                 $exportOperation->refresh();
                 if ($exportOperation->isTerminal()) {
+                    if ($exportOperation->status === 'cancelled') {
+                        try {
+                            if (Storage::disk('imports')->exists($filename)) {
+                                Storage::disk('imports')->delete($filename);
+                            }
+                        } catch (Throwable $cleanup) {
+                            report($cleanup);
+                        }
+                        $this->removeSignalFile('cancel');
+                    }
                     return;
                 }
             } else {

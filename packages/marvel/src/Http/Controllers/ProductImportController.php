@@ -344,7 +344,7 @@ class ProductImportController extends Controller
             ->select(['id', 'status', 'created_by'])
             ->findOrFail($id);
 
-        $this->authorize('view', $import);
+        $this->authorize('cancel', $import);
 
         if (in_array($import->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
             return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);

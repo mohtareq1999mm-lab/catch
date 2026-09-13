@@ -142,6 +142,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('brands/export', [\Marvel\Http\Controllers\BrandExportController::class, 'export'])->name('admin.brands.export.post');
     Route::get('brands/export/{id}', [\Marvel\Http\Controllers\BrandExportController::class, 'status'])->whereNumber('id')->name('admin.brands.export.status');
     Route::get('brands/export/{id}/download', [\Marvel\Http\Controllers\BrandExportController::class, 'download'])->whereNumber('id')->name('admin.brands.export.download');
+    Route::post('brands/export/{id}/cancel', [\Marvel\Http\Controllers\BrandExportController::class, 'cancel'])->whereNumber('id')->name('admin.brands.export.cancel');
     Route::put('brands/reorder', [BrandController::class, 'reorder']);
     Route::apiResource('brands', BrandController::class);
 
@@ -160,6 +161,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('categories/export', [CategoryExportController::class, 'export'])->name('admin.categories.export');
     Route::get('categories/export/{id}', [CategoryExportController::class, 'status'])->whereNumber('id')->name('admin.categories.export.status');
     Route::get('categories/export/{id}/download', [CategoryExportController::class, 'download'])->whereNumber('id')->name('admin.categories.export.download');
+    Route::post('categories/export/{id}/cancel', [CategoryExportController::class, 'cancel'])->whereNumber('id')->name('admin.categories.export.cancel');
     Route::post('categories/bulk-delete', [CategoryController::class, 'bulkDelete'])->name('admin.categories.bulk-delete');
     Route::get('categories/bulk-delete/{id}', [CategoryController::class, 'bulkDeleteStatus'])->name('admin.categories.bulk-delete.status');
     Route::post('categories/bulk-delete/{id}/cancel', [CategoryController::class, 'cancelBulkDelete'])->name('admin.categories.bulk-delete.cancel');
@@ -229,6 +231,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('products/export', [ProductExportController::class, 'export'])->name('admin.products.export.post');
     Route::get('products/export/{id}', [ProductExportController::class, 'status'])->whereNumber('id')->name('admin.products.export.status');
     Route::get('products/export/{id}/download', [ProductExportController::class, 'download'])->whereNumber('id')->name('admin.products.export.download');
+    Route::post('products/export/{id}/cancel', [ProductExportController::class, 'cancel'])->whereNumber('id')->name('admin.products.export.cancel');
     Route::post('products/import', [ProductImportController::class, 'import'])->name('admin.products.import');
     Route::get('products/import/{id}', [ProductImportController::class, 'status'])->whereNumber('id')->name('admin.products.import.status');
     Route::post('products/import/{id}/cancel', [ProductImportController::class, 'cancel'])->whereNumber('id')->name('admin.products.import.cancel');

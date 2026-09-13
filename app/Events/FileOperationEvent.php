@@ -60,10 +60,16 @@ class FileOperationEvent implements ShouldBroadcastNow
     public const CATEGORY_EXPORT_PROGRESS = 'category.export.progress';
     public const CATEGORY_EXPORT_COMPLETED = 'category.export.completed';
     public const CATEGORY_EXPORT_FAILED = 'category.export.failed';
+    public const CATEGORY_EXPORT_CANCELLING = 'category.export.cancelling';
+    public const CATEGORY_EXPORT_CANCELLED = 'category.export.cancelled';
     public const BRAND_EXPORT_QUEUED = 'brand.export.queued';
     public const BRAND_EXPORT_PROGRESS = 'brand.export.progress';
     public const BRAND_EXPORT_COMPLETED = 'brand.export.completed';
     public const BRAND_EXPORT_FAILED = 'brand.export.failed';
+    public const BRAND_EXPORT_CANCELLING = 'brand.export.cancelling';
+    public const BRAND_EXPORT_CANCELLED = 'brand.export.cancelled';
+    public const PRODUCT_EXPORT_CANCELLING = 'product.export.cancelling';
+    public const PRODUCT_EXPORT_CANCELLED = 'product.export.cancelled';
     public const CATEGORY_BULK_DELETE_QUEUED = 'category.bulk-delete.queued';
     public const CATEGORY_BULK_DELETE_PROGRESS = 'category.bulk-delete.progress';
     public const CATEGORY_BULK_DELETE_COMPLETED = 'category.bulk-delete.completed';

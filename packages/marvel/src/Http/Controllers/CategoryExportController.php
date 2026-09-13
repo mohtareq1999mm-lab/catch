@@ -6,6 +6,7 @@ use App\Events\FileOperationEvent;
 use App\Http\Controllers\Controller;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Storage;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
@@ -24,6 +25,40 @@ class CategoryExportController extends Controller
     {
         $this->middleware('auth:sanctum');
         $this->middleware('permission:' . Permission::EXPORT_CATEGORY);
+    }
+
+    protected function readSignalFile(int $operationId, string $signalType): ?array
+    {
+        $path = storage_path("app/imports/{$signalType}_{$operationId}.json");
+        clearstatcache(true, $path);
+        if (!file_exists($path)) {
+            return null;
+        }
+        try {
+            return json_decode((string) file_get_contents($path), true) ?: null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    protected function signalFileExists(int $operationId, string $signalType): bool
+    {
+        $path = storage_path("app/imports/{$signalType}_{$operationId}.json");
+        clearstatcache(true, $path);
+        return file_exists($path);
+    }
+
+    protected function writeSignalFile(int $operationId, string $signalType, array $data = []): void
+    {
+        $dir = storage_path('app/imports');
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        try {
+            file_put_contents($dir . "/{$signalType}_{$operationId}.json", json_encode($data), LOCK_EX);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     public function export(CategoryExportRequest $request): JsonResponse
@@ -76,6 +111,8 @@ class CategoryExportController extends Controller
 
         $this->authorize('view', $import);
 
+        $cancelPending = $this->signalFileExists($id, 'cancel');
+        $effectiveStatus = $cancelPending ? 'cancelling' : $import->status;
         $isTerminal = in_array($import->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true);
 
         return response()
@@ -85,7 +122,7 @@ class CategoryExportController extends Controller
                 'success' => true,
                 'data' => [
                     'id' => $import->id,
-                    'status' => $import->status,
+                    'status' => $effectiveStatus,
                     'total_rows' => $import->total_rows,
                     'processed_rows' => $import->processed_rows,
                     'successful_rows' => $import->success_rows,
@@ -124,5 +161,55 @@ class CategoryExportController extends Controller
             $filename,
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
         );
+    }
+
+    public function cancel(int $id): JsonResponse
+    {
+        $user = auth()->user();
+        $baseQuery = Import::whereOperationType(FileOperationType::CATEGORY_EXPORT);
+        if ($user && ! $user->hasRole(Role::SUPER_ADMIN)) {
+            $baseQuery->where('created_by', $user->id);
+        }
+        $import = $baseQuery
+            ->select(['id', 'status', 'created_by'])
+            ->findOrFail($id);
+        $this->authorize('cancel', $import);
+        if (in_array($import->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
+            return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
+        }
+        $this->writeSignalFile($import->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
+        $this->broadcastFileOperationCancelling(
+            FileOperationEvent::CATEGORY_EXPORT_CANCELLING,
+            'category-export',
+            $import->id,
+            'Category export cancelling.'
+        );
+        try {
+            $affected = Import::where('id', $import->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->update(['status' => 'cancelled']);
+            if ($affected === 0) {
+                $import->refresh();
+                if ($import->isTerminal()) {
+                    return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
+                }
+            } else {
+                $import->refresh();
+            }
+        } catch (QueryException $e) {
+            report($e);
+        }
+        $this->broadcastFileOperationTerminal(
+            FileOperationEvent::CATEGORY_EXPORT_CANCELLED,
+            'category-export',
+            $import->id,
+            'cancelled',
+            false,
+            ['progress' => 100.0, 'download_available' => false]
+        );
+        return $this->apiResponse(__('message.MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY'), 200, true, [
+            'export_id' => $import->id,
+            'status' => 'cancelled',
+        ]);
     }
 }
