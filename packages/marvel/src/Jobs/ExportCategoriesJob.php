@@ -54,6 +54,19 @@ class ExportCategoriesJob implements ShouldQueue
             }
         }
 
+        $this->broadcastFileOperationProgress(
+            FileOperationEvent::CATEGORY_EXPORT_PROGRESS,
+            'category-export',
+            $this->importId,
+            5.0,
+            0,
+            0,
+            0,
+            null,
+            'processing',
+            ['message' => 'Category export processing.', 'download_available' => false]
+        );
+
         $filename = null;
         try {
             $export = new CategoriesExport();
@@ -63,6 +76,19 @@ class ExportCategoriesJob implements ShouldQueue
             $filename = 'categories-export-' . $this->importId . '-' . now()->format('Y-m-d-His') . '.xlsx';
 
             $export->store($filename, 'imports');
+
+            $this->broadcastFileOperationProgress(
+                FileOperationEvent::CATEGORY_EXPORT_PROGRESS,
+                'category-export',
+                $this->importId,
+                90.0,
+                $rowCount,
+                0,
+                0,
+                $rowCount,
+                'processing',
+                ['message' => 'Category export file generated.', 'download_available' => false]
+            );
 
             if (! \Illuminate\Support\Facades\Storage::disk('imports')->exists($filename)) {
                 throw new \RuntimeException('Export file was not created');
@@ -82,16 +108,26 @@ class ExportCategoriesJob implements ShouldQueue
             }
             $zip->close();
 
-            $import->update([
-                'status' => 'completed',
-                'file_path' => $filename,
-                'file_name' => $filename,
-                'total_rows' => $rowCount,
-                'processed_rows' => $rowCount,
-                'success_rows' => $rowCount,
-                'failed_rows' => 0,
-                'errors' => [],
-            ]);
+            $affected = Import::where('id', $import->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->update([
+                    'status' => 'completed',
+                    'file_path' => $filename,
+                    'file_name' => $filename,
+                    'total_rows' => $rowCount,
+                    'processed_rows' => $rowCount,
+                    'success_rows' => $rowCount,
+                    'failed_rows' => 0,
+                    'errors' => [],
+                ]);
+            if ($affected === 0) {
+                $import->refresh();
+                if ($import->isTerminal()) {
+                    return;
+                }
+            } else {
+                $import->refresh();
+            }
 
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::CATEGORY_EXPORT_COMPLETED,
@@ -105,6 +141,8 @@ class ExportCategoriesJob implements ShouldQueue
                     'processed_rows' => $rowCount,
                     'success_rows' => $rowCount,
                     'failed_rows' => 0,
+                    'download_available' => true,
+                    'message' => 'Category export completed.',
                 ]
             );
         } catch (Throwable $e) {
@@ -124,7 +162,8 @@ class ExportCategoriesJob implements ShouldQueue
                 'category-export',
                 $this->importId,
                 'failed',
-                true
+                true,
+                ['progress' => 100.0, 'download_available' => false]
             );
 
             throw $e;
@@ -143,7 +182,8 @@ class ExportCategoriesJob implements ShouldQueue
                 'category-export',
                 $this->importId,
                 'failed',
-                true
+                true,
+                ['progress' => 100.0, 'download_available' => false]
             );
         }
     }

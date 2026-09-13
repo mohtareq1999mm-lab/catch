@@ -60,7 +60,7 @@ class ProductImportBroadcastTest extends FileOperationBroadcastTestCase
 
         $this->assertDatabaseHas('imports', ['id' => $import->id, 'status' => 'failed']);
 
-        $terminal = $this->assertBroadcast(FileOperationEvent::PRODUCT_IMPORT_PROGRESS, $user->id);
+        $terminal = $this->assertBroadcast(FileOperationEvent::PRODUCT_IMPORT_FAILED, $user->id);
         $this->assertSame('failed', $terminal['data']['status']);
         $this->assertTrue($terminal['data']['has_errors']);
 

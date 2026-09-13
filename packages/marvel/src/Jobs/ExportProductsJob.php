@@ -87,6 +87,20 @@ class ExportProductsJob implements ShouldQueue
             return;
         }
 
+        // Lifecycle: processing progress
+        $this->broadcastFileOperationProgress(
+            FileOperationEvent::PRODUCT_EXPORT_PROGRESS,
+            'product-export',
+            $this->importId,
+            5.0,
+            0,
+            0,
+            0,
+            null,
+            'processing',
+            ['message' => 'Product export processing.', 'download_available' => false]
+        );
+
         $filename = null;
         try {
             $export = new ProductsExport($filters);
@@ -102,6 +116,19 @@ class ExportProductsJob implements ShouldQueue
             $filename = 'products-export-' . $exportOperation->id . '-' . now()->format('Y-m-d-His') . '.xlsx';
 
             $export->store($filename, 'imports');
+
+            $this->broadcastFileOperationProgress(
+                FileOperationEvent::PRODUCT_EXPORT_PROGRESS,
+                'product-export',
+                $this->importId,
+                90.0,
+                $rowCount,
+                0,
+                0,
+                $rowCount,
+                'processing',
+                ['message' => 'Product export file generated.', 'download_available' => false]
+            );
 
             if (! Storage::disk('imports')->exists($filename)) {
                 throw new \RuntimeException('Export file was not created');
@@ -122,17 +149,26 @@ class ExportProductsJob implements ShouldQueue
             }
             $zip->close();
 
-            $exportOperation->update([
-                'status' => 'completed',
-                'file_path' => $filename,
-                'file_name' => $filename,
-                'total_rows' => $rowCount,
-                'processed_rows' => $rowCount,
-                'success_rows' => $rowCount,
-                'failed_rows' => 0,
-                'errors' => [],
-            ]);
-
+            $affected = Import::where('id', $exportOperation->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->update([
+                    'status' => 'completed',
+                    'file_path' => $filename,
+                    'file_name' => $filename,
+                    'total_rows' => $rowCount,
+                    'processed_rows' => $rowCount,
+                    'success_rows' => $rowCount,
+                    'failed_rows' => 0,
+                    'errors' => [],
+                ]);
+            if ($affected === 0) {
+                $exportOperation->refresh();
+                if ($exportOperation->isTerminal()) {
+                    return;
+                }
+            } else {
+                $exportOperation->refresh();
+            }
             Cache::forget('product-export:filters:' . $this->importId);
 
             $this->broadcastFileOperationTerminal(
@@ -147,6 +183,8 @@ class ExportProductsJob implements ShouldQueue
                     'processed_rows' => $rowCount,
                     'success_rows' => $rowCount,
                     'failed_rows' => 0,
+                    'download_available' => true,
+                    'message' => 'Product export completed.',
                 ]
             );
         } catch (Throwable $e) {
@@ -167,7 +205,8 @@ class ExportProductsJob implements ShouldQueue
                     'product-export',
                     $this->importId,
                     'failed',
-                    true
+                    true,
+                    ['progress' => 100.0, 'download_available' => false]
                 );
             } catch (Throwable $b) {
             }
@@ -186,7 +225,8 @@ class ExportProductsJob implements ShouldQueue
                     'product-export',
                     $this->importId,
                     'failed',
-                    true
+                    true,
+                    ['progress' => 100.0, 'download_available' => false]
                 );
             } catch (Throwable $e) {
             }

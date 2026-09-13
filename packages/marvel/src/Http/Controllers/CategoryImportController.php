@@ -10,14 +10,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
-use Marvel\Enums\ImportType;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use Marvel\Http\Requests\CategoryImportRequest;
 use Marvel\Jobs\ImportCategoriesJob;
 use Marvel\Traits\ApiResponse;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Symfony\Component\HttpFoundation\File\Exception\FileNotFoundException;
 
 class CategoryImportController extends Controller
 {
@@ -90,6 +88,14 @@ class CategoryImportController extends Controller
             'success_rows' => 0,
             'failed_rows' => 0,
         ]);
+
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::CATEGORY_IMPORT_QUEUED,
+            'category-import',
+            $import->id,
+            $import->total_rows ?: null,
+            'Category import queued.'
+        );
 
         ImportCategoriesJob::dispatch($import->id);
 
@@ -222,6 +228,13 @@ class CategoryImportController extends Controller
 
         $this->writeSignalFile($import->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
 
+        $this->broadcastFileOperationCancelling(
+            FileOperationEvent::CATEGORY_IMPORT_CANCELLING,
+            'category-import',
+            $import->id,
+            'Category import cancelling.'
+        );
+
         try {
             $affected = Import::where('id', $import->id)
                 ->whereIn('status', ['pending', 'processing'])
@@ -242,7 +255,7 @@ class CategoryImportController extends Controller
         }
 
         $this->broadcastFileOperationTerminal(
-            FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
+            FileOperationEvent::CATEGORY_IMPORT_CANCELLED,
             'category-import',
             $import->id,
             'cancelled',
@@ -250,6 +263,8 @@ class CategoryImportController extends Controller
             [
                 'type' => 'category',
                 'import_id' => $import->id,
+                'progress' => 100.0,
+                'download_available' => false,
             ]
         );
 

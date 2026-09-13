@@ -76,6 +76,19 @@ class ExportBrandsJob implements ShouldQueue
             return;
         }
 
+        $this->broadcastFileOperationProgress(
+            FileOperationEvent::BRAND_EXPORT_PROGRESS,
+            'brand-export',
+            $this->importId,
+            5.0,
+            0,
+            0,
+            0,
+            null,
+            'processing',
+            ['message' => 'Brand export processing.', 'download_available' => false]
+        );
+
         $filename = null;
 
         try {
@@ -88,6 +101,19 @@ class ExportBrandsJob implements ShouldQueue
             $filename = 'brands-export-' . $exportOperation->id . '-' . now()->format('Y-m-d-His') . '.xlsx';
 
             $export->store($filename, 'imports');
+
+            $this->broadcastFileOperationProgress(
+                FileOperationEvent::BRAND_EXPORT_PROGRESS,
+                'brand-export',
+                $this->importId,
+                90.0,
+                $rowCount,
+                0,
+                0,
+                $rowCount,
+                'processing',
+                ['message' => 'Brand export file generated.', 'download_available' => false]
+            );
 
             // Verify file was actually created and is a valid XLSX package
             if (! Storage::disk('imports')->exists($filename)) {
@@ -108,16 +134,26 @@ class ExportBrandsJob implements ShouldQueue
             }
             $zip->close();
 
-            $exportOperation->update([
-                'status' => 'completed',
-                'file_path' => $filename,
-                'file_name' => $filename,
-                'total_rows' => $rowCount,
-                'processed_rows' => $rowCount,
-                'success_rows' => $rowCount,
-                'failed_rows' => 0,
-                'errors' => [],
-            ]);
+            $affected = Import::where('id', $exportOperation->id)
+                ->whereIn('status', ['pending', 'processing'])
+                ->update([
+                    'status' => 'completed',
+                    'file_path' => $filename,
+                    'file_name' => $filename,
+                    'total_rows' => $rowCount,
+                    'processed_rows' => $rowCount,
+                    'success_rows' => $rowCount,
+                    'failed_rows' => 0,
+                    'errors' => [],
+                ]);
+            if ($affected === 0) {
+                $exportOperation->refresh();
+                if ($exportOperation->isTerminal()) {
+                    return;
+                }
+            } else {
+                $exportOperation->refresh();
+            }
 
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::BRAND_EXPORT_COMPLETED,
@@ -131,6 +167,8 @@ class ExportBrandsJob implements ShouldQueue
                     'processed_rows' => $rowCount,
                     'success_rows' => $rowCount,
                     'failed_rows' => 0,
+                    'download_available' => true,
+                    'message' => 'Brand export completed.',
                 ]
             );
         } catch (Throwable $e) {
@@ -154,7 +192,8 @@ class ExportBrandsJob implements ShouldQueue
                 'brand-export',
                 $this->importId,
                 'failed',
-                true
+                true,
+                ['progress' => 100.0, 'download_available' => false]
             );
 
             throw $e;
@@ -173,7 +212,8 @@ class ExportBrandsJob implements ShouldQueue
                 'brand-export',
                 $this->importId,
                 'failed',
-                true
+                true,
+                ['progress' => 100.0, 'download_available' => false]
             );
         }
     }

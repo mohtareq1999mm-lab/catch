@@ -216,13 +216,7 @@ class ImportBrandsJob implements ShouldQueue
                 ]],
             ]);
 
-            $this->broadcastFileOperationTerminal(
-                FileOperationEvent::BRAND_IMPORT_PROGRESS,
-                'brand-import',
-                $this->importId,
-                'failed',
-                true
-            );
+            $this->broadcastBrandImportTerminal('failed', true);
 
             return;
         }
@@ -267,26 +261,30 @@ class ImportBrandsJob implements ShouldQueue
                 $status = 'failed';
             }
 
-            $import->update([
-                'status' => $status,
-                'total_rows' => $successCount + count($failedRows),
-                'processed_rows' => $successCount + count($failedRows),
-                'success_rows' => $successCount,
-                'failed_rows' => count($failedRows),
-                'errors' => $failedRows,
-            ]);
+            $affected = Import::where('id', $import->id)
+                ->whereIn('status', ['pending', 'processing', 'cancelling'])
+                ->update([
+                    'status' => $status,
+                    'total_rows' => $successCount + count($failedRows),
+                    'processed_rows' => $successCount + count($failedRows),
+                    'success_rows' => $successCount,
+                    'failed_rows' => count($failedRows),
+                    'errors' => $failedRows,
+                ]);
+            if ($affected === 0) {
+                $import->refresh();
+                if ($import->isTerminal()) {
+                    return;
+                }
+            } else {
+                $import->refresh();
+            }
 
             if ($successCount > 0) {
                 $this->invalidateFrontendCaches();
             }
 
-            $this->broadcastFileOperationTerminal(
-                FileOperationEvent::BRAND_IMPORT_PROGRESS,
-                'brand-import',
-                $this->importId,
-                $status,
-                !empty($failedRows),
-                [
+            $this->broadcastBrandImportTerminal($status, !empty($failedRows), [
                     'progress' => 100.0,
                     'total_rows' => $successCount + count($failedRows),
                     'processed_rows' => $successCount + count($failedRows),
@@ -311,13 +309,7 @@ class ImportBrandsJob implements ShouldQueue
                 'errors' => $service->getFailedRows(),
             ]);
 
-            $this->broadcastFileOperationTerminal(
-                FileOperationEvent::BRAND_IMPORT_PROGRESS,
-                'brand-import',
-                $this->importId,
-                'cancelled',
-                !empty($service->getFailedRows()),
-                [
+            $this->broadcastBrandImportTerminal('cancelled', !empty($service->getFailedRows()), [
                     'progress' => 100.0,
                     'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
                     'processed_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
@@ -341,13 +333,7 @@ class ImportBrandsJob implements ShouldQueue
                     ]],
                 ]);
 
-                $this->broadcastFileOperationTerminal(
-                    FileOperationEvent::BRAND_IMPORT_PROGRESS,
-                    'brand-import',
-                    $this->importId,
-                    'failed',
-                    true
-                );
+                $this->broadcastBrandImportTerminal('failed', true);
 
                 // Clean up on terminal failure
                 $this->deleteImportFile($import);
@@ -406,6 +392,22 @@ class ImportBrandsJob implements ShouldQueue
         }
     }
 
+    protected function broadcastBrandImportTerminal(string $status, bool $hasErrors, array $extraPayload = []): void
+    {
+        $event = match ($status) {
+            'completed', 'completed_with_errors' => FileOperationEvent::BRAND_IMPORT_COMPLETED,
+            'failed' => FileOperationEvent::BRAND_IMPORT_FAILED,
+            'cancelled' => FileOperationEvent::BRAND_IMPORT_CANCELLED,
+            'cancelling' => FileOperationEvent::BRAND_IMPORT_CANCELLING,
+            default => FileOperationEvent::BRAND_IMPORT_PROGRESS,
+        };
+        $base = ['download_available' => $hasErrors];
+        if (!array_key_exists('progress', $extraPayload) && in_array($status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
+            $base['progress'] = 100.0;
+        }
+        $this->broadcastFileOperationTerminal($event, 'brand-import', $this->importId, $status, $hasErrors, array_merge($base, $extraPayload));
+    }
+
     public function failed(Throwable $exception): void
     {
         $import = Import::find($this->importId);
@@ -413,13 +415,7 @@ class ImportBrandsJob implements ShouldQueue
         if ($import && $import->status === 'processing') {
             $import->update(['status' => 'failed']);
 
-            $this->broadcastFileOperationTerminal(
-                FileOperationEvent::BRAND_IMPORT_PROGRESS,
-                'brand-import',
-                $this->importId,
-                'failed',
-                true
-            );
+            $this->broadcastBrandImportTerminal('failed', true);
 
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');

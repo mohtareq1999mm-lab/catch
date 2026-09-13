@@ -263,14 +263,24 @@ class ImportCategoriesJob implements ShouldQueue
                 $status = 'failed';
             }
 
-            $import->update([
-                'status' => $status,
-                'total_rows' => $successCount + count($failedRows),
-                'processed_rows' => $successCount + count($failedRows),
-                'success_rows' => $successCount,
-                'failed_rows' => count($failedRows),
-                'errors' => $failedRows,
-            ]);
+            $affected = Import::where('id', $import->id)
+                ->whereIn('status', ['pending', 'processing', 'cancelling'])
+                ->update([
+                    'status' => $status,
+                    'total_rows' => $successCount + count($failedRows),
+                    'processed_rows' => $successCount + count($failedRows),
+                    'success_rows' => $successCount,
+                    'failed_rows' => count($failedRows),
+                    'errors' => $failedRows,
+                ]);
+            if ($affected === 0) {
+                $import->refresh();
+                if ($import->isTerminal()) {
+                    return;
+                }
+            } else {
+                $import->refresh();
+            }
 
             if ($successCount > 0) {
                 $this->invalidateFrontendCaches();
@@ -350,26 +360,37 @@ class ImportCategoriesJob implements ShouldQueue
     }
 
     /**
-     * Terminal signal for category imports, carried on the existing
-     * `category.import.progress` event name with additive `status` /
-     * `kind` / `has_errors` keys. Existing payload keys (import_id, type)
-     * are preserved for wire compatibility with current consumers.
+     * Terminal signal for category imports. Maps status to specific event
+     * constants (queued/progress/completed/failed/cancelled) while preserving
+     * legacy `type/import_id` for wire compatibility.
      */
     protected function broadcastCategoryImportTerminal(
         string $status,
         bool $hasErrors,
         array $extraPayload = [],
     ): void {
+        $event = match ($status) {
+            'completed', 'completed_with_errors' => FileOperationEvent::CATEGORY_IMPORT_COMPLETED,
+            'failed' => FileOperationEvent::CATEGORY_IMPORT_FAILED,
+            'cancelled' => FileOperationEvent::CATEGORY_IMPORT_CANCELLED,
+            'cancelling' => FileOperationEvent::CATEGORY_IMPORT_CANCELLING,
+            default => FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
+        };
+        $base = [
+            'type' => 'category',
+            'import_id' => $this->importId,
+            'download_available' => $hasErrors,
+        ];
+        if (!array_key_exists('progress', $extraPayload) && in_array($status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
+            $base['progress'] = 100.0;
+        }
         $this->broadcastFileOperationTerminal(
-            FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
+            $event,
             'category-import',
             $this->importId,
             $status,
             $hasErrors,
-            array_merge([
-                'type' => 'category',
-                'import_id' => $this->importId,
-            ], $extraPayload)
+            array_merge($base, $extraPayload)
         );
     }
 

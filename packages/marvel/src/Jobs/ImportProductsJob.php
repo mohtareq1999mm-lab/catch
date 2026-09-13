@@ -134,11 +134,12 @@ class ImportProductsJob implements ShouldQueue
                     ]],
                 ]);
                 $this->broadcastFileOperationTerminal(
-                    FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+                    FileOperationEvent::PRODUCT_IMPORT_FAILED,
                     'product-import',
                     $this->importId,
                     'failed',
-                    true
+                    true,
+                    ['progress' => 100.0, 'download_available' => false]
                 );
             }
             return;
@@ -184,11 +185,12 @@ class ImportProductsJob implements ShouldQueue
                 ]],
             ]);
             $this->broadcastFileOperationTerminal(
-                FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+                FileOperationEvent::PRODUCT_IMPORT_FAILED,
                 'product-import',
                 $this->importId,
                 'failed',
-                true
+                true,
+                ['progress' => 100.0, 'download_available' => false]
             );
             return;
         }
@@ -273,15 +275,25 @@ class ImportProductsJob implements ShouldQueue
                 $status = ImportStatus::FAILED;
             }
 
-            // Persist product-row counters; errors include variant/image for download
-            $import->update([
-                'status' => $status,
-                'total_rows' => $finalTotal,
-                'processed_rows' => $successCount + count($failedRows),
-                'success_rows' => $successCount,
-                'failed_rows' => count($failedRows),
-                'errors' => $allErrors,
-            ]);
+            // Atomic terminal transition — prevents cancelled→completed race
+            $affected = Import::where('id', $import->id)
+                ->whereIn('status', ['pending', 'processing', 'cancelling'])
+                ->update([
+                    'status' => $status,
+                    'total_rows' => $finalTotal,
+                    'processed_rows' => $successCount + count($failedRows),
+                    'success_rows' => $successCount,
+                    'failed_rows' => count($failedRows),
+                    'errors' => $allErrors,
+                ]);
+            if ($affected === 0) {
+                $import->refresh();
+                if ($import->isTerminal()) {
+                    return;
+                }
+            } else {
+                $import->refresh();
+            }
 
             \Illuminate\Support\Facades\Log::info('product.import.' . $status, [
                 'operation_id' => $this->importId,
@@ -300,8 +312,13 @@ class ImportProductsJob implements ShouldQueue
                 $this->invalidateFrontendCaches();
             }
 
+            $terminalEvent = match ($status) {
+                'completed', 'completed_with_errors' => FileOperationEvent::PRODUCT_IMPORT_COMPLETED,
+                'failed' => FileOperationEvent::PRODUCT_IMPORT_FAILED,
+                default => FileOperationEvent::PRODUCT_IMPORT_COMPLETED,
+            };
             $this->broadcastFileOperationTerminal(
-                FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+                $terminalEvent,
                 'product-import',
                 $this->importId,
                 $status,
@@ -312,6 +329,7 @@ class ImportProductsJob implements ShouldQueue
                     'processed_rows' => $successCount + count($failedRows),
                     'success_rows' => $successCount,
                     'failed_rows' => count($failedRows),
+                    'download_available' => !empty($allErrors),
                 ]
             );
 
@@ -337,13 +355,14 @@ class ImportProductsJob implements ShouldQueue
             ]);
 
             $this->broadcastFileOperationTerminal(
-                FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+                FileOperationEvent::PRODUCT_IMPORT_CANCELLED,
                 'product-import',
                 $this->importId,
                 'cancelled',
                 !empty($allErrors),
                 [
                     'progress' => 100.0,
+                    'download_available' => false,
                     'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
                     'processed_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
                     'success_rows' => $service->getSuccessCount(),
@@ -359,11 +378,12 @@ class ImportProductsJob implements ShouldQueue
                     'errors' => [['sheet' => 'system', 'row' => 0, 'sku' => '', 'error_message' => $sanitized]],
                 ]);
                 $this->broadcastFileOperationTerminal(
-                    FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+                    FileOperationEvent::PRODUCT_IMPORT_FAILED,
                     'product-import',
                     $this->importId,
                     'failed',
-                    true
+                    true,
+                    ['progress' => 100.0, 'download_available' => false]
                 );
                 $this->deleteImportFile($import);
                 $this->removeSignalFile('progress');
@@ -463,11 +483,12 @@ class ImportProductsJob implements ShouldQueue
         if ($import && $import->status === 'processing') {
             $import->update(['status' => 'failed']);
             $this->broadcastFileOperationTerminal(
-                FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+                FileOperationEvent::PRODUCT_IMPORT_FAILED,
                 'product-import',
                 $this->importId,
                 'failed',
-                true
+                true,
+                ['progress' => 100.0, 'download_available' => false]
             );
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');

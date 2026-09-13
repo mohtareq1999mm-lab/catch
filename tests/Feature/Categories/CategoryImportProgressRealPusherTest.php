@@ -43,7 +43,8 @@ class CategoryImportProgressRealPusherTest extends TestCase
             }
         }
 
-        $broadcaster = Broadcast::driver();
+        $broadcaster = Broadcast::driver('pusher');
+        config(['broadcasting.default' => 'pusher']);
 
         if ($broadcaster instanceof PusherBroadcaster) {
             $this->pusher = new RecordingPusher();

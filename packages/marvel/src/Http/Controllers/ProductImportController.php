@@ -7,7 +7,6 @@ use App\Http\Controllers\Controller;
 use App\Traits\BroadcastsFileOperationProgress;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
-use Marvel\Enums\ImportType;
 use Marvel\Http\Requests\ProductImportRequest;
 use Marvel\Jobs\ImportProductsJob;
 use Illuminate\Database\QueryException;
@@ -18,7 +17,6 @@ use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use Marvel\Traits\ApiResponse;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Symfony\Component\HttpFoundation\File\Exception\FileNotFoundException;
 
 class ProductImportController extends Controller
 {
@@ -156,6 +154,15 @@ class ProductImportController extends Controller
         if ($fileHash !== null) {
             Cache::put('product-import:hash:' . $request->user()->id . ':' . $fileHash, $import->id, now()->addMinutes(10));
         }
+
+        // Pusher lifecycle: queued must precede dispatch to guarantee ordering
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::PRODUCT_IMPORT_QUEUED,
+            'product-import',
+            $import->id,
+            $import->total_rows ?: null,
+            'Product import queued.'
+        );
 
         ImportProductsJob::dispatch($import->id);
 
@@ -345,6 +352,14 @@ class ProductImportController extends Controller
 
         $this->writeSignalFile($import->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
 
+        // Emit cancelling lifecycle event before terminal
+        $this->broadcastFileOperationCancelling(
+            FileOperationEvent::PRODUCT_IMPORT_CANCELLING,
+            'product-import',
+            $import->id,
+            'Product import cancelling.'
+        );
+
         try {
             $affected = Import::where('id', $import->id)
                 ->whereIn('status', ['pending', 'processing'])
@@ -365,11 +380,12 @@ class ProductImportController extends Controller
         }
 
         $this->broadcastFileOperationTerminal(
-            FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+            FileOperationEvent::PRODUCT_IMPORT_CANCELLED,
             'product-import',
             $import->id,
             'cancelled',
-            false
+            false,
+            ['progress' => 100.0, 'download_available' => false]
         );
 
         return $this->apiResponse(__('message.MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY'), 200, true, [

@@ -2,13 +2,14 @@
 
 namespace Marvel\Http\Controllers;
 
+use App\Events\FileOperationEvent;
 use App\Http\Controllers\Controller;
+use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
-use Marvel\Enums\ImportType;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use Marvel\Jobs\ExportBrandsJob;
@@ -17,7 +18,7 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BrandExportController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, BroadcastsFileOperationProgress;
 
     public function __construct()
     {
@@ -60,6 +61,14 @@ class BrandExportController extends Controller
         if ($idempotencyKey) {
             Cache::put('idempotency:brand-export:' . $request->user()->id . ':' . $idempotencyKey, $exportOperation->id, now()->addHours(24));
         }
+
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::BRAND_EXPORT_QUEUED,
+            'brand-export',
+            $exportOperation->id,
+            null,
+            'Brand export queued.'
+        );
 
         ExportBrandsJob::dispatch($exportOperation->id);
 

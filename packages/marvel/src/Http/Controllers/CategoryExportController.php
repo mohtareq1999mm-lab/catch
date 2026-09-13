@@ -2,12 +2,13 @@
 
 namespace Marvel\Http\Controllers;
 
+use App\Events\FileOperationEvent;
 use App\Http\Controllers\Controller;
+use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
-use Marvel\Enums\ImportType;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use Marvel\Http\Requests\CategoryExportRequest;
@@ -17,7 +18,7 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class CategoryExportController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, BroadcastsFileOperationProgress;
 
     public function __construct()
     {
@@ -35,6 +36,14 @@ class CategoryExportController extends Controller
             'total_rows' => 0,
             'created_by' => $request->user()->id,
         ]);
+
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::CATEGORY_EXPORT_QUEUED,
+            'category-export',
+            $import->id,
+            null,
+            'Category export queued.'
+        );
 
         ExportCategoriesJob::dispatch($import->id);
 

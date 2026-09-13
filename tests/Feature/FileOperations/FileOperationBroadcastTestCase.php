@@ -35,7 +35,9 @@ abstract class FileOperationBroadcastTestCase extends TestCase
             }
         }
 
-        $broadcaster = Broadcast::driver();
+        // Always use the pusher broadcaster for realtime tests even though phpunit.xml sets BROADCAST_DRIVER=log
+        $broadcaster = Broadcast::driver('pusher');
+        config(['broadcasting.default' => 'pusher']);
 
         if ($broadcaster instanceof PusherBroadcaster) {
             $this->pusher = new RecordingPusher();
@@ -129,8 +131,10 @@ abstract class FileOperationBroadcastTestCase extends TestCase
     protected function assertPayloadIsSafe(array $payload): void
     {
         $allowed = [
-            'kind', 'id', 'status', 'progress', 'processed_rows',
+            'kind', 'operation_type', 'id', 'operation_id', 'event', 'state', 'status', 'message',
+            'progress', 'percentage', 'progress_detail', 'processed_rows',
             'success_rows', 'failed_rows', 'total_rows', 'has_errors',
+            'download_available', 'timestamp',
             'type', 'import_id',
         ];
 

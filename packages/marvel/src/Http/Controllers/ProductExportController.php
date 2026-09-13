@@ -75,6 +75,14 @@ class ProductExportController extends Controller
             Cache::put('product-export:filters:' . $exportOperation->id, $filters, now()->addHours(2));
         }
 
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::PRODUCT_EXPORT_QUEUED,
+            'product-export',
+            $exportOperation->id,
+            $exportOperation->total_rows ?: null,
+            'Product export queued.'
+        );
+
         ExportProductsJob::dispatch($exportOperation->id, $filters);
 
         return $this->apiResponse(__('message.MESSAGE.EXPORT_STARTED_SUCCESSFULLY'), 202, true, [
