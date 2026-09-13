@@ -21,7 +21,19 @@ class SettingController extends Controller
     public function index()
     {
         $setting = $this->settingService->getSetting();
+
+        // Do not cache null — it would poison HasCache and keep returning a null resource
+        // which previously crashed SettingResource::toArray with getTranslation() on null.
+        if (!$setting) {
+            return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, SettingResource::make(null));
+        }
+
         $settingCache = $this->remember(FrontendResource::SETTINGS->value, md5(request()->fullUrl()), $setting);
+
+        // remember() can still return null if the underlying store failed; guard again
+        if (!$settingCache) {
+            $settingCache = $setting;
+        }
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, SettingResource::make($settingCache));
     }

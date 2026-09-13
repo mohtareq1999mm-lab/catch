@@ -716,7 +716,8 @@ class FinancialDeepAuditTest extends TestCase
     public function settings_api_returns_minimum_order_amount(): void
     {
         Settings::first()->update(['minimum_order_amount' => 75.00]);
-        $response = $this->getJson(self::PREFIX . '/settings');
+        // Public front endpoint is GET /api/v1/general/settings (Route::prefix('v1/general') in routes/api.php)
+        $response = $this->getJson('/api/v1/general/settings');
         $response->assertOk();
         $response->assertJsonPath('data.minimumOrderAmount', '75.00');
     }

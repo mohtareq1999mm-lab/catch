@@ -14,6 +14,36 @@ class SettingResource extends Resource
      */
     public function toArray($request)
     {
+        // Null invariant: Settings::first() can return null when the settings table is empty
+        // (e.g. fresh DB, truncated table, stale cache). Do not throw getTranslation() on null.
+        if (!$this->resource) {
+            return [
+                "site_name" => request()->routeIs('settings.front') ? null : ['ar' => null, 'en' => null],
+                "site_desc" => request()->routeIs('settings.front') ? null : ['ar' => null, 'en' => null],
+                "meta_desc" => request()->routeIs('settings.front') ? null : ['ar' => null, 'en' => null],
+                "site_copy_right" => request()->routeIs('settings.front') ? null : ['ar' => null, 'en' => null],
+                "logo" => null,
+                "footer_logo" => null,
+                "favicon" => null,
+                "site_email" => null,
+                "email_support" => null,
+                "facebook" => null,
+                "instagram" => null,
+                "linkedin" => null,
+                "promotion_video_url" => null,
+                'youtube' => null,
+                'tiktok' => null,
+                'snapchat' => null,
+                'phone' => null,
+                'fast_shipping_page_publish' => null,
+                'minimumOrderAmount' => null,
+                'order_tax_enabled' => false,
+                'order_tax_rate' => null,
+                'currency_selection_enabled' => false,
+                'options' => null,
+            ];
+        }
+
         return [
             "site_name" => request()->routeIs('settings.front') ? $this->getTranslation('site_name', app()->getLocale()) : [
                 'ar' => $this->getTranslation('site_name', 'ar'),
