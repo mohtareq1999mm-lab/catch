@@ -1,5 +1,7 @@
 # Product Module — Full API Reference
 
+> Last verified: 2026-09-13 — covers both **Admin `apiResource`** (`packages/marvel/src/Rest/Routes.php:236`) and **Storefront** (`routes/api.php` `v1/general/products`).
+
 ---
 
 ## Product Type (`item_type`)
@@ -26,55 +28,330 @@ Every product carries an **`item_type`** field that describes the nature of the 
 
 ## Routes Overview
 
-| Method | URI | Controller@function | Permission |
-|--------|-----|---------------------|------------|
-| `GET` | `/products` | `ProductController@index` | `view-products` |
-| `POST` | `/products` | `ProductController@store` | `create-product` |
-| `GET` | `/products/{id}` | `ProductController@show` | `view-products` |
-| `PUT` | `/products/{id}` | `ProductController@update` | `update-product` |
-| `DELETE` | `/products/{id}` | `ProductController@destroy` | `delete-product` |
-| `POST` | `/products/bulk-delete` | `ProductController@destroyBulk` | `delete-product` |
-| `DELETE` | `/products/all` | `ProductController@destroyAll` | `delete-product` |
-| `POST` | `/products/import` | `ProductImportController@import` | `create-product` or `super_admin` |
-| `POST` | `/products/import/{id}/cancel` | `ProductImportController@cancel` | `create-product` or `super_admin` |
-| `GET` | `/products/import/{id}` | `ProductImportController@status` | `create-product` or `super_admin` |
-| `GET` | `/products/import/{id}/download-errors` | `ProductImportController@downloadErrors` | `create-product` or `super_admin` |
-| `GET` | `/reviews` | `ReviewController@index` | public (requires `product_id` query) |
-| `POST` | `/reviews` | `ReviewController@store` | customer auth |
-| `GET` | `/reviews/{id}` | `ReviewController@show` | public |
-| `PUT` | `/reviews/{id}` | `ReviewController@update` | customer auth |
-| `DELETE` | `/reviews/{id}` | `ReviewController@destroy` | `delete-reviews` |
-| `PATCH` | `/reviews/{id}/toggle-approve` | `ReviewController@toggleApproveReview` | `approve-reviews` |
+### A) Admin — `Route::apiResource('products', ProductController::class)` — `packages/marvel/src/Rest/Routes.php:236`
+
+Grouped under `Route::middleware(['auth:sanctum','throttle:admin'])` → prefix `api/v1`. All 5 routes inherit `auth:sanctum`. Permissions enforced in `Marvel\Http\Controllers\ProductController::__construct` (`packages/marvel/src/Http/Controllers/ProductController.php:108-111`).
+
+| Method | URI | Name | Controller@function | Permission | Middleware |
+|--------|-----|------|---------------------|------------|------------|
+| `GET` | `/api/v1/products` | `products.index` | `Marvel\ProductController@index` | `view-products` | `auth:sanctum`,`throttle:admin` |
+| `POST` | `/api/v1/products` | `products.store` | `Marvel\ProductController@store` | `create-product` | `auth:sanctum`,`throttle:admin` |
+| `GET` | `/api/v1/products/{product}` | `products.show` | `Marvel\ProductController@show` | `view-products` | `auth:sanctum`,`throttle:admin` |
+| `PUT\|PATCH` | `/api/v1/products/{product}` | `products.update` | `Marvel\ProductController@update` | `update-product` | `auth:sanctum`,`throttle:admin` |
+| `DELETE` | `/api/v1/products/{product}` | `products.destroy` | `Marvel\ProductController@destroy` | `delete-product` | `auth:sanctum`,`throttle:admin` |
+
+Bespoke routes sharing `/products/*` — declared **before** the `apiResource` (lines 223-235) so they are not swallowed by `{product}`:
+
+| Method | URI | Name | Controller | Permission |
+|--------|-----|------|------------|------------|
+| `POST` | `/api/v1/products/bulk-delete` | — | `ProductController@destroyBulk` | `delete-product` |
+| `DELETE` | `/api/v1/products/all` | — | `ProductController@destroyAll` | `delete-product` |
+| `GET` | `/api/v1/products/import/sample` | `admin.products.import.sample` | `ProductImportController@downloadSample` | `create-product`/`super_admin` |
+| `GET/POST` | `/api/v1/products/export` | `admin.products.export` / `admin.products.export.post` | `ProductExportController@export` | `export-product` |
+| `GET` | `/api/v1/products/export/{id}` | `admin.products.export.status` | `ProductExportController@status` | `export-product` |
+| `GET` | `/api/v1/products/export/{id}/download` | `admin.products.export.download` | `ProductExportController@download` | `export-product` |
+| `POST` | `/api/v1/products/import` | `admin.products.import` | `ProductImportController@import` | `create-product`/`super_admin` |
+| `GET` | `/api/v1/products/import/{id}` | `admin.products.import.status` | `ProductImportController@status` | `create-product`/`super_admin` |
+| `POST` | `/api/v1/products/import/{id}/cancel` | `admin.products.import.cancel` | `ProductImportController@cancel` | `create-product`/`super_admin` |
+| `GET` | `/api/v1/products/import/{id}/download-errors` | `admin.products.import.download-errors` | `ProductImportController@downloadErrors` | `create-product`/`super_admin` |
+| `GET/POST` | `/api/v1/products/{product}/digital-assets` | `admin.products.digital-assets.*` | `DigitalAssetController@index|store` | `view-products` |
+
+### B) Storefront — `App\Http\Controllers\Api\General\ProductController` — `routes/api.php:80-84`
+
+Grouped under `Route::prefix('v1/general')->middleware(['api','throttle:public-api'])` — **public, no auth**, cached, currency-aware, channel-scoped.
+
+| Method | URI | Name | Controller@function | Auth | Throttle |
+|--------|-----|------|---------------------|------|----------|
+| `GET` | `/api/v1/general/products` | `general.products.index` | `General\ProductController@index` | public | `throttle:public-api` |
+| `GET` | `/api/v1/general/products/{slug}` | `general.products.show` | `General\ProductController@getProductBySlug` | public | `throttle:public-api` |
+
+> Also: `POST /api/v1/general/products/{id}/reviews` + `PUT /api/v1/general/products/reviews/{id}` for product reviews (requires `auth:sanctum`, throttle:authenticated).
 
 ---
 
-## GET /products
+## A) Admin — `GET /api/v1/products` — `products.index`
 
-List paginated products with search, filter, sort.
+Paginated admin listing. Requires `auth:sanctum` + `permission:view-products`.
 
-**Auth:** Public (no token required for index+show)
+**Headers:** `Authorization: Bearer <sanctum-token>` , `Accept: application/json`
 
-**Permissions:** none for public; `view-products` for authenticated scope
+### Query Parameters
 
-## Query Parameters (GET /products)
+| Param | Type | Default | Validation | Description |
+|-------|------|---------|------------|-------------|
+| `limit` | int | 15 | 1-100 | Page size. |
+| `page` | int | 1 | — | Page number. |
+| `search` | string | — | — | LIKE on translatable `name`/`description`, `sku`, variant SKUs (fallback to Scout when configured via `ProductService::buildScoutSearchQuery`). |
+| `sort` | string | `desc` | `asc,desc` | Legacy direction for `created_at`. |
+| `orderBy` | string | `created_at` | `created_at,updated_at,name,price,sold_quantity,sku,id` | Column. |
+| `orderDir` | string | `desc` | `asc,desc` | Direction. |
+| `category` | string | — | slug | Category slug filter via `ProductFilter`. |
+| `banner` | string | — | slug | Banner slug filter. |
+| `promotion` | string | — | slug | Promotion slug filter. |
+| `flash_sale` | string | — | slug | Flash-sale slug filter. |
+| `slider` | string | — | slug | Slider slug filter. |
+| `tags` / `tag` | string | — | slug or numeric id, comma-separated | AND logic via `ProductFilter`. |
+| `status` | int | — | `0,1` | Publish status filter. |
+| `date_range` | string | — | `YYYY-MM-DD//YYYY-MM-DD` | Availability filter. |
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `page` | int | 1 | Page number |
-| `limit` | int | 15 | Results per page |
-| `search` | string | — | Search in product name, description, SKU, and variant SKUs |
-| `sort` | string | `desc` | Legacy sort direction by `created_at` (`asc` or `desc`) |
-| `orderBy` | string | `created_at` | Column to sort by. Supported: `created_at`, `updated_at`, `name`, `price`, `sold_quantity`, `sku`, `id` |
-| `orderDir` | string | `desc` | Sort direction (`asc` or `desc`) |
-| `date_range` | string | — | Date range `YYYY-MM-DD//YYYY-MM-DD` for availability filtering |
-| `status` | int | — | Filter by product status (`0` or `1`) |
-| `category` | string | — | Filter by category slug (e.g. `?category=electronics`) |
-| `banner` | string | — | Filter by banner slug (e.g. `?banner=summer-sale`) |
-| `flash_sale` | string | — | Filter by flash sale slug (e.g. `?flash_sale=flash-01`) |
-| `promotion` | string | — | Filter by promotion slug (e.g. `?promotion=summer-deal`) |
-| `slider` | string | — | Filter by slider slug (e.g. `?slider=hero-banner`) |
-| `tags` | string | — | Filter by tag slug or ID (e.g. `?tags=summer` or `?tags=1,2`). Comma-separated. AND logic. |
+### Response 200 — `Marvel\Http\Resources\product\ProductResource` + `ProductCollection`
+
+```json
+{
+  "success": true,
+  "message": "MESSAGE.FETCH_DATA_SUCCESSFULLY",
+  "data": {
+    "data": [
+      {
+        "id": 1,
+        "name": { "en": "T-Shirt", "ar": "تيشيرت" },
+        "slug": "t-shirt",
+        "description": { "en": "A comfortable cotton t-shirt", "ar": "تيشيرت قطني" },
+        "price": 29.99,
+        "current_price": 19.99,
+        "tax_enabled": false,
+        "tax_rate": null,
+        "tax": null,
+        "price_including_tax": 19.99,
+        "price_after_discount": 19.99,
+        "price_after_flash_sale": null,
+        "discount_type": "percentage",
+        "discount_amount": 33,
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-30",
+        "sku": "PRD-001",
+        "stock_quantity": 100,
+        "reserved_quantity": 2,
+        "available_stock": 98,
+        "quantity": 100,
+        "sold_quantity": 25,
+        "in_stock": true,
+        "status": "publish",
+        "product_type": "simple",
+        "item_type": "PHYSICAL",
+        "height": null, "width": null, "length": null, "weight": null,
+        "has_flash_sale": false,
+        "has_discount": true,
+        "discount_valid": true,
+        "is_fast_shipping_available": false,
+        "created_at": "2026-01-15T10:00:00.000000Z",
+        "categories": [{ "id": 2, "name": "Clothing", "slug": "clothing" }],
+        "flash_sales": [],
+        "tags": [{ "id": 1, "name": "summer", "slug": "summer" }],
+        "brands": [],
+        "banners": [],
+        "sliders": [],
+        "reviews": [],
+        "images": ["https://cdn.example.com/storage/products/1/thumb.jpg"],
+        "variants": [
+          { "id": 10, "price": 29.99, "current_price": 19.99, "stock_quantity": 50, "quantity": 50, "attributes": [{ "id": 1, "name": "Color", "value": "Red" }] }
+        ]
+      }
+    ],
+    "current_page": 1, "from": 1, "to": 15, "last_page": 5, "per_page": 15, "total": 72
+  }
+}
+```
+
+Error cases: `401` (no token), `403` (`view-products` missing), `422` (invalid `orderBy`).
+
+---
+
+## A) Admin — `GET /api/v1/products/{product}` — `products.show`
+
+Fetch single product by numeric ID **or slug** via `ProductRepository::fetchSingleProduct`. Same auth/permission as index.
+
+**Path:** `{product}` — integer ID or string slug.
+
 ### Response 200
+
+```json
+{
+  "success": true,
+  "message": "MESSAGE.FETCH_DATA_SUCCESSFULLY",
+  "data": {
+    "id": 1,
+    "name": { "en": "T-Shirt", "ar": "تيشيرت" },
+    "slug": "t-shirt",
+    "description": { "en": "...", "ar": "..." },
+    "price": 29.99,
+    "current_price": 19.99,
+    "tax_enabled": false,
+    "tax_rate": null,
+    "tax": null,
+    "price_including_tax": 19.99,
+    "price_after_discount": 19.99,
+    "price_after_flash_sale": null,
+    "sku": "PRD-001",
+    "in_stock": true,
+    "status": "publish",
+    "product_type": "variable",
+    "item_type": "PHYSICAL",
+    "has_discount": true,
+    "has_flash_sale": false,
+    "is_fast_shipping_available": false,
+    "images": ["https://cdn.example.com/storage/products/1/thumb.jpg"],
+    "variants": [{ "id": 10, "price": 29.99, "current_price": 19.99, "stock_quantity": 50, "attributes": [{ "id": 1, "name": "Color", "value": "Red" }] }],
+    "categories": [{ "id": 2, "name": "Clothing", "slug": "clothing" }],
+    "brands": [], "tags": [], "banners": [], "sliders": [], "flash_sales": [], "reviews": [], "related_products": []
+  }
+}
+```
+
+### Response 404
+
+```json
+{ "success": false, "message": "MESSAGE.NOT_FOUND" }
+```
+
+---
+
+## A) Admin — `POST /api/v1/products` — `products.store`
+
+**Auth:** `auth:sanctum` + `permission:create-product` (`ProductController::__construct:109`). Throttle `throttle:admin`.
+**Request:** `multipart/form-data` (images) or `application/json` (when images are URLs/media-ids in some clients). Validated by `Marvel\Http\Requests\ProductCreateRequest`.
+
+### Request Body — `ProductCreateRequest` rules
+
+| Field | Type | Required | Rules / Notes |
+|-------|------|----------|---------------|
+| `name` | object | **Yes** | `{ en:string 3-255, ar:string 3-255 }` — `UniqueTranslation` on `name.en`/`ar`. |
+| `description` | object | **Yes** | `{ en:string, ar:string }` — min 5. |
+| `product_type` | string | **Yes** | `in:simple,variable` — also auto-derived from presence of `variants`. |
+| `item_type` | string | No | `in:PHYSICAL,DIGITAL` default `PHYSICAL` (`App\Enums\ItemType` / `Marvel\Enums\ItemType`). |
+| `price` | numeric | sometimes | `required_if:product_type,simple` `min:0`. Currency base (catalog). |
+| `categories` | array | **Yes** | `exists:categories,id` each. |
+| `images` | array | **Yes** | `array` of files (`mimes:jpeg,png,jpg,gif|max:2048` via Spatie MediaLibrary). |
+| `in_stock` | bool | **Yes** | `boolean` (accepts `0/1,true/false`). |
+| `has_discount` | bool | **Yes** | `boolean`. |
+| `has_flash_sale` | bool | **Yes** | `boolean`. |
+| `type_id` | int | No | `exists:types,id`. |
+| `quantity` | int | No | Stock qty (`integer|min:0`). |
+| `sku` | string | No | Auto-generated `PRD-{id+1:03d}` if blank, `unique:products,sku`. |
+| `status` | string | No | `in:publish,draft,under_review,approved,rejected,unpublish`. |
+| `discount_type` | string | No | `required_if:has_discount,true` `in:percentage,fixed_rate,free_shipping` |
+| `discount_amount` | numeric | No | `required_if:has_discount,true` |
+| `discount_status` | bool | No | `required_if:has_discount,true` |
+| `start_date` | date | No | `date` |
+| `end_date` | date | No | `date|after_or_equal:start_date` |
+| `flash_sale_id` | int | No | `required_if:has_flash_sale,true` `exists:flash_sales,id` |
+| `variants` | array | No | Required when `product_type=variable`. Each: `price:required|numeric`, `quantity:required|integer`, `attribute_values:required_with:variants|array`, `attribute_values.*:exists:attribute_values,id`, `sku:unique:product_variants,sku`, dims optional. |
+| `tags` | array | No | `nullable|array` `exists:tags,id` |
+| `brands` | array | No | `exists:brands,id` |
+| `banners` | array | No | `exists:banners,id` |
+| `sliders` | array | No | `exists:sliders,id` |
+| `pieces` | int | No | `integer|min:1` default 1 |
+| `height/width/length/weight` | string | No | Cast to string via `prepareForValidation`. |
+| `is_fast_shipping_available` | bool | No | `boolean` — scoped by `FastShippingScope` when channel enabled. |
+
+### Response 201
+
+```json
+{
+  "success": true,
+  "message": "MESSAGE.CREATE_PRODUCT_SUCCESSFULLY",
+  "data": {
+    "id": 12,
+    "name": { "en": "New Product", "ar": "منتج جديد" },
+    "slug": "new-product",
+    "product_type": "simple",
+    "item_type": "PHYSICAL",
+    "price": 49.99,
+    "current_price": 49.99,
+    "price_including_tax": 49.99,
+    "in_stock": true,
+    "status": "draft",
+    "images": ["https://cdn.example.com/storage/products/12/thumb.jpg"]
+  }
+}
+```
+
+### Error 422 — validation
+
+```json
+{
+  "name.en": ["The name.en field is required."],
+  "categories": ["The categories field is required."],
+  "images": ["The images field is required."]
+}
+```
+```json
+{ "item_type": ["The selected item type is invalid."] }
+```
+`401` unauthenticated, `403` missing `create-product`.
+
+---
+
+## A) Admin — `PUT|PATCH /api/v1/products/{product}` — `products.update`
+
+**Auth:** `auth:sanctum` + `permission:update-product`.
+
+Rules identical to `ProductCreateRequest` but all `sometimes`. `name.*` unique rule ignores current product (`UniqueTranslation` with `ignore:$id`). `tags` replacive sync. Currency/discount recalculated with fallback to persisted values. `item_type` change rejected with `422` if product already has `order_items` or `digital_assets`.
+
+### Response 200
+
+```json
+{ "success": true, "message": "MESSAGE.UPDATE_PRODUCT_SUCCESSFULLY", "data": { "id": 12, "slug": "new-product", "item_type": "DIGITAL", "price": 49.99 } }
+```
+
+---
+
+## A) Admin — `DELETE /api/v1/products/{product}` — `products.destroy`
+
+Soft-delete via `SoftDeletes`. Requires `permission:delete-product`.
+
+### Response 200
+
+```json
+{ "success": true, "message": "MESSAGE.DELETE_PRODUCT_SUCCESSFULLY" }
+```
+
+`404` if not found. Subsequent `GET` returns `404` unless `withTrashed` (not exposed).
+
+---
+
+## A) Admin — `POST /api/v1/products/bulk-delete` + `DELETE /api/v1/products/all`
+
+| Endpoint | Body | Response 200 | Notes |
+|----------|------|--------------|-------|
+| `POST /products/bulk-delete` | `{ "ids": [1,2,3] }` — `ids:required|array|exists:products,id` | `{ "success": true, "message": "MESSAGE.PRODUCTS_DELETED_SUCCESSFULLY" }` | Hard delete `whereIn`. `403` if `delete-product` missing. `422` if `ids` empty/invalid. |
+| `DELETE /products/all` | — | same | Hard delete all rows. Throttled `throttle:admin`, should be `super_admin` in policy. No soft-delete. |
+
+---
+
+## B) Storefront — `GET /api/v1/general/products` — public listing
+
+**Controller:** `App\Http\Controllers\Api\General\ProductController@index` (`app/Http/Controllers/Api/General/ProductController.php:40-110`)
+**Service:** `App\Services\General\ProductService` + `App\Services\General\ProductEngine\ProductStrategyResolver`
+**Auth:** public — `middleware: api, throttle:public-api` (`routes/api.php:39`). No `auth:sanctum`.
+**Cache:** `HasCache` + `currencyAwareCacheKey(Request)` — cached per-currency + per-query-string. `shouldCache()` returns `false` when `search` present (and when user-specific headers); otherwise cache HIT avoids DB/Scout.
+**Channel:** `HasChannelFilter` + `FastShippingScope` auto-applied.
+**Pricing:** `ConvertsProductPrice` + `ProductTaxPresenter` — prices converted to effective catalog currency (`effectiveCurrency()`).
+
+### Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | int | 15 | 1-100 (`ProductService::getLimit`). |
+| `page` | int | 1 | Laravel paginator page. |
+| `type` | string | `null` (→ fallback) | Strategy key. `App\Http\Requests\ProductIndexRequest` validates `in:supportedTypes`. Supported: `index`, `best_product_sales`, `brands_product`, `new_arrivals`, `all_product_discounts`, `product_discount_today_or_low_qty`, `flash_sales_product`, `flash_sales_end_today`, `flash_sales_end_week`, `product_for_parent_category` (`ProductStrategyResolver::STRATEGIES`). `type=all` treated same as missing → fallback. |
+| `order` | string | `desc` | `asc,desc` — orders fallback query by `id`. Validated by `ProductIndexRequest`. |
+| `order_price` | string | — | `asc,desc` — when present, `orderBy('price', order_price)` in fallback flow. |
+| `search` | string | — | Scouts `Product::search(term)` via Meilisearch when `buildScoutSearchQuery` non-null; otherwise `applyProductSearch` does `LIKE` on translatable `name`/`description` (`applyTranslatableLike`) + `orWhere price/sku/variant.sku`. |
+| `productsId` | string | — | Comma-separated IDs filter (`applyIdsFilter`). |
+| `category` | string | — | Category slug/ID via `ProductFilter` (`filter($request->all())`). |
+| `brands` / `brand` | string | — | Brand IDs/slugs via `applyRelationIdsFilters`. |
+| `tags` | string | — | Tag slug or ID, comma-separated via `ProductFilter`. |
+| `price_min` / `price_max` | numeric | — | Via `applyProductFilters` → `ProductFilter`. |
+| `rating_min` / `rating_max` | numeric | — | `reviews_avg_rating` range (`applyProductFilters`). |
+| `height_min/max`, `width_min/max`, `length_min/max`, `weight_min/max` | numeric | — | Dimension range filters (`applyDimensionFilters`). |
+| Other `ProductFilter` keys | string | — | `banner`, `promotion`, `flash_sale`, `slider`, `status`, `date_range` proxied to `ProductFilter`. |
+
+Fallback flow (`buildFallbackResponse`): `buildScoutSearchQuery` → Scout `orderBy('id',order)->paginate(getLimit)` + `getDynamicFilters(clone scoutQuery)` ; else `buildFilteredBaseQuery` (active + channel + `applyProductFilters` + ids/relations) → `orderBy(price?) + orderBy(id,order) -> paginate`.
+
+Strategy flow (`buildStrategyResponse`): `ProductStrategyResolver::resolve(type)->getProducts(request)` → pluck ids → `getDynamicFilters(whereIn ids)` → `getCollectionCategories(productIds)`.
+
+### Response 200 — `Marvel\Http\Resources\product\ProductCollectionMini` / `App\Http\Resources\Product\ProductMiniResource`
 
 ```json
 {
@@ -86,56 +363,53 @@ List paginated products with search, filter, sort.
         "id": 1,
         "name": "T-Shirt",
         "slug": "t-shirt",
-        "description": "A comfortable cotton t-shirt",
         "price": 29.99,
         "current_price": 19.99,
-        "price_after_discount": null,
-        "price_after_flash_sale": null,
-        "sku": "PRD-001",
-        "product_type": "simple",
+        "currency": "USD",
+        "has_variants": false,
         "item_type": "PHYSICAL",
+        "quantity": 100,
         "in_stock": true,
-        "status": "publish",
-        "has_discount": true,
-        "has_flash_sale": false,
-        "discount_type": "percentage",
-        "discount_amount": 33,
-        "stock_quantity": 100,
-        "sold_quantity": 25,
-        "image": "https://cdn.example.com/products/1/image.jpg",
-        "tags": [
-          { "id": 1, "name": "summer", "slug": "summer" }
-        ],
-        "categories": [
-          { "id": 2, "name": "Clothing", "slug": "clothing" }
-        ]
+        "discount_active": true,
+        "flash_sale_active": false,
+        "is_fast_shipping_available": false,
+        "ratings": 4.35,
+        "tags": [{ "id": 1, "name": "summer", "slug": "summer" }],
+        "image": { "thumbnail": "https://cdn.example.com/storage/products/1/thumb.jpg", "original": ["https://cdn.example.com/storage/products/1/2.jpg"] }
       }
     ],
-    "current_page": 1,
-    "from": 1,
-    "to": 15,
-    "last_page": 5,
-    "per_page": 15,
-    "total": 72
+    "current_page": 1, "from": 1, "to": 15, "last_page": 5, "per_page": 15, "total": 72,
+    "links": { "first": "/api/v1/general/products?page=1", "last": "/api/v1/general/products?page=5", "prev": null, "next": "/api/v1/general/products?page=2" },
+    "filters": {
+      "price": { "min": 5, "max": 299 },
+      "brands": [{ "id": 3, "name": "Nike", "slug": "nike", "count": 12 }],
+      "categories": [{ "id": 2, "name": "Clothing", "slug": "clothing", "count": 34 }],
+      "tags": [{ "id": 1, "name": "summer", "slug": "summer", "count": 18 }],
+      "ratings": { "1": 2, "2": 4, "3": 11, "4": 28, "5": 41 }
+    },
+    "categories": [{ "id": 2, "name": "Clothing", "slug": "clothing" }]
   }
 }
 ```
 
+Cache header not exposed but internal `HasCache` stores per `currencyAwareCacheKey`.
+
 ---
 
-## GET /products/{id}
+## B) Storefront — `GET /api/v1/general/products/{slug}` — public detail
 
-Show single product by ID or slug.
+**Route:** `Route::get('products/{slug}', [ProductController::class, 'getProductBySlug'])` (`routes/api.php:83`) — `throttle:public-api`, no auth. `{slug}` is string slug (not numeric ID).
+**Controller:** `General\ProductController@getProductBySlug(Request $request)` — resolves by `slug`, applies `HasChannelFilter` + `active()` scope, eager-loads `variations`, `categories`, `brands`, `tags`, `banners`, `sliders`, `flash_sales`, `reviews`, `related_products`, media.
+**Resource:** `App\Http\Resources\Product\ProductResource` (`app/Http/Resources/Product/ProductResource.php`) — currency-converted via `ConvertsProductPrice`, `HasProductFilters`.
+**Cache:** `HasCache` per slug+currency. `shouldCache` same guard.
 
-**Auth:** Public
+### Path
 
-### Path Parameters
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `slug` | string | Yes | Product slug (unique, `customSlugify`). |
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `id` | integer/string | Yes | Product ID or slug |
-
-### Response 200
+### Response 200 — `App\Http\Resources\Product\ProductResource`
 
 ```json
 {
@@ -143,358 +417,77 @@ Show single product by ID or slug.
   "message": "MESSAGE.FETCH_DATA_SUCCESSFULLY",
   "data": {
     "id": 1,
-    "name": "T-Shirt",
+    "name": { "en": "T-Shirt", "ar": "تيشيرت" },
     "slug": "t-shirt",
-    "description": "A comfortable cotton t-shirt",
+    "description": { "en": "A comfortable cotton t-shirt", "ar": "..." },
     "price": 29.99,
     "current_price": 19.99,
-    "product_type": "variable",
-    "item_type": "PHYSICAL",
+    "currency": "USD",
+    "discount_type": "percentage",
+    "discount_amount": 33.0,
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
     "sku": "PRD-001",
+    "stock_quantity": 100,
+    "reserved_quantity": 2,
+    "available_stock": 98,
+    "quantity": 100,
+    "sold_quantity": 25,
     "in_stock": true,
     "status": "publish",
-    "has_discount": true,
-    "discount_type": "percentage",
-    "discount_amount": 33,
-    "variants": [
-      {
-        "id": 10,
-        "sku": "VAR-RED-S",
-        "price": 29.99,
-        "current_price": 19.99,
-        "stock_quantity": 50,
-        "in_stock": true,
-        "attributes": [
-          { "id": 1, "name": "Color", "value": "Red" },
-          { "id": 5, "name": "Size", "value": "S" }
-        ]
-      }
-    ],
-    "categories": [
-      { "id": 2, "name": "Clothing", "slug": "clothing" }
-    ],
-    "brands": [],
-    "tags": [],
-    "reviews": [],
-    "related_products": [],
-    "created_at": "2024-01-15T10:00:00Z"
-  }
-}
-```
-
-### Response 404
-
-```json
-{
-  "success": false,
-  "message": "MESSAGE.NOT_FOUND"
-}
-```
-
----
-
-## POST /products
-
-Create a new product.
-
-**Auth:** Required (auth:sanctum, email.verified)
-
-**Permission:** `create-product`
-
-### Request Body
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | object | **Yes** | `{ "en": "...", "ar": "..." }` |
-| `description` | object | **Yes** | `{ "en": "...", "ar": "..." }` |
-| `product_type` | string | **Yes** | `simple` or `variable` (variant structure; derived server-side from `variants`) |
-| `item_type` | string | No | Product nature: `PHYSICAL` (default) or `DIGITAL`. See [Product Type](#product-type-item_type) |
-| `price` | float | sometimes | Required if `product_type=simple` |
-| `categories` | array | **Yes** | Array of category IDs |
-| `images` | array | **Yes** | Array of uploaded image files |
-| `in_stock` | boolean | **Yes** | `1` or `0` |
-| `has_discount` | boolean | **Yes** | `true` or `false` or `1` or `0` |
-| `has_flash_sale` | boolean | **Yes** | `true` or `false` or `1` or `0` |
-| `type_id` | integer | No | Product type ID |
-| `quantity` | integer | No | Stock quantity |
-| `sku` | string | No | Auto-generated if empty |
-| `status` | string | No | One of: `publish`, `draft`, `under_review`, `approved`, `rejected`, `unpublish` |
-| `discount_type` | string | No | `percentage` or `fixed_rate` or `free_shipping` (required if has_discount) |
-| `discount_amount` | float | No | Required if has_discount |
-| `discount_status` | boolean | No | Required if has_discount |
-| `start_date` | date | No | Discount start |
-| `end_date` | date | No | Discount end (after_or_equal:start_date) |
-| `flash_sale_id` | integer | No | Required if has_flash_sale |
-| `variants` | array | No | Array of variant objects (required if product_type=variable) |
-| `tags` | array | No | Array of tag IDs |
-| `brands` | array | No | Array of brand IDs |
-| `banners` | array | No | Array of banner IDs |
-| `sliders` | array | No | Array of slider IDs |
-| `pieces` | integer | No | Pieces per unit (default: 1) |
-| `height/width/length/weight` | string | No | Dimensions |
-| `is_fast_shipping_available` | boolean | No | Fast shipping flag |
-
-### Variant Object
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `price` | float | **Yes** | Variant price |
-| `quantity` | integer | **Yes** | Variant stock |
-| `attribute_values` | array | **Yes** | Array of `attribute_value` IDs |
-| `sku` | string | No | Unique SKU |
-| `height/width/length/weight` | string | No | Variant dimensions |
-
-### Response 201
-
-```json
-{
-  "success": true,
-  "message": "MESSAGE.CREATE_PRODUCT_SUCCESSFULLY",
-  "data": {
-    "id": 1,
-    "name": "New Product",
-    "slug": "new-product",
-    "product_type": "simple",
+    "product_type": "variable",
     "item_type": "PHYSICAL",
-    "price": 49.99,
-    "current_price": 49.99,
-    "in_stock": true,
-    "status": "draft"
+    "height": null, "width": null, "length": null, "weight": null,
+    "has_flash_sale": false,
+    "has_discount": true,
+    "discount_valid": true,
+    "is_fast_shipping_available": false,
+    "tax_enabled": false, "tax_rate": null,
+    "categories": [{ "id": 2, "name": "Clothing", "slug": "clothing" }],
+    "flash_sales": [],
+    "brands": [], "banners": [], "sliders": [],
+    "tags": [{ "id": 1, "name": "summer", "slug": "summer" }],
+    "images": ["https://cdn.example.com/storage/products/1/thumb.jpg", "https://cdn.example.com/storage/products/1/2.jpg"],
+    "variants": [
+      { "id": 10, "price": 29.99, "current_price": 19.99, "quantity": 50, "height": null, "width": null, "length": null, "weight": null, "attributes": [{ "id": 1, "name": "Color", "value": "Red" }] }
+    ],
+    "reviews": [{ "id": 5, "rating": 5, "comment": "Great!", "user": { "id": 9, "name": "Ahmed" } }],
+    "related_products": [{ "id": 7, "name": "Jeans", "slug": "jeans", "price": 59.99, "image": { "thumbnail": "..." } }],
+    "filters": { "price": { "min": 5, "max": 299 }, "brands": [], "categories": [] }
   }
 }
 ```
 
-### Validation Errors 422
-
-```json
-{
-  "name.en": ["The name.en field is required."],
-  "categories": ["The categories field is required."],
-  "images": ["The images field is required."]
-}
-```
-
-Invalid `item_type` (e.g. `"item_type": "VIRTUAL"`):
-
-```json
-{
-  "item_type": ["The selected item type is invalid."]
-}
-```
-
----
-
-## PUT /products/{id}
-
-Update an existing product.
-
-**Auth:** Required (auth:sanctum, email.verified)
-
-**Permission:** `update-product`
-
-### Path Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `id` | integer | Yes | Product ID |
-
-### Request Body
-
-Same fields as POST but all are optional (`sometimes`). Only include fields that need updating.
-
-The `name.*` unique validation ignores the current product's own name.
-
-`tags` can be included to update product-tag associations (replaces existing tags).
-
-`item_type` can be updated (e.g. change `PHYSICAL` → `DIGITAL`). Invalid values return `422`.
-
-### Response 200
-
-Same shape as POST response with `MESSAGE.UPDATE_PRODUCT_SUCCESSFULLY`.
-
----
-
-## DELETE /products/{id}
-
-Soft-delete a product.
-
-**Auth:** Required (auth:sanctum, email.verified)
-
-**Permission:** `delete-product`
-
-### Response 200
-
-```json
-{
-  "success": true,
-  "message": "MESSAGE.DELETE_PRODUCT_SUCCESSFULLY"
-}
-```
+`filters` is merged only when NOT on `general-product-show` route guard (i.e., hidden on detail in some contexts — current `ProductResource` merges `filters` via `getProductFilters` when `!request()->routeIs('general-product-show')`; in practice detail still includes `filters` via controller-level payload, not resource).
 
 ### Response 404
 
 ```json
-{
-  "success": false,
-  "message": "MESSAGE.NOT_FOUND"
-}
+{ "success": false, "message": "MESSAGE.NOT_FOUND" }
 ```
+
+Caused by unknown slug, soft-deleted product, or channel mismatch (`HasChannelFilter` / `FastShippingScope`).
 
 ---
 
-## POST /products/bulk-delete
+## Import / Export (supplemental — not part of the 3 requested endpoints but share `/products/*` prefix)
 
-Delete multiple products by IDs (hard delete).
-
-**Auth:** Required (auth:sanctum)
-
-**Permission:** `delete-product`
-
-### Request Body
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `ids` | array | **Yes** | Array of product IDs to delete |
-
-### Response 200
-
-```json
-{
-  "success": true,
-  "message": "MESSAGE.PRODUCTS_DELETED_SUCCESSFULLY"
-}
-```
+| Endpoint | Method | Auth | Permission | Request | Response |
+|----------|--------|------|------------|---------|----------|
+| `POST /products/import` | multipart `file: xlsx,csv` | `auth:sanctum` | `create-product`/`super_admin` | `ProductImportRequest` | `202 { success:true, message:"Import started", data:{ import_id, status:"pending"} }` |
+| `GET /products/import/{id}` | — | `auth:sanctum` | `create-product`/`super_admin` | `id:numeric` | `200 { status,total_rows,processed_rows,success_rows,failed_rows,progress }` — reads signal file |
+| `POST /products/import/{id}/cancel` | — | `auth:sanctum` | `create-product`/`super_admin` | `id:numeric` | `200 cancelled` or `409 Import cannot be cancelled` |
+| `GET /products/import/{id}/download-errors` | — | `auth:sanctum` | `create-product`/`super_admin` | `id:numeric` | `200 xlsx` or `404 No errors` |
+| `GET /products/export` + `POST /products/export` + `GET /products/export/{id}` + `GET /products/export/{id}/download` | varies | `auth:sanctum` | `export-product` | varies | see `ProductExportController` |
 
 ---
 
-## DELETE /products/all
-
-Delete all products (hard delete).
-
-**Auth:** Required (auth:sanctum)
-
-**Permission:** `delete-product`
-
-### Response 200
+## Error Contract (all endpoints)
 
 ```json
-{
-  "success": true,
-  "message": "MESSAGE.PRODUCTS_DELETED_SUCCESSFULLY"
-}
+{ "success": false, "message": "MESSAGE.<KEY>", "errors": { "field": ["..."] } }
 ```
 
----
+Common `message` keys: `MESSAGE.FETCH_DATA_SUCCESSFULLY`, `CREATE_PRODUCT_SUCCESSFULLY`, `UPDATE_PRODUCT_SUCCESSFULLY`, `DELETE_PRODUCT_SUCCESSFULLY`, `PRODUCTS_DELETED_SUCCESSFULLY`, `NOT_FOUND`.
 
-## POST /products/import
-
-Start a product import job from a spreadsheet file.
-
-**Auth:** Required (auth:sanctum)
-
-**Permission:** `create-product` or `super_admin`
-
-### Request Body
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `file` | file | **Yes** | Excel/CSV file (.xlsx, .csv) |
-
-### Response 202
-
-```json
-{
-  "success": true,
-  "message": "Import started successfully",
-  "data": {
-    "import_id": 1,
-    "status": "pending"
-  }
-}
-```
-
----
-
-## GET /products/import/{id}
-
-Get the status of an import job.
-
-**Auth:** Required (auth:sanctum)
-
-**Permission:** `create-product` or `super_admin`
-
-### Response 200
-
-```json
-{
-  "status": 200,
-  "message": "Import status fetched",
-  "success": true,
-  "data": {
-    "id": 1,
-    "status": "processing",
-    "total_rows": 100,
-    "processed_rows": 45,
-    "success_rows": 40,
-    "failed_rows": 5,
-    "progress": 45.0,
-    "errors": null
-  }
-}
-```
-
----
-
-## POST /products/import/{id}/cancel
-
-Cancel a pending/processing import job.
-
-**Auth:** Required (auth:sanctum)
-
-**Permission:** `create-product` or `super_admin`
-
-### Response 200
-
-```json
-{
-  "success": true,
-  "message": "Import cancelled successfully",
-  "data": {
-    "import_id": 1,
-    "status": "cancelled"
-  }
-}
-```
-
-### Response 409 (cannot cancel completed import)
-
-```json
-{
-  "success": false,
-  "message": "Import cannot be cancelled"
-}
-```
-
----
-
-## GET /products/import/{id}/download-errors
-
-Download an Excel file with rows that failed during import.
-
-**Auth:** Required (auth:sanctum)
-
-**Permission:** `create-product` or `super_admin`
-
-### Response 200
-
-Binary file download (xlsx).
-
-### Response 404
-
-```json
-{
-  "success": false,
-  "message": "No errors found"
-}
-```
-
+HTTP codes: `200` success/paginated, `201` created, `202` accepted (import), `401` unauthenticated, `403` forbidden, `404` not found, `409` conflict (cancel completed import), `422` validation.

@@ -1,188 +1,173 @@
 # Product Module — Frontend Integration Guide
 
+> Two surfaces: **Admin** (`/api/v1/products` `apiResource` — `auth:sanctum`, `throttle:admin`) + **Storefront** (`/api/v1/general/products` + `/api/v1/general/products/{slug}` — public, `throttle:public-api`, cached, currency-aware). Verified 2026-09-13.
+
 ## Endpoints
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/products` | List products (paginated, filterable, searchable) |
-| GET | `/products/{id}` | Get product by ID or slug |
-| POST | `/products` | Create new product |
-| PUT | `/products/{id}` | Update product |
-| DELETE | `/products/{id}` | Delete product (soft) |
-| POST | `/products/bulk-delete` | Delete multiple products by IDs |
-| DELETE | `/products/all` | Delete ALL products |
-| POST | `/products/import` | Upload Excel/CSV to import products |
-| GET | `/products/import/{id}` | Check import progress |
-| POST | `/products/import/{id}/cancel` | Cancel pending import |
-| GET | `/products/import/{id}/download-errors` | Download failed rows |
-| GET | `/reviews` | List reviews for a product (`?product_id=`) |
-| POST | `/reviews` | Create a review |
-| GET | `/reviews/{id}` | Get review details |
-| PUT | `/reviews/{id}` | Update a review |
-| DELETE | `/reviews/{id}` | Delete a review |
-| PATCH | `/reviews/{id}/toggle-approve` | Approve/unapprove a review |
+| Method | Endpoint | Surface | Auth | Purpose |
+|--------|----------|---------|------|---------|
+| `GET` | `/api/v1/products` | Admin `products.index` | `auth:sanctum` `view-products` | Admin listing (paginated, `orderBy/orderDir`, `ProductFilter`, Scout search) |
+| `GET` | `/api/v1/products/{product}` | Admin `products.show` | `auth:sanctum` `view-products` | Admin detail by id/slug (full `ProductResource` with `price_including_tax`) |
+| `POST` | `/api/v1/products` | Admin `products.store` | `auth:sanctum` `create-product` | Create (`ProductCreateRequest`, multipart `images`) |
+| `PUT\|PATCH` | `/api/v1/products/{product}` | Admin `products.update` | `auth:sanctum` `update-product` | Update (`sometimes`, replacive `tags`) |
+| `DELETE` | `/api/v1/products/{product}` | Admin `products.destroy` | `auth:sanctum` `delete-product` | Soft-delete |
+| `POST` | `/api/v1/products/bulk-delete` | Admin | `auth:sanctum` `delete-product` | Hard bulk delete `{ids:[]}` |
+| `DELETE` | `/api/v1/products/all` | Admin | `auth:sanctum` `delete-product` | Hard delete all |
+| `GET` | `/api/v1/general/products` | **Storefront** `General\ProductController@index` | public `throttle:public-api` | **Public listing** — `ProductCollectionMini` + `filters` + `categories` facets, strategy/Scout/DB, cached per currency |
+| `GET` | `/api/v1/general/products/{slug}` | **Storefront** `getProductBySlug` | public `throttle:public-api` | **Public detail** by `slug` — `App\ProductResource` (full relations, currency-converted) |
+| `POST` | `/api/v1/products/import` | Admin | `auth:sanctum` | Upload `file` (xlsx/csv) → `202 {import_id}` |
+| `GET` | `/api/v1/products/import/{id}` | Admin | `auth:sanctum` | Import status poll |
+| `POST` | `/api/v1/products/import/{id}/cancel` | Admin | `auth:sanctum` | Cancel pending import |
+| `GET` | `/api/v1/products/import/{id}/download-errors` | Admin | `auth:sanctum` | Download error xlsx |
+| `GET` | `/api/v1/products/export*` | Admin | `auth:sanctum` | Export jobs |
+| `GET\|POST\|PUT\|DELETE\|PATCH` | `/api/v1/reviews...` | Both | mixed | Product reviews (see `ReviewController`) |
 
 ## Response Structure
 
-### List Response
+### Admin List Response — `GET /api/v1/products`
+
 ```json
 {
   "success": true,
   "message": "MESSAGE.FETCH_DATA_SUCCESSFULLY",
   "data": {
-    "data": [
-      {
-        "id": 1,
-        "name": "Product Name (translated)",
-        "slug": "product-name",
-        "product_type": "simple|variable",
-        "price": 29.99,
-        "current_price": 19.99,
-        "image": "https://cdn.example.com/thumb.jpg",
-        "tags": [
-          { "id": 1, "name": "summer", "slug": "summer" }
-        ],
-        "in_stock": true,
-        "status": "publish",
-        "categories": [{ "id": 1, "name": "Category", "slug": "category" }]
-      }
-    ],
-    "current_page": 1,
-    "from": 1,
-    "to": 15,
-    "last_page": 5,
-    "per_page": 15,
-    "total": 72
+    "data": [{ "id": 1, "name": { "en": "T-Shirt", "ar": "تيشيرت" }, "slug": "t-shirt", "price": 29.99, "current_price": 19.99, "price_including_tax": 19.99, "tax": null, "item_type": "PHYSICAL", "has_variants": false, "in_stock": true, "images": ["...thumb.jpg"], "tags": [{"id":1,"name":"summer","slug":"summer"}] }],
+    "current_page": 1, "per_page": 15, "total": 72, "last_page": 5, "from": 1, "to": 15
   }
 }
 ```
 
-### Single Product Response
+### Storefront Listing Response — `GET /api/v1/general/products`
+
 ```json
 {
   "success": true,
   "message": "MESSAGE.FETCH_DATA_SUCCESSFULLY",
   "data": {
-    "id": 1,
-    "name": "Product Name",
-    "slug": "product-name",
-    "description": "Full description (translated)",
-    "price": 29.99,
-    "current_price": 19.99,
-    "price_after_discount": null,
-    "price_after_flash_sale": null,
-    "sku": "PRD-001",
-    "product_type": "simple",
-    "in_stock": true,
-    "status": "publish",
-    "stock_quantity": 100,
-    "sold_quantity": 25,
-    "has_discount": true,
-    "discount_type": "percentage",
-    "discount_amount": 33,
-    "has_flash_sale": false,
-    "variants": [],
-    "categories": [],
-    "tags": [],
-    "brands": [],
-    "reviews": [],
-    "related_products": [],
-    "images": ["https://cdn.example.com/full.jpg"],
-    "created_at": "2024-01-15T10:00:00Z"
+    "data": [{ "id": 1, "name": "T-Shirt", "slug": "t-shirt", "price": 29.99, "current_price": 19.99, "currency": "USD", "item_type": "PHYSICAL", "quantity": 100, "in_stock": true, "discount_active": true, "flash_sale_active": false, "ratings": 4.35, "tags": [], "image": { "thumbnail": "...thumb.jpg", "original": ["...2.jpg"] } }],
+    "current_page": 1, "per_page": 15, "total": 72,
+    "links": { "first": "/api/v1/general/products?page=1", "last": "/api/v1/general/products?page=5", "prev": null, "next": "/api/v1/general/products?page=2" },
+    "filters": { "price": { "min": 5, "max": 299 }, "brands": [{"id":3,"name":"Nike","count":12}], "categories": [{"id":2,"name":"Clothing","count":34}], "tags": [{"id":1,"name":"summer","count":18}], "ratings": { "5": 41 } },
+    "categories": [{ "id": 2, "name": "Clothing", "slug": "clothing" }]
   }
 }
 ```
 
-## States
+Use `filters` to render sidebar facets; `categories` to render collection chips. `filters` is server-aggregated via `ProductService::getDynamicFilters` on the *current* result set — re-render on every listing response.
+
+### Storefront Detail Response — `GET /api/v1/general/products/{slug}`
+
+```json
+{
+  "success": true,
+  "message": "MESSAGE.FETCH_DATA_SUCCESSFULLY",
+  "data": {
+    "id": 1, "name": { "en": "T-Shirt", "ar": "تيشيرت" }, "slug": "t-shirt", "description": { "en": "...", "ar": "..." },
+    "price": 29.99, "current_price": 19.99, "currency": "USD",
+    "discount_type": "percentage", "discount_amount": 33, "status": "publish",
+    "product_type": "variable", "item_type": "PHYSICAL",
+    "in_stock": true, "quantity": 100, "stock_quantity": 100,
+    "images": ["...1.jpg", "...2.jpg"],
+    "variants": [{ "id": 10, "price": 29.99, "current_price": 19.99, "attributes": [{"name":"Color","value":"Red"}] }],
+    "categories": [{"id":2,"name":"Clothing","slug":"clothing"}],
+    "tags": [{"id":1,"name":"summer","slug":"summer"}],
+    "reviews": [{"id":5,"rating":5,"comment":"Great!"}],
+    "related_products": [{"id":7,"name":"Jeans","slug":"jeans","price":59.99}],
+    "filters": { "price": {"min":5,"max":299} }
+  }
+}
+```
+
+Admin detail (`/api/v1/products/{product}`) instead returns `tax/tax_enabled/tax_rate/price_including_tax/price_after_discount/price_after_flash_sale` and `name` as raw translation object via `Marvel\ProductResource`.
+
+## States — Handling for both surfaces
 
 ### Loading
-- Show skeleton cards in product grid
-- Show skeleton details on product detail page
+- Admin table / Storefront grid: skeleton cards while `GET` pending
+- Slug detail: skeleton hero + gallery placeholders; abort previous fetch on slug change
 
 ### Empty
-- List returns `{ "data": { "data": [] }, "total": 0 }`
-- Show "No products found" with CTA to create first product
+- `data.data: []` + `total: 0` → "No products found" + CTA. For storefront, still render `filters: { price:{min,max}, brands:[], ...}` (empty) — don't crash.
 
 ### Error
-- **401:** Redirect to login
-- **403:** Show "You don't have permission"
-- **404:** Show "Product not found"
-- **422:** Display field-level validation errors on the form
-- **500:** Show "Something went wrong" toast
+- `401` Admin only: redirect to `/login`; clear Sanctum token
+- `403` Admin only: "You don't have permission" (`view-products` etc.)
+- `404` slug detail or admin `show`: slug not found / soft-deleted / channel mismatch (`HasChannelFilter`) → 404 page + suggested products
+- `422` validation: field-level errors. Storefront `GET` listing `422` only when `type` invalid (`ProductIndexRequest` `Rule::in(supportedTypes)`) or `order` invalid — show toast "Invalid filter"
+- `500` → "Something went wrong" toast + retry button
 
-## Query Parameters (GET /products)
+## Query Parameters
+
+### Storefront `GET /api/v1/general/products` (most frontend usage)
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `page` | int | 1 | |
+| `limit` | int | 15 | 1..100 |
+| `type` | string | — | Curated set. Valid: `index, best_product_sales, brands_product, new_arrivals, all_product_discounts, product_discount_today_or_low_qty, flash_sales_product, flash_sales_end_today, flash_sales_end_week, product_for_parent_category`. `type=all` → fallback listing. |
+| `order` | string | `desc` | `asc,desc` — fallback `orderBy id` direction |
+| `order_price` | string | — | `asc,desc` → price ordering before id |
+| `search` | string | — | Debounce 300ms. Uses Scout Meilisearch when available else LIKE fallback. When `search` present the listing is **not cached** (`shouldCache:false`). |
+| `productsId` | string | — | Comma IDs |
+| `category` | string | — | Slug/ID |
+| `brands` | string | — | Comma slug/ids |
+| `tags` | string | — | Comma slug/ids (`?tags=summer` or `?tags=1,2`) |
+| `price_min/max`, `rating_min/max` | numeric | — | Facet ranges |
+| `height_min/max … weight_min/max` | numeric | — | Dimension ranges |
+| `banner,promotion,flash_sale,slider,status,date_range` | string | — | Legacy `ProductFilter` keys |
+
+### Admin `GET /api/v1/products`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `page` | int | 1 | Page number |
-| `limit` | int | 15 | Results per page |
-| `search` | string | — | Search in product name, description, SKU, and variant SKUs |
-| `sort` | string | `desc` | Legacy sort direction by `created_at` (`asc` or `desc`) |
-| `orderBy` | string | `created_at` | Column to sort by. Supported: `created_at`, `updated_at`, `name`, `price`, `sold_quantity`, `sku`, `id` |
-| `orderDir` | string | `desc` | Sort direction (`asc` or `desc`) |
-| `date_range` | string | — | Date range `YYYY-MM-DD//YYYY-MM-DD` for availability filtering |
-| `status` | int | — | Filter by product status (`0` or `1`) |
-| `category` | string | — | Filter by category slug (e.g. `?category=electronics`) |
-| `banner` | string | — | Filter by banner slug (e.g. `?banner=summer-sale`) |
-| `flash_sale` | string | — | Filter by flash sale slug (e.g. `?flash_sale=flash-01`) |
-| `promotion` | string | — | Filter by promotion slug (e.g. `?promotion=summer-deal`) |
-| `slider` | string | — | Filter by slider slug (e.g. `?slider=hero-banner`) |
-| `tags` | string | — | Filter by tag slug (e.g. `?tags=t-shirt,summer`) |
+| `page` | int | 1 | |
+| `limit` | int | 15 | |
+| `search` | string | — | Like on translatable `name/description`, `sku`, variant sku |
+| `sort` | string | `desc` | Legacy `created_at` |
+| `orderBy` | string | `created_at` | `created_at, updated_at, name, price, sold_quantity, sku, id` |
+| `orderDir` | string | `desc` | |
+| `category/banner/flash_sale/promotion/slider/tags/status/date_range` | string | — | Via `ProductFilter` |
+
+Sync storefront listing filters to URL query string (`?type=...&search=...&category=...`) so back/forward restores faceted view; share URLs encode full filter state.
 
 ## Key Considerations
 
 ### 1. Translatable Fields
-- `name` and `description` are JSON objects `{ "en": "...", "ar": "..." }`
-- Always send both locales on create; on update you can send just the changed one
-- The response returns the translated value based on `app()->getLocale()`
+- `name` and `description` are JSON `{ en, ar }`.
+- Admin `store` requires both locales; storefront `name` on `ProductMiniResource` uses `getTranslation(locale)` scalar per current `app()->getLocale()`, admin `ProductResource` returns locale-translated or raw object depending on `request()->routeIs('products.index')`.
+- Frontend must send both locales on admin create; detail views choose `app.getLocale()` key.
 
-### 2. Product Type
-- `simple`: Single product with one price/SKU/stock
-- `variable`: Has `variants[]` array with different prices, SKUs, and attribute combinations
-- When creating a variable product, include `variants` array. The `price` field is not required (derived from variants)
+### 2. Product Type vs Item Type
+- `product_type: simple|variable` — structural (variants present). Auto-derived server-side but accepted for validation.
+- `item_type: PHYSICAL|DIGITAL` — fulfillment nature. Defaults `PHYSICAL`. Rejected `422` if not in `ItemType::getValues()`; update rejected `422` after order/digital-asset linkage.
 
 ### 3. Variants
-- Each variant has `attribute_values: [id1, id2, ...]` referencing `attribute_values` table
-- On update, sending new variants DELETES all old variants and recreates them
-- Variant attributes link to `attribute_product` pivot table
+- `variable` products carry `variants[]` each with `price, quantity, sku?, attribute_values:[id...], dims?`
+- Admin `update` replacive: sending new `variants` deletes old variants + pivots and recreates — warn before submit.
+- Storefront omits raw `variants` on listing (`has_variants` boolean only); detail includes `variants[]` with `convertCatalogPrice` and `attributes[{name,value}]`.
 
-### 4. Images
-- Images are uploaded as file arrays on create
-- On update, send existing image IDs + new files
-- Managed by Spatie Media Library
+### 4. Images & MediaLibrary
+- Admin: `images` multipart `jpeg/png/jpg/gif max 2048` via Spatie MediaLibrary; on update send retained IDs + new files.
+- Storefront listing: `image: { thumbnail:getFirstMediaUrl('products'), original:getMediaImages slice(1) }`; detail uses `images: [...]` (all media URLs). Thumbnail is `getFirstMediaUrl`, not `images[0]`.
 
-### 5. Discount vs Flash Sale
-- `has_discount` + `discount_type`/`discount_amount`: Regular discount
-- `has_flash_sale` + `flash_sale_id`: Flash sale discount
-- Both can be active simultaneously; `price_after_flash_sale` takes precedence
-- Current effective price is in `current_price` field
+### 5. Discount vs Flash Sale vs Tax vs Currency
+- `has_discount + discount_type/amount/dates` regular; `has_flash_sale + flash_sale_id` curated. `current_price` is effective price; admin also exposes `price_after_discount`, `price_after_flash_sale`, `discount_valid(isDiscountActive)`.
+- `tax: describe(product,current_price)` + `price_including_tax: applyTo(...)`
+- Storefront: all money fields through `ConvertsProductPrice→effectiveCurrency()` — render `price` + `currency` code together, never assume USD.
 
-### 6. Pricing Fields
-- `price`: Base price
-- `current_price`: Current effective price (accounting for discounts/flash sales)
-- `price_after_discount`: Price after regular discount (before flash sale)
-- `price_after_flash_sale`: Price after flash sale discount
+### 6. Soft Delete & Channel Scoping
+- Admin `destroy` is `SoftDeletes` (no restore endpoint).
+- Storefront silently filters soft-deleted + inactive + channel-mismatched products via `active()` + `HasChannelFilter` + `FastShippingScope` — `GET /general/products/{slug}` can 404 for a valid slug when channel context excludes it.
 
-### 7. Soft Delete
-- Products use soft deletes (`deleted_at`)
-- Currently no restore endpoint exists
+### 7. Search & Cache
+- Storefront `search` prefers Scout `Product::search(term)` via Meilisearch; falls back to `applyProductSearch` LIKE on `name/description/price/sku`. Search listings bypass cache. Non-search listings are cached per `currencyAwareCacheKey(Request)` — after import or product mutation dashboard cache is cleared; handle stale-for-TTL by invalidating on mutation.
 
-### 8. Search
-- Searches across translatable `name`, `description`, `sku`, and variant SKUs
-- Uses `LIKE %term%` on JSON fields
+### 8. Filters & Facets
+- Storefront `filters` facet is server-computed on the current result set (`getDynamicFilters(clone query)`). Don't client-aggregate. On `type`-based listings the facet is `whereIn(resultIds)` aggregated. Use it to render counts.
 
-### 9. Filters
-- `category`: Filter by category slug
-- `banner`: Filter by banner slug
-- `flash_sale`: Filter by flash sale slug
-- `promotion`: Filter by promotion slug
-- `slider`: Filter by slider slug
-- `status`: Filter by product status
-- `date_range`: Filter by date range `YYYY-MM-DD//YYYY-MM-DD`
+### 9. Caching & Throttle
+- Storefront throttled `throttle:public-api` — burst-safe but back off on `429`.
+- Admin `throttle:admin` stricter — `destroyAll/bulk-delete` are throttled hard.
 
 ### 10. Tags
-- Products can have multiple tags (many-to-many via `product_tag` pivot)
-- Tags are managed via `/tags` API (full CRUD)
-- Tags appear in both list (`ProductMiniResource`) and detail (`ProductResource`) responses
-- Filter products by tags using `?tags=slug1,slug2` or `?tags=1,2` (supports slug or ID, AND logic)
-- On create/update, send `tags: [id1, id2]` to associate tags (replaces existing on update)
+- Many-to-many via `product_tag`. Filter `?tags=summer` or `?tags=1,2` (AND). Admin `store/update` accepts `tags:[id]`. Both `ProductMiniResource` (listing) and `ProductResource` (detail) expose `tags: TagResource[]`.

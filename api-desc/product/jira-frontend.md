@@ -149,3 +149,51 @@
 - Delete review → `DELETE /reviews/{id}` with confirmation
 - Loading/empty/error states for review section
 - Review count and average rating summary
+
+---
+
+## F-011: Storefront Listing Page (`GET /api/v1/general/products`)
+
+**Priority:** High
+**Story Points:** 5
+**Labels:** frontend, product, storefront
+
+**Description:** Build public storefront listing using `GET /api/v1/general/products` (no auth) with facets from `filters` + `categories`.
+
+**Acceptance Criteria:**
+- Query keys: `type` (10 curated values: `index, best_product_sales, brands_product, new_arrivals, all_product_discounts, product_discount_today_or_low_qty, flash_sales_product, flash_sales_end_today, flash_sales_end_week, product_for_parent_category`; `type=all` → fallback), `order` (`asc,desc`), `order_price` (`asc,desc`), `search` (debounced, Scout vs LIKE), `limit` 1..100, `page`, `category/brands/tags`, `price_min/max`, `rating_min/max`, `height_min/max … weight_min/max`, `banner/promotion/flash_sale/slider`
+- Render `data: ProductMiniResource[]` cards with `price/current_price/currency/ratings/image.thumbnail`
+- Sidebar facets from `data.filters{price,bands,categories,tags,ratings}` (counts from `getDynamicFilters`) + `data.categories`
+- Support `?type=best_product_sales` etc. strategy switches without full reload where feasible
+- URL-synced filter state, copyable links, back/forward preserved
+- Handle `422` for invalid `type/order`, `429` throttle, and cached vs search-bypass correctly
+
+## F-012: Storefront Product Detail Page (`GET /api/v1/general/products/{slug}`)
+
+**Priority:** High
+**Story Points:** 5
+**Labels:** frontend, product, storefront
+
+**Description:** Build public product detail by `slug` via `GET /api/v1/general/products/{slug}` (public, cached per currency+channel).
+
+**Acceptance Criteria:**
+- Route `/products/{slug}` where `slug` from listing `slug` field; fetch with `App\ProductResource` shape
+- Render `price/currency/discount_type/discount_amount/status/product_type/item_type/quantity/in_stock/dims`, `images[]` gallery (`getFirstMediaUrl` + `slice(1)`), `variants[]` with `attributes[{name,value}]` + `price/current_price`, `categories/tags/reviews/related_products(ProductMiniResource[])`
+- Render `filters` facet from response (when present)
+- `404` slug not found / soft-deleted / channel mismatch → 404 page + suggested products
+- Currency propagation: display all money with `currency` code, refresh on currency switch (cache key includes currency)
+- Media: `image.thumbnail` vs gallery `original[]` distinction preserved
+
+## F-013: Storefront Search & Cache Behavior
+
+**Priority:** Medium
+**Story Points:** 2
+**Labels:** frontend, product, search
+
+**Description:** Implement search correctly with Scout vs fallback and cache awareness.
+
+**Acceptance Criteria:**
+- Debounce `search` 300ms; `GET /general/products?search=shirt` bypasses `HasCache` (always fresh), others hit `currencyAwareCacheKey` cache
+- Empty result `data:[] total:0` → empty state with CTA
+- Long/empty `search` handled (no client crash; server may 422 if `ProductIndexRequest` adds `search|max` validation)
+- Loading skeleton while searching, error retry on `500/429`

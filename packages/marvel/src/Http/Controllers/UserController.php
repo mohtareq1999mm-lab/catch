@@ -482,7 +482,7 @@ class UserController extends CoreController
     {
         $request->validated();
 
-        $user = User::where(function ($query) use ($request) {
+        $user = User::where('type', 'user')->where(function ($query) use ($request) {
             $query->where('email', $request->email)
                 ->orWhere('phone_number', $request->phone_number);
         })->where('is_active', true)->first();

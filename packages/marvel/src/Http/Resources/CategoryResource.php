@@ -23,6 +23,11 @@ class CategoryResource extends Resource
             ] : $this->getTranslation('name', app()->getLocale()),
             'slug'                 => $this->slug,
             'parent_id'            => $this->parent_id,
+            'parent'               => $this->parent ? [
+                'id'   => $this->parent->id,
+                'name' => $this->parent->getTranslation('name', app()->getLocale()),
+                'slug' => $this->parent->slug,
+            ] : null,
             'level'                => $this->level,
             'image'                => [
                 'desktop' => $this->getFirstMediaUrl('categories-desktop') ?: null,

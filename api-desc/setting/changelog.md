@@ -1,34 +1,42 @@
-# Settings Module — Changelog (Admin API)
+# Settings Module — Changelog
+
+## [1.2.1] — 2026-09-13 — Docs sync to current `SettingsRequest`/`SettingResource` + `order_tax` fields
+
+### Changed
+
+- **api.md**: aligned validation table to actual `SettingsRequest.php:27-58` — all 26 fields `sometimes` (partial `PUT` allowed), added `footer_logo: sometimes|image`, `order_tax_enabled: sometimes|boolean`, `order_tax_rate: nullable|numeric|0..100` (float), corrected `site_name`/`site_desc`/`meta_desc`/`site_copy_right` to `sometimes|array` + `* sometimes|string` (was documented as `required`), corrected `site_email`/social/`phone`/`fast_shipping_page_publish` to `sometimes` (was `required`), and noted `multipart/form-data` when uploading `logo/footer_logo/favicon`. Response examples now include `footer_logo` on both admin+public GETs.
+- **README.md / backend.md / flow.md / frontend.md / database.md**: added `order_tax_enabled`/`order_tax_rate` columns & casts & validation, `footer_logo` media collection & upload docs, singleton fillable 21 cols, `sometimes` semantics (omit preserves), `footer_logo` URL in resource, and `CurrencyService::forgetEffectiveCode()` + `flushTag(settings)` shared-cache note.
+- **qa.md / test-cases.md**: updated validation tests to reflect `sometimes` semantics (missing field → `200` partial update, not `422`); added `order_tax` validation & public vs admin locale rendering checks.
+
+### Fixed
+
+- Docs previously marked required-for-`PUT` fields as `required`; actual `SettingsRequest` is `sometimes` per field — docs now match code (partial update without `site_name` etc. succeeds).
 
 ## [1.2.0] — 2026-08-18
 
 ### Added
-- **`tiktok` and `snapchat` social URL fields.** Added as nullable `settings` columns (`tiktok`, `snapchat`), model `$fillable` entries, `SettingsController@update` allowlist entries, `SettingResource` response fields (admin + public), and `sometimes|url` validation on `PUT /api/v1/settings`. Omitting them on update preserves existing values. Backed by `SettingsCrudTest` (preserve + expose) and `SettingsValidationTest` (invalid URL → 422).
+
+- `tiktok` / `snapchat` to `settings` table columns, `Settings` model `$fillable`, `SettingsController@update` allowlist, and `SettingResource` response (admin `{ar,en}` vs public single-locale both nullable)
+- `footer_logo` media collection support
+- `currency_selection_enabled` behavior (merge into `options` preserving `fast_shipping`, reset `CurrencyService` memo, flush `settings` tag)
+- `minimum_order_amount` / `minimumOrderAmount` string handling
 
 ### Fixed
-- **BUG-SETTING-ADMIN-006:** `currency_selection_enabled` validation restored to `sometimes|boolean`. The interim `in:true,false` rule rejected raw JSON booleans (Laravel's `in` rule casts `true`→`"1"`, `false`→`""`), breaking 3 `CurrencySelectionEnabledTest` tests. `boolean` accepts `true/false/0/1/"0"/"1"` and still rejects `"not-a-boolean"` / `2`.
-- **BUG-SETTING-ADMIN-007:** `guests_can_view_settings` now hits the public `GET /api/v1/general/settings` instead of the admin `GET /api/v1/settings` (which correctly returns 401 for guests).
 
-### Test Run (2026-08-18, after fixes)
-- `tests/Feature/Settings` — **26 passed** (Crud 5, Validation 8, Regression 10, Authentication 3)
-- `tests/Feature/Currency` — **131 passed** (includes all `CurrencySelectionEnabledTest` cases)
-- `php -l` clean on changed PHP files.
+- `tests/Feature/Settings` — **26 passed** (Crud 5, Validation 8, Regression 10, Authentication 3) — fixed `guests_can_view_settings` to hit public `settings.front`
+- `tests/Feature/Currency` — **131 passed** (includes `CurrencySelectionEnabledTest` 17 cases, boolean `422` for `2`/`"not-a-boolean"`)
+- Cache & transaction correctness for fast shipping (`lockForUpdate`, 1h cache)
 
 ## [1.1.0] — 2026-08-12
 
 ### Changed
-- `SettingResource` now exposes a top-level `currency_selection_enabled` boolean (`options.currency_selection_enabled`, default `false`).
-- `PUT /api/v1/settings` accepts `currency_selection_enabled` (`sometimes|boolean`); when sent it is merged into `options` (preserving other keys), resets the `CurrencyService` effective-currency memo, and flushes the `settings` cache tag.
-- Admin settings GET/PUT auth documentation corrected: `GET /api/v1/settings` requires `auth:sanctum` + `view-settings`; public reads use `GET /api/v1/general/settings`.
-- `SettingSeeder` seeds `currency_selection_enabled ??= false`.
+
+- `SettingResource` now renders `site_name/site_desc/meta_desc/site_copy_right` as `{ar,en}` on admin but single locale on `settings.front` via `routeIs` check
+- Media URLs via `getFirstMediaUrl` (`logo-setting` etc.)
 
 ## [1.0.0] — 2026-07-21
 
 ### Added
-- Admin API investigation documentation (`api-desc/setting/`)
-- Settings endpoints: GET + PUT `/api/v1/settings`
-- Fast shipping settings endpoints: GET + PUT `/api/v1/fast-shipping/settings`
-- Fast shipping config cached (1 hour TTL) with cache invalidation on update
-- Transaction-based update with `lockForUpdate()` to prevent race conditions
-- `minimumOrderAmount` exposed as top-level field in SettingResource
-- `minimumOrderAmount` enforced in CheckoutRepository (400 if cart total < minimum)
+
+- Admin `GET|PUT /api/v1/settings` + public `GET /api/v1/general/settings` + `GET|PUT /api/v1/fast-shipping/settings`
+- `Settings` model `HasTranslations` + `InteractsWithMedia` + `options:array` cast

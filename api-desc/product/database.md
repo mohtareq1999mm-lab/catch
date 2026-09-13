@@ -1,8 +1,10 @@
 # Product Module — Database Schema
 
+> Covers both Admin `apiResource` and Storefront (`General\ProductController`) data paths. `products` is shared; storefront adds `Active` scope, `FastShippingScope`, `HasChannelFilter`, and Scout index on top.
+
 ## Table: `products`
 
-The core products table with 59 fillable fields, SoftDeletes, JSON translations.
+The core products table with 59 fillable fields, SoftDeletes, JSON translations, and storefront scopes.
 
 | Column | Type | Default | Notes |
 |--------|------|---------|-------|
@@ -20,16 +22,20 @@ The core products table with 59 fillable fields, SoftDeletes, JSON translations.
 | in_stock | BOOLEAN | true | |
 | status | BOOLEAN/VARCHAR | false | Also accepts enum values |
 | pieces | INTEGER | 1 | |
+| item_type | ENUM | `PHYSICAL` | `PHYSICAL`, `DIGITAL` — fulfillment nature (see `api.md`); immutability guard in repository after `order_items`/`digital_assets` linkage |
 | has_discount | BOOLEAN | false | |
 | has_flash_sale | BOOLEAN | false | |
-| is_fast_shipping_available | BOOLEAN | false | |
+| is_fast_shipping_available | BOOLEAN | false | Scope `FastShippingScope` + `HasChannelFilter` auto-filters listing/detail by `ChannelContext` |
 | discount_type | ENUM | `percentage` | `percentage`, `fixed_rate`, `free_shipping` |
 | discount_amount | DOUBLE(10,2) | 0 | |
 | discount_status | BOOLEAN | nullable | |
 | start_date | DATE | nullable | Discount start |
 | end_date | DATE | nullable | Discount end |
-| price_after_discount | DECIMAL(10,2) | nullable | Computed on save |
-| price_after_flash_sale | DECIMAL(10,2) | nullable | Computed on save |
+| price_after_discount | DECIMAL(10,2) | nullable | Computed on save via `ProductPricingService` |
+| price_after_flash_sale | DECIMAL(10,2) | nullable | Computed on save via `ProductPricingService` |
+| tax_enabled | BOOLEAN | false | |
+| tax_rate | DECIMAL(5,2) | nullable | Null = inherit; via `ProductTaxPresenter` |
+| currency | VARCHAR(3) | nullable | Effective catalog currency when `ConvertsProductPrice` applied (storefront `currency` field) |
 | height | VARCHAR | nullable | |
 | width | VARCHAR | nullable | |
 | length | VARCHAR | nullable | |
@@ -41,12 +47,19 @@ The core products table with 59 fillable fields, SoftDeletes, JSON translations.
 ### Indexes
 - `INDEX price`
 - `INDEX sold_quantity`
-- `INDEX name`
-- `INDEX slug`
-- `INDEX sku`
-- `INDEX is_fast_shipping_available`
-- `INDEX (status, deleted_at, price) AS idx_products_status_deleted_price`
-- `INDEX height/width/length/weight`
+- `INDEX name` (JSON, functional index via Scout when Meilisearch enabled)
+- `INDEX slug` UNIQUE (`customSlugify`)
+- `INDEX sku` UNIQUE
+- `INDEX item_type`
+- `INDEX is_fast_shipping_available` — covered by `FastShippingScope` + `idx_products_status_deleted_price`
+- `INDEX (status, deleted_at, price) AS idx_products_status_deleted_price` — storefront `active()` + channel + price ordering
+- `INDEX height/width/length/weight` — dimension range filters (`applyDimensionFilters`)
+- Fulltext/Scout: `Product::search(term)` via Meilisearch (`meilisearch` config) for `name/description` when `buildScoutSearchQuery` non-null; fallback LIKE on JSON `name->{locale}`
+
+### Scopes
+- `scopeActive` — `status=publish` + `deleted_at is null`
+- `FastShippingScope` (global on `Product` model) — `is_fast_shipping_available` per `ChannelContext`
+- `HasChannelFilter` (`applyChannelHomeFilter`) — channel pivot scoping on both listing paths
 
 ## Table: `product_variants`
 

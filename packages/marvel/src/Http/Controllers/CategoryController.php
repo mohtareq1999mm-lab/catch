@@ -46,14 +46,19 @@ class CategoryController extends CoreController
     {
         $parent = $request->parent ?? null;
         $selfId = $request->exceptSelf ?? null;
-        $limit = $request->per_page ?? $request->limit ?? 15;
+        $limit = (int) ($request->per_page ?? $request->limit ?? 15);
+        $limit = $limit > 0 ? min($limit, 100) : 15;
         $active = $request->active ?? null;
         $Inactive = $request->inactive ?? null;
         $search = $request->search ?? null;
         $featureCategory = $request->input('feature-category');
+        $level = $request->input('level', $request->query('level'));
+        $parentId = $request->input('parent_id', $request->query('parent_id'));
+        $statusParam = $request->input('status', $request->query('status'));
         $order = $request->order;
         $sortedBy = $request->sortedBy ?? 'asc';
         $categoriesQuery = $this->repository
+            ->with(['parent'])
             ->withCount(['products']);
 
         if ($featureCategory) {
@@ -74,8 +79,32 @@ class CategoryController extends CoreController
         if ($Inactive) {
             $categoriesQuery = $categoriesQuery->inactive();
         }
+        // status param: ?status=1 / ?status=true vs ?status=0 / ?status=false (AND-combined, updates total)
+        if ($statusParam !== null && $statusParam !== '') {
+            $normalized = null;
+            if (in_array($statusParam, [1, '1', true, 'true', 'True', 'TRUE'], true)) {
+                $normalized = 1;
+            } elseif (in_array($statusParam, [0, '0', false, 'false', 'False', 'FALSE'], true)) {
+                $normalized = 0;
+            }
+            if ($normalized !== null) {
+                $categoriesQuery = $categoriesQuery->where('status', $normalized);
+            }
+        }
         if ($search) {
             $categoriesQuery = $categoriesQuery->search('name', $search, app()->getLocale());
+        }
+        if ($level !== null && $level !== '') {
+            if (is_numeric($level)) {
+                $categoriesQuery = $categoriesQuery->where('level', (int) $level);
+            }
+        }
+        if ($parentId !== null && $parentId !== '') {
+            if (is_numeric($parentId)) {
+                $categoriesQuery = $categoriesQuery->where('parent_id', (int) $parentId);
+            } elseif (strtolower((string) $parentId) === 'null') {
+                $categoriesQuery = $categoriesQuery->whereNull('parent_id');
+            }
         }
 
         $categories = $categoriesQuery->paginate($limit);

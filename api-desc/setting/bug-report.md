@@ -97,3 +97,19 @@ $options[self::SETTINGS_KEY] = array_merge($this->defaults(), $data);
 **Severity:** Low
 
 **Description:** Need to verify that `update-settings`, `view-fast-shipping`, and `update-fast-shipping` permissions exist in the `Permission` enum.
+
+**Status:** Verified — `Marvel\Enums\Permission::VIEW_SETTINGS = 'view-settings'`, `UPDATE_SETTINGS = 'update-settings'` (`SettingsController.php:27-28`), `view-fast-shipping` / `update-fast-shipping` in same enum.
+
+---
+
+## BUG-SETTING-ADMIN-008: Docs drift — `PUT /settings` marked `required` but code is `sometimes` + `order_tax`/`footer_logo` undocumented
+
+**Severity:** Medium
+
+**Component:** `api-desc/setting/api.md` (validation table), `frontend.md`, `database.md`
+
+**Description:** `api.md` validation table listed `site_name`, `site_desc`, `meta_desc`, `site_copy_right`, `site_email`, `facebook`, etc. as `required` for `PUT /api/v1/settings`. Actual `SettingsRequest.php:27-58` is `sometimes` per field — `PUT` is partial-update, missing fields do not 422. `order_tax_enabled: sometimes|boolean` + `order_tax_rate: nullable|numeric|0..100` (float) and `footer_logo: sometimes|image` (media `footer_logo-setting`) were absent from response examples and validation tables. `SettingResource` admin response has `footer_logo` (`getFirstMediaUrl('footer_logo-setting')`) on both endpoints.
+
+**Fix (2026-09-13):** Synced validation table to real `sometimes` rules, added `order_tax_enabled`/`order_tax_rate` + `footer_logo` to request table + response examples (admin `{ar,en}` vs public single-locale) + `SettingsController:62-67` `currency_selection_enabled` merge note + media table row for `footer_logo`. Updated `backend.md`, `README.md`, `flow.md`, `frontend.md`, `database.md`, `changelog [1.2.1]`.
+
+**Status:** **RESOLVED.**
