@@ -361,8 +361,7 @@ class ImportCategoriesJob implements ShouldQueue
 
     /**
      * Terminal signal for category imports. Maps status to specific event
-     * constants (queued/progress/completed/failed/cancelled) while preserving
-     * legacy `type/import_id` for wire compatibility.
+     * constants (queued/progress/completed/failed/cancelled) — canonical payload.
      */
     protected function broadcastCategoryImportTerminal(
         string $status,
@@ -377,8 +376,6 @@ class ImportCategoriesJob implements ShouldQueue
             default => FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
         };
         $base = [
-            'type' => 'category',
-            'import_id' => $this->importId,
             'download_available' => $hasErrors,
         ];
         if (!array_key_exists('progress', $extraPayload) && in_array($status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {

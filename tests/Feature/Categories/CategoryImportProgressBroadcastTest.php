@@ -16,13 +16,8 @@ use Tests\Stubs\RecordingPusher;
 use Tests\TestCase;
 
 /**
- * Verifies that the category import progress pipeline broadcasts real-time
- * progress events to the importing user's private channel. The real
- * PusherBroadcaster stays in place while its HTTP client is swapped for the
- * RecordingPusher fake so the full app-to-Pusher contract (private channel,
- * event name, payload) is exercised without performing network calls.
- *
- * Run with:  php artisan test --filter=CategoryImportProgressBroadcastTest
+ * Verifies that the category import progress pipeline broadcasts via the canonical
+ * FileOperationEvent contract to the importing user's private channel.
  */
 class CategoryImportProgressBroadcastTest extends TestCase
 {
@@ -34,8 +29,6 @@ class CategoryImportProgressBroadcastTest extends TestCase
     {
         parent::setUp();
 
-        // Signal files are shared filesystem artifacts; clear leftovers so
-        // stale cancel/progress signals never leak between test suites.
         $dir = storage_path('app/imports');
         if (is_dir($dir)) {
             foreach (glob($dir . '/*.json') ?: [] as $file) {
@@ -51,7 +44,6 @@ class CategoryImportProgressBroadcastTest extends TestCase
             $broadcaster->setPusher($this->pusher);
         }
 
-        // Force the import service to broadcast even though APP_ENV=testing.
         config(['app.env' => 'local']);
     }
 
@@ -106,17 +98,29 @@ class CategoryImportProgressBroadcastTest extends TestCase
 
     public function test_event_contract_targets_private_user_channel(): void
     {
-        $event = new CategoryImportProgress(7, 42, ['progress' => 50.0, 'processed_rows' => 5]);
+        $event = new CategoryImportProgress(7, 42, ['progress' => 50.0, 'processed_rows' => 5, 'success_rows' => 4, 'failed_rows' => 1]);
 
         $channels = array_map(fn ($channel) => $channel->name, $event->broadcastOn());
-        $this->assertSame(['private-admin.notifications', 'private-users.7'], $channels);
+        $this->assertSame(['private-users.7'], $channels);
         $this->assertSame('category.import.progress', $event->broadcastAs());
 
         $payload = $event->broadcastWith();
+        // Canonical payload must NOT expose legacy aliases
+        $this->assertArrayNotHasKey('import_id', $payload);
+        $this->assertArrayNotHasKey('type', $payload);
+        $this->assertSame(42, $payload['id']);
+        $this->assertSame(42, $payload['operation_id']);
+        $this->assertSame('category-import', $payload['kind']);
+        $this->assertSame('category-import', $payload['operation_type']);
+        $this->assertSame('category.import.progress', $payload['event']);
         $this->assertSame(50.0, $payload['progress']);
         $this->assertSame(5, $payload['processed_rows']);
-        $this->assertSame(42, $payload['import_id']);
-        $this->assertSame('category', $payload['type']);
+        $this->assertSame(4, $payload['success_rows']);
+        $this->assertSame(1, $payload['failed_rows']);
+        $this->assertArrayHasKey('progress_detail', $payload);
+        $this->assertArrayHasKey('percentage', $payload);
+        $this->assertArrayHasKey('timestamp', $payload);
+        $this->assertArrayHasKey('message', $payload);
     }
 
     public function test_write_explicit_progress_broadcasts_to_owner_channel(): void
@@ -127,25 +131,22 @@ class CategoryImportProgressBroadcastTest extends TestCase
         $service = new CategoryImportService($import->id);
         $service->writeExplicitProgress(42.0);
 
-        $adminBroadcast = $this->assertBroadcastTo(
-            'private-admin.notifications',
-            'category.import.progress'
-        );
-
-        $this->assertSame(42.0, $adminBroadcast['data']['progress']);
-        $this->assertSame($import->id, $adminBroadcast['data']['import_id']);
-        $this->assertSame('category', $adminBroadcast['data']['type']);
-        $this->assertSame(0, $adminBroadcast['data']['processed_rows']);
-
         $broadcast = $this->assertBroadcastTo(
             'private-users.' . $user->id,
             'category.import.progress'
         );
 
         $this->assertSame(42.0, $broadcast['data']['progress']);
-        $this->assertSame($import->id, $broadcast['data']['import_id']);
-        $this->assertSame('category', $broadcast['data']['type']);
-        $this->assertSame(0, $broadcast['data']['processed_rows']);
+        $this->assertSame(42.0, $broadcast['data']['percentage']);
+        $this->assertSame($import->id, $broadcast['data']['id']);
+        $this->assertSame($import->id, $broadcast['data']['operation_id']);
+        $this->assertSame('category-import', $broadcast['data']['kind']);
+        $this->assertSame('category.import.progress', $broadcast['data']['event']);
+        $this->assertArrayNotHasKey('import_id', $broadcast['data']);
+        $this->assertArrayNotHasKey('type', $broadcast['data']);
+        // Ensure no admin channel was used for canonical flow
+        $adminBroadcasts = array_filter($this->pusher->broadcasts, fn ($b) => in_array('private-admin.notifications', $b['channels'], true));
+        $this->assertEmpty($adminBroadcasts, 'Canonical flow must not broadcast to admin.notifications');
 
         $decoded = json_decode(json_encode($broadcast['data']), true);
         $this->assertIsArray($decoded, 'Broadcast data is not JSON serializable for Pusher.');
@@ -160,21 +161,14 @@ class CategoryImportProgressBroadcastTest extends TestCase
         $service = new CategoryImportService($import->id);
         $service->finalizeProgress();
 
-        $adminBroadcast = $this->assertBroadcastTo(
-            'private-admin.notifications',
-            'category.import.progress'
-        );
-
-        $this->assertSame(100.0, $adminBroadcast['data']['progress']);
-        $this->assertSame($import->id, $adminBroadcast['data']['import_id']);
-
         $broadcast = $this->assertBroadcastTo(
             'private-users.' . $user->id,
             'category.import.progress'
         );
 
         $this->assertSame(100.0, $broadcast['data']['progress']);
-        $this->assertSame($import->id, $broadcast['data']['import_id']);
+        $this->assertSame($import->id, $broadcast['data']['id']);
+        $this->assertSame('category-import', $broadcast['data']['kind']);
     }
 
     public function test_no_broadcast_when_import_has_no_creator(): void

@@ -2,8 +2,9 @@
 
 namespace Marvel\Services\Import;
 
-use App\Events\CategoryImportProgress;
+use App\Events\FileOperationEvent;
 use App\Services\General\CategoryHierarchyService;
+use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ use Throwable;
 
 class CategoryImportService
 {
+    use BroadcastsFileOperationProgress;
     protected const FLUSH_THRESHOLD = 20;
 
     protected const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -1032,7 +1034,7 @@ class CategoryImportService
 
     /**
      * Persist the progress snapshot to the signal file and broadcast it to the
-     * importing user's private channel in real time.
+     * importing user's private channel in real time — canonical payload.
      */
     protected function publishProgress(float $progress): void
     {
@@ -1045,72 +1047,18 @@ class CategoryImportService
 
         $this->writeSignal('progress', $data);
 
-        if (!$this->shouldBroadcastProgress()) {
-            return;
-        }
-
-        $this->broadcastProgress($data);
-    }
-
-    protected function shouldBroadcastProgress(): bool
-    {
-        return config('app.env') !== 'testing';
-    }
-
-    protected function resolveBroadcastUserId(): ?int
-    {
-        if ($this->broadcastUserId !== null) {
-            return $this->broadcastUserId;
-        }
-
         if ($this->importId === null) {
-            return null;
-        }
-
-        $this->broadcastUserId = (int) Import::where('id', $this->importId)->value('created_by') ?: null;
-
-        return $this->broadcastUserId;
-    }
-
-    protected function broadcastProgress(array $data): void
-    {
-        $userId = $this->resolveBroadcastUserId();
-
-        if ($userId === null) {
-            Log::warning('category.import.progress.skipped', [
-                'import_id' => $this->importId,
-                'reason' => 'no_creator_user',
-            ]);
-
             return;
         }
 
-        Log::info('category.import.progress.dispatch', [
-            'import_id' => $this->importId,
-            'user_id' => $userId,
-            'channel' => 'private-users.' . $userId,
-            'event' => 'category.import.progress',
-            'payload' => $data,
-        ]);
-
-        try {
-            CategoryImportProgress::dispatch($userId, $this->importId, $data);
-
-            Log::info('category.import.progress.dispatched', [
-                'import_id' => $this->importId,
-                'user_id' => $userId,
-                'channel' => 'private-users.' . $userId,
-                'event' => 'category.import.progress',
-                'payload' => $data,
-            ]);
-        } catch (Throwable $e) {
-            Log::error('category.import.progress.broadcast_failed', [
-                'import_id' => $this->importId,
-                'user_id' => $userId,
-                'error' => $e->getMessage(),
-            ]);
-
-            report($e);
-        }
+        $this->broadcastFileOperationProgress(
+            FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
+            'category-import',
+            (int) $this->importId,
+            $progress,
+            $this->successCount + count($this->failedRows),
+            $this->successCount,
+            count($this->failedRows)
+        );
     }
 }

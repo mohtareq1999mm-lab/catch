@@ -82,7 +82,7 @@ trait BroadcastsFileOperationProgress
     }
 
     /**
-     * Emit a cancelling lifecycle event (non-terminal).
+     * Emit a cancelling lifecycle event (non-terminal) — canonical payload.
      */
     protected function broadcastFileOperationCancelling(
         string $eventName,
@@ -90,21 +90,36 @@ trait BroadcastsFileOperationProgress
         int $operationId,
         string $message = '',
     ): void {
+        $normalizedProgress = 0.0;
         $payload = [
             'kind' => $kind,
+            'operation_type' => $kind,
             'id' => $operationId,
+            'operation_id' => $operationId,
+            'event' => $eventName,
+            'state' => 'cancelling',
             'status' => 'cancelling',
             'has_errors' => false,
+            'progress' => $normalizedProgress,
+            'percentage' => $normalizedProgress,
+            'progress_detail' => [
+                'percentage' => $normalizedProgress,
+                'processed' => 0,
+                'total' => null,
+            ],
+            'processed_rows' => 0,
+            'success_rows' => 0,
+            'failed_rows' => 0,
+            'total_rows' => null,
             'download_available' => false,
+            'timestamp' => now()->toIso8601String(),
+            'message' => $message !== '' ? $message : ucfirst(str_replace('-', ' ', $kind)) . ' cancelling.',
         ];
-        if ($message !== '') {
-            $payload['message'] = $message;
-        }
         $this->dispatchFileOperationEvent($eventName, $kind, $operationId, $payload);
     }
 
     /**
-     * Emit a realtime progress update for a file operation.
+     * Emit a realtime progress update for a file operation — canonical payload.
      */
     protected function broadcastFileOperationProgress(
         string $eventName,
@@ -137,9 +152,11 @@ trait BroadcastsFileOperationProgress
             'processed_rows' => $processedRows,
             'success_rows' => $successRows,
             'failed_rows' => $failedRows,
+            'total_rows' => $totalRows,
             'has_errors' => $failedRows > 0,
             'download_available' => false,
             'timestamp' => now()->toIso8601String(),
+            'message' => $extraPayload['message'] ?? '',
         ], $extraPayload);
 
         // Preserve explicit overrides for has_errors/download_available if caller set them
@@ -151,17 +168,27 @@ trait BroadcastsFileOperationProgress
         }
         // Keep event/state consistent even if extra overrides progress/percentage
         $payload['event'] = $eventName;
-        $payload['state'] = $payload['state'] ?? $status;
-        $payload['operation_type'] = $payload['operation_type'] ?? $kind;
+        $payload['state'] = $status;
+        $payload['status'] = $status;
+        $payload['operation_type'] = $kind;
+        $payload['kind'] = $kind;
 
-        if ($totalRows !== null) {
-            $payload['total_rows'] = $totalRows;
-            $payload['progress_detail']['total'] = $totalRows;
+        // Ensure canonical keys always present
+        $payload['total_rows'] = $payload['total_rows'] ?? $totalRows;
+        $payload['progress_detail']['total'] = $payload['total_rows'];
+        $payload['progress_detail']['percentage'] = $normalizedProgress;
+        $payload['progress_detail']['processed'] = $processedRows;
+        $payload['percentage'] = $normalizedProgress;
+        $payload['progress'] = $normalizedProgress;
+        $payload['timestamp'] = $payload['timestamp'] ?? now()->toIso8601String();
+        if (!isset($payload['message']) || $payload['message'] === '') {
+            $payload['message'] = $extraPayload['message'] ?? '';
+            if ($payload['message'] === '') {
+                $payload['message'] = ucfirst(str_replace('-', ' ', $kind)) . ' ' . $status . '.';
+            }
         }
-
-        if (isset($payload['message']) && $payload['message'] === '') {
-            unset($payload['message']);
-        }
+        // Strip legacy keys if accidentally passed via extraPayload
+        unset($payload['import_id'], $payload['type']);
 
         $this->dispatchFileOperationEvent($eventName, $kind, $operationId, $payload);
     }
@@ -220,16 +247,35 @@ trait BroadcastsFileOperationProgress
             'percentage' => $normalizedProgress,
             'progress_detail' => [
                 'percentage' => $normalizedProgress,
-                'processed' => $extraPayload['processed_rows'] ?? null,
+                'processed' => $extraPayload['processed_rows'] ?? 0,
                 'total' => $extraPayload['total_rows'] ?? null,
             ],
-            'download_available' => $extraPayload['download_available'] ?? false,
+            'processed_rows' => $extraPayload['processed_rows'] ?? 0,
+            'success_rows' => $extraPayload['success_rows'] ?? 0,
+            'failed_rows' => $extraPayload['failed_rows'] ?? 0,
+            'total_rows' => $extraPayload['total_rows'] ?? null,
+            'download_available' => $extraPayload['download_available'] ?? $hasErrors,
             'timestamp' => now()->toIso8601String(),
+            'message' => $extraPayload['message'] ?? '',
         ];
 
         // Ensure download_available reflects caller intent
         if (array_key_exists('download_available', $extraPayload)) {
             $base['download_available'] = (bool) $extraPayload['download_available'];
+        }
+        if (array_key_exists('message', $extraPayload) && $extraPayload['message'] !== '') {
+            $base['message'] = $extraPayload['message'];
+        } elseif ($base['message'] === '') {
+            $base['message'] = ucfirst(str_replace('-', ' ', $kind)) . ' ' . $status . '.';
+            if ($status === 'completed_with_errors') {
+                $base['message'] = ucfirst(str_replace('-', ' ', $kind)) . ' completed with errors.';
+            } elseif ($status === 'completed') {
+                $base['message'] = ucfirst(str_replace('-', ' ', $kind)) . ' completed.';
+            } elseif ($status === 'failed') {
+                $base['message'] = ucfirst(str_replace('-', ' ', $kind)) . ' failed.';
+            } elseif ($status === 'cancelled') {
+                $base['message'] = ucfirst(str_replace('-', ' ', $kind)) . ' cancelled.';
+            }
         }
 
         $payload = array_merge($base, $extraPayload);
@@ -240,6 +286,14 @@ trait BroadcastsFileOperationProgress
         $payload['operation_type'] = $kind;
         $payload['kind'] = $kind;
         $payload['has_errors'] = $hasErrors;
+        $payload['progress'] = $normalizedProgress;
+        $payload['percentage'] = $normalizedProgress;
+        $payload['progress_detail']['percentage'] = $normalizedProgress;
+        $payload['progress_detail']['processed'] = $payload['processed_rows'] ?? 0;
+        $payload['progress_detail']['total'] = $payload['total_rows'] ?? null;
+        $payload['timestamp'] = $payload['timestamp'] ?? now()->toIso8601String();
+        // Strip legacy keys
+        unset($payload['import_id'], $payload['type']);
 
         $this->dispatchFileOperationEvent($eventName, $kind, $operationId, $payload);
     }
@@ -272,6 +326,8 @@ trait BroadcastsFileOperationProgress
                 return;
             }
 
+            // Final canonical safety: strip legacy aliases
+            unset($payload['import_id'], $payload['type']);
             FileOperationEvent::dispatch($userId, $eventName, $payload);
 
             Log::info('file-operation.event.dispatched', [

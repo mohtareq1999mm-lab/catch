@@ -14,18 +14,6 @@ use Marvel\Services\Import\CategoryImportService;
 use Tests\Stubs\RecordingPusher;
 use Tests\TestCase;
 
-/**
- * REAL Pusher connection check for the category import progress pipeline.
- *
- * The REAL CategoryImportService is executed so the REAL broadcast pipeline
- * (service -> CategoryImportProgress event -> BroadcastingManager ->
- * PusherBroadcaster) runs untouched. RecordingPusher captures the exact
- * channels/event/payload the broadcaster produces, then those exact values
- * are re-sent to the REAL api-*.pusher.com broker with the .env credentials.
- *
- * If Pusher is unreachable the test is skipped (honesty-gated), so the suite
- * stays green offline and never claims a connection that didn't happen.
- */
 class CategoryImportProgressRealPusherTest extends TestCase
 {
     use RefreshDatabase;
@@ -129,10 +117,13 @@ class CategoryImportProgressRealPusherTest extends TestCase
 
         $broadcast = $this->lastRecordedBroadcast();
         $this->assertSame(
-            ['private-admin.notifications', 'private-users.' . $user->id],
+            ['private-users.' . $user->id],
             $broadcast['channels']
         );
         $this->assertSame('category.import.progress', $broadcast['event']);
+        $this->assertArrayNotHasKey('import_id', $broadcast['data']);
+        $this->assertArrayNotHasKey('type', $broadcast['data']);
+        $this->assertSame('category-import', $broadcast['data']['kind']);
 
         $pusher = $this->realPusher();
         $this->assertPusherReachable($pusher);
@@ -157,6 +148,7 @@ class CategoryImportProgressRealPusherTest extends TestCase
         $broadcast = $this->lastRecordedBroadcast();
         $this->assertSame(100.0, $broadcast['data']['progress']);
         $this->assertSame('category.import.progress', $broadcast['event']);
+        $this->assertSame('category-import', $broadcast['data']['kind']);
 
         $pusher = $this->realPusher();
         $this->assertPusherReachable($pusher);

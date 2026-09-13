@@ -157,7 +157,7 @@ class ImportBrandsJob implements ShouldQueue
                 ]);
 
                 $this->broadcastFileOperationTerminal(
-                    FileOperationEvent::BRAND_IMPORT_PROGRESS,
+                    FileOperationEvent::BRAND_IMPORT_FAILED,
                     'brand-import',
                     $this->importId,
                     'failed',
