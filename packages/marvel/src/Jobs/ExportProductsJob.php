@@ -231,6 +231,7 @@ class ExportProductsJob implements ShouldQueue
             }
             Cache::store('file')->forget('product-export:filters:' . $this->importId);
 
+            // Export is read-only: no business cache invalidation (operation file metadata not cached via business tags).
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::PRODUCT_EXPORT_COMPLETED,
                 'product-export',

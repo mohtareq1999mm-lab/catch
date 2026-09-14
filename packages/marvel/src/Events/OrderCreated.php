@@ -56,6 +56,17 @@ class OrderCreated implements ShouldQueue, ShouldBroadcast
     }
 
     /**
+     * Force the pusher connection even when the process default is log/null.
+     * Ensures this event always reaches Pusher regardless of worker environment.
+     *
+     * @return string[]
+     */
+    public function broadcastConnections(): array
+    {
+        return ['pusher'];
+    }
+
+    /**
      * Get the channels the event should broadcast on.
      *
      * @return array<int, \Illuminate\Broadcasting\Channel>

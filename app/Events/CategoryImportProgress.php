@@ -23,6 +23,16 @@ class CategoryImportProgress implements ShouldBroadcastNow
         public array $data = [],
     ) {}
 
+    /**
+     * Same fix as FileOperationEvent: never inherit a stale/log default.
+     *
+     * @return string[]
+     */
+    public function broadcastConnections(): array
+    {
+        return ['pusher'];
+    }
+
     public function broadcastOn(): array
     {
         return [

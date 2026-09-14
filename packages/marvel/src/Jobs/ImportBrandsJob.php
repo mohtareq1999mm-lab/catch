@@ -309,6 +309,10 @@ class ImportBrandsJob implements ShouldQueue
                 'errors' => $service->getFailedRows(),
             ]);
 
+            if ($service->getSuccessCount() > 0) {
+                $this->invalidateFrontendCaches();
+            }
+
             $this->broadcastBrandImportTerminal('cancelled', !empty($service->getFailedRows()), [
                     'progress' => 100.0,
                     'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
@@ -329,9 +333,14 @@ class ImportBrandsJob implements ShouldQueue
                         'row' => 0,
                         'name_en' => '',
                         'name_ar' => '',
+                        'parent_name_en' => '',
                         'error_message' => $sanitized,
                     ]],
                 ]);
+
+                if ($service->getSuccessCount() > 0) {
+                    $this->invalidateFrontendCaches();
+                }
 
                 $this->broadcastBrandImportTerminal('failed', true);
 
@@ -414,6 +423,10 @@ class ImportBrandsJob implements ShouldQueue
 
         if ($import && $import->status === 'processing') {
             $import->update(['status' => 'failed']);
+
+            if ((int) ($import->success_rows ?? 0) > 0) {
+                $this->invalidateFrontendCaches();
+            }
 
             $this->broadcastBrandImportTerminal('failed', true);
 

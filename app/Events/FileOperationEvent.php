@@ -82,6 +82,19 @@ class FileOperationEvent implements ShouldBroadcastNow
         public array $payload = [],
     ) {}
 
+    /**
+     * Force the pusher connection even when the process default is log/null.
+     * This is the minimal safe fix for the "first event via web (pusher) succeeds,
+     * subsequent events via worker (log) are lost" divergence: FileOperationEvent
+     * must never inherit a stale/log default. See PUSHER_IMPORT_EXPORT_LIVE_EVENTS_ROOT_CAUSE_AUDIT.md.
+     *
+     * @return string[]
+     */
+    public function broadcastConnections(): array
+    {
+        return ['pusher'];
+    }
+
     public function broadcastOn(): array
     {
         return [

@@ -312,6 +312,10 @@ class ImportCategoriesJob implements ShouldQueue
                 'errors' => $service->getFailedRows(),
             ]);
 
+            if ($service->getSuccessCount() > 0) {
+                $this->invalidateFrontendCaches();
+            }
+
             $this->broadcastCategoryImportTerminal('cancelled', !empty($service->getFailedRows()), [
                 'progress' => 100.0,
                 'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
@@ -336,6 +340,10 @@ class ImportCategoriesJob implements ShouldQueue
                         'error_message' => $sanitized,
                     ]],
                 ]);
+
+                if ($service->getSuccessCount() > 0) {
+                    $this->invalidateFrontendCaches();
+                }
 
                 $this->broadcastCategoryImportTerminal('failed', true);
 
@@ -435,6 +443,10 @@ class ImportCategoriesJob implements ShouldQueue
 
         if ($import && $import->status === 'processing') {
             $import->update(['status' => 'failed']);
+
+            if ((int) ($import->success_rows ?? 0) > 0) {
+                $this->invalidateFrontendCaches();
+            }
 
             $this->broadcastCategoryImportTerminal('failed', true);
 

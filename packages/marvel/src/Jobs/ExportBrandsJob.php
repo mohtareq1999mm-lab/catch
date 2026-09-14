@@ -216,6 +216,7 @@ class ExportBrandsJob implements ShouldQueue
                 $exportOperation->refresh();
             }
 
+            // Export is read-only: no business cache invalidation (operation file metadata not cached via business tags).
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::BRAND_EXPORT_COMPLETED,
                 'brand-export',

@@ -46,6 +46,17 @@ class OrderStatusChanged implements ShouldDispatchAfterCommit, ShouldBroadcast
         $this->changedByType = $changedByType;
     }
 
+    /**
+     * Force the pusher connection even when the process default is log/null.
+     * Ensures this event always reaches Pusher regardless of worker environment.
+     *
+     * @return string[]
+     */
+    public function broadcastConnections(): array
+    {
+        return ['pusher'];
+    }
+
     public function broadcastOn(): array
     {
         return [

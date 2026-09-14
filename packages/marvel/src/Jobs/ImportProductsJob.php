@@ -354,6 +354,10 @@ class ImportProductsJob implements ShouldQueue
                 'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
             ]);
 
+            if ($service->getSuccessCount() > 0 || $service->getVariantSuccessCount() > 0) {
+                $this->invalidateFrontendCaches();
+            }
+
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::PRODUCT_IMPORT_CANCELLED,
                 'product-import',
@@ -377,6 +381,9 @@ class ImportProductsJob implements ShouldQueue
                     'status' => 'failed',
                     'errors' => [['sheet' => 'system', 'row' => 0, 'sku' => '', 'error_message' => $sanitized]],
                 ]);
+                if ($service->getSuccessCount() > 0 || $service->getVariantSuccessCount() > 0) {
+                    $this->invalidateFrontendCaches();
+                }
                 $this->broadcastFileOperationTerminal(
                     FileOperationEvent::PRODUCT_IMPORT_FAILED,
                     'product-import',
@@ -482,6 +489,9 @@ class ImportProductsJob implements ShouldQueue
         $import = Import::find($this->importId);
         if ($import && $import->status === 'processing') {
             $import->update(['status' => 'failed']);
+            if ((int) ($import->success_rows ?? 0) > 0) {
+                $this->invalidateFrontendCaches();
+            }
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::PRODUCT_IMPORT_FAILED,
                 'product-import',

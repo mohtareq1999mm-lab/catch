@@ -189,6 +189,9 @@ class ExportCategoriesJob implements ShouldQueue
                 $import->refresh();
             }
 
+            // Export is read-only: file generation does not mutate products/categories/brands
+            // cached via HasCache/HomeService/api_cache_version. No business cache
+            // invalidation. Operation status/file_path persistence is the source of truth.
             $this->broadcastFileOperationTerminal(
                 FileOperationEvent::CATEGORY_EXPORT_COMPLETED,
                 'category-export',
