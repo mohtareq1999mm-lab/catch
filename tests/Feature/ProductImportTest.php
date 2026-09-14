@@ -875,7 +875,7 @@ class ProductImportTest extends TestCase
             'stock_quantity' => 5,
             'product_type' => 'simple',
             'slug' => 'existing-product',
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'is_active' => true,
             'type' => 'simple']);

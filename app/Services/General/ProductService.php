@@ -147,11 +147,44 @@ class ProductService
      */
     public function paginate(Request $request)
     {
+        if ($request->query('pagination') === 'cursor') {
+            return $this->paginateCursor($request);
+        }
+
         $limit = $this->getLimit($request);
         $order = $request->query('order', 'desc');
         $query = $this->buildFilteredBaseQuery($request);
 
         $products = $query->orderBy('id', $order)->paginate($limit);
+
+        $products->setCollection(
+            $products->getCollection()->map(fn(Product $product) => $this->enrichProductWithPricing($product))
+        );
+
+        return $products;
+    }
+
+    public function paginateCursor(Request $request)
+    {
+        $limit = $this->getLimit($request);
+        $order = $request->query('order', 'desc');
+        $orderPrice = $request->query('order_price');
+        $query = $this->buildFilteredBaseQuery($request);
+
+        // Apply ordering based on request parameters
+        if (in_array($orderPrice, ['asc', 'desc'], true)) {
+            // Multi-column keyset pagination: ORDER BY price, id
+            // Both columns use the same direction for deterministic ordering
+            $products = $query->orderBy('price', $orderPrice)
+                             ->orderBy('id', $orderPrice)
+                             ->cursorPaginate($limit)
+                             ->withQueryString();
+        } else {
+            // Single-column keyset pagination: ORDER BY id only
+            $products = $query->orderBy('id', $order)
+                             ->cursorPaginate($limit)
+                             ->withQueryString();
+        }
 
         $products->setCollection(
             $products->getCollection()->map(fn(Product $product) => $this->enrichProductWithPricing($product))

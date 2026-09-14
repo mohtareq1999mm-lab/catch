@@ -96,7 +96,7 @@ class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMap
             'product_type' => $product->product_type,
             'item_type' => $product->item_type ?? \Marvel\Enums\ItemType::PHYSICAL,
             'quantity' => $product->stock_quantity,
-            'status' => $product->status ? '1' : '0',
+            'status' => (int) $product->status,
             'in_stock' => $product->in_stock ? '1' : '0',
             'has_discount' => $product->has_discount ? '1' : '0',
             'discount_type' => $product->discount_type,

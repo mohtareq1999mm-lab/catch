@@ -51,7 +51,7 @@ class UserOrderDetailTest extends TestCase
             'slug' => 'detail-product-' . Str::random(6),
             'price' => 100.00,
             'product_type' => 'simple',
-            'status' => 'publish',
+            'status' => 1,
         ]);
     }
 

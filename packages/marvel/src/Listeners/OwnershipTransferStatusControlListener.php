@@ -54,7 +54,7 @@ class OwnershipTransferStatusControlListener implements ShouldQueue
         $shop->save();
         $shop->refresh();
         // draft products
-        Product::where('shop_id', '=', $ownershipRequest->shop_id)->update(['status' => 'draft']);
+        Product::where('shop_id', '=', $ownershipRequest->shop_id)->update(['status' => 0]);
 
         $message = [
             'message' => 'Shop transfer request #' . $ownershipRequest->transaction_identifier . ' is on processing.'
@@ -81,7 +81,7 @@ class OwnershipTransferStatusControlListener implements ShouldQueue
         $shop->is_active = false;
         $shop->save();
         // draft products
-        Product::where('shop_id', '=', $ownershipRequest->shop_id)->update(['status' => 'draft']);
+        Product::where('shop_id', '=', $ownershipRequest->shop_id)->update(['status' => 0]);
         $message = [
             'message' => 'Sorry! Shop transfer request #' . $ownershipRequest->transaction_identifier . ' is rejected. For more details please contact with site admin.'
         ];

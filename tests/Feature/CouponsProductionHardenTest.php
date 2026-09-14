@@ -499,7 +499,7 @@ $table->decimal('product_total_price', 10, 2)->default(0);
             'name' => 'Test Product',
             'slug' => 'test-prod-' . Str::random(6),
             'price' => 100.00,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
         ]);
@@ -508,7 +508,7 @@ $table->decimal('product_total_price', 10, 2)->default(0);
             'name' => 'Test Product 2',
             'slug' => 'test-prod2-' . Str::random(6),
             'price' => 200.00,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 30,
         ]);

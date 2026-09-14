@@ -45,7 +45,7 @@ class FlashSalesEndpointTest extends TestCase
             'name' => ['en' => 'Wireless Headphones', 'ar' => 'سماعات لاسلكية'],
             'slug' => 'wireless-headphones-' . uniqid(),
             'price' => 99.99,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
             'reserved_quantity' => 0,

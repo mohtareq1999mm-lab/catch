@@ -14,12 +14,14 @@ class CouponTargeting extends Model
         'mode',
         'require_claim',
         'max_claims',
+        'claim_ttl_hours',
         'rule_tree',
     ];
 
     protected $casts = [
         'require_claim' => 'boolean',
         'max_claims' => 'integer',
+        'claim_ttl_hours' => 'integer',
         'rule_tree' => 'array',
     ];
 

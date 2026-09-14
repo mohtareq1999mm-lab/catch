@@ -177,7 +177,7 @@ abstract class NotificationE2ETestCase extends TestCase
             'name' => 'Test Product',
             'slug' => 'test-product-' . Str::random(8),
             'price' => 100.00,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 10,
             'reserved_quantity' => 0,

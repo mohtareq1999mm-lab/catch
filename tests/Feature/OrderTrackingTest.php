@@ -377,7 +377,7 @@ class OrderTrackingTest extends TestCase
             'name' => 'Test Product',
             'slug' => 'test-product-' . uniqid(),
             'price' => 100,
-            'status' => 'publish',
+            'status' => 1,
             'stock_quantity' => 10,
             'reserved_quantity' => 0,
             'sold_quantity' => 0,

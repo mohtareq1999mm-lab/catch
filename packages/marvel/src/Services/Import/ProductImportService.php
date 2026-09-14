@@ -914,7 +914,7 @@ class ProductImportService
         }
 
         if (isset($row['status'])) {
-            $data['status'] = $this->parseBoolean($row['status']);
+            $data['status'] = $this->normalizeProductStatus($row['status']);
         }
 
         if (isset($row['in_stock'])) {
@@ -1002,6 +1002,40 @@ class ProductImportService
         return $slug;
     }
 
+    /**
+     * Normalize Product status from import file to canonical integer 0 or 1.
+     * Accepts only "0" or "1" (string or numeric).
+     * Rejects all other values including true/false/publish/unpublish.
+     */
+    protected function normalizeProductStatus($value): int
+    {
+        // Accept numeric 0 or 1
+        if (is_numeric($value)) {
+            $intVal = (int) $value;
+            if ($intVal === 0) {
+                return 0;
+            }
+            if ($intVal === 1) {
+                return 1;
+            }
+            throw new \InvalidArgumentException("Invalid Product status '{$value}'. Only 0 or 1 allowed.");
+        }
+
+        // Accept string "0" or "1"
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '0') {
+                return 0;
+            }
+            if ($trimmed === '1') {
+                return 1;
+            }
+            throw new \InvalidArgumentException("Invalid Product status '{$value}'. Only '0' or '1' allowed.");
+        }
+
+        throw new \InvalidArgumentException("Invalid Product status type. Only 0/1 allowed.");
+    }
+
     protected function parseBoolean($value): bool
     {
         if (is_bool($value)) {
@@ -1011,7 +1045,14 @@ class ProductImportService
             return (int) $value === 1;
         }
         if (is_string($value)) {
-            return in_array(strtolower($value), ['1', 'true', 'yes', 'publish', 'approved']);
+            $lower = strtolower($value);
+            if ($lower === '1') {
+                return true;
+            }
+            if ($lower === '0') {
+                return false;
+            }
+            return false; // Invalid string - reject
         }
         return false;
     }

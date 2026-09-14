@@ -431,7 +431,7 @@ class ShopController extends CoreController
             $shop->save();
 
             if (Product::count() > 0) {
-                Product::where('shop_id', '=', $id)->update(['status' => 'publish']);
+                Product::where('shop_id', '=', $id)->update(['status' => 1]);
             }
 
             $balance = Balance::firstOrNew(['shop_id' => $id]);
@@ -487,7 +487,7 @@ class ShopController extends CoreController
             $shop->is_active = false;
             $shop->save();
 
-            Product::where('shop_id', '=', $id)->update(['status' => 'draft']);
+            Product::where('shop_id', '=', $id)->update(['status' => 0]);
 
             return $shop;
         } catch (MarvelException $th) {

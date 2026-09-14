@@ -52,8 +52,6 @@ class ProductCreateRequest extends FormRequest
      */
     public function rules()
     {
-        $productStatus = ProductStatus::getValues();
-
         $productType = ProductType::getValues();
 
         $itemTypes = ItemType::getValues();
@@ -75,7 +73,7 @@ class ProductCreateRequest extends FormRequest
             'images'                        => ['required', 'array'],
             'images.*'                      => ['required', 'file', 'mimes:jpeg,png,jpg,gif', 'max:2048'],
             'pieces'                       => ['sometimes', 'integer', 'min:1'],
-            'status'                       => ['sometimes', Rule::in($productStatus)],
+            'status'                       => ['sometimes', 'in:0,1'],
             'height'                       => ['nullable', 'string'],
             'length'                       => ['nullable', 'string'],
             'width'                        => ['nullable', 'string'],

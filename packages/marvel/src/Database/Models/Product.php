@@ -88,12 +88,7 @@ class Product extends Model implements HasMedia
      */
     public function shouldBeSearchable(): bool
     {
-        $isStatusActive = $this->status === true
-            || $this->status === 1
-            || $this->status === '1'
-            || $this->status === ProductStatus::PUBLISH;
-
-        if (! $isStatusActive) {
+        if ($this->status !== 1) {
             return false;
         }
 
@@ -107,6 +102,7 @@ class Product extends Model implements HasMedia
     }
 
     protected $casts = [
+        'status' => 'integer',
         'discount_status' => 'boolean',
         'has_discount' => 'boolean',
         'has_flash_sale' => 'boolean',
@@ -189,7 +185,7 @@ class Product extends Model implements HasMedia
         $now = Carbon::now();
 
         return $this->flash_sales()
-            ->where('status', true)
+            ->where('status', 1)
             ->whereDate('start_date', '<=', $now)
             ->whereDate('end_date', '>=', $now)
             ->orderBy('start_date', 'desc')
@@ -222,7 +218,7 @@ class Product extends Model implements HasMedia
 
     public function disableInvalidFlashSales(): int
     {
-        return (int) $this->flash_sales()->where('status', false)->count();
+        return (int) $this->flash_sales()->where('status', 0)->count();
     }
 
     public function getCurrentPrice()
@@ -547,13 +543,7 @@ class Product extends Model implements HasMedia
 
     public function scopeActiveStatus($query)
     {
-        return $query->where(function ($q) {
-            // Type-safe: boolean column (tinyint) must not coerce 'publish' string to 0
-            // `status = 'publish'` matches 0 via MySQL string→int cast (0='publish' true).
-            // Use CAST to force string comparison so 0 never matches 'publish'.
-            $q->where('status', true)
-                ->orWhereRaw('CAST(status AS CHAR) = ?', [ProductStatus::PUBLISH]);
-        });
+        return $query->where('status', 1);
     }
 
     public function scopeActive($query)
@@ -601,7 +591,7 @@ class Product extends Model implements HasMedia
 
         return $query->where('has_flash_sale', true)
             ->whereHas('flash_sales', function ($flashSaleQuery) use ($today, $oneWeekFromNow) {
-                $flashSaleQuery->where('status', true)
+                $flashSaleQuery->where('status', 1)
                     ->whereDate('start_date', '<=', $today)
                     ->whereDate('end_date', '>=', $oneWeekFromNow);
             });

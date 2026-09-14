@@ -111,7 +111,7 @@ Schema::create('social_login_codes', function (Blueprint $table) {
             $table->text('description')->nullable();
             $table->string('sku')->nullable();
             $table->decimal('price', 10, 2)->default(0);
-            $table->string('status', 30)->default('publish');
+            $table->boolean('status')->default(false);
             $table->boolean('in_stock')->default(true);
             $table->integer('quantity')->default(0);
             $table->integer('stock_quantity')->default(10);

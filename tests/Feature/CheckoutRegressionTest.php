@@ -464,7 +464,7 @@ class CheckoutRegressionTest extends TestCase
             'price' => 100.00,
             'price_after_discount' => null,
             'price_after_flash_sale' => null,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 100,
         ]);
@@ -591,7 +591,7 @@ class CheckoutRegressionTest extends TestCase
             'slug' => 'fs-prod-' . Str::random(6),
             'price' => 200.00,
             'price_after_flash_sale' => 140.00,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
         ]);

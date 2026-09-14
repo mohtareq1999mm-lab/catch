@@ -14,6 +14,7 @@ use App\Services\General\ProductService;
 use App\Traits\HasCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Marvel\Database\Models\Category;
 use Marvel\Http\Requests\ReviewCreateRequest;
@@ -81,7 +82,9 @@ class ProductController extends Controller
         $handler = $this->productStrategyResolver->resolve($type);
         $data = $handler->getProducts($request);
 
-        $productIds = $data instanceof LengthAwarePaginator
+        $isPaginated = $data instanceof LengthAwarePaginator || $data instanceof CursorPaginator;
+
+        $productIds = $isPaginated
             ? $data->getCollection()->pluck('id')
             : $data->pluck('id');
 
@@ -91,7 +94,7 @@ class ProductController extends Controller
             $filters = $this->productService->getDynamicFilters($query);
         }
 
-        if ($data instanceof LengthAwarePaginator) {
+        if ($isPaginated) {
             $responseData = (new ProductCollectionMini($data))->toArray($request);
         } else {
             $total = $data->count();
@@ -121,11 +124,30 @@ class ProductController extends Controller
         } else {
             $query = $this->productService->buildFilteredBaseQuery($request);
             $filters = $this->productService->getDynamicFilters(clone $query);
-            $orderPrice = $request->query('order_price');
-            if (in_array($orderPrice, ['asc', 'desc'])) {
-                $query->orderBy('price', $orderPrice);
+
+            if ($request->query('pagination') === 'cursor') {
+                // Apply price ordering if requested for cursor pagination
+                $orderPrice = $request->query('order_price');
+                if (in_array($orderPrice, ['asc', 'desc'], true)) {
+                    // Multi-column keyset pagination: ORDER BY price, id
+                    // Both columns use the same direction for deterministic ordering
+                    $data = $query->orderBy('price', $orderPrice)
+                                  ->orderBy('id', $orderPrice)
+                                  ->cursorPaginate($this->productService->getLimit($request))
+                                  ->withQueryString();
+                } else {
+                    // Single-column keyset pagination: ORDER BY id only
+                    $data = $query->orderBy('id', $order)
+                                  ->cursorPaginate($this->productService->getLimit($request))
+                                  ->withQueryString();
+                }
+            } else {
+                $orderPrice = $request->query('order_price');
+                if (in_array($orderPrice, ['asc', 'desc'])) {
+                    $query->orderBy('price', $orderPrice);
+                }
+                $data = $query->orderBy('id', $order)->paginate($this->productService->getLimit($request));
             }
-            $data = $query->orderBy('id', $order)->paginate($this->productService->getLimit($request));
         }
 
         $productIds = $data->getCollection()->pluck('id');

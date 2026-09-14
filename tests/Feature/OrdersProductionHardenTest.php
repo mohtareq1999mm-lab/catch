@@ -485,7 +485,7 @@ class OrdersProductionHardenTest extends TestCase
             'name' => 'Test Product',
             'slug' => 'test-prod-' . Str::random(6),
             'price' => 100.00,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
         ]);
@@ -494,7 +494,7 @@ class OrdersProductionHardenTest extends TestCase
             'name' => 'Discounted Product',
             'slug' => 'disc-prod-' . Str::random(6),
             'price' => 200.00,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 30,
             'has_discount' => true,

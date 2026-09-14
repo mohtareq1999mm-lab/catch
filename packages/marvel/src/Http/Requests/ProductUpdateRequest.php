@@ -52,10 +52,6 @@ class ProductUpdateRequest extends FormRequest
      */
     public function rules()
     {
-        $productStatus = [
-            ProductStatus::PUBLISH,
-            ProductStatus::UNPUBLISH,
-        ];
 
         $productType = ProductType::getValues();
         $itemTypes = ItemType::getValues();
@@ -75,7 +71,7 @@ class ProductUpdateRequest extends FormRequest
             'quantity'                     => ['sometimes', 'integer', 'min:1'],
             'images'                       => ['sometimes', 'array'],
             'images.*'                     => ['sometimes', 'image', 'mimes:jpeg,png,jpg,gif', "max:2048"],
-            'status'                       => ['sometimes', Rule::in(ProductStatus::getValues())],
+            'status'                       => ['sometimes', 'in:0,1'],
             'pieces'                       => ['sometimes', 'integer', 'min:1'],
             'height'                       => ['nullable', 'string'],
             'length'                       => ['nullable', 'string'],

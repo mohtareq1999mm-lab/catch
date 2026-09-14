@@ -67,7 +67,7 @@ class AdminOrderTest extends TestCase
             'slug' => 'test-product-' . Str::random(6),
             'price' => 100.00,
             'product_type' => 'simple',
-            'status' => 'publish']);
+            'status' => 1]);
     }
 
     private function authAdmin(): void

@@ -12,12 +12,18 @@ class CouponClaim extends Model
     protected $fillable = [
         'coupon_id',
         'user_id',
+        'status',
         'claimed_at',
+        'expires_at',
+        'redeemed_at',
         'eligibility_snapshot',
     ];
 
     protected $casts = [
+        'status' => \App\Enums\CouponClaimStatus::class,
         'claimed_at' => 'datetime',
+        'expires_at' => 'datetime',
+        'redeemed_at' => 'datetime',
         'eligibility_snapshot' => 'array',
     ];
 

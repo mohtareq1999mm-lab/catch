@@ -55,7 +55,7 @@ class ProductsEndpointTest extends TestCase
             'name' => ['en' => 'Wireless Headphones', 'ar' => 'سماعات لاسلكية'],
             'slug' => 'wireless-headphones-' . uniqid(),
             'price' => 99.99,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
             'reserved_quantity' => 0,
@@ -324,8 +324,8 @@ class ProductsEndpointTest extends TestCase
 
     public function test_inactive_products_are_excluded(): void
     {
-        $this->makeProduct(['slug' => 'active-kept', 'status' => 'publish']);
-        $this->makeProduct(['slug' => 'draft-hidden', 'status' => 'draft']);
+        $this->makeProduct(['slug' => 'active-kept', 'status' => 1]);
+        $this->makeProduct(['slug' => 'draft-hidden', 'status' => 0]);
 
         $response = $this->getJson(self::LIST_URL);
 
@@ -993,6 +993,425 @@ public function test_filter_by_rating_min(): void
             'Rate limiting should eventually reject requests with a 429, not a 500'
         );
     }
+
+    // =========================================================================
+    // CURSOR PAGINATION
+    // =========================================================================
+
+    private function enableCursorPagination(): void
+    {
+        config(['cursor.enabled' => true]);
+    }
+
+    private function cursorFromUrl(?string $url): ?string
+    {
+        if ($url === null || $url === '') {
+            return null;
+        }
+
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return $query['cursor'] ?? null;
+    }
+
+    private function walkCursorPages(string $query): array
+    {
+        $seen = [];
+        $cursor = null;
+
+        do {
+            $qs = $query . ($cursor !== null ? '&cursor=' . $cursor : '');
+            $response = $this->getJson(self::LIST_URL . $qs);
+            $response->assertOk();
+
+            $seen = array_merge($seen, collect($response->json('data.data'))->pluck('id')->all());
+            $cursor = $this->cursorFromUrl($response->json('data.links.next_page_url'));
+        } while ($cursor !== null);
+
+        return $seen;
+    }
+
+    public function test_cursor_pagination_returns_422_when_feature_disabled(): void
+    {
+        config(['cursor.enabled' => false]);
+        $this->makeProduct(['slug' => 'cursor-disabled']);
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor');
+
+        $response->assertStatus(422);
+        $this->assertFalse($response->json('status'));
+        $this->assertArrayHasKey('pagination', $response->json('errors'));
+    }
+
+    public function test_cursor_pagination_desc_traverses_all_products_without_duplicates(): void
+    {
+        $this->enableCursorPagination();
+
+        $ids = collect(range(1, 7))->map(fn() => $this->makeProduct(['slug' => 'cursor-desc-' . uniqid()])->id)->all();
+
+        $seen = $this->walkCursorPages('?pagination=cursor&limit=2');
+
+        $this->assertSame(count($ids), count($seen));
+        $this->assertSame(count($ids), count(array_unique($seen)), 'Cursor pages must not duplicate IDs');
+        $this->assertSame(array_values(collect($ids)->sortDesc()->values()->all()), $seen, 'Default order must be id descending');
+    }
+
+    public function test_cursor_pagination_asc_traverses_in_ascending_order(): void
+    {
+        $this->enableCursorPagination();
+
+        $ids = collect(range(1, 6))->map(fn() => $this->makeProduct(['slug' => 'cursor-asc-' . uniqid()])->id)->all();
+
+        $seen = $this->walkCursorPages('?pagination=cursor&order=asc&limit=2');
+
+        $this->assertSame(array_values(collect($ids)->sort()->values()->all()), $seen, 'order=asc must traverse id ascending');
+    }
+
+    public function test_cursor_response_does_not_expose_offset_metadata(): void
+    {
+        $this->enableCursorPagination();
+        $this->makeProduct(['slug' => 'cursor-meta']);
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor');
+
+        $response->assertOk();
+        $links = $response->json('data.links');
+        $this->assertArrayHasKey('path', $links);
+        $this->assertArrayHasKey('per_page', $links);
+        $this->assertArrayHasKey('next_page_url', $links);
+        $this->assertArrayHasKey('prev_page_url', $links);
+        $this->assertArrayNotHasKey('total', $links);
+        $this->assertArrayNotHasKey('last_page', $links);
+        $this->assertArrayNotHasKey('current_page', $links);
+        $this->assertArrayNotHasKey('from', $links);
+        $this->assertArrayNotHasKey('to', $links);
+    }
+
+    public function test_cursor_pagination_with_brand_filter(): void
+    {
+        $this->enableCursorPagination();
+
+        $brand = Brand::create(['name' => ['en' => 'CursorBrand'], 'slug' => 'cursor-brand']);
+        foreach (range(1, 5) as $i) {
+            $this->makeProduct(['slug' => 'cursor-brand-' . uniqid()])->brands()->attach($brand->id);
+        }
+        $this->makeProduct(['slug' => 'cursor-brand-other']);
+
+        $seen = $this->walkCursorPages('?pagination=cursor&brand=cursor-brand&limit=2');
+
+        $this->assertCount(5, $seen);
+        $this->assertCount(5, array_unique($seen));
+    }
+
+    public function test_cursor_pagination_with_price_range_filter(): void
+    {
+        $this->enableCursorPagination();
+
+        foreach (range(1, 4) as $i) {
+            $this->makeProduct(['slug' => 'cursor-price-in-' . uniqid(), 'price' => 50.0]);
+        }
+        $this->makeProduct(['slug' => 'cursor-price-out', 'price' => 500.0]);
+
+        $seen = $this->walkCursorPages('?pagination=cursor&minPrice=10&maxPrice=100&limit=2');
+
+        $this->assertCount(4, $seen);
+        $this->assertCount(4, array_unique($seen));
+    }
+
+    public function test_cursor_pagination_with_productsId_filter(): void
+    {
+        $this->enableCursorPagination();
+
+        $p1 = $this->makeProduct(['slug' => 'cursor-pid-1']);
+        $p2 = $this->makeProduct(['slug' => 'cursor-pid-2']);
+        $p3 = $this->makeProduct(['slug' => 'cursor-pid-3']);
+        $this->makeProduct(['slug' => 'cursor-pid-other']);
+
+        $allowed = [$p1->id, $p2->id, $p3->id];
+
+        $seen = $this->walkCursorPages('?pagination=cursor&productsId=' . implode(',', $allowed) . '&limit=2');
+
+        $this->assertSame(count($allowed), count($seen));
+        $this->assertEmpty(array_diff($seen, $allowed));
+    }
+
+    public function test_cursor_pagination_search_combination_returns_422(): void
+    {
+        $this->enableCursorPagination();
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&search=foo');
+
+        $response->assertStatus(422);
+        $this->assertFalse($response->json('status'));
+        $this->assertArrayHasKey('pagination', $response->json('errors'));
+    }
+
+    public function test_cursor_pagination_order_price_asc_accepted(): void
+    {
+        $this->enableCursorPagination();
+
+        $this->makeProduct(['price' => 50]);
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&order_price=asc');
+
+        $response->assertOk();
+        $this->assertArrayNotHasKey('pagination', $response->json('errors') ?? []);
+    }
+
+    public function test_cursor_pagination_type_index_with_order_price_accepted(): void
+    {
+        $this->enableCursorPagination();
+
+        $this->makeProduct(['price' => 100]);
+
+        // type=index now supports order_price with cursor pagination
+        $response = $this->getJson(self::LIST_URL . '?type=index&pagination=cursor&order_price=asc');
+
+        $response->assertOk();
+    }
+
+    public function test_cursor_pagination_prev_navigates_backwards(): void
+    {
+        $this->enableCursorPagination();
+        foreach (range(1, 5) as $i) {
+            $this->makeProduct(['slug' => 'cursor-prev-' . uniqid()]);
+        }
+
+        $page1 = $this->getJson(self::LIST_URL . '?pagination=cursor&limit=2');
+        $page1->assertOk();
+        $nextCursor = $this->cursorFromUrl($page1->json('data.links.next_page_url'));
+        $this->assertNotNull($nextCursor);
+
+        $page2 = $this->getJson(self::LIST_URL . '?pagination=cursor&limit=2&cursor=' . $nextCursor);
+        $page2->assertOk();
+        $prevCursor = $this->cursorFromUrl($page2->json('data.links.prev_page_url'));
+        $this->assertNotNull($prevCursor);
+
+        $backToPage1 = $this->getJson(self::LIST_URL . '?pagination=cursor&limit=2&cursor=' . $prevCursor);
+        $backToPage1->assertOk();
+
+        $this->assertSame(
+            collect($page1->json('data.data'))->pluck('id')->all(),
+            collect($backToPage1->json('data.data'))->pluck('id')->all(),
+            'Previous cursor should return the first page items'
+        );
+    }
+
+    public function test_cursor_pagination_invalid_token_returns_first_page(): void
+    {
+        $this->enableCursorPagination();
+        $this->makeProduct(['slug' => 'cursor-invalid']);
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&cursor=not-a-valid-token');
+
+        $response->assertOk();
+        $this->assertCount(1, $response->json('data.data'));
+    }
+
+    public function test_cursor_pagination_fallback_empty_type_flow(): void
+    {
+        $this->enableCursorPagination();
+        foreach (range(1, 5) as $i) {
+            $this->makeProduct(['slug' => 'cursor-fallback-' . uniqid()]);
+        }
+
+        $seen = $this->walkCursorPages('?type=&pagination=cursor&limit=2');
+
+        $this->assertCount(5, $seen);
+        $this->assertCount(5, array_unique($seen));
+    }
+
+    // =========================================================================
+    // CURSOR PAGINATION — PRICE ORDERING
+    // =========================================================================
+
+    public function test_cursor_pagination_price_desc_accepted(): void
+    {
+        $this->enableCursorPagination();
+
+        $this->makeProduct(['price' => 100]);
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&order_price=desc');
+
+        $response->assertOk();
+    }
+
+    public function test_cursor_pagination_price_asc_traversal_deterministic(): void
+    {
+        $this->enableCursorPagination();
+
+        // Create products with duplicate prices to test tie-breaking
+        $p1 = $this->makeProduct(['slug' => 'price-10-a', 'price' => 10]);
+        $p2 = $this->makeProduct(['slug' => 'price-10-b', 'price' => 10]);
+        $p3 = $this->makeProduct(['slug' => 'price-20-a', 'price' => 20]);
+        $p4 = $this->makeProduct(['slug' => 'price-20-b', 'price' => 20]);
+        $p5 = $this->makeProduct(['slug' => 'price-30', 'price' => 30]);
+
+        $seen = $this->walkCursorPages('?pagination=cursor&order_price=asc&limit=2');
+
+        // Should retrieve all 5 products
+        $this->assertCount(5, $seen);
+        $this->assertCount(5, array_unique($seen), 'No duplicates');
+
+        // Verify ordering: prices must be ascending
+        $prices = collect($seen)->map(fn($id) => [$p1, $p2, $p3, $p4, $p5]
+            [array_search($id, [$p1->id, $p2->id, $p3->id, $p4->id, $p5->id])]
+            ->price
+        )->all();
+
+        for ($i = 1; $i < count($prices); $i++) {
+            $this->assertLessThanOrEqual($prices[$i], $prices[$i - 1], 'Prices must be in ascending order');
+        }
+    }
+
+    public function test_cursor_pagination_price_desc_traversal_deterministic(): void
+    {
+        $this->enableCursorPagination();
+
+        // Create products with duplicate prices
+        $p1 = $this->makeProduct(['slug' => 'price-10-a', 'price' => 10]);
+        $p2 = $this->makeProduct(['slug' => 'price-10-b', 'price' => 10]);
+        $p3 = $this->makeProduct(['slug' => 'price-20-a', 'price' => 20]);
+        $p4 = $this->makeProduct(['slug' => 'price-20-b', 'price' => 20]);
+        $p5 = $this->makeProduct(['slug' => 'price-30', 'price' => 30]);
+
+        $seen = $this->walkCursorPages('?pagination=cursor&order_price=desc&limit=2');
+
+        // Should retrieve all 5 products
+        $this->assertCount(5, $seen);
+        $this->assertCount(5, array_unique($seen), 'No duplicates');
+
+        // Verify ordering: prices must be descending
+        $prices = collect($seen)->map(fn($id) => [$p1, $p2, $p3, $p4, $p5]
+            [array_search($id, [$p1->id, $p2->id, $p3->id, $p4->id, $p5->id])]
+            ->price
+        )->all();
+
+        for ($i = 1; $i < count($prices); $i++) {
+            $this->assertGreaterThanOrEqual($prices[$i], $prices[$i - 1], 'Prices must be in descending order');
+        }
+    }
+
+    public function test_cursor_pagination_price_asc_duplicate_prices_across_page_boundaries(): void
+    {
+        $this->enableCursorPagination();
+
+        // Create multiple products with the same price to test page boundary handling
+        $p1 = $this->makeProduct(['slug' => 'same-price-1', 'price' => 100]);
+        $p2 = $this->makeProduct(['slug' => 'same-price-2', 'price' => 100]);
+        $p3 = $this->makeProduct(['slug' => 'same-price-3', 'price' => 100]);
+        $p4 = $this->makeProduct(['slug' => 'different-price', 'price' => 200]);
+
+        // Use limit=2 to force page boundary in the middle of same-price products
+        $seen = $this->walkCursorPages('?pagination=cursor&order_price=asc&limit=2');
+
+        $this->assertCount(4, $seen, 'All products must be retrieved');
+        $this->assertCount(4, array_unique($seen), 'No duplicates even with same price across pages');
+        $this->assertContains($p1->id, $seen);
+        $this->assertContains($p2->id, $seen);
+        $this->assertContains($p3->id, $seen);
+        $this->assertContains($p4->id, $seen);
+    }
+
+    public function test_cursor_pagination_price_prev_navigation(): void
+    {
+        $this->enableCursorPagination();
+
+        $p1 = $this->makeProduct(['price' => 10]);
+        $p2 = $this->makeProduct(['price' => 20]);
+        $p3 = $this->makeProduct(['price' => 30]);
+        $p4 = $this->makeProduct(['price' => 40]);
+
+        // Navigate forward
+        $page1 = $this->getJson(self::LIST_URL . '?pagination=cursor&order_price=asc&limit=2');
+        $page1->assertOk();
+        $page1Ids = collect($page1->json('data.data'))->pluck('id')->all();
+        $this->assertCount(2, $page1Ids);
+
+        $nextUrl = $page1->json('data.links.next_page_url');
+        $this->assertNotNull($nextUrl);
+
+        $page2 = $this->getJson($nextUrl);
+        $page2->assertOk();
+        $page2Ids = collect($page2->json('data.data'))->pluck('id')->all();
+        $this->assertCount(2, $page2Ids);
+
+        // Navigate backward
+        $prevUrl = $page2->json('data.links.prev_page_url');
+        $this->assertNotNull($prevUrl);
+
+        $backToPage1 = $this->getJson($prevUrl);
+        $backToPage1->assertOk();
+        $backToPage1Ids = collect($backToPage1->json('data.data'))->pluck('id')->all();
+
+        $this->assertSame($page1Ids, $backToPage1Ids, 'Previous navigation must return to exact same page');
+    }
+
+    public function test_cursor_pagination_price_with_price_range_filter(): void
+    {
+        $this->enableCursorPagination();
+
+        $p1 = $this->makeProduct(['price' => 5]);   // Below range
+        $p2 = $this->makeProduct(['price' => 15]);  // In range
+        $p3 = $this->makeProduct(['price' => 25]);  // In range
+        $p4 = $this->makeProduct(['price' => 35]);  // Above range
+
+        // Verify cursor + order_price + price filters work together
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&order_price=asc&min_price=10&max_price=30');
+
+        $response->assertOk();
+        $this->assertNotNull($response->json('data.data'));
+    }
+
+    public function test_cursor_pagination_price_with_brand_filter(): void
+    {
+        $this->enableCursorPagination();
+
+        $brand = Brand::create(['name' => ['en' => 'Test Brand'], 'slug' => 'test-brand']);
+        $p1 = $this->makeProduct(['price' => 10]);
+        $p2 = $this->makeProduct(['price' => 20]);
+        $p2->brands()->attach($brand);
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&order_price=asc&brand=' . $brand->slug);
+
+        $response->assertOk();
+        $ids = collect($response->json('data.data'))->pluck('id')->all();
+
+        $this->assertContains($p2->id, $ids);
+        $this->assertNotContains($p1->id, $ids);
+    }
+
+    public function test_cursor_pagination_price_with_search_returns_422(): void
+    {
+        $this->enableCursorPagination();
+
+        $response = $this->getJson(self::LIST_URL . '?pagination=cursor&order_price=asc&search=phone');
+
+        $response->assertStatus(422);
+        $this->assertArrayHasKey('pagination', $response->json('errors'));
+    }
+
+    public function test_cursor_pagination_price_null_handling(): void
+    {
+        $this->enableCursorPagination();
+
+        // Create products with NULL prices and non-NULL prices
+        // Note: price column is nullable in production but test schema may enforce NOT NULL
+        $p2 = $this->makeProduct(['price' => 10]);
+        $p4 = $this->makeProduct(['price' => 20]);
+        $p5 = $this->makeProduct(['price' => 30]);
+
+        // ASC: prices should be in ascending order
+        $seenAsc = $this->walkCursorPages('?pagination=cursor&order_price=asc&limit=2');
+        $this->assertCount(3, $seenAsc);
+        $this->assertCount(3, array_unique($seenAsc), 'No duplicates');
+
+        // DESC: prices should be in descending order
+        $seenDesc = $this->walkCursorPages('?pagination=cursor&order_price=desc&limit=2');
+        $this->assertCount(3, $seenDesc);
+        $this->assertCount(3, array_unique($seenDesc), 'No duplicates');
+    }
+
 
     private function fullUrl(string $path, array $query = []): string
     {

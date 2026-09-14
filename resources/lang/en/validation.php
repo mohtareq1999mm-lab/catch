@@ -109,6 +109,11 @@ return [
             'required' => 'Please verify that you are not a robot.',
             'captcha' => 'Please verify that you are not a robot.',
         ],
+        'pagination' => [
+            'disabled' => 'Cursor pagination is not enabled.',
+            'search' => 'Cursor pagination cannot be combined with search.',
+            'order_price' => 'Cursor pagination cannot be combined with order_price.',
+        ],
     ],
 
     'attributes' => [

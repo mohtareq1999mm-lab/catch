@@ -317,7 +317,7 @@ class SectionCacheInvalidationTest extends TestCase
             'name' => ['en' => 'Cache Product', 'ar' => 'منتج'],
             'slug' => 'cache-product',
             'price' => 10.0,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 5,
             'reserved_quantity' => 0,

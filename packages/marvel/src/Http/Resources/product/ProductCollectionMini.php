@@ -5,6 +5,7 @@ namespace Marvel\Http\Resources\product;
 use App\Http\Resources\Product\ProductMiniResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
+use Illuminate\Pagination\CursorPaginator;
 use Marvel\Http\Resources\ProductResource;
 
 class ProductCollectionMini extends ResourceCollection
@@ -12,6 +13,18 @@ class ProductCollectionMini extends ResourceCollection
 
     public function toArray($request)
     {
+        if ($this->resource instanceof CursorPaginator) {
+            return [
+                "data" => ProductMiniResource::collection($this->collection),
+                "links" => [
+                    "path"          => $request->url(),
+                    "per_page"      => $this->perPage(),
+                    "next_page_url" => $this->nextPageUrl(),
+                    "prev_page_url" => $this->previousPageUrl(),
+                ],
+            ];
+        }
+
         return [
             "data" => ProductMiniResource::collection($this->collection),
             "links" => [

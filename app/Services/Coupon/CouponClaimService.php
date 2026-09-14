@@ -2,6 +2,7 @@
 
 namespace App\Services\Coupon;
 
+use App\Enums\CouponClaimStatus;
 use App\Exceptions\CouponClaimException;
 use App\Services\Coupon\Eligibility\EligibilityEngine;
 use Illuminate\Support\Facades\DB;
@@ -19,12 +20,16 @@ class CouponClaimService
     /**
      * Claim a coupon for a user.
      *
-     * Concurrency Strategy: Parent-row serialization via CouponTargeting FOR UPDATE lock.
-     * This ensures only one claim per user per coupon can proceed at a time, leveraging
-     * the UNIQUE(coupon_id, user_id) constraint as the atomic guard.
+     * Phase 2 Concurrency Strategy: Parent-row serialization via CouponTargeting FOR UPDATE lock.
+     * 
+     * Lifecycle States:
+     * - ACTIVE: Current valid claim (counts toward capacity, blocks duplicate active claims)
+     * - EXPIRED: TTL reached or manual expiration (releases capacity, allows re-claim)
+     * - REDEEMED: Order completed with coupon (permanent record, counts toward capacity)
      *
-     * Lifecycle: Claim = persistent intent + lifetime slot reservation.
-     * NOT checkout reservation, NOT redemption.
+     * Uniqueness Enforcement:
+     * - Database constraint: UNIQUE(coupon_id, user_id) WHERE status='active' (MySQL production)
+     * - Application check: Fallback for SQLite development environment
      *
      * @throws CouponClaimException
      */
@@ -46,25 +51,30 @@ class CouponClaimService
                 throw CouponClaimException::claimNotRequired($coupon->getKey());
             }
 
-            // Check if user has already claimed (before eligibility evaluation for performance)
-            $existingClaim = CouponClaim::query()
+            // Phase 2: Check for existing ACTIVE claim only
+            // Expired/redeemed claims allow re-claiming
+            $existingActiveClaim = CouponClaim::query()
                 ->where('coupon_id', $coupon->getKey())
                 ->where('user_id', $user->getKey())
-                ->first();
+                ->where('status', CouponClaimStatus::ACTIVE)
+                ->exists();
 
-            if ($existingClaim) {
+            if ($existingActiveClaim) {
                 throw CouponClaimException::alreadyClaimed($coupon->getKey(), $user->getKey());
             }
 
-            // Check TOTAL claims (coupon capacity across all users)
-            // max_claims = total slots available (e.g., "first 100 users")
-            // UNIQUE(coupon_id, user_id) = one claim per user
+            // Phase 2: Count active + redeemed claims only (expired claims release capacity)
+            // max_claims = first-N semantics across all users
             if ($targeting->max_claims !== null) {
-                $totalClaims = CouponClaim::query()
+                $occupiedSlots = CouponClaim::query()
                     ->where('coupon_id', $coupon->getKey())
+                    ->whereIn('status', [
+                        CouponClaimStatus::ACTIVE,
+                        CouponClaimStatus::REDEEMED,
+                    ])
                     ->count();
 
-                if ($totalClaims >= $targeting->max_claims) {
+                if ($occupiedSlots >= $targeting->max_claims) {
                     throw CouponClaimException::maxClaimsReached(
                         $coupon->getKey(),
                         $user->getKey(),
@@ -84,11 +94,17 @@ class CouponClaimService
                 );
             }
 
-            // Create claim record (UNIQUE constraint provides atomic guard)
+            // Phase 2: Create claim with lifecycle state and TTL
+            $expiresAt = $targeting->claim_ttl_hours
+                ? now()->addHours($targeting->claim_ttl_hours)
+                : null;
+
             $claim = CouponClaim::create([
                 'coupon_id' => $coupon->getKey(),
                 'user_id' => $user->getKey(),
+                'status' => CouponClaimStatus::ACTIVE,
                 'claimed_at' => now(),
+                'expires_at' => $expiresAt,
                 'eligibility_snapshot' => [
                     'passed_rules' => $eligibilityResult->passedRules,
                     'evaluated_metrics' => $eligibilityResult->evaluatedMetrics,
@@ -101,24 +117,62 @@ class CouponClaimService
     }
 
     /**
-     * Check if user has claimed a coupon.
+     * Check if user has an ACTIVE claim for a coupon.
+     * Phase 2: Checks active status only, expired/redeemed don't block re-claims.
      */
     public function hasClaimed(Coupon $coupon, User $user): bool
     {
         return CouponClaim::query()
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
+            ->where('status', CouponClaimStatus::ACTIVE)
             ->exists();
     }
 
     /**
-     * Get user's claim for a coupon if it exists.
+     * Get user's ACTIVE claim for a coupon if it exists.
+     * Phase 2: Returns only active claims, expired/redeemed claims excluded.
      */
     public function getClaim(Coupon $coupon, User $user): ?CouponClaim
     {
         return CouponClaim::query()
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
+            ->where('status', CouponClaimStatus::ACTIVE)
             ->first();
+    }
+
+    /**
+     * Mark a claim as redeemed when order completes.
+     * Phase 2: Transition ACTIVE → REDEEMED (permanent, counts toward capacity).
+     */
+    public function markRedeemed(CouponClaim $claim): void
+    {
+        if ($claim->status !== CouponClaimStatus::ACTIVE) {
+            throw CouponClaimException::cannotRedeemNonActiveClaim($claim->getKey());
+        }
+
+        $claim->update([
+            'status' => CouponClaimStatus::REDEEMED,
+            'redeemed_at' => now(),
+        ]);
+    }
+
+    /**
+     * Expire claims that have passed their TTL.
+     * Phase 2: Transition ACTIVE → EXPIRED (releases capacity, allows re-claim).
+     * 
+     * Called by scheduled command (e.g., hourly cron job).
+     * Returns count of expired claims.
+     */
+    public function expireExpiredClaims(): int
+    {
+        return CouponClaim::query()
+            ->where('status', CouponClaimStatus::ACTIVE)
+            ->where('expires_at', '<=', now())
+            ->whereNotNull('expires_at')
+            ->update([
+                'status' => CouponClaimStatus::EXPIRED,
+            ]);
     }
 }

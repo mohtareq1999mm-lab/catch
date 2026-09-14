@@ -135,7 +135,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'original-' . Str::random(8),
             'price' => 10,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
         $this->authUser();
         $response = $this->putJson(self::PREFIX . "/products/{$product->id}", [
@@ -152,7 +152,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'update-me-' . Str::random(8),
             'price' => 10,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
         $response = $this->putJson(self::PREFIX . "/products/{$product->id}", [
             'price' => 25.50]);
@@ -179,7 +179,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'delete-me-' . Str::random(8),
             'price' => 10,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
         $this->authUser();
         $response = $this->deleteJson(self::PREFIX . "/products/{$product->id}");
@@ -194,7 +194,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'to-delete-' . Str::random(8),
             'price' => 10,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
         $response = $this->deleteJson(self::PREFIX . "/products/{$product->id}");
         $this->assertContains($response->status(), [200, 500]);
@@ -218,7 +218,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'public-' . Str::random(8),
             'price' => 15,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
         $response = $this->getJson(self::GENERAL_PREFIX . '/products');
         $response->assertStatus(200);
@@ -231,7 +231,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'discount-' . Str::random(8),
             'price' => 30,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish',
+            'status' => 1,
             'has_discount' => true]);
 
         $response = $this->getJson(self::GENERAL_PREFIX . '/products?type=all_product_discounts');
@@ -276,9 +276,9 @@ class ProductAdminTest extends TestCase
             'slug' => 'toggle-status-' . Str::random(8),
             'price' => 10,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
-        $response = $this->putJson(self::PREFIX . "/products/{$product->id}", ['status' => 'draft']);
+        $response = $this->putJson(self::PREFIX . "/products/{$product->id}", ['status' => 0]);
         $this->assertContains($response->status(), [200, 422, 500]);
     }
 
@@ -293,7 +293,7 @@ class ProductAdminTest extends TestCase
             'slug' => 'inactive-' . Str::random(8),
             'price' => 10,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish']);
+            'status' => 1]);
 
         $response = $this->getJson(self::GENERAL_PREFIX . '/products');
         $names = collect($response->json('data'))->pluck('name');

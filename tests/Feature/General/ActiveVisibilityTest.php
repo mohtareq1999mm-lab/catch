@@ -40,7 +40,7 @@ class ActiveVisibilityTest extends TestCase
             'name' => ['en' => 'Active Product '.uniqid(), 'ar' => 'منتج نشط'],
             'slug' => 'active-'.uniqid(),
             'price' => 100,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 10,
             'reserved_quantity' => 0,
@@ -54,7 +54,7 @@ class ActiveVisibilityTest extends TestCase
             'name' => ['en' => 'Inactive Product '.uniqid(), 'ar' => 'منتج غير نشط'],
             'slug' => 'inactive-'.uniqid(),
             'price' => 100,
-            'status' => 'draft',
+            'status' => 0,
             'in_stock' => false,
             'stock_quantity' => 0,
             'reserved_quantity' => 0,
@@ -77,8 +77,8 @@ class ActiveVisibilityTest extends TestCase
 
     public function test_inactive_out_of_stock_hidden_even_with_publish_status(): void
     {
-        $active = $this->activeProduct(['slug' => 'pub-active-'.uniqid(), 'status' => 'publish', 'in_stock' => true, 'stock_quantity' => 5]);
-        $oos = $this->activeProduct(['slug' => 'pub-oos-'.uniqid(), 'status' => 'publish', 'in_stock' => false, 'stock_quantity' => 0]);
+        $active = $this->activeProduct(['slug' => 'pub-active-'.uniqid(), 'status' => 1, 'in_stock' => true, 'stock_quantity' => 5]);
+        $oos = $this->activeProduct(['slug' => 'pub-oos-'.uniqid(), 'status' => 1, 'in_stock' => false, 'stock_quantity' => 0]);
 
         $resp = $this->getJson('/api/v1/general/products');
         $resp->assertOk();

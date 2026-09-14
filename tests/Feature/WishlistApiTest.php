@@ -77,7 +77,7 @@ class WishlistApiTest extends TestCase
             'slug' => 'simple-product-' . Str::random(8),
             'price' => 100.00,
             'product_type' => ProductType::SIMPLE,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
         ]);
@@ -87,7 +87,7 @@ class WishlistApiTest extends TestCase
             'slug' => 'variable-product-' . Str::random(8),
             'price' => 200.00,
             'product_type' => ProductType::VARIABLE,
-            'status' => 'publish',
+            'status' => 1,
             'in_stock' => true,
             'stock_quantity' => 50,
         ]);
@@ -232,7 +232,7 @@ class WishlistApiTest extends TestCase
                 'slug' => 'product-' . $i . '-' . Str::random(6),
                 'price' => 10 * $i,
                 'product_type' => ProductType::SIMPLE,
-                'status' => 'publish',
+                'status' => 1,
                 'in_stock' => true,
                 'stock_quantity' => 10,
             ]);
@@ -525,7 +525,7 @@ class WishlistApiTest extends TestCase
                 'slug' => 'p-' . $i . '-' . Str::random(6),
                 'price' => 5 * $i,
                 'product_type' => ProductType::SIMPLE,
-                'status' => 'publish',
+                'status' => 1,
                 'in_stock' => true,
                 'stock_quantity' => 5,
             ]);
