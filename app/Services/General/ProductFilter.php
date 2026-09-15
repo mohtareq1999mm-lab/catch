@@ -58,15 +58,31 @@ class ProductFilter
      * Apply all product filters to the given query.
      *
      * Supported filter keys:
-     * - brand, category: Resolved by name or slug.
+     * - brand/brands, category/categories: Resolved by name or slug (singular canonical, plural alias).
      * - promotion, flash_sale: Filtered by slug.
      * - banner, slider: Filtered by slug or translated title.
-     * - minPrice, maxPrice, price_min, price_max: Price range including variants.
+     * - minPrice, maxPrice, price_min, price_max, min_price, max_price: Price range including variants.
      * - height, width, length, weight: Exact match dimension values.
      * - Dynamic attribute slugs: Filtered by attribute value.
      */
     public function apply(Builder $query, array $filters): Builder
     {
+        // Normalize aliases so documented and frontend variants all reach the same logic.
+        // price: accept snake_case guide variant min_price/max_price in addition to
+        // the existing camelCase and price_min forms.
+        if (!isset($filters['minPrice']) && isset($filters['min_price'])) {
+            $filters['minPrice'] = $filters['min_price'];
+        }
+        if (!isset($filters['maxPrice']) && isset($filters['max_price'])) {
+            $filters['maxPrice'] = $filters['max_price'];
+        }
+        // brand/categories plural aliases (frontend docs use `brands`).
+        if (!isset($filters['brand']) && isset($filters['brands'])) {
+            $filters['brand'] = $filters['brands'];
+        }
+        if (!isset($filters['category']) && isset($filters['categories'])) {
+            $filters['category'] = $filters['categories'];
+        }
         // 1. Filter by Brand
         if (!empty($filters['brand'])) {
             $brandNames = is_array($filters['brand']) ? $filters['brand'] : explode(',', $filters['brand']);
@@ -128,6 +144,8 @@ class ProductFilter
             })->pluck('id')->toArray();
             if (!empty($bannerIds)) {
                 $query->whereHas('banners', fn($q) => $q->whereIn('banners.id', $bannerIds));
+            } else {
+                $query->whereRaw('1 = 0');
             }
         }
 
@@ -160,6 +178,8 @@ class ProductFilter
             })->pluck('id')->toArray();
             if (!empty($sliderIds)) {
                 $query->whereHas('sliders', fn($q) => $q->whereIn('sliders.id', $sliderIds));
+            } else {
+                $query->whereRaw('1 = 0');
             }
         }
 
@@ -204,7 +224,7 @@ class ProductFilter
         }
 
         // 8. Dynamic Attribute Filters
-        $reservedFilterKeys = ['brand', 'category', 'promotion', 'flash_sale', 'banner', 'tag', 'tags', 'slider', 'minprice', 'maxprice', 'price_min', 'price_max', 'search', 'limit', 'rating', 'rating_min', 'rating_max', 'height', 'width', 'length', 'weight', 'categoriesid', 'brandsid', 'promotionsid', 'flashsalesid', 'bannersid', 'slidersid', 'couponsid', 'tagsid'];
+        $reservedFilterKeys = ['brand', 'brands', 'category', 'categories', 'promotion', 'flash_sale', 'banner', 'tag', 'tags', 'slider', 'minprice', 'maxprice', 'price_min', 'price_max', 'min_price', 'max_price', 'search', 'limit', 'pagination', 'order', 'order_price', 'cursor', 'page', 'type', 'rating', 'rating_min', 'rating_max', 'height', 'width', 'length', 'weight', 'height_min', 'height_max', 'width_min', 'width_max', 'length_min', 'length_max', 'weight_min', 'weight_max', 'categoriesid', 'brandsid', 'promotionsid', 'flashsalesid', 'bannersid', 'slidersid', 'couponsid', 'tagsid', 'productsid'];
         $attributeSlugs = Attribute::pluck('slug')->toArray();
 
         foreach ($filters as $key => $value) {
