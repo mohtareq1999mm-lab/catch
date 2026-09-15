@@ -22,6 +22,10 @@ class ProductCollectionMini extends ResourceCollection
                     "next_page_url" => $this->nextPageUrl(),
                     "prev_page_url" => $this->previousPageUrl(),
                 ],
+                "next_cursor" => $this->resource->nextCursor()?->encode(),
+                "prev_cursor" => $this->resource->previousCursor()?->encode(),
+                "next_page_url" => $this->nextPageUrl(),
+                "prev_page_url" => $this->previousPageUrl(),
             ];
         }
 

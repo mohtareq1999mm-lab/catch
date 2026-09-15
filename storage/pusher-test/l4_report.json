@@ -1,0 +1,405 @@
+{
+    "user_id": 4,
+    "diagnostics": {
+        "pusher_connected": true,
+        "connection_error": null,
+        "channel": "private-users.4",
+        "subscription_succeeded": true,
+        "subscription_error": null,
+        "authorization": "SUCCESS",
+        "events_received": 18,
+        "last_event": "brand.import.progress",
+        "operation_id": null
+    },
+    "total_events": 18,
+    "operations": {
+        "product_import": {
+            "id": 3,
+            "status": "processing",
+            "events": [
+                {
+                    "event": "product.import.queued",
+                    "data": {
+                        "kind": "product-import",
+                        "operation_type": "product-import",
+                        "id": 3,
+                        "operation_id": 3,
+                        "event": "product.import.queued",
+                        "state": "pending",
+                        "status": "pending",
+                        "progress": 0,
+                        "percentage": 0,
+                        "progress_detail": {
+                            "percentage": 0,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:12:30+00:00",
+                        "message": "Product import queued."
+                    },
+                    "timestamp": "2026-09-13T10:12:30.820Z"
+                },
+                {
+                    "event": "product.import.progress",
+                    "data": {
+                        "kind": "product-import",
+                        "operation_type": "product-import",
+                        "id": 3,
+                        "operation_id": 3,
+                        "event": "product.import.progress",
+                        "state": "processing",
+                        "status": "processing",
+                        "progress": 1,
+                        "percentage": 1,
+                        "progress_detail": {
+                            "percentage": 1,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:12:31+00:00"
+                    },
+                    "timestamp": "2026-09-13T10:12:31.618Z"
+                },
+                {
+                    "event": "product.import.progress",
+                    "data": {
+                        "kind": "product-import",
+                        "operation_type": "product-import",
+                        "id": 3,
+                        "operation_id": 3,
+                        "event": "product.import.progress",
+                        "state": "processing",
+                        "status": "processing",
+                        "progress": 2,
+                        "percentage": 2,
+                        "progress_detail": {
+                            "percentage": 2,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:12:31+00:00"
+                    },
+                    "timestamp": "2026-09-13T10:12:31.716Z"
+                }
+            ],
+            "db_match": "check"
+        },
+        "category_import": {
+            "id": 4,
+            "status": "completed",
+            "events": [
+                {
+                    "event": "category.import.queued",
+                    "data": {
+                        "kind": "category-import",
+                        "operation_type": "category-import",
+                        "id": 4,
+                        "operation_id": 4,
+                        "event": "category.import.queued",
+                        "state": "pending",
+                        "status": "pending",
+                        "progress": 0,
+                        "percentage": 0,
+                        "progress_detail": {
+                            "percentage": 0,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:13:11+00:00",
+                        "message": "Category import queued."
+                    },
+                    "timestamp": "2026-09-13T10:13:11.329Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "progress": 1,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:11.509Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "progress": 2,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:11.602Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "progress": 10,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:11.693Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "progress": 60,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:11.852Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "progress": 60,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:11.929Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "progress": 80,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:12.007Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 1,
+                        "success_rows": 1,
+                        "failed_rows": 0,
+                        "progress": 99,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:12.087Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 1,
+                        "success_rows": 1,
+                        "failed_rows": 0,
+                        "progress": 99,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:12.175Z"
+                },
+                {
+                    "event": "category.import.progress",
+                    "data": {
+                        "processed_rows": 1,
+                        "success_rows": 1,
+                        "failed_rows": 0,
+                        "progress": 100,
+                        "import_id": 4,
+                        "type": "category"
+                    },
+                    "timestamp": "2026-09-13T10:13:12.261Z"
+                },
+                {
+                    "event": "category.import.completed",
+                    "data": {
+                        "kind": "category-import",
+                        "operation_type": "category-import",
+                        "id": 4,
+                        "operation_id": 4,
+                        "event": "category.import.completed",
+                        "state": "completed",
+                        "status": "completed",
+                        "has_errors": false,
+                        "progress": 100,
+                        "percentage": 100,
+                        "progress_detail": {
+                            "percentage": 100,
+                            "processed": 1,
+                            "total": 1
+                        },
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:13:12+00:00",
+                        "type": "category",
+                        "import_id": 4,
+                        "total_rows": 1,
+                        "processed_rows": 1,
+                        "success_rows": 1,
+                        "failed_rows": 0
+                    },
+                    "timestamp": "2026-09-13T10:13:12.361Z"
+                }
+            ]
+        },
+        "brand_import": {
+            "id": 5,
+            "status": "completed",
+            "events": [
+                {
+                    "event": "brand.import.queued",
+                    "data": {
+                        "kind": "brand-import",
+                        "operation_type": "brand-import",
+                        "id": 5,
+                        "operation_id": 5,
+                        "event": "brand.import.queued",
+                        "state": "pending",
+                        "status": "pending",
+                        "progress": 0,
+                        "percentage": 0,
+                        "progress_detail": {
+                            "percentage": 0,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:13:18+00:00",
+                        "message": "Brand import queued."
+                    },
+                    "timestamp": "2026-09-13T10:13:18.431Z"
+                },
+                {
+                    "event": "brand.import.progress",
+                    "data": {
+                        "kind": "brand-import",
+                        "operation_type": "brand-import",
+                        "id": 5,
+                        "operation_id": 5,
+                        "event": "brand.import.progress",
+                        "state": "processing",
+                        "status": "processing",
+                        "progress": 1,
+                        "percentage": 1,
+                        "progress_detail": {
+                            "percentage": 1,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:13:18+00:00"
+                    },
+                    "timestamp": "2026-09-13T10:13:18.616Z"
+                },
+                {
+                    "event": "brand.import.progress",
+                    "data": {
+                        "kind": "brand-import",
+                        "operation_type": "brand-import",
+                        "id": 5,
+                        "operation_id": 5,
+                        "event": "brand.import.progress",
+                        "state": "processing",
+                        "status": "processing",
+                        "progress": 2,
+                        "percentage": 2,
+                        "progress_detail": {
+                            "percentage": 2,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:13:18+00:00"
+                    },
+                    "timestamp": "2026-09-13T10:13:18.709Z"
+                },
+                {
+                    "event": "brand.import.progress",
+                    "data": {
+                        "kind": "brand-import",
+                        "operation_type": "brand-import",
+                        "id": 5,
+                        "operation_id": 5,
+                        "event": "brand.import.progress",
+                        "state": "processing",
+                        "status": "processing",
+                        "progress": 10,
+                        "percentage": 10,
+                        "progress_detail": {
+                            "percentage": 10,
+                            "processed": 0,
+                            "total": null
+                        },
+                        "processed_rows": 0,
+                        "success_rows": 0,
+                        "failed_rows": 0,
+                        "has_errors": false,
+                        "download_available": false,
+                        "timestamp": "2026-09-13T10:13:18+00:00"
+                    },
+                    "timestamp": "2026-09-13T10:13:18.795Z"
+                }
+            ]
+        },
+        "product_export": {
+            "id": 6,
+            "status": "completed",
+            "events": [],
+            "download_status": 200
+        },
+        "category_export": {
+            "id": 7,
+            "status": "completed",
+            "events": [],
+            "download_status": 200
+        },
+        "brand_export": {
+            "id": 8,
+            "status": "completed",
+            "events": [],
+            "download_status": 200
+        }
+    },
+    "pusher_key_exists": true,
+    "cluster": "eu",
+    "queue": "database catch-medium"
+}
