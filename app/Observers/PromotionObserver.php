@@ -2,9 +2,8 @@
 
 namespace App\Observers;
 
+use App\Audit\ActivityAuditService;
 use App\Events\PromotionActivated;
-use App\Jobs\LogActivityJob;
-use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Promotion;
 
 class PromotionObserver
@@ -18,13 +17,12 @@ class PromotionObserver
 
     public function created(Promotion $promotion): void
     {
-        LogActivityJob::dispatch(
-            get_class($promotion),
-            $promotion->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $promotion,
             'created',
             'promotions',
             __('activity.promotion_created'),
+            new: $promotion->getAttributes(),
         );
 
         if ($promotion->status === true) {
@@ -52,14 +50,13 @@ class PromotionObserver
                 : __('activity.promotion_deactivated');
             $description = $description ?: ($newStatus ? 'Promotion activated' : 'Promotion deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($promotion),
-                $promotion->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $promotion,
                 'statusChanged',
                 'promotions',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
 
             if ($oldStatus == false && $newStatus == true) {
@@ -71,20 +68,21 @@ class PromotionObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if (!in_array($key, self::TRACKED_FIELDS) || $key === 'status') continue;
+                if (!in_array($key, self::TRACKED_FIELDS) || $key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $promotion->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
             if (!empty($oldValues)) {
-                LogActivityJob::dispatch(
-                    get_class($promotion),
-                    $promotion->id,
-                    Auth::id(),
+                ActivityAuditService::recordModel(
+                    $promotion,
                     'updated',
                     'promotions',
                     __('activity.promotion_updated'),
-                    ['old' => $oldValues, 'new' => $newValues],
+                    old: $oldValues,
+                    new: $newValues,
                 );
             }
         }
@@ -92,13 +90,12 @@ class PromotionObserver
 
     public function deleted(Promotion $promotion): void
     {
-        LogActivityJob::dispatch(
-            get_class($promotion),
-            $promotion->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $promotion,
             'deleted',
             'promotions',
             __('activity.promotion_deleted'),
+            old: $promotion->getAttributes(),
         );
     }
 }

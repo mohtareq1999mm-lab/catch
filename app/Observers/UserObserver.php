@@ -2,25 +2,19 @@
 
 namespace App\Observers;
 
-use App\Jobs\LogActivityJob;
-use Illuminate\Support\Facades\Auth;
+use App\Audit\ActivityAuditService;
 use Marvel\Database\Models\User;
 
 class UserObserver
 {
     public function created(User $user): void
     {
-        if (!Auth::check()) {
-            return;
-        }
-
-        LogActivityJob::dispatch(
-            get_class($user),
-            $user->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $user,
             'created',
             'users',
             __('activity.user_created'),
+            new: $user->getAttributes(),
         );
     }
 
@@ -44,14 +38,13 @@ class UserObserver
                 : __('activity.user_deactivated');
             $description = $description ?: ($newStatus ? 'User activated' : 'User deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($user),
-                $user->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $user,
                 'statusChanged',
                 'users',
                 $description,
-                ['old' => ['is_active' => (string) $oldStatus], 'new' => ['is_active' => (string) $newStatus]],
+                old: ['is_active' => $oldStatus],
+                new: ['is_active' => $newStatus],
             );
         }
 
@@ -59,56 +52,54 @@ class UserObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'is_active') continue;
+                if ($key === 'is_active') {
+                    continue;
+                }
                 $oldValues[$key] = $user->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($user),
-                $user->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $user,
                 'updated',
                 'users',
                 __('activity.user_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
     }
 
     public function deleted(User $user): void
     {
-        LogActivityJob::dispatch(
-            get_class($user),
-            $user->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $user,
             'deleted',
             'users',
             __('activity.user_deleted'),
+            old: $user->getAttributes(),
         );
     }
 
     public function restored(User $user): void
     {
-        LogActivityJob::dispatch(
-            get_class($user),
-            $user->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $user,
             'restored',
             'users',
             __('activity.user_restored'),
+            new: $user->getAttributes(),
         );
     }
 
     public function forceDeleted(User $user): void
     {
-        LogActivityJob::dispatch(
-            get_class($user),
-            $user->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $user,
             'forceDeleted',
             'users',
             __('activity.user_force_deleted'),
+            old: $user->getAttributes(),
         );
     }
 }

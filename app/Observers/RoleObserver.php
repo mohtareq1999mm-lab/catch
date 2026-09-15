@@ -2,21 +2,19 @@
 
 namespace App\Observers;
 
-use App\Jobs\LogActivityJob;
-use Illuminate\Support\Facades\Auth;
+use App\Audit\ActivityAuditService;
 use Marvel\Database\Models\Role;
 
 class RoleObserver
 {
     public function created(Role $role): void
     {
-        LogActivityJob::dispatch(
-            get_class($role),
-            $role->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $role,
             'created',
             'roles',
             __('activity.role_created'),
+            new: $role->getAttributes(),
         );
     }
 
@@ -36,26 +34,24 @@ class RoleObserver
             $newValues[$key] = $newValue;
         }
 
-        LogActivityJob::dispatch(
-            get_class($role),
-            $role->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $role,
             'updated',
             'roles',
             __('activity.role_updated'),
-            ['old' => $oldValues, 'new' => $newValues],
+            old: $oldValues,
+            new: $newValues,
         );
     }
 
     public function deleted(Role $role): void
     {
-        LogActivityJob::dispatch(
-            get_class($role),
-            $role->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $role,
             'deleted',
             'roles',
             __('activity.role_deleted'),
+            old: $role->getAttributes(),
         );
     }
 }

@@ -44,6 +44,7 @@ use App\Listeners\SendOrderCancelledNotification;
 use App\Listeners\SendOrderStatusChangedNotification;
 use App\Listeners\SendPaymentFailedNotification;
 use App\Listeners\SendPaymentSucceededNotification;
+use App\Listeners\Coupon\MarkCouponClaimRedeemed;
 use App\Listeners\SendUserCouponAssignedNotification;
 use App\Listeners\SendUserCouponAvailableNotification;
 use App\Listeners\SendUserCouponUsedNotification;
@@ -148,6 +149,7 @@ class EventServiceProvider extends ServiceProvider
             GenerateInvoiceListener::class,
             SendUserPaymentSucceededNotification::class,
             FulfillDigitalProducts::class,
+            MarkCouponClaimRedeemed::class,
         ],
         DigitalProductsDelivered::class => [
             SendUserDigitalProductsAvailableNotification::class,

@@ -2,11 +2,10 @@
 
 namespace App\Observers;
 
+use App\Audit\ActivityAuditService;
 use App\Enums\FrontendResource;
-use App\Jobs\LogActivityJob;
 use App\Services\General\HomeService;
 use App\Traits\HasCache;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Brand;
 
@@ -18,13 +17,12 @@ class BrandObserver
     {
         $this->flushBrandCaches();
 
-        LogActivityJob::dispatch(
-            get_class($brand),
-            $brand->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $brand,
             'created',
             'brands',
             __('activity.brand_created'),
+            new: $brand->getAttributes(),
         );
     }
 
@@ -50,14 +48,13 @@ class BrandObserver
                 : __('activity.brand_deactivated');
             $description = $description ?: ($newStatus ? 'Brand activated' : 'Brand deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($brand),
-                $brand->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $brand,
                 'statusChanged',
                 'brands',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
         }
 
@@ -65,19 +62,20 @@ class BrandObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'status') continue;
+                if ($key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $brand->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($brand),
-                $brand->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $brand,
                 'updated',
                 'brands',
                 __('activity.brand_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
     }
@@ -86,32 +84,47 @@ class BrandObserver
     {
         $this->flushBrandCaches();
 
-        LogActivityJob::dispatch(
-            get_class($brand),
-            $brand->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $brand,
             'deleted',
             'brands',
             __('activity.brand_deleted'),
+            old: $brand->getAttributes(),
         );
     }
 
     public function restored(Brand $brand): void
     {
         $this->flushBrandCaches();
+
+        ActivityAuditService::recordModel(
+            $brand,
+            'restored',
+            'brands',
+            __('activity.brand_restored'),
+            new: $brand->getAttributes(),
+        );
     }
 
-    /**
-     * Invalidate brand-related frontend caches and product listings that may embed brand data.
-     */
+    public function forceDeleted(Brand $brand): void
+    {
+        $this->flushBrandCaches();
+
+        ActivityAuditService::recordModel(
+            $brand,
+            'forceDeleted',
+            'brands',
+            'Brand permanently deleted',
+            old: $brand->getAttributes(),
+        );
+    }
+
     private function flushBrandCaches(): void
     {
         $this->flushTagWithFallback(FrontendResource::BRANDS->value);
         $this->flushTagWithFallback(FrontendResource::BRANDS_PRODUCTS->value);
-        // Brand changes affect product listings filtered by brand and home brand section
         $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
         HomeService::clearCache();
-        // Generic API cache version bump for CacheApiResponse middleware
         try {
             Cache::increment('api_cache_version');
         } catch (\Throwable $e) {

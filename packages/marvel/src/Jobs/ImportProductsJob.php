@@ -3,10 +3,12 @@
 namespace Marvel\Jobs;
 
 use App\Events\FileOperationEvent;
+use App\Audit\ActivityAuditService;
 use App\Traits\BroadcastsFileOperationProgress;
 use App\Enums\FrontendResource;
 use App\Services\General\HomeService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\ImportStatus;
 use Marvel\Exceptions\ImportCancelledException;
@@ -117,7 +119,8 @@ class ImportProductsJob implements ShouldQueue
 
     public function handle(): void
     {
-        $import = Import::select(['id', 'type', 'status', 'file_path', 'file_name'])->findOrFail($this->importId);
+        $import = Import::select(['id', 'type', 'status', 'file_path', 'file_name', 'created_by'])->findOrFail($this->importId);
+        $batchUuid = (string) Str::uuid();
 
         $normalizedType = \Marvel\Enums\FileOperationType::normalize($import->type);
         if ($normalizedType !== \Marvel\Enums\FileOperationType::PRODUCT_IMPORT) {
@@ -172,6 +175,8 @@ class ImportProductsJob implements ShouldQueue
         } else {
             $import->refresh();
         }
+
+        $this->recordImportStarted($import, $batchUuid);
 
         $filePath = $this->resolveImportFilePath($import);
         if ($filePath === null || ! file_exists($filePath)) {
@@ -307,6 +312,8 @@ class ImportProductsJob implements ShouldQueue
                 'status' => $status,
             ]);
 
+            $this->recordImportTerminal($import, $status, $batchUuid, $successCount, count($failedRows));
+
             // Invalidate frontend caches if any product rows were mutated (even if partially succeeded)
             if ($successCount > 0 || $service->getVariantSuccessCount() > 0) {
                 $this->invalidateFrontendCaches();
@@ -354,6 +361,8 @@ class ImportProductsJob implements ShouldQueue
                 'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
             ]);
 
+            $this->recordImportRollback($import, $batchUuid);
+
             if ($service->getSuccessCount() > 0 || $service->getVariantSuccessCount() > 0) {
                 $this->invalidateFrontendCaches();
             }
@@ -394,6 +403,7 @@ class ImportProductsJob implements ShouldQueue
                 );
                 $this->deleteImportFile($import);
                 $this->removeSignalFile('progress');
+                $this->recordImportFailed($import, $batchUuid);
             } else {
                 $import->update([
                     'errors' => array_merge($import->errors ?? [], [
@@ -535,5 +545,71 @@ class ImportProductsJob implements ShouldQueue
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    protected function recordImportStarted(Import $import, string $batchUuid): void
+    {
+        ActivityAuditService::recordBatch(
+            'imports',
+            'import_started',
+            __('activity.import_started'),
+            context: ['source' => 'import', 'import_id' => $import->id, 'batch_uuid' => $batchUuid],
+            properties: ['import_id' => $import->id],
+            batchUuid: $batchUuid,
+            causerId: $import->created_by,
+            causerType: \Marvel\Database\Models\User::class,
+        );
+    }
+
+    protected function recordImportTerminal(Import $import, string $status, string $batchUuid, int $successCount, int $failedCount): void
+    {
+        $failed = $status === ImportStatus::FAILED;
+        $event = $failed ? 'import_failed' : 'import_completed';
+        $description = $failed ? __('activity.import_failed') : __('activity.import_completed');
+
+        ActivityAuditService::recordBatch(
+            'imports',
+            $event,
+            $description,
+            context: ['source' => 'import', 'import_id' => $import->id, 'batch_uuid' => $batchUuid],
+            properties: [
+                'import_id' => $import->id,
+                'success_rows' => $successCount,
+                'failed_rows' => $failedCount,
+                'status' => $status,
+            ],
+            batchUuid: $batchUuid,
+            causerId: $import->created_by,
+            causerType: \Marvel\Database\Models\User::class,
+        );
+    }
+
+    protected function recordImportRollback(Import $import, string $batchUuid): void
+    {
+        ActivityAuditService::recordBatch(
+            'imports',
+            'rollback',
+            __('activity.import_rolled_back'),
+            context: ['source' => 'import', 'import_id' => $import->id, 'batch_uuid' => $batchUuid],
+            properties: ['import_id' => $import->id],
+            batchUuid: $batchUuid,
+            reason: 'import_rollback',
+            causerId: $import->created_by,
+            causerType: \Marvel\Database\Models\User::class,
+        );
+    }
+
+    protected function recordImportFailed(Import $import, string $batchUuid): void
+    {
+        ActivityAuditService::recordBatch(
+            'imports',
+            'import_failed',
+            __('activity.import_failed'),
+            context: ['source' => 'import', 'import_id' => $import->id, 'batch_uuid' => $batchUuid],
+            properties: ['import_id' => $import->id],
+            batchUuid: $batchUuid,
+            causerId: $import->created_by,
+            causerType: \Marvel\Database\Models\User::class,
+        );
     }
 }

@@ -2,21 +2,19 @@
 
 namespace App\Observers;
 
-use App\Jobs\LogActivityJob;
-use Illuminate\Support\Facades\Auth;
+use App\Audit\ActivityAuditService;
 use Marvel\Database\Models\PickupLocation;
 
 class PickupLocationObserver
 {
     public function created(PickupLocation $pickupLocation): void
     {
-        LogActivityJob::dispatch(
-            get_class($pickupLocation),
-            $pickupLocation->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $pickupLocation,
             'created',
             'pickup_locations',
             __('activity.pickup_location_created'),
+            new: $pickupLocation->getAttributes(),
         );
     }
 
@@ -39,14 +37,13 @@ class PickupLocationObserver
                 ? __('activity.pickup_location_activated')
                 : __('activity.pickup_location_deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($pickupLocation),
-                $pickupLocation->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $pickupLocation,
                 'statusChanged',
                 'pickup_locations',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
         }
 
@@ -54,32 +51,54 @@ class PickupLocationObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'status') continue;
+                if ($key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $pickupLocation->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($pickupLocation),
-                $pickupLocation->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $pickupLocation,
                 'updated',
                 'pickup_locations',
                 __('activity.pickup_location_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
     }
 
     public function deleted(PickupLocation $pickupLocation): void
     {
-        LogActivityJob::dispatch(
-            get_class($pickupLocation),
-            $pickupLocation->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $pickupLocation,
             'deleted',
             'pickup_locations',
             __('activity.pickup_location_deleted'),
+            old: $pickupLocation->getAttributes(),
+        );
+    }
+
+    public function restored(PickupLocation $pickupLocation): void
+    {
+        ActivityAuditService::recordModel(
+            $pickupLocation,
+            'restored',
+            'pickup_locations',
+            'Pickup location restored',
+            new: $pickupLocation->getAttributes(),
+        );
+    }
+
+    public function forceDeleted(PickupLocation $pickupLocation): void
+    {
+        ActivityAuditService::recordModel(
+            $pickupLocation,
+            'forceDeleted',
+            'pickup_locations',
+            'Pickup location permanently deleted',
+            old: $pickupLocation->getAttributes(),
         );
     }
 }

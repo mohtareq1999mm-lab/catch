@@ -116,18 +116,20 @@ class ActivityLogApiTest extends TestCase
                 'role_has_permissions_permission_id_role_id_primary');
         });
 
-        Schema::create('activity_log', function (Blueprint $table) {
-            $table->bigIncrements('id');
-            $table->string('log_name')->nullable();
-            $table->text('description');
-            $table->nullableMorphs('subject', 'subject');
-            $table->nullableMorphs('causer', 'causer');
-            $table->string('event')->nullable();
-            $table->json('properties')->nullable();
-            $table->uuid('batch_uuid')->nullable();
-            $table->timestamps();
-            $table->index('log_name');
-        });
+        if (!Schema::hasTable('activity_log')) {
+            Schema::create('activity_log', function (Blueprint $table) {
+                $table->bigIncrements('id');
+                $table->string('log_name')->nullable();
+                $table->text('description');
+                $table->nullableMorphs('subject', 'subject');
+                $table->nullableMorphs('causer', 'causer');
+                $table->string('event')->nullable();
+                $table->json('properties')->nullable();
+                $table->uuid('batch_uuid')->nullable();
+                $table->timestamps();
+                $table->index('log_name');
+            });
+        }
 
         Schema::create('media', function (Blueprint $table) {
             $table->id();
@@ -176,15 +178,14 @@ class ActivityLogApiTest extends TestCase
     {
         $response = $this->getJson(self::PREFIX . '/logs/activity');
 
-        $response->assertStatus(404);
+        $response->assertStatus(401);
     }
 
     public function test_super_admin_can_fetch_activity_logs(): void
     {
         $user = $this->createSuperAdmin();
-        Sanctum::actingAs($user);
+        Sanctum::actingAs($user, ['*']);
 
-        DB::table('activity_log')->delete();
         Activity::create([
             'log_name' => 'products',
             'description' => 'Test log entry',
@@ -196,52 +197,70 @@ class ActivityLogApiTest extends TestCase
 
         $response = $this->getJson(self::PREFIX . '/logs/activity');
 
-        $response->assertStatus(404);
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['data', 'meta']);
+    }
+
+    public function test_deleted_subject_remains_visible(): void
+    {
+        $user = $this->createSuperAdmin();
+        Sanctum::actingAs($user, ['*']);
+
+        Activity::create([
+            'log_name' => 'products',
+            'description' => 'Product deleted',
+            'event' => 'deleted',
+            'subject_id' => 99999,
+            'subject_type' => \Marvel\Database\Models\Product::class,
+            'causer_id' => $user->id,
+            'causer_type' => User::class]);
+
+        $response = $this->getJson(self::PREFIX . '/logs/activity?event=deleted');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.0.subject_id', 99999);
     }
 
     public function test_can_filter_logs_by_log_name(): void
     {
         $user = $this->createSuperAdmin();
-        Sanctum::actingAs($user);
+        Sanctum::actingAs($user, ['*']);
 
         Activity::create(['log_name' => 'products', 'description' => 'Product created', 'event' => 'created', 'subject_type' => User::class, 'causer_id' => $user->id, 'causer_type' => User::class]);
         Activity::create(['log_name' => 'users', 'description' => 'User updated', 'event' => 'updated', 'subject_type' => User::class, 'causer_id' => $user->id, 'causer_type' => User::class]);
 
         $response = $this->getJson(self::PREFIX . '/logs/activity?log_name=products');
 
-        $response->assertStatus(404);
+        $response->assertStatus(200);
+        $this->assertCount(1, $response->json('data'));
+        $this->assertSame('products', $response->json('data.0.log_name'));
     }
 
     public function test_can_search_logs(): void
     {
         $user = $this->createSuperAdmin();
-        Sanctum::actingAs($user);
+        Sanctum::actingAs($user, ['*']);
 
         Activity::create(['log_name' => 'products', 'description' => 'Product created', 'event' => 'created', 'subject_type' => User::class, 'causer_id' => $user->id, 'causer_type' => User::class]);
         Activity::create(['log_name' => 'users', 'description' => 'User updated', 'event' => 'updated', 'subject_type' => User::class, 'causer_id' => $user->id, 'causer_type' => User::class]);
 
         $response = $this->getJson(self::PREFIX . '/logs/activity?search=Product');
 
-        $response->assertStatus(404);
+        $response->assertStatus(200);
+        $this->assertCount(1, $response->json('data'));
     }
 
-    public function test_returns_empty_when_no_logs(): void
+    public function test_returns_valid_structure_for_authenticated_admin(): void
     {
-        $user = User::create([
-            'name' => 'Plain User',
-            'email' => 'plain@example.com',
-            'password' => Hash::make('password'),
-            'email_verified_at' => now(),
-            'is_active' => true,
-            'phone_number' => '01000000002']);
-        Permission::findOrCreate(self::GUARD);
-        Permission::findOrCreate(PermissionEnum::VIEW_ACTIVITY_LOG, self::GUARD);
-        $user->givePermissionTo([PermissionEnum::VIEW_ACTIVITY_LOG]);
-        Sanctum::actingAs($user);
+        $user = $this->createSuperAdmin();
+        Sanctum::actingAs($user, ['*']);
 
         $response = $this->getJson(self::PREFIX . '/logs/activity');
 
-        $response->assertStatus(404);
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['data', 'meta']);
     }
 
     public function test_non_admin_cannot_access_activity_logs(): void
@@ -255,10 +274,10 @@ class ActivityLogApiTest extends TestCase
             'email_verified_at' => now(),
             'is_active' => true,
             'phone_number' => '01000000003']);
-        Sanctum::actingAs($user);
+        Sanctum::actingAs($user, ['*']);
 
         $response = $this->getJson(self::PREFIX . '/logs/activity');
 
-        $response->assertStatus(404);
+        $response->assertStatus(403);
     }
 }

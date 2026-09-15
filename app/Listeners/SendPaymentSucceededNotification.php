@@ -2,8 +2,8 @@
 
 namespace App\Listeners;
 
+use App\Audit\ActivityAuditService;
 use App\Events\PaymentSucceeded;
-use App\Jobs\LogActivityJob;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 class SendPaymentSucceededNotification implements ShouldQueue
@@ -26,20 +26,22 @@ class SendPaymentSucceededNotification implements ShouldQueue
 
         $description = __('activity.payment_succeeded') ?: 'Payment succeeded';
 
-        LogActivityJob::dispatch(
+        ActivityAuditService::recordSubject(
             get_class($order),
-            $order->id,
-            $order->user_id,
+            (int) $order->id,
             'payment_succeeded',
             'orders',
             $description,
-            [
+            new: [
                 'order_id' => $order->id,
                 'order_number' => $order->order_number,
                 'total_price' => $order->total_price,
                 'status' => $order->status,
                 'payment_gateway' => $order->payment_gateway,
             ],
+            context: ['source' => 'queue', 'job' => self::class],
+            causerId: (int) $order->user_id,
+            causerType: \Marvel\Database\Models\User::class,
         );
     }
 }

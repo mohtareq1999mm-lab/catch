@@ -11,6 +11,7 @@ class CouponClaimException extends Exception
     public const REASON_CLAIM_NOT_REQUIRED = 'claim_not_required';
     public const REASON_NO_TARGETING = 'no_targeting';
     public const REASON_MAX_CLAIMS_REACHED = 'max_claims_reached';
+    public const REASON_CANNOT_REDEEM = 'cannot_redeem';
 
     public function __construct(
         string $message,
@@ -62,6 +63,15 @@ class CouponClaimException extends Exception
             "Coupon {$couponId} has reached its total claim limit ({$maxClaims} claims across all users)",
             self::REASON_MAX_CLAIMS_REACHED,
             ['coupon_id' => $couponId, 'user_id' => $userId, 'max_claims' => $maxClaims],
+        );
+    }
+
+    public static function cannotRedeemNonActiveClaim(int $claimId): self
+    {
+        return new self(
+            "Claim {$claimId} is not in ACTIVE status and cannot be redeemed",
+            self::REASON_CANNOT_REDEEM,
+            ['claim_id' => $claimId],
         );
     }
 }

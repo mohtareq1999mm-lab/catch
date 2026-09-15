@@ -14,6 +14,12 @@ return [
     'delete_records_older_than_days' => 60,
 
     /*
+     * Retention period (in days) used by the project's activitylog:prune
+     * command. Keep only the latest N days; prune older rows quarterly.
+     */
+    'retention_days' => env('ACTIVITY_LOG_RETENTION_DAYS', 90),
+
+    /*
      * If no log name is passed to the activity() helper
      * we use this default log name.
      */

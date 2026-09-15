@@ -53,10 +53,15 @@ class CouponClaimService
 
             // Phase 2: Check for existing ACTIVE claim only
             // Expired/redeemed claims allow re-claiming
+            // FIX #4: Add expiry validation - check claim hasn't expired
             $existingActiveClaim = CouponClaim::query()
                 ->where('coupon_id', $coupon->getKey())
                 ->where('user_id', $user->getKey())
                 ->where('status', CouponClaimStatus::ACTIVE)
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')
+                      ->orWhere('expires_at', '>', now());
+                })
                 ->exists();
 
             if ($existingActiveClaim) {
@@ -119,6 +124,7 @@ class CouponClaimService
     /**
      * Check if user has an ACTIVE claim for a coupon.
      * Phase 2: Checks active status only, expired/redeemed don't block re-claims.
+     * FIX #4: Also validate claim hasn't expired (checks expires_at)
      */
     public function hasClaimed(Coupon $coupon, User $user): bool
     {
@@ -126,12 +132,17 @@ class CouponClaimService
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
             ->where('status', CouponClaimStatus::ACTIVE)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                  ->orWhere('expires_at', '>', now());
+            })
             ->exists();
     }
 
     /**
      * Get user's ACTIVE claim for a coupon if it exists.
      * Phase 2: Returns only active claims, expired/redeemed claims excluded.
+     * FIX #4: Also validate claim hasn't expired (checks expires_at)
      */
     public function getClaim(Coupon $coupon, User $user): ?CouponClaim
     {
@@ -139,6 +150,10 @@ class CouponClaimService
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
             ->where('status', CouponClaimStatus::ACTIVE)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                  ->orWhere('expires_at', '>', now());
+            })
             ->first();
     }
 

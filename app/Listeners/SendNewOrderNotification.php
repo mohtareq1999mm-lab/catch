@@ -2,9 +2,9 @@
 
 namespace App\Listeners;
 
+use App\Audit\ActivityAuditService;
 use App\Enums\UserType;
 use App\Events\OrderCreated;
-use App\Jobs\LogActivityJob;
 use App\Notifications\NewOrderNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Notification;
@@ -28,19 +28,21 @@ class SendNewOrderNotification implements ShouldQueue
 
         $description = __('activity.order_created') ?: 'Order created';
 
-        LogActivityJob::dispatch(
+        ActivityAuditService::recordSubject(
             get_class($order),
-            $order->id,
-            $order->user_id,
+            (int) $order->id,
             'order_created',
             'orders',
             $description,
-            [
+            new: [
                 'order_id' => $order->id,
                 'order_number' => $order->order_number,
                 'total_price' => $order->total_price,
                 'status' => $order->status,
             ],
+            context: ['source' => 'queue', 'job' => self::class],
+            causerId: (int) $order->user_id,
+            causerType: \Marvel\Database\Models\User::class,
         );
     }
 

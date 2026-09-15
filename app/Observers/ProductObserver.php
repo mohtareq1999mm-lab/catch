@@ -2,15 +2,14 @@
 
 namespace App\Observers;
 
+use App\Audit\ActivityAuditService;
 use App\Enums\FrontendResource;
 use App\Events\ProductBackInStock;
 use App\Events\ProductDiscountChanged;
 use App\Events\ProductPriceDrop;
-use App\Jobs\LogActivityJob;
 use App\Services\General\HomeService;
 use App\Services\General\ProductEngine\ProductStrategyResolver;
 use App\Traits\HasCache;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Product;
 
@@ -22,13 +21,12 @@ class ProductObserver
     {
         $this->flushProductCaches();
 
-        LogActivityJob::dispatch(
-            get_class($product),
-            $product->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $product,
             'created',
             'products',
             __('activity.product_created'),
+            new: $product->getAttributes(),
         );
     }
 
@@ -54,14 +52,13 @@ class ProductObserver
                 : __('activity.product_deactivated');
             $description = $description ?: ($newStatus ? 'Product activated' : 'Product deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($product),
-                $product->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $product,
                 'statusChanged',
                 'products',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
         }
 
@@ -69,25 +66,65 @@ class ProductObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'status') continue;
+                if ($key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $product->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($product),
-                $product->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $product,
                 'updated',
                 'products',
                 __('activity.product_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
 
         $this->notifyDiscountChanged($product);
         $this->notifyPriceDrop($product);
         $this->notifyBackInStock($product);
+    }
+
+    public function deleted(Product $product): void
+    {
+        $this->flushProductCaches();
+
+        ActivityAuditService::recordModel(
+            $product,
+            'deleted',
+            'products',
+            __('activity.product_deleted'),
+            old: $product->getAttributes(),
+        );
+    }
+
+    public function restored(Product $product): void
+    {
+        $this->flushProductCaches();
+
+        ActivityAuditService::recordModel(
+            $product,
+            'restored',
+            'products',
+            __('activity.product_restored'),
+            new: $product->getAttributes(),
+        );
+    }
+
+    public function forceDeleted(Product $product): void
+    {
+        $this->flushProductCaches();
+
+        ActivityAuditService::recordModel(
+            $product,
+            'forceDeleted',
+            'products',
+            __('activity.product_force_deleted'),
+            old: $product->getAttributes(),
+        );
     }
 
     private function notifyDiscountChanged(Product $product): void
@@ -139,48 +176,6 @@ class ProductObserver
         event(new ProductBackInStock($product));
     }
 
-    public function deleted(Product $product): void
-    {
-        $this->flushProductCaches();
-
-        LogActivityJob::dispatch(
-            get_class($product),
-            $product->id,
-            Auth::id(),
-            'deleted',
-            'products',
-            __('activity.product_deleted'),
-        );
-    }
-
-    public function restored(Product $product): void
-    {
-        $this->flushProductCaches();
-
-        LogActivityJob::dispatch(
-            get_class($product),
-            $product->id,
-            Auth::id(),
-            'restored',
-            'products',
-            __('activity.product_restored'),
-        );
-    }
-
-    public function forceDeleted(Product $product): void
-    {
-        $this->flushProductCaches();
-
-        LogActivityJob::dispatch(
-            get_class($product),
-            $product->id,
-            Auth::id(),
-            'forceDeleted',
-            'products',
-            __('activity.product_force_deleted'),
-        );
-    }
-
     /**
      * Invalidate every product listing cache variant so the next request
      * rebuilds from the database.
@@ -193,7 +188,6 @@ class ProductObserver
             $this->flushTagWithFallback(FrontendResource::PRODUCTS->value . '_' . $type);
         }
 
-        // Product mutations affect home page product sections and category/brand aggregations
         HomeService::clearCache();
         $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
         $this->flushTagWithFallback(FrontendResource::BRANDS->value);
@@ -209,8 +203,6 @@ class ProductObserver
     {
         try {
             $this->flushTag($tag);
-            // Always flush full cache as safety net for stale HasCache (file fallback) and
-            // ensures inactive products never survive via cached general response.
             Cache::flush();
             HomeService::clearCache();
         } catch (\BadMethodCallException) {

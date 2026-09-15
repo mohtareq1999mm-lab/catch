@@ -458,6 +458,7 @@ return [
     'MESSAGE.DEBIT_NOTE_ISSUED_SUCCESSFULLY' => 'تم إصدار إشعار المدين بنجاح',
     'MESSAGE.FLASH_SALE_REQUEST_APPROVED_SUCCESSFULLY' => 'تمت الموافقة على طلب البيع السريع بنجاح',
     'MESSAGE.FLASH_SALE_REQUEST_DISAPPROVED_SUCCESSFULLY' => 'تم رفض طلب البيع السريع بنجاح',
+    'MESSAGE.DESTROY_ALL_CONFIRMATION_REQUIRED' => 'مطلوب تأكيد لحذف جميع المنتجات.',
 
     'too_many_requests' => 'طلبات كثيرة جدًا. يرجى المحاولة لاحقًا.',
 ];

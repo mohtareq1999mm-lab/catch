@@ -3,6 +3,7 @@
 
 namespace Marvel\Database\Repositories;
 
+use App\Audit\ActivityAuditService;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -35,6 +36,42 @@ class ProductRepository extends BaseRepository
 {
 
     use MediaManager;
+
+    /**
+     * Whitelist of product columns writable through the REST/GraphQL API.
+     *
+     * Inventory/accounting columns (sku, stock_quantity, reserved_quantity,
+     * sold_quantity) are intentionally excluded: they are mutated only through
+     * inventory services, imports, or explicit domain flows.
+     */
+    private const WRITABLE_FIELDS = [
+        'name',
+        'description',
+        'price',
+        'product_type',
+        'item_type',
+        'type_id',
+        'shop_id',
+        'quantity',
+        'pieces',
+        'status',
+        'height',
+        'length',
+        'width',
+        'weight',
+        'in_stock',
+        'has_discount',
+        'has_flash_sale',
+        'is_fast_shipping_available',
+        'flash_sale_id',
+        'discount_type',
+        'discount_amount',
+        'discount_status',
+        'start_date',
+        'end_date',
+        'tax_enabled',
+        'tax_rate',
+    ];
 
 
 
@@ -76,7 +113,7 @@ class ProductRepository extends BaseRepository
                     : ProductType::SIMPLE
             ]);
 
-            $data = $request->except(['images', 'categories', 'variants', 'brands', 'banners', 'sliders']);
+            $data = $request->only(self::WRITABLE_FIELDS);
 
             $data['slug'] = $this->makeSlug($request);
             $hasFlashSale = !empty($data['has_flash_sale']);
@@ -127,7 +164,7 @@ class ProductRepository extends BaseRepository
                     ? ProductType::VARIABLE
                     : ProductType::SIMPLE
             ]);
-            $data = $request->except(['images', 'categories', 'variants', 'brands', 'banners', 'sliders']);
+            $data = $request->only(self::WRITABLE_FIELDS);
 
             // D5 — item_type immutability once commercial history exists.
             if (array_key_exists('item_type', $data)) {
@@ -192,34 +229,63 @@ class ProductRepository extends BaseRepository
     private function syncRelation($product, $request, $data)
     {
         if (isset($request['categories'])) {
-            $product->categories()->sync($request['categories']);
+            $this->syncRelationAudited($product, 'categories', $request['categories'], 'product_categories_synced', 'activity.product_categories_synced');
         }
 
         if ($request->has('brands')) {
-            $product->brands()->sync($request->input('brands'));
+            $this->syncRelationAudited($product, 'brands', $request->input('brands'), 'product_brands_synced', 'activity.product_brands_synced');
         }
 
         if ($request->has('banners')) {
-            $product->banners()->sync($request->input('banners'));
+            $this->syncRelationAudited($product, 'banners', $request->input('banners'), 'product_banners_synced', 'activity.product_banners_synced');
         }
 
         if ($request->has('sliders')) {
-            $product->sliders()->sync($request->input('sliders'));
+            $this->syncRelationAudited($product, 'sliders', $request->input('sliders'), 'product_sliders_synced', 'activity.product_sliders_synced');
         }
 
         if ($request->has('tags')) {
-            $product->tags()->sync($request->input('tags'));
+            $this->syncRelationAudited($product, 'tags', $request->input('tags'), 'product_tags_synced', 'activity.product_tags_synced');
         }
 
         if (!empty($data['has_flash_sale']) && $data['has_flash_sale'] === true) {
             $flashSaleId = $data['flash_sale_id'] ?? null;
 
-            if ($flashSaleId) {
-                $product->flash_sales()->sync([$flashSaleId]);
-            } else {
-                $product->flash_sales()->detach();
-            }
+            $this->syncRelationAudited($product, 'flash_sales', $flashSaleId ? [$flashSaleId] : [], 'product_flash_sales_synced', 'activity.product_flash_sales_synced');
         }
+    }
+
+    /**
+     * Sync a belongsToMany relation and emit a semantic audit event carrying
+     * the old/new related IDs when they actually changed.
+     */
+    private function syncRelationAudited(Product $product, string $relation, ?array $newIds, string $event, string $descriptionKey): void
+    {
+        $relationQuery = $product->{$relation}();
+        $related = $relationQuery->getRelated();
+
+        $oldIds = $relationQuery->pluck($related->getQualifiedKeyName())
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        sort($oldIds);
+
+        $sortedNew = array_values(array_map('intval', is_array($newIds) ? $newIds : []));
+        sort($sortedNew);
+
+        $relationQuery->sync($sortedNew);
+
+        if ($oldIds === $sortedNew) {
+            return;
+        }
+
+        ActivityAuditService::recordModel(
+            $product,
+            $event,
+            'products',
+            __($descriptionKey) ?: $event,
+            old: ['ids' => $oldIds],
+            new: ['ids' => $sortedNew],
+        );
     }
 
     /**

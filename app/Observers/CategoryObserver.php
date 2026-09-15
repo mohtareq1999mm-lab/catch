@@ -2,12 +2,11 @@
 
 namespace App\Observers;
 
+use App\Audit\ActivityAuditService;
 use App\Enums\FrontendResource;
-use App\Jobs\LogActivityJob;
 use App\Services\General\HomeService;
 use App\Traits\HasCache;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Category;
 
 class CategoryObserver
@@ -16,18 +15,14 @@ class CategoryObserver
 
     public function created(Category $category): void
     {
-        HomeService::clearCache();
-        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
-        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
-        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
+        $this->flushCaches();
 
-        LogActivityJob::dispatch(
-            get_class($category),
-            $category->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $category,
             'created',
             'categories',
             __('activity.category_created'),
+            new: $category->getAttributes(),
         );
     }
 
@@ -40,10 +35,7 @@ class CategoryObserver
             return;
         }
 
-        HomeService::clearCache();
-        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
-        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
-        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
+        $this->flushCaches();
 
         $statusChanged = array_key_exists('status', $dirty);
         $hasOtherChanges = count($dirty) > ($statusChanged ? 1 : 0);
@@ -56,14 +48,13 @@ class CategoryObserver
                 : __('activity.category_deactivated');
             $description = $description ?: ($newStatus ? 'Category activated' : 'Category deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($category),
-                $category->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $category,
                 'statusChanged',
                 'categories',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
         }
 
@@ -71,46 +62,72 @@ class CategoryObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'status') continue;
+                if ($key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $category->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($category),
-                $category->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $category,
                 'updated',
                 'categories',
                 __('activity.category_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
     }
 
     public function deleted(Category $category): void
     {
-        HomeService::clearCache();
-        $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
-        $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
-        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
+        $this->flushCaches();
 
-        LogActivityJob::dispatch(
-            get_class($category),
-            $category->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $category,
             'deleted',
             'categories',
             __('activity.category_deleted'),
+            old: $category->getAttributes(),
         );
     }
 
     public function restored(Category $category): void
     {
+        $this->flushCaches();
+
+        ActivityAuditService::recordModel(
+            $category,
+            'restored',
+            'categories',
+            __('activity.category_restored'),
+            new: $category->getAttributes(),
+        );
+    }
+
+    public function forceDeleted(Category $category): void
+    {
+        $this->flushCaches();
+
+        ActivityAuditService::recordModel(
+            $category,
+            'forceDeleted',
+            'categories',
+            'Category permanently deleted',
+            old: $category->getAttributes(),
+        );
+    }
+
+    private function flushCaches(): void
+    {
         HomeService::clearCache();
         $this->flushTagWithFallback(FrontendResource::CATEGORIES->value);
         $this->flushTagWithFallback(FrontendResource::PRODUCTS->value);
-        try { Cache::increment('api_cache_version'); } catch (\Throwable $e) {}
+        try {
+            Cache::increment('api_cache_version');
+        } catch (\Throwable $e) {
+        }
     }
 
     private function flushTagWithFallback(string $tag): void

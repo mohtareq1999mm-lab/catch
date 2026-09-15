@@ -353,18 +353,26 @@ class EligibilityEngine
 
     private function evalNotClaimed(Coupon $coupon, User $user): array
     {
-        $hasClaim = CouponClaim::query()
+        // Phase 2: Check for current usable ACTIVE claim (not expired)
+        // Expired/redeemed claims do NOT block re-claiming
+        // FIX: Match CouponClaimService logic for expiry validation
+        $hasActiveClaim = CouponClaim::query()
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
+            ->where('status', \App\Enums\CouponClaimStatus::ACTIVE)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                  ->orWhere('expires_at', '>', now());
+            })
             ->exists();
 
-        $passed = !$hasClaim;
+        $passed = !$hasActiveClaim;
         return [
             'passed' => $passed,
             'type' => EligibilityRuleType::NOT_CLAIMED->value,
             'value' => null,
-            'actual' => $hasClaim,
-            'reason' => $passed ? null : 'User has already claimed this coupon',
+            'actual' => $hasActiveClaim,
+            'reason' => $passed ? null : 'User has an active claim for this coupon',
         ];
     }
 

@@ -144,6 +144,7 @@ final class Permission extends Enum
     public const CREATE_PRODUCT = 'create-product';
     public const UPDATE_PRODUCT = 'update-product';
     public const DELETE_PRODUCT = 'delete-product';
+    public const DELETE_ALL_PRODUCTS = 'delete-all-products';
     public const CREATE_ATTRIBUTE = 'create-attribute';
     public const UPDATE_ATTRIBUTE = 'update-attribute';
     public const DELETE_ATTRIBUTE = 'delete-attribute';

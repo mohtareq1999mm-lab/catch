@@ -2,8 +2,8 @@
 
 namespace App\Listeners;
 
+use App\Audit\ActivityAuditService;
 use App\Events\UserRolesUpdated;
-use App\Jobs\LogActivityJob;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 class LogUserRolesUpdated implements ShouldQueue
@@ -26,30 +26,24 @@ class LogUserRolesUpdated implements ShouldQueue
         $added = array_diff($newRoles, $oldRoles);
         $removed = array_diff($oldRoles, $newRoles);
 
-        $properties = [
-            'old' => ['roles' => $oldRoles],
-            'new' => ['roles' => $newRoles],
-            'previous_roles' => $oldRoles,
-            'new_roles' => $newRoles,
-        ];
-
-        if (!empty($added)) {
-            $properties['roles_added'] = array_values($added);
-        }
-        if (!empty($removed)) {
-            $properties['roles_removed'] = array_values($removed);
-        }
-
         $description = __('activity.user_role_changed') ?: 'User role changed';
 
-        LogActivityJob::dispatch(
+        ActivityAuditService::recordSubject(
             get_class($event->user),
-            $event->user->id,
-            $event->user->id,
+            (int) $event->user->id,
             'roleUpdated',
             'users',
             $description,
-            $properties,
+            old: ['roles' => $oldRoles],
+            new: ['roles' => $newRoles],
+            context: [
+                'source' => 'queue',
+                'job' => self::class,
+                'roles_added' => array_values($added),
+                'roles_removed' => array_values($removed),
+            ],
+            causerId: (int) $event->user->id,
+            causerType: get_class($event->user),
         );
     }
 }

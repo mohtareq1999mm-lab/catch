@@ -15,6 +15,7 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         \App\Console\Commands\CancelUnpaidOrders::class,
         \App\Console\Commands\ExpireCouponReservations::class,
+        \App\Console\Commands\ExpireCouponClaims::class,
         \App\Console\Commands\MigrateInventoryReservations::class,
         \App\Console\Commands\NotifyAbandonedCarts::class,
         \App\Console\Commands\NotifyPromotionsEndingSoon::class,
@@ -26,6 +27,7 @@ class Kernel extends ConsoleKernel
     {
         $schedule->command('orders:cancel-unpaid')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('coupons:expire-reservations')->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command('coupons:expire-claims')->hourly()->withoutOverlapping();
         $schedule->command('cart:notify-abandoned')->hourly()->withoutOverlapping();
         $schedule->command('promotions:notify-ending-soon')->daily()->withoutOverlapping();
         $schedule->command('flash-sales:notify-ending-soon')->daily()->withoutOverlapping();
@@ -47,6 +49,14 @@ class Kernel extends ConsoleKernel
         // HandleFailedQueueJob alerts on every final failure at occurrence time.
         $schedule->command('queue:prune-failed --hours=720')->dailyAt('03:15')->withoutOverlapping();
         $schedule->command('imports:prune --days=14')->dailyAt('03:30')->withoutOverlapping();
+
+        // Activity log retention: keep the latest 90 days. Runs quarterly.
+        // Retention (90 days) is independent of the quarterly schedule frequency.
+        $schedule->command('activitylog:prune --days=90')
+            ->cron('0 3 1 */3 *')
+            ->timezone('UTC')
+            ->withoutOverlapping();
+
         $schedule->command('currency:sync-rates')
             ->everySixHours()
             ->timezone('UTC')

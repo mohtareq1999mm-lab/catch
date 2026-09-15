@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\InvoiceController;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 use Marvel\Http\Controllers\AddressController;
+use Marvel\Http\Controllers\ActivityLogController;
 use Marvel\Http\Controllers\AttributeController;
 use Marvel\Http\Controllers\BannerController;
 use Marvel\Http\Controllers\BrandController;
@@ -117,6 +118,9 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     //======================== settings site ========================/
     Route::get('settings', [SettingsController::class, 'index']);
     Route::put('settings', [SettingsController::class, 'update']);
+
+    //======================== activity log ========================/
+    Route::get('logs/activity', [ActivityLogController::class, 'index'])->name('admin.activity-log.index');
 
     Route::get('fast-shipping/settings', [FastShippingController::class, 'getSettings']);
     Route::put('fast-shipping/settings', [FastShippingController::class, 'updateSettings']);

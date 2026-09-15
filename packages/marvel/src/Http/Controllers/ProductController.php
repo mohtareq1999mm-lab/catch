@@ -3,6 +3,7 @@
 namespace Marvel\Http\Controllers;
 
 use App\Enums\FrontendResource;
+use App\Audit\ActivityAuditService;
 use App\Traits\HasCache;
 use Exception;
 use Carbon\Carbon;
@@ -108,7 +109,8 @@ class ProductController extends CoreController
         $this->middleware("permission:" . Permission::VIEW_PRODUCTS, ["only" => ["index", "show"]]);
         $this->middleware("permission:" . Permission::CREATE_PRODUCT, ["only" => ["store"]]);
         $this->middleware("permission:" . Permission::UPDATE_PRODUCT, ["only" => ["update"]]);
-        $this->middleware("permission:" . Permission::DELETE_PRODUCT, ["only" => ["destroy", 'destroyAll', 'destroyBulk']]);
+        $this->middleware("permission:" . Permission::DELETE_PRODUCT, ["only" => ["destroy", 'destroyBulk']]);
+        $this->middleware("permission:" . Permission::DELETE_ALL_PRODUCTS, ["only" => ["destroyAll"]]);
     }
 
 
@@ -363,6 +365,13 @@ class ProductController extends CoreController
 
     public function destroyAll(Request $request)
     {
+        if (!$request->boolean('confirm')) {
+            return $this->apiResponse(__('message.MESSAGE.DESTROY_ALL_CONFIRMATION_REQUIRED'), 422, false);
+        }
+
+        $batchUuid = (string) Str::uuid();
+        $reason = $request->input('reason');
+
         try {
             $count = Product::count();
             Product::chunk(100, function ($products) {
@@ -370,8 +379,20 @@ class ProductController extends CoreController
                     $this->deleteProduct($product);
                 }
             });
+
+            ActivityAuditService::recordBatch(
+                'products',
+                'destroy_all',
+                __('activity.destroy_all_products'),
+                context: ['source' => 'api', 'batch_uuid' => $batchUuid],
+                properties: ['affected_count' => $count],
+                batchUuid: $batchUuid,
+                reason: $reason,
+            );
+
             return $this->apiResponse(PRODUCTS_DELETED_SUCCESSFULLY, 200, true, [
                 'deleted_count' => $count,
+                'batch_uuid' => $batchUuid,
             ]);
         } catch (\Exception $e) {
             throw new MarvelException(SOMETHING_WENT_WRONG);
@@ -391,6 +412,8 @@ class ProductController extends CoreController
     {
         try {
             $ids = $request->input('ids');
+            $batchUuid = (string) Str::uuid();
+            $reason = $request->input('reason');
 
             Product::whereIn('id', $ids)->chunk(100, function ($products) {
                 foreach ($products as $product) {
@@ -398,9 +421,20 @@ class ProductController extends CoreController
                 }
             });
 
+            ActivityAuditService::recordBatch(
+                'products',
+                'bulk_delete',
+                __('activity.products_bulk_deleted'),
+                context: ['source' => 'api', 'batch_uuid' => $batchUuid],
+                properties: ['deleted_ids' => $ids, 'affected_count' => count($ids)],
+                batchUuid: $batchUuid,
+                reason: $reason,
+            );
+
             $this->flushTag(FrontendResource::PRODUCTS->value);
             return $this->apiResponse(PRODUCTS_DELETED_SUCCESSFULLY, 200, true, [
                 'deleted_ids' => $ids,
+                'batch_uuid' => $batchUuid,
             ]);
         } catch (MarvelException $e) {
             throw new MarvelException($e->getMessage());

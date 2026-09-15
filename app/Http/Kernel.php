@@ -44,6 +44,7 @@ class Kernel extends HttpKernel
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            \App\Http\Middleware\RequestIdMiddleware::class,
             \App\Http\Middleware\ChannelMiddleware::class,
             \App\Http\Middleware\CheckLangMiddleware::class,
         ],

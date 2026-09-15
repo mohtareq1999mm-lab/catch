@@ -541,6 +541,7 @@ return [
     'MESSAGE.DEBIT_NOTE_ISSUED_SUCCESSFULLY' => 'Debit note issued successfully',
     'MESSAGE.FLASH_SALE_REQUEST_APPROVED_SUCCESSFULLY' => 'Flash sale request approved successfully',
     'MESSAGE.FLASH_SALE_REQUEST_DISAPPROVED_SUCCESSFULLY' => 'Flash sale request disapproved successfully',
+    'MESSAGE.DESTROY_ALL_CONFIRMATION_REQUIRED' => 'Confirmation is required to delete all products.',
 
     'too_many_requests' => 'Too many requests. Please try again later.',
 ];

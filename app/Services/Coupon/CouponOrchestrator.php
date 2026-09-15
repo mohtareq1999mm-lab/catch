@@ -23,19 +23,27 @@ class CouponOrchestrator
     public static function validate(Coupon $coupon, ?User $user = null, ?Collection $items = null): array
     {
         // NEW: Check claim requirement BEFORE other validation
-        // This ensures claim-required coupons cannot be applied without claiming first
+        // This ensures claim-required coupons can only be applied with current usable ACTIVE claims
+        // Phase 2: A claim is usable only if status=ACTIVE and not expired (expires_at IS NULL or > now())
         // SAFETY: Check if relationship exists (table may not exist in test environment)
         if ($user && method_exists($coupon, 'targeting')) {
             try {
                 $targeting = $coupon->targeting;
                 
                 if ($targeting && $targeting->require_claim) {
-                    $hasClaim = CouponClaim::query()
+                    // Phase 2 fix: Check for current usable ACTIVE claim (not historical)
+                    // Expired/redeemed claims do NOT satisfy require_claim
+                    $hasActiveClaim = CouponClaim::query()
                         ->where('coupon_id', $coupon->getKey())
                         ->where('user_id', $user->getKey())
+                        ->where('status', \App\Enums\CouponClaimStatus::ACTIVE)
+                        ->where(function ($q) {
+                            $q->whereNull('expires_at')
+                              ->orWhere('expires_at', '>', now());
+                        })
                         ->exists();
 
-                    if (!$hasClaim) {
+                    if (!$hasActiveClaim) {
                         return self::invalid('claim_required', __('coupon.claim_required'));
                     }
                 }

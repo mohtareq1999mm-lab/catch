@@ -3,6 +3,7 @@
 namespace Marvel\Http\Controllers;
 
 use App\Enums\FrontendResource;
+use App\Audit\ActivityAuditService;
 use App\Services\Currency\CurrencyService;
 use App\Traits\HasCache;
 use Illuminate\Http\JsonResponse;
@@ -43,6 +44,7 @@ class SettingsController extends CoreController
     {
         $settings = Settings::first();
 
+        $oldAttributes = $settings->getAttributes();
 
         $data = $request->only([
             'site_name',
@@ -96,6 +98,16 @@ class SettingsController extends CoreController
         }
         $this->flushTag(FrontendResource::SETTINGS->value);
         $settings = Settings::first();
+
+        ActivityAuditService::recordModel(
+            $settings,
+            'settings_updated',
+            'settings',
+            __('activity.settings_updated'),
+            old: $oldAttributes,
+            new: $settings->getAttributes(),
+        );
+
         return $this->apiResponse(SETTINGS_UPDATED_SUCCESSFULLY, 200, true, SettingResource::make($settings));
     }
 

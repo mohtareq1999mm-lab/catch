@@ -3,6 +3,7 @@
 
 namespace Marvel\Database\Repositories;
 
+use App\Audit\ActivityAuditService;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -341,11 +342,33 @@ class OrderRepository extends BaseRepository
             }
 
             if ($variationId) {
+                $variation = Variation::find($variationId);
+                $oldStock = $variation ? $variation->stock_quantity : null;
                 Variation::where('id', $variationId)
                     ->decrement('stock_quantity', $orderQuantity);
+                if ($variation) {
+                    ActivityAuditService::recordModel(
+                        $variation,
+                        'inventory_decremented',
+                        'inventory',
+                        __('activity.inventory_decremented'),
+                        old: ['stock_quantity' => $oldStock],
+                        new: ['stock_quantity' => max(0, (int) $oldStock - (int) $orderQuantity)],
+                        context: ['order_id' => $productId],
+                    );
+                }
             } else {
+                $oldStock = $product->stock_quantity;
                 Product::where('id', $productId)
                     ->decrement('stock_quantity', $orderQuantity);
+                ActivityAuditService::recordModel(
+                    $product,
+                    'inventory_decremented',
+                    'inventory',
+                    __('activity.inventory_decremented'),
+                    old: ['stock_quantity' => $oldStock],
+                    new: ['stock_quantity' => max(0, (int) $oldStock - (int) $orderQuantity)],
+                );
             }
         }
     }

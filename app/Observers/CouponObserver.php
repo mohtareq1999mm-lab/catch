@@ -2,22 +2,20 @@
 
 namespace App\Observers;
 
+use App\Audit\ActivityAuditService;
 use App\Events\CouponCreated;
-use App\Jobs\LogActivityJob;
-use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Coupon;
 
 class CouponObserver
 {
     public function created(Coupon $coupon): void
     {
-        LogActivityJob::dispatch(
-            get_class($coupon),
-            $coupon->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $coupon,
             'created',
             'coupons',
             __('activity.coupon_created'),
+            new: $coupon->getAttributes(),
         );
 
         event(new CouponCreated($coupon));
@@ -43,14 +41,13 @@ class CouponObserver
                 : __('activity.coupon_disabled');
             $description = $description ?: ($newStatus ? 'Coupon enabled' : 'Coupon disabled');
 
-            LogActivityJob::dispatch(
-                get_class($coupon),
-                $coupon->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $coupon,
                 'statusChanged',
                 'coupons',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
         }
 
@@ -58,32 +55,32 @@ class CouponObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'status') continue;
+                if ($key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $coupon->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($coupon),
-                $coupon->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $coupon,
                 'updated',
                 'coupons',
                 __('activity.coupon_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
     }
 
     public function deleted(Coupon $coupon): void
     {
-        LogActivityJob::dispatch(
-            get_class($coupon),
-            $coupon->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $coupon,
             'deleted',
             'coupons',
             __('activity.coupon_deleted'),
+            old: $coupon->getAttributes(),
         );
     }
 }

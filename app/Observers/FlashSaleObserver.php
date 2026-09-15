@@ -2,11 +2,10 @@
 
 namespace App\Observers;
 
+use App\Audit\ActivityAuditService;
 use App\Enums\FrontendResource;
 use App\Events\FlashSaleActivated;
-use App\Jobs\LogActivityJob;
 use App\Traits\HasCache;
-use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\FlashSale;
 
 class FlashSaleObserver
@@ -17,13 +16,12 @@ class FlashSaleObserver
     {
         $this->flushFlashSaleCache();
 
-        LogActivityJob::dispatch(
-            get_class($flashSale),
-            $flashSale->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $flashSale,
             'created',
             'flash_sales',
             __('activity.flash_sale_created'),
+            new: $flashSale->getAttributes(),
         );
 
         if ($flashSale->status === true) {
@@ -53,14 +51,13 @@ class FlashSaleObserver
                 : __('activity.flash_sale_deactivated');
             $description = $description ?: ($newStatus ? 'Flash sale activated' : 'Flash sale deactivated');
 
-            LogActivityJob::dispatch(
-                get_class($flashSale),
-                $flashSale->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $flashSale,
                 'statusChanged',
                 'flash_sales',
                 $description,
-                ['old' => ['status' => (string) $oldStatus], 'new' => ['status' => (string) $newStatus]],
+                old: ['status' => $oldStatus],
+                new: ['status' => $newStatus],
             );
 
             if ($oldStatus == false && $newStatus == true) {
@@ -72,19 +69,20 @@ class FlashSaleObserver
             $oldValues = [];
             $newValues = [];
             foreach ($dirty as $key => $newValue) {
-                if ($key === 'status') continue;
+                if ($key === 'status') {
+                    continue;
+                }
                 $oldValues[$key] = $flashSale->getOriginal($key);
                 $newValues[$key] = $newValue;
             }
 
-            LogActivityJob::dispatch(
-                get_class($flashSale),
-                $flashSale->id,
-                Auth::id(),
+            ActivityAuditService::recordModel(
+                $flashSale,
                 'updated',
                 'flash_sales',
                 __('activity.flash_sale_updated'),
-                ['old' => $oldValues, 'new' => $newValues],
+                old: $oldValues,
+                new: $newValues,
             );
         }
     }
@@ -93,13 +91,12 @@ class FlashSaleObserver
     {
         $this->flushFlashSaleCache();
 
-        LogActivityJob::dispatch(
-            get_class($flashSale),
-            $flashSale->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $flashSale,
             'deleted',
             'flash_sales',
             __('activity.flash_sale_deleted'),
+            old: $flashSale->getAttributes(),
         );
     }
 
@@ -107,13 +104,12 @@ class FlashSaleObserver
     {
         $this->flushFlashSaleCache();
 
-        LogActivityJob::dispatch(
-            get_class($flashSale),
-            $flashSale->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $flashSale,
             'restored',
             'flash_sales',
             __('activity.flash_sale_restored'),
+            new: $flashSale->getAttributes(),
         );
     }
 
@@ -121,20 +117,15 @@ class FlashSaleObserver
     {
         $this->flushFlashSaleCache();
 
-        LogActivityJob::dispatch(
-            get_class($flashSale),
-            $flashSale->id,
-            Auth::id(),
+        ActivityAuditService::recordModel(
+            $flashSale,
             'forceDeleted',
             'flash_sales',
             __('activity.flash_sale_force_deleted'),
+            old: $flashSale->getAttributes(),
         );
     }
 
-    /**
-     * Invalidate the frontend flash sales listing cache so the next request
-     * rebuilds from the database.
-     */
     private function flushFlashSaleCache(): void
     {
         $this->flushTag(FrontendResource::FLASH_SALES->value);

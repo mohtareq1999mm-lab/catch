@@ -29,24 +29,20 @@ return new class extends Migration
             $table->dropUnique(['coupon_id', 'user_id']);
         });
 
-        $driver = DB::getDriverName();
-
-        if ($driver === 'mysql') {
-            DB::statement('
-                CREATE UNIQUE INDEX idx_active_claim
-                ON coupon_claims(coupon_id, user_id)
-                WHERE status = ?
-            ', ['active']);
-        }
+        // FIX 1: Database Constraint Strategy
+        // Application-level enforcement via FOR UPDATE (proven correct in Phase 1)
+        // MySQL does NOT support filtered unique indexes (WHERE clause silently ignored)
+        // SQLite DOES support them, but application enforcement is database-agnostic
+        Schema::table('coupon_claims', function (Blueprint $table) {
+            $table->index(['coupon_id', 'user_id', 'status'], 'idx_claim_lookup');
+        });
     }
 
     public function down(): void
     {
-        $driver = DB::getDriverName();
-
-        if ($driver === 'mysql') {
-            DB::statement('DROP INDEX idx_active_claim ON coupon_claims');
-        }
+        Schema::table('coupon_claims', function (Blueprint $table) {
+            $table->dropIndex('idx_claim_lookup');
+        });
 
         DB::statement('
             DELETE c1 FROM coupon_claims c1
