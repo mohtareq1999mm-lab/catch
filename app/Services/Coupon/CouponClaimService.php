@@ -73,10 +73,18 @@ class CouponClaimService
             if ($targeting->max_claims !== null) {
                 $occupiedSlots = CouponClaim::query()
                     ->where('coupon_id', $coupon->getKey())
-                    ->whereIn('status', [
-                        CouponClaimStatus::ACTIVE,
-                        CouponClaimStatus::REDEEMED,
-                    ])
+                    ->where(function ($q) {
+                        // REDEEMED claims always count (permanent records)
+                        $q->where('status', CouponClaimStatus::REDEEMED)
+                          // ACTIVE claims count only if not expired by time
+                          ->orWhere(function ($q2) {
+                              $q2->where('status', CouponClaimStatus::ACTIVE)
+                                 ->where(function ($q3) {
+                                     $q3->whereNull('expires_at')
+                                        ->orWhere('expires_at', '>', now());
+                                 });
+                          });
+                    })
                     ->count();
 
                 if ($occupiedSlots >= $targeting->max_claims) {
