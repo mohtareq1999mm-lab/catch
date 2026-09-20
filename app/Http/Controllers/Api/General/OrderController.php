@@ -172,6 +172,13 @@ class OrderController extends Controller
         if (!$paymentId) {
             return $this->apiResponse(MISSING_PAYMENT_ID, 400, false);
         }
+        if (!is_string($paymentId) || strlen($paymentId) > 191 || !preg_match('/^[A-Za-z0-9\-_]+$/', $paymentId)) {
+            return $this->apiResponse(MISSING_PAYMENT_ID, 400, false);
+        }
+        $callbackTypeInput = $request->input('type', $request->query('type'));
+        if ($callbackTypeInput !== null && !in_array($callbackTypeInput, ['web', 'mobile'], true)) {
+            return $this->apiResponse(INVALID_PAYMENT_METHOD, 400, false);
+        }
 
         $gatewayName = 'myfatoorah';
 
@@ -212,17 +219,21 @@ class OrderController extends Controller
 
         if (!$result->success) {
             if ($transaction) {
-                $existingResponse = is_array($transaction->gateway_response) ? $transaction->gateway_response : [];
-                $callbackType = $existingResponse['_callback_type'] ?? null;
-                $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
-                if ($callbackType) {
-                    $mergedResponse['_callback_type'] = $callbackType;
-                }
-                $transaction->update([
-                    'status' => $result->status ?? 'failed',
-                    'gateway_response' => $mergedResponse,
-                    'error_message' => $result->errorMessage,
-                ]);
+                $sanitizedFail = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? '')), 500, '');
+                DB::transaction(function () use ($transaction, $paymentId, $verifiedInvoiceId, $result, $sanitizedFail) {
+                    $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
+                    if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
+                    if (!$lt || $lt->status !== 'pending') return;
+                    $existingResponse = is_array($lt->gateway_response) ? $lt->gateway_response : [];
+                    $callbackType = $existingResponse['_callback_type'] ?? null;
+                    $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
+                    if ($callbackType) $mergedResponse['_callback_type'] = $callbackType;
+                    $lt->update([
+                        'status' => $result->status ?? 'failed',
+                        'gateway_response' => $mergedResponse,
+                        'error_message' => $sanitizedFail,
+                    ]);
+                });
             }
 
             try {
@@ -233,7 +244,8 @@ class OrderController extends Controller
                 report($e);
             }
 
-            $errorMessage = $result->errorMessage ?? __(PAYMENT_FAILED);
+            $rawError = $result->errorMessage ?? __(PAYMENT_FAILED);
+            $errorMessage = \Illuminate\Support\Str::limit(strip_tags((string) $rawError), 500, '');
 
             if ($callbackType === 'mobile') {
                 return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, [
@@ -267,75 +279,14 @@ class OrderController extends Controller
         }
 
         $isTestGateway = str_contains(config('services.myfatoorah.base_url', ''), 'apitest');
+        $isProduction = app()->environment('production');
 
-        $hasMismatch = false;
-
-        if ($result->amount !== null && abs((float) $result->amount - (float) $order->total_price) > 0.01) {
-            if ($isTestGateway) {
-                \Log::info('Payment amount mismatch ignored (test gateway)', [
-                    'order_id' => $order->id,
-                    'expected' => (float) $order->total_price,
-                    'received' => $result->amount,
-                ]);
-            } else {
-                $hasMismatch = true;
-                \Log::warning('Payment amount mismatch - blocking order', [
-                    'order_id' => $order->id,
-                    'expected' => (float) $order->total_price,
-                    'received' => $result->amount,
-                    'currency' => $result->currency,
-                ]);
-            }
-        }
-
-        $expectedCurrency = $order->currency_code ?? $order->base_currency_code ?? config('payment.default_currency', 'EGP');
-
-        if (!$hasMismatch && $result->currency !== null && $result->currency !== $expectedCurrency) {
-            if ($isTestGateway) {
-                \Log::info('Payment currency mismatch ignored (test gateway)', [
-                    'order_id' => $order->id,
-                    'expected' => $expectedCurrency,
-                    'received' => $result->currency,
-                ]);
-            } else {
-                $hasMismatch = true;
-                \Log::warning('Payment currency mismatch - blocking order', [
-                    'order_id' => $order->id,
-                    'expected' => $expectedCurrency,
-                    'received' => $result->currency,
-                ]);
-            }
-        }
-
-        if ($hasMismatch) {
-            if ($transaction) {
-                $transaction->update([
-                    'error_message' => $result->errorMessage ?? 'Amount or currency mismatch',
-                ]);
-            }
-            try {
-                event(new PaymentFailed($order));
-            } catch (\Throwable $e) {
-                report($e);
-            }
-            $errorMessage = $result->errorMessage ?? __(PAYMENT_FAILED);
-            if ($callbackType === 'mobile') {
-                return $this->apiResponse(PAYMENT_FAILED, 400, false, [
-                    'status' => 'failed',
-                    'message' => $errorMessage,
-                    'payment_id' => $paymentId,
-                ]);
-            }
-            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
-                'status' => 'failed',
-                'message' => $errorMessage,
-                'payment_id' => $paymentId,
-            ]));
-        }
-
+        // Transactionally safe mismatch handling + success path under same lock.
+        // Uses integer cents to avoid floating-point authority errors.
         $processed = false;
+        $mismatchHandled = false;
 
-        DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, &$processed) {
+        DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, $isTestGateway, $isProduction, &$processed, &$mismatchHandled) {
             $lockedTransaction = Transaction::where('gateway_transaction_id', $paymentId)
                 ->orWhere('invoice_id', $paymentId)
                 ->lockForUpdate()
@@ -362,16 +313,95 @@ class OrderController extends Controller
                 return;
             }
 
+            // Re-evaluate amount/currency inside the lock (fail-closed on null). Use 1000 factor for 3-decimal currencies (KWD/BHD).
+            $hasMismatch = false;
+            $expectedCents = (int) round((float) $lockedOrder->total_price * 1000);
+            $receivedCents = $result->amount !== null ? (int) round((float) $result->amount * 1000) : null;
+            $receivedCurrency = $result->currency !== null ? strtoupper(trim((string) $result->currency)) : null;
+            $expectedCurrencyFresh = $lockedOrder->currency_code ?? $lockedOrder->base_currency_code ?? config('payment.default_currency', 'EGP');
+            $expectedCurrencyNorm = strtoupper(trim((string) $expectedCurrencyFresh));
+
+            if ($receivedCents === null) {
+                $hasMismatch = true;
+                \Log::warning('Payment amount missing - blocking order', [
+                    'order_id' => $lockedOrder->id,
+                    'expected_cents' => $expectedCents,
+                    'received' => $result->amount,
+                ]);
+            } elseif ($receivedCents !== $expectedCents) {
+                if ($isTestGateway && !$isProduction) {
+                    \Log::info('Payment amount mismatch ignored (test gateway, non-production)', [
+                        'order_id' => $lockedOrder->id,
+                        'expected_cents' => $expectedCents,
+                        'received_cents' => $receivedCents,
+                        'expected' => (float) $lockedOrder->total_price,
+                        'received' => $result->amount,
+                    ]);
+                } else {
+                    $hasMismatch = true;
+                    \Log::warning('Payment amount mismatch - blocking order', [
+                        'order_id' => $lockedOrder->id,
+                        'expected_cents' => $expectedCents,
+                        'received_cents' => $receivedCents,
+                        'currency' => $result->currency,
+                    ]);
+                }
+            }
+
+            if (!$hasMismatch) {
+                if ($receivedCurrency === null) {
+                    $hasMismatch = true;
+                    \Log::warning('Payment currency missing - blocking order', [
+                        'order_id' => $lockedOrder->id,
+                        'expected' => $expectedCurrencyNorm,
+                        'received' => $result->currency,
+                    ]);
+                } elseif ($receivedCurrency !== $expectedCurrencyNorm) {
+                    if ($isTestGateway && !$isProduction) {
+                        \Log::info('Payment currency mismatch ignored (test gateway, non-production)', [
+                            'order_id' => $lockedOrder->id,
+                            'expected' => $expectedCurrencyNorm,
+                            'received' => $receivedCurrency,
+                        ]);
+                    } else {
+                        $hasMismatch = true;
+                        \Log::warning('Payment currency mismatch - blocking order', [
+                            'order_id' => $lockedOrder->id,
+                            'expected' => $expectedCurrencyNorm,
+                            'received' => $receivedCurrency,
+                        ]);
+                    }
+                }
+            }
+
+            if ($hasMismatch) {
+                $existingResponse = is_array($lockedTransaction->gateway_response) ? $lockedTransaction->gateway_response : [];
+                $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
+                // Preserve callback type if present
+                if (isset($existingResponse['_callback_type'])) {
+                    $mergedResponse['_callback_type'] = $existingResponse['_callback_type'];
+                }
+                $sanitizedMismatch = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? 'Amount or currency mismatch')), 500, '');
+                $lockedTransaction->update([
+                    'status' => 'failed',
+                    'gateway_response' => $mergedResponse,
+                    'error_message' => $sanitizedMismatch,
+                ]);
+                $mismatchHandled = true;
+                return;
+            }
+
             $existingResponse = is_array($lockedTransaction->gateway_response) ? $lockedTransaction->gateway_response : [];
             $callbackType = $existingResponse['_callback_type'] ?? null;
             $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
             if ($callbackType) {
                 $mergedResponse['_callback_type'] = $callbackType;
             }
+            $sanitizedPaid = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? '')), 500, '');
             $lockedTransaction->update([
                 'status' => 'paid',
                 'gateway_response' => $mergedResponse,
-                'error_message' => $result->errorMessage,
+                'error_message' => $sanitizedPaid ?: null,
                 'paid_at' => now(),
             ]);
 
@@ -398,6 +428,28 @@ class OrderController extends Controller
 
             $processed = true;
         });
+
+        if ($mismatchHandled) {
+            try {
+                event(new PaymentFailed($order));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+            $rawError = $result->errorMessage ?? __(PAYMENT_FAILED);
+            $errorMessage = \Illuminate\Support\Str::limit(strip_tags((string) $rawError), 500, '');
+            if ($callbackType === 'mobile') {
+                return $this->apiResponse(PAYMENT_FAILED, 400, false, [
+                    'status' => 'failed',
+                    'message' => $errorMessage,
+                    'payment_id' => $paymentId,
+                ]);
+            }
+            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+                'status' => 'failed',
+                'message' => $errorMessage,
+                'payment_id' => $paymentId,
+            ]));
+        }
 
         if ($processed) {
             try {
@@ -430,6 +482,13 @@ class OrderController extends Controller
         $paymentId = $request->query('paymentId', $request->input('paymentId'));
         if (!$paymentId) {
             return $this->apiResponse(MISSING_PAYMENT_ID, 400, false);
+        }
+        if (!is_string($paymentId) || strlen($paymentId) > 191 || !preg_match('/^[A-Za-z0-9\-_]+$/', $paymentId)) {
+            return $this->apiResponse(MISSING_PAYMENT_ID, 400, false);
+        }
+        $callbackTypeInput = $request->input('type', $request->query('type'));
+        if ($callbackTypeInput !== null && !in_array($callbackTypeInput, ['web', 'mobile'], true)) {
+            return $this->apiResponse(INVALID_PAYMENT_METHOD, 400, false);
         }
 
         $gatewayName = 'myfatoorah';
@@ -470,6 +529,68 @@ class OrderController extends Controller
         $errorCallbackType = $this->getCallbackType($transaction, $request);
 
         if ($result->success) {
+            $isTestGatewayErr = str_contains(config('services.myfatoorah.base_url', ''), 'apitest');
+            $isProductionErr = app()->environment('production');
+            $mismatchInError = false;
+            $processedErrorSuccess = false;
+            DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $result, $isTestGatewayErr, $isProductionErr, &$mismatchInError, &$processedErrorSuccess) {
+                $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
+                if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
+                if (!$lt) return;
+                $lockedOrder = $lt->order()->lockForUpdate()->first();
+                if (!$lockedOrder) return;
+                if ($lockedOrder->status !== 'pending') return;
+                $expectedCurrencyErr = $lockedOrder->currency_code ?? $lockedOrder->base_currency_code ?? config('payment.default_currency', 'EGP');
+                $expectedCentsErr = (int) round((float) $lockedOrder->total_price * 1000);
+                $receivedCentsErr = $result->amount !== null ? (int) round((float) $result->amount * 1000) : null;
+                $receivedCurrencyErr = $result->currency !== null ? strtoupper(trim((string) $result->currency)) : null;
+                $expectedCurrencyNormErr = strtoupper(trim((string) $expectedCurrencyErr));
+                $hasMismatch = false;
+                if ($receivedCentsErr === null) $hasMismatch = true;
+                elseif ($receivedCentsErr !== $expectedCentsErr) {
+                    if (!($isTestGatewayErr && !$isProductionErr)) $hasMismatch = true;
+                }
+                if (!$hasMismatch) {
+                    if ($receivedCurrencyErr === null) $hasMismatch = true;
+                    elseif ($receivedCurrencyErr !== $expectedCurrencyNormErr) {
+                        if (!($isTestGatewayErr && !$isProductionErr)) $hasMismatch = true;
+                    }
+                }
+                if ($hasMismatch) {
+                    $sanitized = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? 'Amount or currency mismatch')), 500, '');
+                    $merged = is_array($result->rawResponse) ? $result->rawResponse : [];
+                    if (isset($lt->gateway_response['_callback_type'])) $merged['_callback_type'] = $lt->gateway_response['_callback_type'];
+                    $lt->update(['status'=>'failed','gateway_response'=>$merged,'error_message'=>$sanitized]);
+                    $mismatchInError = true;
+                    return;
+                }
+                // Success with no mismatch via error-callback: complete payment atomically (avoid orphan pending)
+                $existingResponse = is_array($lt->gateway_response) ? $lt->gateway_response : [];
+                $cbType = $existingResponse['_callback_type'] ?? null;
+                $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
+                if ($cbType) $mergedResponse['_callback_type'] = $cbType;
+                $sanitizedOk = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? '')), 500, '');
+                $lt->update(['status'=>'paid','gateway_response'=>$mergedResponse,'error_message'=>$sanitizedOk ?: null,'paid_at'=>now()]);
+                $orderUpdateData = [];
+                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'payment_status')) $orderUpdateData['payment_status'] = \Marvel\Enums\PaymentStatus::SUCCESS;
+                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'paid_at')) $orderUpdateData['paid_at'] = now();
+                if (!empty($orderUpdateData)) $lockedOrder->update($orderUpdateData);
+                app(\App\Services\Inventory\OrderReservationService::class)->commit($lockedOrder);
+                app(\App\Services\General\OrderService::class)->finalizePromotionUsageAfterPayment($lockedOrder);
+                app(\App\Services\General\OrderService::class)->changeOrderStatus($lt->invoice_id, 'completed', null, false);
+                $processedErrorSuccess = true;
+            });
+            if ($mismatchInError) {
+                $sanitized = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? 'Amount or currency mismatch')), 500, '');
+                try { if ($order) event(new PaymentFailed($order)); } catch (\Throwable $e) { report($e); }
+                if ($errorCallbackType === 'mobile') {
+                    return $this->apiResponse(PAYMENT_FAILED, 400, false, ['status'=>'failed','message'=>$sanitized,'payment_id'=>$paymentId]);
+                }
+                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(['status'=>'failed','message'=>$sanitized,'payment_id'=>$paymentId]));
+            }
+            if ($processedErrorSuccess) {
+                try { event(new \App\Events\PaymentSucceeded($order ? $order->fresh() : null)); } catch (\Throwable $e) { report($e); }
+            }
             if ($errorCallbackType === 'mobile') {
                 return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, [
                     'status' => 'success',
@@ -477,7 +598,6 @@ class OrderController extends Controller
                     'payment_id' => $paymentId,
                 ]);
             }
-
             return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/success?' . http_build_query([
                 'status' => 'success',
                 'message' => __(PAYMENT_SUCCESSFUL),
@@ -485,7 +605,8 @@ class OrderController extends Controller
             ]));
         }
 
-        $errorMessage = $result->errorMessage ?? __(PAYMENT_FAILED);
+        $rawError = $result->errorMessage ?? __(PAYMENT_FAILED);
+        $errorMessage = \Illuminate\Support\Str::limit(strip_tags((string) $rawError), 500, '');
 
         DB::transaction(function () use ($transaction, $paymentId, $verifiedInvoiceId, $result, $errorMessage) {
             $lockedTransaction = Transaction::where('gateway_transaction_id', $paymentId)
@@ -503,8 +624,7 @@ class OrderController extends Controller
             if (!$lockedTransaction) {
                 return;
             }
-
-            if ($lockedTransaction->status === 'failed') {
+            if ($lockedTransaction->status !== 'pending') {
                 return;
             }
 
@@ -514,6 +634,7 @@ class OrderController extends Controller
             if ($callbackType) {
                 $mergedResponse['_callback_type'] = $callbackType;
             }
+
             $lockedTransaction->update([
                 'status' => 'failed',
                 'gateway_response' => $mergedResponse,
@@ -575,10 +696,14 @@ class OrderController extends Controller
     {
         if ($transaction && is_array($transaction->gateway_response)) {
             $storedType = $transaction->gateway_response['_callback_type'] ?? null;
-            if ($storedType) {
+            if ($storedType && in_array($storedType, ['web', 'mobile'], true)) {
                 return $storedType;
             }
         }
-        return $request->type ?? 'web';
+        $requested = $request->input('type', $request->query('type'));
+        if (in_array($requested, ['web', 'mobile'], true)) {
+            return $requested;
+        }
+        return 'web';
     }
 }

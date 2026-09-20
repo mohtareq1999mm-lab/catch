@@ -16,6 +16,32 @@ class CouponConfigurationController extends Controller
         $this->middleware(['auth:sanctum']);
     }
 
+    private function authorizeAdmin(\Illuminate\Http\Request $request): void
+    {
+        $user = $request->user();
+        if (!$user) {
+            abort(401, 'Unauthenticated.');
+        }
+        try {
+            if (method_exists($user, 'hasPermissionTo') && ($user->hasPermissionTo('view-coupons') || $user->hasPermissionTo('update-coupon') || $user->hasPermissionTo('create-coupon'))) {
+                return;
+            }
+            if (method_exists($user, 'can') && ($user->can('view-coupons') || $user->can('update-coupon'))) {
+                return;
+            }
+            if (($user->type ?? null) === 'admin' || ($user->role ?? null) === 'admin') {
+                if (method_exists($user, 'hasPermissionTo')) {
+                    abort(403, 'Forbidden. Missing required permission: view-coupons.');
+                }
+                return;
+            }
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+        }
+        abort(403, 'Forbidden. Missing required permission: view-coupons.');
+    }
+
     /**
      * Validate coupon configuration before save
      *
@@ -23,6 +49,7 @@ class CouponConfigurationController extends Controller
      */
     public function validateConfiguration(Request $request)
     {
+        $this->authorizeAdmin($request);
         $validated = $request->validate([
             'coupon_type' => 'required|in:public,assigned',
             'limiter' => 'nullable|integer|min:1',
@@ -94,8 +121,9 @@ class CouponConfigurationController extends Controller
      *
      * GET /api/v1/admin/coupons/{id}/usage-info
      */
-    public function getUsageInfo($couponId)
+    public function getUsageInfo(Request $request, $couponId)
     {
+        $this->authorizeAdmin($request);
         $coupon = Coupon::with(['assignments', 'couponUsages'])->findOrFail($couponId);
 
         $isPublic = $coupon->isPublic();
@@ -136,6 +164,7 @@ class CouponConfigurationController extends Controller
      */
     public function suggestFix($couponId, Request $request)
     {
+        $this->authorizeAdmin($request);
         $coupon = Coupon::with('assignments')->findOrFail($couponId);
 
         $desiredBehavior = $request->input('desired_behavior'); // 'multi_use_per_user' or 'single_use_per_user'

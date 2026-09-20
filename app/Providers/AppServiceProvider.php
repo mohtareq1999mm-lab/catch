@@ -104,7 +104,7 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('authenticated', function (Request $request) {
             return Limit::perMinute(300)
-                ->by($request->user()->id)
+                ->by($request->user()?->id ?? $request->ip())
                 ->response(function (Request $request, array $headers) {
                     return response()->json([
                         'success' => false,
@@ -116,7 +116,7 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('admin', function (Request $request) {
             return Limit::perMinute(400)
-                ->by($request->user()->id)
+                ->by($request->user()?->id ?? $request->ip())
                 ->response(function (Request $request, array $headers) {
                     return response()->json([
                         'success' => false,
@@ -124,6 +124,56 @@ class AppServiceProvider extends ServiceProvider
                         'data' => null,
                     ], 429, $headers);
                 });
+        });
+
+        RateLimiter::for('payment-callback', function (Request $request) {
+            return Limit::perMinute(20)
+                ->by($request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => __('message.too_many_requests'),
+                        'data' => null,
+                    ], 429, $headers);
+                });
+        });
+
+        RateLimiter::for('public-tracking', function (Request $request) {
+            return Limit::perMinute(10)
+                ->by($request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => __('message.too_many_requests'),
+                        'data' => null,
+                    ], 429, $headers);
+                });
+        });
+
+        RateLimiter::for('sensitive', function (Request $request) {
+            return Limit::perMinute(5)->by($request->ip())->response(function (Request $request, array $headers) {
+                return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
+            });
+        });
+        RateLimiter::for('otp', function (Request $request) {
+            return Limit::perMinute(3)->by($request->ip())->response(function (Request $request, array $headers) {
+                return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
+            });
+        });
+        RateLimiter::for('cart', function (Request $request) {
+            return Limit::perMinute(20)->by($request->user()?->id ?? $request->ip())->response(function (Request $request, array $headers) {
+                return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
+            });
+        });
+        RateLimiter::for('analytics', function (Request $request) {
+            return Limit::perMinute(60)->by($request->user()?->id ?? $request->ip())->response(function (Request $request, array $headers) {
+                return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
+            });
+        });
+        RateLimiter::for('refunds', function (Request $request) {
+            return Limit::perMinute(5)->by($request->user()?->id ?? $request->ip())->response(function (Request $request, array $headers) {
+                return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
+            });
         });
     }
 }

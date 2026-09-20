@@ -197,7 +197,6 @@ class AdminOrderTrackingController extends Controller
             abort(401, 'Unauthenticated.');
         }
 
-        // If user has permission system, check view-orders or admin role; otherwise allow any authenticated user for now.
         try {
             if (method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo('view-orders')) {
                 return;
@@ -205,16 +204,22 @@ class AdminOrderTrackingController extends Controller
             if (method_exists($user, 'can') && $user->can('view-orders')) {
                 return;
             }
-            // Fallback: check type === admin
+            // Legacy admin type — still requires explicit permission above in production,
+            // but preserve for seeded super_admin without permission cache in tests.
             if (($user->type ?? null) === 'admin' || ($user->role ?? null) === 'admin') {
+                // If permissions table exists and user has no permission, deny.
+                if (method_exists($user, 'hasPermissionTo')) {
+                    abort(403, 'Forbidden. Missing required permission: view-orders.');
+                }
                 return;
             }
-            // For this phase, if none of the above matches, allow any authenticated user (permissive)
-            // To enforce strict admin, uncomment next line:
-            // abort(403, 'Forbidden.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            // Permissive fallback for tests without permissions table
+            // If permission check itself fails (e.g. missing table), fall through to deny.
         }
+
+        abort(403, 'Forbidden. Missing required permission: view-orders.');
     }
 
     private function getDateRange(string $period): array

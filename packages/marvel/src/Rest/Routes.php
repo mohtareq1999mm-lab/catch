@@ -116,11 +116,11 @@ Route::middleware(["throttle:sensitive"])->group(function () {
 
 Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     //======================== settings site ========================/
-    Route::get('settings', [SettingsController::class, 'index']);
-    Route::put('settings', [SettingsController::class, 'update']);
+    Route::get('settings', [SettingsController::class, 'index'])->middleware('permission:view-settings|update-settings');
+    Route::put('settings', [SettingsController::class, 'update'])->middleware('permission:update-settings');
 
     //======================== activity log ========================/
-    Route::get('logs/activity', [ActivityLogController::class, 'index'])->name('admin.activity-log.index');
+    Route::get('logs/activity', [ActivityLogController::class, 'index'])->name('admin.activity-log.index')->middleware('permission:view-activity-log');
 
     Route::get('fast-shipping/settings', [FastShippingController::class, 'getSettings']);
     Route::put('fast-shipping/settings', [FastShippingController::class, 'updateSettings']);
@@ -147,50 +147,50 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('brands/export/{id}', [\Marvel\Http\Controllers\BrandExportController::class, 'status'])->whereNumber('id')->name('admin.brands.export.status');
     Route::get('brands/export/{id}/download', [\Marvel\Http\Controllers\BrandExportController::class, 'download'])->whereNumber('id')->name('admin.brands.export.download');
     Route::post('brands/export/{id}/cancel', [\Marvel\Http\Controllers\BrandExportController::class, 'cancel'])->whereNumber('id')->name('admin.brands.export.cancel');
-    Route::put('brands/reorder', [BrandController::class, 'reorder']);
-    Route::apiResource('brands', BrandController::class);
+    Route::put('brands/reorder', [BrandController::class, 'reorder'])->middleware('permission:update-brand');
+    Route::apiResource('brands', BrandController::class)->middleware('permission:view-brands|view-brand|create-brand|update-brand|delete-brand|import-brand|export-brand');
 
     //======================== sliders ========================/
-    Route::patch('sliders/change-status', [SliderController::class, 'changeStatus']);
-    Route::put('sliders/reorder', [SliderController::class, 'reorder']);
-    Route::apiResource('sliders', SliderController::class);
+    Route::patch('sliders/change-status', [SliderController::class, 'changeStatus'])->middleware('permission:update-slider');
+    Route::put('sliders/reorder', [SliderController::class, 'reorder'])->middleware('permission:update-slider');
+    Route::apiResource('sliders', SliderController::class)->middleware('permission:view-slider|create-slider|update-slider|delete-slider');
 
     //======================== categories ========================/
-    Route::put('categories/feature', [CategoryController::class, 'addOrRemoveCategoryFromFeature']);
-    Route::post('categories/import', [CategoryImportController::class, 'import'])->name('admin.categories.import');
-    Route::get('categories/import/sample', [CategoryImportController::class, 'downloadSample'])->name('admin.categories.import.sample');
-    Route::get('categories/import/{id}', [CategoryImportController::class, 'status'])->whereNumber('id')->name('admin.categories.import.status');
-    Route::post('categories/import/{id}/cancel', [CategoryImportController::class, 'cancel'])->whereNumber('id')->name('admin.categories.import.cancel');
-    Route::get('categories/import/{id}/download-errors', [CategoryImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.categories.import.download-errors');
-    Route::get('categories/export', [CategoryExportController::class, 'export'])->name('admin.categories.export');
-    Route::get('categories/export/{id}', [CategoryExportController::class, 'status'])->whereNumber('id')->name('admin.categories.export.status');
-    Route::get('categories/export/{id}/download', [CategoryExportController::class, 'download'])->whereNumber('id')->name('admin.categories.export.download');
-    Route::post('categories/export/{id}/cancel', [CategoryExportController::class, 'cancel'])->whereNumber('id')->name('admin.categories.export.cancel');
-    Route::post('categories/bulk-delete', [CategoryController::class, 'bulkDelete'])->name('admin.categories.bulk-delete');
-    Route::get('categories/bulk-delete/{id}', [CategoryController::class, 'bulkDeleteStatus'])->name('admin.categories.bulk-delete.status');
-    Route::post('categories/bulk-delete/{id}/cancel', [CategoryController::class, 'cancelBulkDelete'])->name('admin.categories.bulk-delete.cancel');
-    Route::apiResource('categories', CategoryController::class);
+    Route::put('categories/feature', [CategoryController::class, 'addOrRemoveCategoryFromFeature'])->middleware('permission:update-category');
+    Route::post('categories/import', [CategoryImportController::class, 'import'])->name('admin.categories.import')->middleware('permission:import-category');
+    Route::get('categories/import/sample', [CategoryImportController::class, 'downloadSample'])->name('admin.categories.import.sample')->middleware('permission:import-category');
+    Route::get('categories/import/{id}', [CategoryImportController::class, 'status'])->whereNumber('id')->name('admin.categories.import.status')->middleware('permission:import-category');
+    Route::post('categories/import/{id}/cancel', [CategoryImportController::class, 'cancel'])->whereNumber('id')->name('admin.categories.import.cancel')->middleware('permission:import-category');
+    Route::get('categories/import/{id}/download-errors', [CategoryImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.categories.import.download-errors')->middleware('permission:import-category');
+    Route::get('categories/export', [CategoryExportController::class, 'export'])->name('admin.categories.export')->middleware('permission:export-category');
+    Route::get('categories/export/{id}', [CategoryExportController::class, 'status'])->whereNumber('id')->name('admin.categories.export.status')->middleware('permission:export-category');
+    Route::get('categories/export/{id}/download', [CategoryExportController::class, 'download'])->whereNumber('id')->name('admin.categories.export.download')->middleware('permission:export-category');
+    Route::post('categories/export/{id}/cancel', [CategoryExportController::class, 'cancel'])->whereNumber('id')->name('admin.categories.export.cancel')->middleware('permission:export-category');
+    Route::post('categories/bulk-delete', [CategoryController::class, 'bulkDelete'])->name('admin.categories.bulk-delete')->middleware('permission:delete-category');
+    Route::get('categories/bulk-delete/{id}', [CategoryController::class, 'bulkDeleteStatus'])->name('admin.categories.bulk-delete.status')->middleware('permission:delete-category');
+    Route::post('categories/bulk-delete/{id}/cancel', [CategoryController::class, 'cancelBulkDelete'])->name('admin.categories.bulk-delete.cancel')->middleware('permission:delete-category');
+    Route::apiResource('categories', CategoryController::class)->middleware('permission:view-categories|view-category|create-category|update-category|delete-category');
 
     //======================== shops locations ========================/
-    Route::apiResource('pickup-locations', PickupLocationController::class);
+    Route::apiResource('pickup-locations', PickupLocationController::class)->middleware('permission:view-pickup-locations|create-pickup-location|update-pickup-location|delete-pickup-location');
 
 
     //======================== attributes ========================/
-    Route::apiResource('attributes', AttributeController::class);
+    Route::apiResource('attributes', AttributeController::class)->middleware('permission:view-attributes|create-attribute|update-attribute|delete-attribute');
     //    Route::apiResource('attribute-values', AttributeValueController::class);
 
 
-    Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
-    Route::get('orders/{id}', [OrderController::class, 'show'])->name('orders.show');
-    Route::patch('orders/{id}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status')->whereNumber('id');
+    Route::get('orders', [OrderController::class, 'index'])->name('orders.index')->middleware('permission:view-orders|view-order');
+    Route::get('orders/{id}', [OrderController::class, 'show'])->name('orders.show')->middleware('permission:view-order|view-orders');
+    Route::patch('orders/{id}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status')->whereNumber('id')->middleware('permission:update-order-status');
 
     //==================================== banner ========================/
-    Route::put('banner/change-status', [BannerController::class, 'changeStatus']);
-    Route::post('banner/reorder', [BannerController::class, 'reorder']);
-    Route::apiResource('banners', BannerController::class);
+    Route::put('banner/change-status', [BannerController::class, 'changeStatus'])->middleware('permission:update-banners');
+    Route::post('banner/reorder', [BannerController::class, 'reorder'])->middleware('permission:update-banners');
+    Route::apiResource('banners', BannerController::class)->middleware('permission:view-banners|create-banners|update-banners|delete-banners');
 
     //======================== countries ========================/
-    Route::apiResource('countries', CountryController::class);
+    Route::apiResource('countries', CountryController::class)->middleware('permission:view-country|create-country|update-country|delete-country');
     Route::get('countries/{id}/governorates', [CountryController::class, 'governorates'])->middleware('auth:sanctum');
     Route::post('countries/change-status', [CountryController::class, 'bulkStatus'])->middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::UPDATE_COUNTRY]);
 
@@ -198,85 +198,84 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
     Route::put('governorates/change-status', [GovernorateController::class, 'bulkStatus'])->middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::UPDATE_GOVERNORATE]);
     Route::put('governorates/{id}/fast-shipping', [GovernorateController::class, 'toggleFastShipping'])->middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::UPDATE_GOVERNORATE]);
     Route::get('governorates/{id}/cities', [GovernorateController::class, 'cities'])->middleware('auth:sanctum');
-    Route::apiResource('governorates', GovernorateController::class);
+    Route::apiResource('governorates', GovernorateController::class)->middleware('permission:view-governorate|create-governorate|update-governorate|delete-governorate');
 
     //======================== cities ========================/
-    Route::apiResource('cities', CityController::class);
+    Route::apiResource('cities', CityController::class)->middleware('permission:view-city|create-city|update-city|delete-city');
 
     //============================= shipping prices ========================/
-    Route::apiResource('shipping-prices', ShippingPriceController::class);
+    Route::apiResource('shipping-prices', ShippingPriceController::class)->middleware('permission:manage-shipping-prices');
 
     //======================== reviews ========================/
-    Route::patch('reviews/{id}/toggle-approve', [ReviewController::class, 'toggleApproveReview']);
-    Route::apiResource('reviews', ReviewController::class);
+    Route::patch('reviews/{id}/toggle-approve', [ReviewController::class, 'toggleApproveReview'])->middleware('permission:approve-reviews');
+    Route::apiResource('reviews', ReviewController::class)->middleware('permission:view-contacts|update-contact|delete-contact|approve-reviews|delete-reviews');
 
     //======================== site reviews ========================/
-    Route::get('site-reviews', [SiteReviewController::class, 'index']);
-    Route::get('site-reviews/{id}', [SiteReviewController::class, 'show'])->whereNumber('id');
-    Route::patch('site-reviews/{id}/approve', [SiteReviewController::class, 'approve'])->whereNumber('id');
-    Route::patch('site-reviews/{id}/reject', [SiteReviewController::class, 'reject'])->whereNumber('id');
+    Route::get('site-reviews', [SiteReviewController::class, 'index'])->middleware('permission:view-site-reviews');
+    Route::get('site-reviews/{id}', [SiteReviewController::class, 'show'])->whereNumber('id')->middleware('permission:view-site-reviews');
+    Route::patch('site-reviews/{id}/approve', [SiteReviewController::class, 'approve'])->whereNumber('id')->middleware('permission:approve-site-reviews');
+    Route::patch('site-reviews/{id}/reject', [SiteReviewController::class, 'reject'])->whereNumber('id')->middleware('permission:reject-site-reviews');
 
     //======================== currencies ========================/
-    Route::apiResource('currencies', CurrencyController::class)->whereNumber('currency');
-    Route::post('currencies/{id}/set-base', [CurrencyController::class, 'setBase'])->whereNumber('id');
-    Route::post('currencies/{id}/set-catalog', [CurrencyController::class, 'setCatalog'])->whereNumber('id');
-    Route::patch('currencies/{id}/rate-mode', [CurrencyController::class, 'setRateMode'])->whereNumber('id');
+    Route::apiResource('currencies', CurrencyController::class)->whereNumber('currency')->middleware('permission:view-currencies|create-currency|update-currency|delete-currency');
+    Route::post('currencies/{id}/set-base', [CurrencyController::class, 'setBase'])->whereNumber('id')->middleware('permission:set-base-currency');
+    Route::post('currencies/{id}/set-catalog', [CurrencyController::class, 'setCatalog'])->whereNumber('id')->middleware('permission:set-catalog-currency');
+    Route::patch('currencies/{id}/rate-mode', [CurrencyController::class, 'setRateMode'])->whereNumber('id')->middleware('permission:update-currency');
 
     //======================== currency rates ========================/
-    Route::apiResource('currency-rates', CurrencyRateController::class)->whereNumber('currency_rate');
+    Route::apiResource('currency-rates', CurrencyRateController::class)->whereNumber('currency_rate')->middleware('permission:view-exchange-rates|create-exchange-rate|update-exchange-rate|delete-exchange-rate');
 
     //============================= products ========================/
-    Route::post('products/bulk-delete', [ProductController::class, 'destroyBulk']);
-    Route::delete('products/all', [ProductController::class, 'destroyAll']);
+    Route::post('products/bulk-delete', [ProductController::class, 'destroyBulk'])->middleware('permission:delete-all-products|delete-product');
+    Route::delete('products/all', [ProductController::class, 'destroyAll'])->middleware('permission:delete-all-products');
     // Sample/export routes precede apiResource so single-segment GETs are
     // not captured by products/{product}.
     Route::get('products/import/sample', [ProductImportController::class, 'downloadSample'])->name('admin.products.import.sample');
     Route::get('products/export', [ProductExportController::class, 'export'])->name('admin.products.export');
     Route::post('products/export', [ProductExportController::class, 'export'])->name('admin.products.export.post');
     Route::get('products/export/{id}', [ProductExportController::class, 'status'])->whereNumber('id')->name('admin.products.export.status');
-    Route::get('products/export/{id}/download', [ProductExportController::class, 'download'])->whereNumber('id')->name('admin.products.export.download');
-    Route::post('products/export/{id}/cancel', [ProductExportController::class, 'cancel'])->whereNumber('id')->name('admin.products.export.cancel');
-    Route::post('products/import', [ProductImportController::class, 'import'])->name('admin.products.import');
-    Route::get('products/import/{id}', [ProductImportController::class, 'status'])->whereNumber('id')->name('admin.products.import.status');
-    Route::post('products/import/{id}/cancel', [ProductImportController::class, 'cancel'])->whereNumber('id')->name('admin.products.import.cancel');
-    Route::get('products/import/{id}/download-errors', [ProductImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.products.import.download-errors');
-    Route::apiResource('products', ProductController::class);
+    Route::get('products/export/{id}/download', [ProductExportController::class, 'download'])->whereNumber('id')->name('admin.products.export.download')->middleware('permission:export-product');
+    Route::post('products/export/{id}/cancel', [ProductExportController::class, 'cancel'])->whereNumber('id')->name('admin.products.export.cancel')->middleware('permission:export-product');
+    Route::post('products/import', [ProductImportController::class, 'import'])->name('admin.products.import')->middleware('permission:import-product');
+    Route::get('products/import/{id}', [ProductImportController::class, 'status'])->whereNumber('id')->name('admin.products.import.status')->middleware('permission:import-product');
+    Route::post('products/import/{id}/cancel', [ProductImportController::class, 'cancel'])->whereNumber('id')->name('admin.products.import.cancel')->middleware('permission:import-product');
+    Route::get('products/import/{id}/download-errors', [ProductImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.products.import.download-errors')->middleware('permission:import-product');
+    Route::apiResource('products', ProductController::class)->middleware('permission:view-products|view-product|create-product|update-product|delete-product');
 
     //==================== digital assets (product files) ====================/
-    Route::get('products/{product}/digital-assets', [\Marvel\Http\Controllers\DigitalAssetController::class, 'index'])->whereNumber('product');
-    Route::post('products/{product}/digital-assets', [\Marvel\Http\Controllers\DigitalAssetController::class, 'store'])->whereNumber('product')->name('admin.products.digital-assets.store');
-    Route::get('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'show'])->whereUuid('uuid')->name('admin.digital-assets.show');
-    Route::put('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'update'])->whereUuid('uuid')->name('admin.digital-assets.update');
-    Route::delete('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'destroy'])->whereUuid('uuid')->name('admin.digital-assets.destroy');
-    Route::post('digital-assets/{uuid}/replace', [\Marvel\Http\Controllers\DigitalAssetController::class, 'replace'])->whereUuid('uuid')->name('admin.digital-assets.replace');
+    Route::get('products/{product}/digital-assets', [\Marvel\Http\Controllers\DigitalAssetController::class, 'index'])->whereNumber('product')->middleware('permission:view-products');
+    Route::post('products/{product}/digital-assets', [\Marvel\Http\Controllers\DigitalAssetController::class, 'store'])->whereNumber('product')->name('admin.products.digital-assets.store')->middleware('permission:create-product');
+    Route::get('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'show'])->whereUuid('uuid')->name('admin.digital-assets.show')->middleware('permission:view-products');
+    Route::put('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'update'])->whereUuid('uuid')->name('admin.digital-assets.update')->middleware('permission:update-product');
+    Route::delete('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'destroy'])->whereUuid('uuid')->name('admin.digital-assets.destroy')->middleware('permission:delete-product');
+    Route::post('digital-assets/{uuid}/replace', [\Marvel\Http\Controllers\DigitalAssetController::class, 'replace'])->whereUuid('uuid')->name('admin.digital-assets.replace')->middleware('permission:update-product');
     // W5 — bulk-provision encrypted keys into a LICENSE pool (A2/A4).
-    Route::post('digital-assets/{uuid}/license-keys', [\Marvel\Http\Controllers\DigitalAssetController::class, 'storeLicenseKeys'])->whereUuid('uuid')->name('admin.digital-assets.license-keys.store');
+    Route::post('digital-assets/{uuid}/license-keys', [\Marvel\Http\Controllers\DigitalAssetController::class, 'storeLicenseKeys'])->whereUuid('uuid')->name('admin.digital-assets.license-keys.store')->middleware('permission:update-product');
 
     //==================== digital entitlement management (W6) ====================/
-    Route::get('digital-entitlements', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'index'])->name('admin.digital-entitlements.index');
-    Route::get('digital-entitlements/{uuid}', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'show'])->whereUuid('uuid')->name('admin.digital-entitlements.show');
-    Route::patch('digital-entitlements/{uuid}/limit', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'setLimit'])->whereUuid('uuid')->name('admin.digital-entitlements.limit');
-    Route::post('digital-entitlements/{uuid}/revoke', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'revoke'])->whereUuid('uuid')->name('admin.digital-entitlements.revoke');
-    Route::post('digital-entitlements/{uuid}/restore', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'restore'])->whereUuid('uuid')->name('admin.digital-entitlements.restore');
+    Route::get('digital-entitlements', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'index'])->name('admin.digital-entitlements.index')->middleware('permission:manage-digital-access');
+    Route::get('digital-entitlements/{uuid}', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'show'])->whereUuid('uuid')->name('admin.digital-entitlements.show')->middleware('permission:manage-digital-access');
+    Route::patch('digital-entitlements/{uuid}/limit', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'setLimit'])->whereUuid('uuid')->name('admin.digital-entitlements.limit')->middleware('permission:manage-digital-access');
+    Route::post('digital-entitlements/{uuid}/revoke', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'revoke'])->whereUuid('uuid')->name('admin.digital-entitlements.revoke')->middleware('permission:manage-digital-access');
+    Route::post('digital-entitlements/{uuid}/restore', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'restore'])->whereUuid('uuid')->name('admin.digital-entitlements.restore')->middleware('permission:manage-digital-access');
 
     //============================= flash sale ========================/
-    Route::put('flash-sale/reorder', [FlashSaleController::class, 'reorder']);
-    Route::apiResource('flash-sale', FlashSaleController::class);
+    Route::put('flash-sale/reorder', [FlashSaleController::class, 'reorder'])->middleware('permission:update-flash-sale');
+    Route::apiResource('flash-sale', FlashSaleController::class)->middleware('permission:view-flash-sale|create-flash-sale|update-flash-sale|delete-flash-sale');
     Route::get('product-flash-sale-info', [FlashSaleController::class, 'getFlashSaleInfoByProductID']);
 
     //============================= faqs ========================/
-    Route::put('faqs/reorder', [FaqsController::class, 'reorder']);
-    Route::apiResource('faqs', FaqsController::class);
+    Route::put('faqs/reorder', [FaqsController::class, 'reorder'])->middleware('permission:update-faq');
+    Route::apiResource('faqs', FaqsController::class)->middleware('permission:view-faqs|create-faq|update-faq|delete-faq');
 
     //============================= coupons ========================/
     Route::prefix('coupons/{coupon}')->group(function () {
-        Route::get('assignments', [CouponAssignmentController::class, 'index']);
-        Route::post('assignments', [CouponAssignmentController::class, 'store']);
-        Route::get('assignments/{assignment}', [CouponAssignmentController::class, 'show']);
-        Route::put('assignments/{assignment}', [CouponAssignmentController::class, 'update']);
-        Route::delete('assignments/{assignment}', [CouponAssignmentController::class, 'destroy']);
+        Route::get('assignments', [CouponAssignmentController::class, 'index'])->middleware('permission:view-coupon-assignments');
+        Route::post('assignments', [CouponAssignmentController::class, 'store'])->middleware('permission:create-coupon-assignment');
+        Route::get('assignments/{assignment}', [CouponAssignmentController::class, 'show'])->middleware('permission:view-coupon-assignments');
+        Route::put('assignments/{assignment}', [CouponAssignmentController::class, 'update'])->middleware('permission:update-coupon-assignment');
+        Route::delete('assignments/{assignment}', [CouponAssignmentController::class, 'destroy'])->middleware('permission:delete-coupon-assignment');
     });
-    Route::apiResource('coupons', CouponController::class);
 
     //============================= wishlists ========================/
     Route::patch('wishlists/toggle', [WishlistController::class, 'toggle']);

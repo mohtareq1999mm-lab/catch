@@ -106,10 +106,17 @@ class AnalyticsAPITest extends TestCase
         return $order->refresh();
     }
 
+    private function giveAdminAnalyticsPermission(User $user, string $perm = 'view-analytics'): void
+    {
+        \Spatie\Permission\Models\Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'api']);
+        $user->givePermissionTo($perm);
+    }
+
     /** @test */
     public function admin_can_access_dashboard_analytics()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        $this->giveAdminAnalyticsPermission($admin, 'view-analytics');
         $user = User::factory()->create();
         for ($i = 0; $i < 5; $i++) {
             $this->createOrder($user, ['created_at' => now()->subHours(12)]);
@@ -136,6 +143,7 @@ class AnalyticsAPITest extends TestCase
     public function admin_can_fetch_time_series_data()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        $this->giveAdminAnalyticsPermission($admin, 'view-analytics');
         Sanctum::actingAs($admin);
 
         $response = $this->getJson('/api/v1/admin/analytics/time-series?metric=orders&period=7d&granularity=day');
@@ -156,6 +164,7 @@ class AnalyticsAPITest extends TestCase
     public function validates_time_series_parameters()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        $this->giveAdminAnalyticsPermission($admin, 'view-analytics');
         Sanctum::actingAs($admin);
 
         $response = $this->getJson('/api/v1/admin/analytics/time-series?metric=invalid');
@@ -168,6 +177,7 @@ class AnalyticsAPITest extends TestCase
     public function admin_can_export_orders()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        $this->giveAdminAnalyticsPermission($admin, 'export-analytics');
         $user = User::factory()->create();
         for ($i = 0; $i < 3; $i++) {
             $this->createOrder($user, ['created_at' => now()->subDays(2)]);
@@ -194,6 +204,7 @@ class AnalyticsAPITest extends TestCase
     public function performance_endpoint_returns_sla_data()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        $this->giveAdminAnalyticsPermission($admin, 'view-analytics');
         Sanctum::actingAs($admin);
 
         $response = $this->getJson('/api/v1/admin/analytics/performance?period=24h');
@@ -206,6 +217,7 @@ class AnalyticsAPITest extends TestCase
     public function clear_cache_endpoint_works()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        $this->giveAdminAnalyticsPermission($admin, 'view-analytics');
         Sanctum::actingAs($admin);
 
         $response = $this->postJson('/api/v1/admin/analytics/clear-cache');

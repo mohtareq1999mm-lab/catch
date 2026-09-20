@@ -112,10 +112,10 @@ Route::prefix('v1/general')->group(function () {
         Route::get('currencies', [CurrencyController::class, 'index']);
         Route::post('currencies/select', [CurrencyController::class, 'select']);
         //======================== payment callbacks (gateway redirect, public) ========================/
-        Route::any('checkout/callback', [OrderController::class, 'checkoutCallback'])->name('api.checkout.callback');
-        Route::any('checkout/error-callback', [OrderController::class, 'checkoutErrorCallback'])->name('api.checkout.errorCallback');
+        Route::match(['get', 'post'], 'checkout/callback', [OrderController::class, 'checkoutCallback'])->middleware('throttle:payment-callback')->name('api.checkout.callback');
+        Route::match(['get', 'post'], 'checkout/error-callback', [OrderController::class, 'checkoutErrorCallback'])->middleware('throttle:payment-callback')->name('api.checkout.errorCallback');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
-        Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->name('api.tracking.public');
+        Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle:public-tracking')->name('api.tracking.public');
     });
 
     Route::middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
@@ -167,7 +167,7 @@ Route::prefix('v1/general')->group(function () {
 
 // Customer invoice PDF VIEW/DOWNLOAD via temporary SIGNED urls (no Sanctum).
 // Ownership is enforced when the urls are generated (my-invoices / order invoice).
-Route::prefix('v1/general/invoices')->middleware('signed')->group(function () {
+Route::prefix('v1/general/invoices')->middleware(['signed', 'throttle:30,1'])->group(function () {
     Route::get('view/{uuid}', [\App\Http\Controllers\Api\InvoiceController::class, 'viewByUuidSigned'])
         ->whereUuid('uuid')->name('general.invoices.view');
     Route::get('download/{uuid}', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadByUuidSigned'])
@@ -183,7 +183,7 @@ Route::get('v1/general/digital/download/{entitlement}/{asset}', [\App\Http\Contr
     ->name('general.digital.download');
 
 // Admin tracking dashboard
-Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum'])->group(function () {
+Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('dashboard', [AdminOrderTrackingController::class, 'dashboard'])->name('api.admin.tracking.dashboard');
     Route::get('orders', [AdminOrderTrackingController::class, 'listOrders'])->name('api.admin.tracking.orders');
     Route::get('orders/{orderId}', [AdminOrderTrackingController::class, 'trackOrder'])->whereNumber('orderId')->name('api.admin.tracking.order');
@@ -191,13 +191,13 @@ Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum'])->group(f
 });
 
 // Admin coupon configuration helpers
-Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum'])->group(function () {
+Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config');
     Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info');
     Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix');
 });
 
-Route::prefix('v1/user')->middleware(['api', 'auth:sanctum'])->group(function () {
+Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
     Route::get('notification-preferences', [NotificationPreferencesController::class, 'index'])->name('api.user.notification-preferences.index');
     Route::put('notification-preferences', [NotificationPreferencesController::class, 'update'])->name('api.user.notification-preferences.update');
     Route::post('devices/register', [NotificationPreferencesController::class, 'registerDevice'])->name('api.user.devices.register');
@@ -205,7 +205,7 @@ Route::prefix('v1/user')->middleware(['api', 'auth:sanctum'])->group(function ()
     Route::get('notifications/history', [NotificationPreferencesController::class, 'notificationHistory'])->name('api.user.notifications.history');
 });
 
-Route::prefix('v1/admin/analytics')->middleware(['api', 'auth:sanctum'])->group(function () {
+Route::prefix('v1/admin/analytics')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('dashboard', [AnalyticsController::class, 'dashboard'])->name('api.admin.analytics.dashboard');
     Route::get('time-series', [AnalyticsController::class, 'timeSeries'])->name('api.admin.analytics.time-series');
     Route::get('top-customers', [AnalyticsController::class, 'topCustomers'])->name('api.admin.analytics.top-customers');
@@ -214,7 +214,7 @@ Route::prefix('v1/admin/analytics')->middleware(['api', 'auth:sanctum'])->group(
     Route::post('clear-cache', [AnalyticsController::class, 'clearCache'])->name('api.admin.analytics.clear-cache');
 });
 
-Route::prefix('v1/admin/analytics/export')->middleware(['api', 'auth:sanctum'])->group(function () {
+Route::prefix('v1/admin/analytics/export')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('orders', [AnalyticsExportController::class, 'exportOrders'])->name('api.admin.analytics.export.orders');
     Route::post('customer-ltv', [AnalyticsExportController::class, 'exportCustomerLTV'])->name('api.admin.analytics.export.ltv');
     Route::post('performance', [AnalyticsExportController::class, 'exportPerformance'])->name('api.admin.analytics.export.performance');

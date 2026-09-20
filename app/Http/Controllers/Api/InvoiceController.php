@@ -127,8 +127,8 @@ class InvoiceController extends Controller
             return $this->apiResponse(NOT_FOUND, 404, false);
         }
 
-        if (!$invoice->pdf_path) {
-            return $this->apiResponse(INVOICE_PDF_NOT_GENERATED, 404, false);
+        if (!$invoice->pdf_path || !preg_match('#^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.pdf$#', $invoice->pdf_path) || str_contains($invoice->pdf_path, '..')) {
+            return $this->apiResponse(NOT_FOUND, 404, false);
         }
 
         $relativePath = 'invoices/' . $invoice->pdf_path;
@@ -245,7 +245,7 @@ class InvoiceController extends Controller
             return $this->apiResponse(NOT_FOUND, 404, false);
         }
 
-        if (!$invoice->pdf_path) {
+        if (!$invoice->pdf_path || !preg_match('#^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.pdf$#', $invoice->pdf_path) || str_contains($invoice->pdf_path, '..')) {
             return $this->apiResponse(
                 INVOICE_PDF_NOT_GENERATED,
                 404,

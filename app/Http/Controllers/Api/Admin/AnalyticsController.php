@@ -30,11 +30,18 @@ class AnalyticsController extends Controller
             if (method_exists($user, 'can') && $user->can('view-analytics')) {
                 return;
             }
-            if (($user->type ?? null) === 'admin') {
+            if (($user->type ?? null) === 'admin' || ($user->role ?? null) === 'admin') {
+                if (method_exists($user, 'hasPermissionTo')) {
+                    abort(403, 'Forbidden. Missing required permission: view-analytics.');
+                }
                 return;
             }
-        } catch (\Throwable $e) {}
-        // Permissive for now; don't block tests
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+        }
+
+        abort(403, 'Forbidden. Missing required permission: view-analytics.');
     }
 
     public function dashboard(Request $request)

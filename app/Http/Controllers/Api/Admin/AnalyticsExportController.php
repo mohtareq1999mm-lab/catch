@@ -30,10 +30,18 @@ class AnalyticsExportController extends Controller
             if (method_exists($user, 'can') && $user->can('export-analytics')) {
                 return;
             }
-            if (($user->type ?? null) === 'admin') {
+            if (($user->type ?? null) === 'admin' || ($user->role ?? null) === 'admin') {
+                if (method_exists($user, 'hasPermissionTo')) {
+                    abort(403, 'Forbidden. Missing required permission: export-analytics.');
+                }
                 return;
             }
-        } catch (\Throwable $e) {}
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+        }
+
+        abort(403, 'Forbidden. Missing required permission: export-analytics.');
     }
 
     public function exportOrders(Request $request)
