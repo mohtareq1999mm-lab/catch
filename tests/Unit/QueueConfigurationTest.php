@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
+use App\Audit\ActivitySnapshot;
 use App\Enums\QueueName;
 use App\Jobs\GenerateInvoicePdfJob;
 use App\Jobs\LogActivityJob;
@@ -41,7 +42,13 @@ class QueueConfigurationTest extends TestCase
         $this->assertSame('meem-medium', config('queue.queues.medium'));
         $this->assertSame('meem-medium', QueueName::medium());
 
-        $job = new LogActivityJob('App\Models\User', 1, null, 'test', 'test', null);
+        $job = new LogActivityJob(new ActivitySnapshot(
+            logName: 'default',
+            event: 'test',
+            description: 'test',
+            subjectType: 'App\Models\User',
+            subjectId: 1,
+        ));
         $this->assertSame('meem-medium', $job->queue);
     }
 
@@ -92,10 +99,13 @@ class QueueConfigurationTest extends TestCase
 
         $this->assertStringContainsString('QUEUE_HIGH', $highConf);
         $this->assertStringContainsString('QUEUE_MEDIUM', $medConf);
-        $this->assertStringContainsString('catch-high', $highConf);
-        $this->assertStringContainsString('catch-medium', $medConf);
-        $this->assertStringNotContainsString('--queue=catch-high --', $highConf);
-        $this->assertStringNotContainsString('--queue=catch-medium --', $medConf);
+        // Neutral fallback + env-driven: no project-specific physical queue may be hardcoded.
+        $this->assertStringContainsString('${QUEUE_HIGH:-high}', $highConf);
+        $this->assertStringContainsString('${QUEUE_MEDIUM:-medium}', $medConf);
+        $this->assertStringNotContainsString('--queue=catch-high', $highConf);
+        $this->assertStringNotContainsString('--queue=catch-medium', $medConf);
+        $this->assertStringNotContainsString('--queue=meem-high', $highConf);
+        $this->assertStringNotContainsString('--queue=meem-medium', $medConf);
     }
 
     /** @test */
@@ -110,6 +120,43 @@ class QueueConfigurationTest extends TestCase
                 $this->assertSame(0, preg_match("/env\(\s*['\"]QUEUE_HIGH['\"]/", $src), "env(QUEUE_HIGH) must not be used in {$file->getPathname()} — use config()");
                 $this->assertSame(0, preg_match("/env\(\s*['\"]QUEUE_MEDIUM['\"]/", $src), "env(QUEUE_MEDIUM) must not be used in {$file->getPathname()} — use config()");
             }
+        }
+    }
+
+    /** @test */
+    public function shared_config_never_hardcodes_a_project_specific_physical_queue(): void
+    {
+        $files = [
+            base_path('config/queue.php'),
+            base_path('config/frontend.php'),
+            base_path('packages/marvel/config/scout.php'),
+            base_path('app/Enums/QueueName.php'),
+        ];
+
+        $fallback = "/env\(\s*['\"]QUEUE_(?:HIGH|MEDIUM)['\"]\s*,\s*['\"](?:catch|meem)-(?:high|medium|bulk)['\"]/";
+        $enumValue = "/case\s+(?:HIGH|MEDIUM)\s*=\s*['\"](?:catch|meem)-(?:high|medium|bulk)['\"]/";
+
+        foreach ($files as $file) {
+            $src = (string) file_get_contents($file);
+            $this->assertSame(0, preg_match($fallback, $src), "{$file} hardcodes a project-specific physical queue fallback");
+            $this->assertSame(0, preg_match($enumValue, $src), "{$file} hardcodes a project-specific enum queue value");
+        }
+    }
+
+    /** @test */
+    public function worker_and_entrypoint_use_neutral_fallback_not_project_name(): void
+    {
+        $files = [
+            base_path('deploy/supervisor/laravel-worker-catch-high.conf'),
+            base_path('deploy/supervisor/laravel-worker-catch-medium.conf'),
+            base_path('docker-entrypoint.sh'),
+        ];
+
+        $workerFallback = "/\$\{(?:QUEUE_HIGH|QUEUE_MEDIUM):-(?:catch|meem)-(?:high|medium|bulk)\}/";
+
+        foreach ($files as $file) {
+            $src = (string) file_get_contents($file);
+            $this->assertSame(0, preg_match($workerFallback, $src), "{$file} hardcodes a project-specific physical queue fallback");
         }
     }
 }

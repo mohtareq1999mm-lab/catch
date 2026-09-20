@@ -22,7 +22,7 @@ class AdminQueueJobFailedNotification extends Notification implements ShouldQueu
         public string $queue,
         public string $errorMessage,
     ) {
-        $this->onQueue(\App\Enums\QueueName::MEDIUM->value);
+        $this->onQueue(\App\Enums\QueueName::medium());
     }
 
     public function via($notifiable): array
@@ -50,7 +50,7 @@ class AdminQueueJobFailedNotification extends Notification implements ShouldQueu
 
     public function toBroadcast($notifiable): BroadcastMessage
     {
-        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(\App\Enums\QueueName::MEDIUM->value);
+        return (new BroadcastMessage($this->toDatabase($notifiable)))->onQueue(\App\Enums\QueueName::medium());
     }
 
     public function broadcastType(): string

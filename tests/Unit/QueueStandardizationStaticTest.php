@@ -14,13 +14,13 @@ use PHPUnit\Framework\TestCase;
  *   - config('queue.queues.high') / config('queue.queues.medium')
  *   - QueueName::high() / QueueName::medium() / ->resolved()
  *   - config('frontend.queue', config('queue.queues.high')) (frontend alias)
- *   - literal 'catch-high'/'catch-medium' ONLY in QueueName enum defaults and config fallbacks
+ *   - literal 'high'/'medium' ONLY in QueueName enum defaults (neutral fallback)
  *
  * This is the static half; runtime dispatch proofs live in the Feature suite.
  */
 class QueueStandardizationStaticTest extends TestCase
 {
-    private const ALLOWED = ['catch-high', 'catch-medium'];
+    private const ALLOWED = ['high', 'medium'];
 
     private array $violations = [];
     private int $checked = 0;

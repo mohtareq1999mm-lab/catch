@@ -303,13 +303,37 @@ class OrderController extends Controller
                 return;
             }
 
+            // GAP-C001 FIX: Token-based idempotency check (PRIMARY defense)
+            // If idempotency_key is already set, this transaction has been processed.
+            // Return immediately to prevent duplicate processing in concurrent scenarios.
+            if ($lockedTransaction->idempotency_key !== null) {
+                \Log::info('Payment callback idempotent return - already processed', [
+                    'transaction_id' => $lockedTransaction->id,
+                    'idempotency_key' => $lockedTransaction->idempotency_key,
+                    'payment_id' => $paymentId,
+                ]);
+                return;
+            }
+
+            // Set idempotency token immediately after acquiring lock and before any business logic.
+            // This ensures no concurrent request can proceed past this point for the same transaction.
+            $idempotencyToken = \Illuminate\Support\Str::uuid()->toString();
+            $lockedTransaction->update(['idempotency_key' => $idempotencyToken]);
+
             $lockedOrder = $lockedTransaction->order()->lockForUpdate()->first();
 
             if (!$lockedOrder) {
                 return;
             }
 
+            // Status-based check (SECONDARY defense for backwards compatibility and sanity)
             if ($lockedOrder->status !== 'pending') {
+                \Log::info('Payment callback status-based return - order not pending', [
+                    'transaction_id' => $lockedTransaction->id,
+                    'order_id' => $lockedOrder->id,
+                    'order_status' => $lockedOrder->status,
+                    'idempotency_key' => $idempotencyToken,
+                ]);
                 return;
             }
 

@@ -5,7 +5,7 @@ namespace App\Enums;
 /**
  * Canonical queue names — semantic roles, physical names are deployment config.
  *
- *   QueueName::HIGH->value   = default physical name (fallback before config loads)
+ *   QueueName::HIGH->value   = neutral logical fallback (before config loads)
  *   QueueName::high()        = config('queue.queues.high') — runtime physical name
  *   QueueName::medium()      = config('queue.queues.medium')
  *   $enum->resolved()        = same, instance helper
@@ -13,13 +13,15 @@ namespace App\Enums;
  * Application code must use ::high()/::medium() or config('queue.queues.*'),
  * never hard-coded strings. Supervisor workers consume the same env values.
  *
- * The enum values remain the catch-* defaults so that `->value` is a safe
- * fallback when config is not yet booted (e.g. early service providers).
+ * The enum values are neutral logical names (high/medium) so that `->value`
+ * is a safe fallback when config is not yet booted (e.g. early service
+ * providers). Physical names (meem-high, catch-high, ...) live only in each
+ * deployment's QUEUE_HIGH / QUEUE_MEDIUM environment variables.
  */
 enum QueueName: string
 {
-    case HIGH = 'catch-high';
-    case MEDIUM = 'catch-medium';
+    case HIGH = 'high';
+    case MEDIUM = 'medium';
 
     /**
      * Resolve this semantic role to its deployment-specific physical queue name.

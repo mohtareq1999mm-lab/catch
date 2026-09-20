@@ -15,10 +15,11 @@ class InfrastructureHardeningTest extends TestCase
     /** @test */
     public function queue_name_enum_matches_worker_topology_exactly()
     {
-        // These strings are consumed by deploy/supervisor/*.conf workers — only catch-high and catch-medium are canonical.
-        $this->assertSame('catch-high', QueueName::HIGH->value);
-        $this->assertSame('catch-medium', QueueName::MEDIUM->value);
-        $this->assertCount(2, QueueName::cases(), 'Only catch-high and catch-medium should exist');
+        // Enum values are neutral logical roles; physical names resolve via
+        // config('queue.queues.*') from QUEUE_HIGH/QUEUE_MEDIUM env vars.
+        $this->assertSame('high', QueueName::HIGH->value);
+        $this->assertSame('medium', QueueName::MEDIUM->value);
+        $this->assertCount(2, QueueName::cases(), 'Only high and medium should exist');
     }
 
     /** @test */

@@ -24,6 +24,7 @@ class Transaction extends Model
         'error_message',
         'qr_code_url',
         'paid_at',
+        'idempotency_key',
     ];
 
     protected $casts = [
