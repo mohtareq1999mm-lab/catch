@@ -192,14 +192,17 @@ Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle
     Route::get('requires-attention', [AdminOrderTrackingController::class, 'requiresAttention'])->name('api.admin.tracking.attention');
 });
 
-// Admin coupon configuration helpers
+// Legacy admin coupon helpers — backward-compat alias for the pre-existing
+// /api/v1/admin/coupons/* URLs (tests, admin frontend). Canonical routes live
+// in packages/marvel/src/Rest/Routes.php under /api/v1/coupons/* with the
+// api.admin.coupons.* names; these aliases carry no names to avoid collision.
 Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config');
-    Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info');
-    Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix');
-    Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show');
-    Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert');
-    Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy');
+    Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration']);
+    Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id');
+    Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id');
+    Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id');
+    Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id');
+    Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id');
 });
 
 Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {

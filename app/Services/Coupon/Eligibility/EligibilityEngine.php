@@ -74,21 +74,40 @@ class EligibilityEngine
 
     private function evaluateAssignmentMode(Coupon $coupon, User $user): EligibilityResult
     {
-        $hasAssignment = CouponAssignment::query()
+        // P2-1: usable-assignment semantics (parity with
+        // CouponAssignmentValidator): expired or quota-exhausted assignments
+        // do NOT satisfy assignment eligibility.
+        $assignment = CouponAssignment::query()
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
-            ->exists();
+            ->first();
 
-        if ($hasAssignment) {
-            return EligibilityResult::eligible(
-                passedRules: [['type' => EligibilityRuleType::HAS_ASSIGNMENT->value]],
+        if (!$assignment) {
+            return EligibilityResult::ineligible(
+                passedRules: [],
+                failedRules: [['type' => EligibilityRuleType::HAS_ASSIGNMENT->value, 'reason' => 'No assignment found']],
                 evaluatedMetrics: [],
             );
         }
 
-        return EligibilityResult::ineligible(
-            passedRules: [],
-            failedRules: [['type' => EligibilityRuleType::HAS_ASSIGNMENT->value, 'reason' => 'No assignment found']],
+        if ($assignment->expires_at && $assignment->expires_at->isPast()) {
+            return EligibilityResult::ineligible(
+                passedRules: [],
+                failedRules: [['type' => EligibilityRuleType::HAS_ASSIGNMENT->value, 'reason' => 'Assignment expired']],
+                evaluatedMetrics: [],
+            );
+        }
+
+        if ((int) $assignment->used >= (int) $assignment->max_uses) {
+            return EligibilityResult::ineligible(
+                passedRules: [],
+                failedRules: [['type' => EligibilityRuleType::HAS_ASSIGNMENT->value, 'reason' => 'Assignment usage quota exhausted']],
+                evaluatedMetrics: [],
+            );
+        }
+
+        return EligibilityResult::eligible(
+            passedRules: [['type' => EligibilityRuleType::HAS_ASSIGNMENT->value]],
             evaluatedMetrics: [],
         );
     }
@@ -337,30 +356,90 @@ class EligibilityEngine
 
     private function evalMinTotalSpend(CustomerMetrics $metrics, $value): array
     {
-        $actual = (float) $metrics->total_qualifying_order_value;
-        $required = (float) $value;
-        $passed = $actual >= $required;
+        // P2-3: decimal-safe money comparison (no binary float). Compares at
+        // 2-decimal currency precision via bccomp; falls back to cents-int
+        // comparison when bcmath is unavailable. Non-numeric thresholds fail
+        // closed (never treated as 0.00 floor).
+        if (!is_numeric($value)) {
+            return [
+                'passed' => false,
+                'type' => EligibilityRuleType::MIN_TOTAL_SPEND->value,
+                'value' => $value,
+                'actual' => (float) self::moneyString($metrics->total_qualifying_order_value),
+                'reason' => 'Malformed min_total_spend threshold fails closed',
+            ];
+        }
+        $actual = self::moneyString($metrics->total_qualifying_order_value);
+        $required = self::moneyString($value);
+        $passed = self::moneyGte($actual, $required);
+        $actualFloat = (float) $actual;
         return [
             'passed' => $passed,
             'type' => EligibilityRuleType::MIN_TOTAL_SPEND->value,
             'value' => $value,
-            'actual' => $actual,
+            'actual' => $actualFloat,
             'reason' => $passed ? null : "User spent {$actual}, needs at least {$required}",
         ];
     }
 
     private function evalMaxTotalSpend(CustomerMetrics $metrics, $value): array
     {
-        $actual = (float) $metrics->total_qualifying_order_value;
-        $max = (float) $value;
-        $passed = $actual <= $max;
+        // P2-3: decimal-safe money comparison (see evalMinTotalSpend).
+        // Non-numeric thresholds fail closed.
+        if (!is_numeric($value)) {
+            return [
+                'passed' => false,
+                'type' => EligibilityRuleType::MAX_TOTAL_SPEND->value,
+                'value' => $value,
+                'actual' => (float) self::moneyString($metrics->total_qualifying_order_value),
+                'reason' => 'Malformed max_total_spend threshold fails closed',
+            ];
+        }
+        $actual = self::moneyString($metrics->total_qualifying_order_value);
+        $max = self::moneyString($value);
+        $passed = self::moneyLte($actual, $max);
+        $actualFloat = (float) $actual;
         return [
             'passed' => $passed,
             'type' => EligibilityRuleType::MAX_TOTAL_SPEND->value,
             'value' => $value,
-            'actual' => $actual,
+            'actual' => $actualFloat,
             'reason' => $passed ? null : "User spent {$actual}, max allowed is {$max}",
         ];
+    }
+
+    /**
+     * Normalize a monetary value to a 2-decimal string for bccomp.
+     * Non-numeric input becomes '0.00' and fails closed at the caller via
+     * RuleTreeValidator (runtime treats malformed thresholds as 0.00, which
+     * is the fail-closed floor for min and ceiling for max only when the
+     * validator already rejected the tree — defense in depth).
+     */
+    private static function moneyString(mixed $value): string
+    {
+        if (!is_numeric($value)) {
+            return '0.00';
+        }
+
+        return number_format((float) $value, 2, '.', '');
+    }
+
+    private static function moneyGte(string $actual, string $required): bool
+    {
+        if (function_exists('bccomp')) {
+            return bccomp($actual, $required, 2) >= 0;
+        }
+
+        return (int) round(((float) $actual) * 100) >= (int) round(((float) $required) * 100);
+    }
+
+    private static function moneyLte(string $actual, string $max): bool
+    {
+        if (function_exists('bccomp')) {
+            return bccomp($actual, $max, 2) <= 0;
+        }
+
+        return (int) round(((float) $actual) * 100) <= (int) round(((float) $max) * 100);
     }
 
     private function evalFirstOrderAfter(CustomerMetrics $metrics, $value): array
@@ -509,35 +588,80 @@ class EligibilityEngine
 
     private function evalClaimed(Coupon $coupon, User $user): array
     {
-        $hasClaim = CouponClaim::query()
+        // P2-2 parity with evalNotClaimed: claimed = ACTIVE(unexpired) OR
+        // REDEEMED. EXPIRED / time-expired ACTIVE behaves as not claimed.
+        $hasActiveClaim = CouponClaim::query()
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
+            ->where('status', \App\Enums\CouponClaimStatus::ACTIVE)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                  ->orWhere('expires_at', '>', now());
+            })
             ->exists();
 
-        $passed = $hasClaim;
+        $hasRedeemed = CouponClaim::query()
+            ->where('coupon_id', $coupon->getKey())
+            ->where('user_id', $user->getKey())
+            ->where('status', \App\Enums\CouponClaimStatus::REDEEMED)
+            ->exists();
+
+        $passed = $hasActiveClaim || $hasRedeemed;
+
         return [
             'passed' => $passed,
             'type' => EligibilityRuleType::CLAIMED->value,
             'value' => null,
-            'actual' => $hasClaim,
+            'actual' => $passed,
             'reason' => $passed ? null : 'User has not claimed this coupon',
         ];
     }
 
     private function evalHasAssignment(Coupon $coupon, User $user): array
     {
-        $hasAssignment = CouponAssignment::query()
+        // P2-1 parity: same usable-assignment gate as evaluateAssignmentMode
+        // and CouponAssignmentValidator (expiry + quota enforced).
+        $assignment = CouponAssignment::query()
             ->where('coupon_id', $coupon->getKey())
             ->where('user_id', $user->getKey())
-            ->exists();
+            ->first();
 
-        $passed = $hasAssignment;
+        if (!$assignment) {
+            return [
+                'passed' => false,
+                'type' => EligibilityRuleType::HAS_ASSIGNMENT->value,
+                'value' => null,
+                'actual' => false,
+                'reason' => 'User is not assigned to this coupon',
+            ];
+        }
+
+        if ($assignment->expires_at && $assignment->expires_at->isPast()) {
+            return [
+                'passed' => false,
+                'type' => EligibilityRuleType::HAS_ASSIGNMENT->value,
+                'value' => null,
+                'actual' => false,
+                'reason' => 'Assignment expired',
+            ];
+        }
+
+        if ((int) $assignment->used >= (int) $assignment->max_uses) {
+            return [
+                'passed' => false,
+                'type' => EligibilityRuleType::HAS_ASSIGNMENT->value,
+                'value' => null,
+                'actual' => false,
+                'reason' => 'Assignment usage quota exhausted',
+            ];
+        }
+
         return [
-            'passed' => $passed,
+            'passed' => true,
             'type' => EligibilityRuleType::HAS_ASSIGNMENT->value,
             'value' => null,
-            'actual' => $hasAssignment,
-            'reason' => $passed ? null : 'User is not assigned to this coupon',
+            'actual' => true,
+            'reason' => null,
         ];
     }
 

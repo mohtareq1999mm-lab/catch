@@ -140,8 +140,10 @@ class CouponFinalContractTest extends TestCase
         $this->assertCount(0, $response->json('data.claims'));
     }
 
-    public function test_sec6_assignment_notification_includes_mail_when_email_present()
+    public function test_sec6_assignment_notification_never_includes_mail_even_with_email()
     {
+        // PART 4: Email is OUT OF SCOPE for coupon notifications. Required:
+        // database + fcm + broadcast only, even when a valid email exists.
         $user = User::factory()->create(['email' => 'assigned@example.com']);
         $coupon = $this->createCoupon();
         $assignment = CouponAssignment::create([
@@ -156,7 +158,7 @@ class CouponFinalContractTest extends TestCase
         $this->assertContains('database', $channels);
         $this->assertContains('fcm', $channels);
         $this->assertContains('broadcast', $channels);
-        $this->assertContains('mail', $channels);
+        $this->assertNotContains('mail', $channels);
     }
 
     public function test_sec6_assignment_notification_skips_mail_without_email()

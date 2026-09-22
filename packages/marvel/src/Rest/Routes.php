@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\CouponConfigurationController;
 use App\Http\Controllers\Api\General\DashboardController;
 use App\Http\Controllers\Api\InvoiceController;
 use Illuminate\Support\Facades\Broadcast;
@@ -277,6 +278,15 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
         Route::delete('assignments/{assignment}', [CouponAssignmentController::class, 'destroy'])->middleware('permission:delete-coupon-assignment');
     });
     Route::apiResource('coupons', CouponController::class);
+    // Admin coupon configuration helpers
+    Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+        Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config');
+        Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info');
+        Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix');
+        Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show');
+        Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert');
+        Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy');
+    });
 
     //============================= wishlists ========================/
     Route::patch('wishlists/toggle', [WishlistController::class, 'toggle']);

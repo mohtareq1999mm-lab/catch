@@ -19,17 +19,13 @@ class UserCouponAssignedNotification extends Notification implements ShouldQueue
 
     public function via($notifiable): array
     {
-        // FINAL BUSINESS CONTRACT Sec 6: user must receive in-app (database),
-        // realtime (broadcast/Pusher), push (fcm/Firebase) AND email (mail).
-        // Mail is conditional: phone-based accounts may have no email address.
-        $channels = ['database', 'fcm', 'broadcast'];
-
-        $email = is_string($notifiable->email ?? null) ? trim($notifiable->email) : '';
-        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $channels[] = 'mail';
-        }
-
-        return $channels;
+        // COUPON REMEDIATION PART 4: Email is OUT OF SCOPE for coupon
+        // notifications. Required channels are database (in-app) + fcm
+        // (push) + broadcast (Pusher realtime). Assignment must succeed
+        // with no SMTP, no email address, and no mail configuration.
+        // toMail() is retained dormant for non-coupon flows only and is
+        // never dispatched from this notification.
+        return ['database', 'fcm', 'broadcast'];
     }
 
     public function toDatabase($notifiable): array
@@ -64,6 +60,8 @@ class UserCouponAssignedNotification extends Notification implements ShouldQueue
 
     public function toMail($notifiable): \Illuminate\Notifications\Messages\MailMessage
     {
+        // DORMANT: coupon assignment never uses mail (PART 4 business
+        // decision). Kept only so legacy callers do not fatal; not in via().
         // Marvel User has no preferredLocale(); fall back to app locale like
         // toDatabase() does (explicit en/ar payloads there).
         $locale = app()->getLocale();

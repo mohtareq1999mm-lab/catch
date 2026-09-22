@@ -254,6 +254,7 @@ class CouponController extends CoreController
 
             $claimService = app(\App\Services\Coupon\CouponClaimService::class);
             $claim = $claimService->claim($coupon, $user);
+            $claim->loadMissing('coupon:id,code');
 
             return $this->apiResponse(
                 COUPON_CLAIMED_SUCCESSFULLY,

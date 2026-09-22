@@ -64,6 +64,7 @@ class OrderService
         private \App\Services\Inventory\InventoryRestoreService $inventoryRestoreService,
         private \App\Services\Invoice\InvoiceService $invoiceService,
         private CouponReservationService $couponReservationService,
+        private ?\App\Services\Customer\CustomerMetricsService $customerMetricsService = null,
     ) {}
 
     public function paginateForUser(Request $request): LengthAwarePaginator
@@ -848,6 +849,27 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 // idempotent no-ops if the online-payment callback already did them.
                 $this->finalizePromotionUsageAfterPayment($order);
                 $this->orderReservationService->commit($order);
+
+                // P1-3: refresh customer metrics on qualifying completion only
+                // (status=completed AND payment_status=payment-success).
+                // Deferred to afterCommit so the metrics scan/upsert never
+                // extends the Order FOR UPDATE lock hold. Idempotent; never
+                // blocks completion on failure.
+                $orderIdForMetrics = $order->getKey();
+                DB::afterCommit(function () use ($orderIdForMetrics) {
+                    try {
+                        $fresh = Order::query()->find($orderIdForMetrics);
+                        if ($fresh && $fresh->status === Order::ORDER_STATUS_COMPLETED
+                            && $fresh->payment_status === Order::PAYMENT_STATUS_SUCCESS
+                            && $fresh->user) {
+                            $metricsService = $this->customerMetricsService
+                                ?? app(\App\Services\Customer\CustomerMetricsService::class);
+                            $metricsService->rebuildForUser($fresh->user);
+                        }
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                });
             }
 
             if ($transaction) {

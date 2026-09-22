@@ -82,7 +82,9 @@ class CouponService
             $validation = CouponOrchestrator::validateByCode($code, $user, $cart->items, $context);
 
             if (!$validation['valid']) {
-                return null;
+                // P2-4: stable machine-readable rejection (frontend can
+                // distinguish accepted vs rejected without internal details).
+                return ['invalid' => true, 'reason' => $validation['reason'] ?? 'not_eligible'];
             }
 
             $coupon = $validation['coupon'];

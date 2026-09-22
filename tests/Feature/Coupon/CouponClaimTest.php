@@ -67,6 +67,7 @@ class CouponClaimTest extends TestCase
         $response = $this->actingAs($user, 'sanctum')
             ->postJson("/api/v1/general/coupons/{$coupon->id}/claim");
 
+        // P1-2: customer-safe shape — no eligibility_snapshot, no user_id.
         $response->assertStatus(201)
             ->assertJsonStructure([
                 'success',
@@ -74,19 +75,23 @@ class CouponClaimTest extends TestCase
                 'data' => [
                     'id',
                     'coupon_id',
-                    'user_id',
+                    'code',
+                    'status',
                     'claimed_at',
-                    'eligibility_snapshot',
-                    'created_at',
+                    'expires_at',
+                    'redeemed_at',
                 ],
             ])
             ->assertJson([
                 'success' => true,
                 'data' => [
                     'coupon_id' => $coupon->id,
-                    'user_id' => $user->id,
+                    'status' => 'active',
                 ],
             ]);
+        $response->assertJsonMissingPath('data.eligibility_snapshot');
+        $response->assertJsonMissingPath('data.user_id');
+        $response->assertJsonPath('data.code', $coupon->fresh()->code);
 
         $this->assertDatabaseHas('coupon_claims', [
             'coupon_id' => $coupon->id,

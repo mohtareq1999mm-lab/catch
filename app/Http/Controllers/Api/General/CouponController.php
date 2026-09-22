@@ -44,7 +44,14 @@ class CouponController extends Controller
         $result = $this->couponService->addCouponToCart($code, $context);
 
         if ($result === null) {
-            return $this->apiResponse(INVALID_COUPON_CODE_OR_COUPON_CANNOT_BE_APPLIED_OR_COUPON_USAGE_LIMIT_REACHED, 400, false);
+            return $this->apiResponse(INVALID_COUPON_CODE_OR_COUPON_CANNOT_BE_APPLIED_OR_COUPON_USAGE_LIMIT_REACHED, 400, false, ['reason' => 'no_cart', 'code' => 'COUPON_NO_CART']);
+        }
+
+        // P2-4: machine-readable rejection code; envelope unchanged.
+        if (isset($result['invalid']) && $result['invalid']) {
+            $reason = (string) ($result['reason'] ?? 'not_eligible');
+
+            return $this->apiResponse(INVALID_COUPON_CODE_OR_COUPON_CANNOT_BE_APPLIED_OR_COUPON_USAGE_LIMIT_REACHED, 400, false, ['reason' => $reason, 'code' => 'COUPON_'.strtoupper($reason)]);
         }
 
         if (isset($result['already_applied']) && $result['already_applied']) {
@@ -137,6 +144,7 @@ class CouponController extends Controller
 
             $claimService = app(\App\Services\Coupon\CouponClaimService::class);
             $claim = $claimService->claim($coupon, $user);
+            $claim->loadMissing('coupon:id,code');
 
             return $this->apiResponse(
                 COUPON_CLAIMED_SUCCESSFULLY,
