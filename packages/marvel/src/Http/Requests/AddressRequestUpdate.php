@@ -37,6 +37,8 @@ class AddressRequestUpdate extends FormRequest
             'location' => ['sometimes', 'array'],
             'location.latitude' => ['sometimes', 'numeric'],
             'location.longitude' => ['sometimes', 'numeric'],
+            // AREA_IN saved-address remediation: optional canonical link.
+            'governorate_id' => ['nullable', 'integer', 'exists:governorates,id'],
         ];
     }
 

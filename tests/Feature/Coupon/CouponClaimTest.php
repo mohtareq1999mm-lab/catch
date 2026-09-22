@@ -5,11 +5,14 @@ namespace Tests\Feature\Coupon;
 use App\Enums\EligibilityRuleType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponAssignment;
 use Marvel\Database\Models\CouponClaim;
 use Marvel\Database\Models\CouponTargeting;
+use Marvel\Database\Models\Country;
 use Marvel\Database\Models\CustomerMetrics;
+use Marvel\Database\Models\Governorate;
 use Marvel\Database\Models\User;
 use Tests\TestCase;
 
@@ -330,6 +333,40 @@ class CouponClaimTest extends TestCase
             ->postJson("/api/v1/general/coupons/{$coupon->id}/claim");
 
         $response->assertStatus(201);
+    }
+
+    public function test_area_claim_uses_saved_addresses_strictly()
+    {
+        // Case 10: no deferral at claim — matching address succeeds,
+        // missing address fails with existing not_eligible behavior.
+        $country = Country::create(['name' => 'Testland']);
+        $giza = Governorate::create(['country_id' => $country->id, 'name' => 'Giza', 'status' => true]);
+
+        $user = User::factory()->create();
+        Address::create([
+            'title' => 'Home',
+            'address' => ['zip' => '1', 'city' => 'C', 'state' => 'S', 'country' => 'T', 'street_address' => 'x'],
+            'customer_id' => $user->id,
+            'governorate_id' => $giza->id,
+        ]);
+
+        $coupon = $this->createCoupon();
+        CouponTargeting::create([
+            'coupon_id' => $coupon->id,
+            'mode' => 'dynamic',
+            'require_claim' => true,
+            'rule_tree' => ['type' => 'area_in', 'value' => [$giza->id]],
+        ]);
+
+        $ok = $this->actingAs($user, 'sanctum')
+            ->postJson("/api/v1/general/coupons/{$coupon->id}/claim");
+        $ok->assertStatus(201);
+
+        $stranger = User::factory()->create();
+        $denied = $this->actingAs($stranger, 'sanctum')
+            ->postJson("/api/v1/general/coupons/{$coupon->id}/claim");
+        $denied->assertStatus(409)
+            ->assertJson(['success' => false, 'data' => ['reason' => 'not_eligible']]);
     }
 
     public function test_user_cannot_claim_same_coupon_twice()

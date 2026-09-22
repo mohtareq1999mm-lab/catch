@@ -6,6 +6,7 @@ use App\Exceptions\CouponConsumptionException;
 use App\Services\Coupon\CouponOrchestrator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponAssignment;
 use Marvel\Database\Models\CouponUsage;
@@ -159,21 +160,44 @@ class CouponCheckoutRevalidationTest extends TestCase
         $this->assertSame('not_eligible', $failed['reason']);
     }
 
+    private function makeAddress(User $user, ?int $governorateId): Address
+    {
+        return Address::create([
+            'title' => 'Home',
+            'address' => [
+                'zip' => '12345',
+                'city' => 'Test City',
+                'state' => 'Test State',
+                'country' => 'Testland',
+                'street_address' => '1 Test Street',
+            ],
+            'customer_id' => $user->id,
+            'governorate_id' => $governorateId,
+        ]);
+    }
+
     /** @test */
-    public function area_rule_defers_at_apply_and_enforces_at_checkout(): void
+    public function area_rule_evaluates_saved_addresses_strictly_at_apply(): void
     {
         $coupon = $this->createCoupon('REVALAREA');
         $this->target($coupon, 'dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
+        $this->makeAddress($this->user, $this->riyadh->id);
 
+        // Strict at apply with no context: matching address passes.
         $apply = CouponOrchestrator::validate($coupon, $this->user);
-        $this->assertTrue($apply['valid'], 'apply without area defers');
+        $this->assertTrue($apply['valid'], 'matching saved address passes at apply');
 
-        $wrong = CouponOrchestrator::validate($coupon, $this->user, null, ['governorate_id' => $this->jeddah->id]);
-        $this->assertFalse($wrong['valid']);
-        $this->assertSame('not_eligible', $wrong['reason']);
+        // Delivery context is ignored in both directions.
+        $deliveryMismatch = CouponOrchestrator::validate($coupon, $this->user, null, ['governorate_id' => $this->jeddah->id]);
+        $this->assertTrue($deliveryMismatch['valid'], 'delivery mismatch must not strip saved-address eligibility');
 
-        $right = CouponOrchestrator::validate($coupon, $this->user, null, ['governorate_id' => $this->riyadh->id]);
-        $this->assertTrue($right['valid']);
+        $noAddress = CouponOrchestrator::validate($coupon, $this->otherUser);
+        $this->assertFalse($noAddress['valid']);
+        $this->assertSame('not_eligible', $noAddress['reason']);
+
+        $deliveryMatchNoAddress = CouponOrchestrator::validate($coupon, $this->otherUser, null, ['governorate_id' => $this->riyadh->id]);
+        $this->assertFalse($deliveryMatchNoAddress['valid'], 'delivery match grants nothing without a saved address');
+        $this->assertSame('not_eligible', $deliveryMatchNoAddress['reason']);
     }
 
     // =====================================================================
@@ -289,21 +313,25 @@ class CouponCheckoutRevalidationTest extends TestCase
     }
 
     /** @test */
-    public function area_matched_order_completes_and_mismatched_order_fails(): void
+    public function area_eligible_order_completes_despite_delivery_mismatch(): void
     {
+        // CRITICAL Case 9: user addresses [Cairo/Riyadh-equivalent], coupon
+        // allows Riyadh, checkout delivers to Jeddah → coupon STAYS eligible.
         $coupon = $this->createCoupon('REVALAREAPAY');
         $this->target($coupon, 'dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
+        $this->makeAddress($this->user, $this->riyadh->id);
 
-        $ok = $this->completeOrder($this->user, $coupon, $this->riyadh->id);
+        $ok = $this->completeOrder($this->user, $coupon, $this->jeddah->id);
         $this->assertSame('completed', $ok->status);
         $this->assertSame(1, $coupon->fresh()->used);
 
+        // Delivery match without a saved address grants nothing.
         $coupon2 = $this->createCoupon('REVALAREANOP');
         $this->target($coupon2, 'dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
 
         try {
-            $this->completeOrder($this->otherUser, $coupon2, $this->jeddah->id);
-            $this->fail('Wrong-area completion must throw.');
+            $this->completeOrder($this->otherUser, $coupon2, $this->riyadh->id);
+            $this->fail('Completion without a matching saved address must throw.');
         } catch (CouponConsumptionException $e) {
             $this->assertSame(CouponConsumptionException::REASON_NOT_ELIGIBLE, $e->reason);
         }

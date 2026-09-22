@@ -8,6 +8,7 @@ use App\Services\Coupon\RuleTreeValidator;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponTargeting;
 use Marvel\Database\Models\Country;
@@ -20,7 +21,9 @@ use Tests\TestCase;
  * First-class rule coverage: area_in / has_email / registered_after / registered_before.
  *
  * Canonical decisions under test:
- * - area_in source: checkout delivery governorate (orders.governorate_id → governorates.id, active only).
+ * - area_in source: authenticated user's own saved addresses
+ *   (address.customer_id = user, address.governorate_id ∈ allowed, active
+ *   only). ANY-match, strict at every stage; delivery area irrelevant.
  * - has_email: strict presence (trimmed + RFC-valid); verification state ignored.
  * - registered_*: users.created_at UTC datetime, EXCLUSIVE boundary; null fails closed.
  */
@@ -79,29 +82,48 @@ class EligibilityNewRulesTest extends TestCase
     }
 
     // =====================================================================
-    // area_in
+    // area_in — saved-address semantics (delivery governorate irrelevant)
     // =====================================================================
 
-    /** @test */
-    public function area_in_defers_without_delivery_context(): void
+    private function makeAddress(User $user, ?int $governorateId): Address
     {
-        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
-        $user = User::factory()->create();
-
-        $result = $this->evaluate($coupon, $user);
-
-        $this->assertTrue($result->isEligible);
+        return Address::create([
+            'title' => 'Home',
+            'address' => [
+                'zip' => '12345',
+                'city' => 'Test City',
+                'state' => 'Test State',
+                'country' => 'Testland',
+                'street_address' => '1 Test Street',
+            ],
+            'customer_id' => $user->id,
+            'governorate_id' => $governorateId,
+        ]);
     }
 
     /** @test */
-    public function area_in_passes_for_allowed_area(): void
+    public function area_in_is_strict_without_any_context(): void
+    {
+        // No deferral: claim-equivalent evaluation (no context) decides
+        // from saved addresses alone.
+        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
+
+        $withMatch = User::factory()->create();
+        $this->makeAddress($withMatch, $this->riyadh->id);
+        $this->assertTrue($this->evaluate($coupon, $withMatch)->isEligible);
+
+        $withoutMatch = User::factory()->create();
+        $this->assertFalse($this->evaluate($coupon, $withoutMatch)->isEligible);
+    }
+
+    /** @test */
+    public function area_in_passes_for_matching_saved_address(): void
     {
         $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
         $user = User::factory()->create();
+        $this->makeAddress($user, $this->riyadh->id);
 
-        $result = $this->evaluate($coupon, $user, ['governorate_id' => $this->riyadh->id]);
-
-        $this->assertTrue($result->isEligible);
+        $this->assertTrue($this->evaluate($coupon, $user)->isEligible);
     }
 
     /** @test */
@@ -110,33 +132,101 @@ class EligibilityNewRulesTest extends TestCase
         $single = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => $this->riyadh->id]);
         $multi = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id, $this->jeddah->id]]);
         $user = User::factory()->create();
-        $ctx = ['governorate_id' => $this->jeddah->id];
+        $this->makeAddress($user, $this->jeddah->id);
 
-        $this->assertFalse($this->evaluate($single, $user, $ctx)->isEligible);
-        $this->assertTrue($this->evaluate($multi, $user, $ctx)->isEligible);
+        $this->assertFalse($this->evaluate($single, $user)->isEligible);
+        $this->assertTrue($this->evaluate($multi, $user)->isEligible);
     }
 
     /** @test */
-    public function area_in_fails_for_outside_area(): void
+    public function area_in_any_match_across_multiple_addresses(): void
     {
-        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
+        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->jeddah->id]]);
+
         $user = User::factory()->create();
+        $this->makeAddress($user, $this->riyadh->id);
+        $this->makeAddress($user, $this->jeddah->id);
+        $this->assertTrue($this->evaluate($coupon, $user)->isEligible, 'ANY match suffices');
 
-        $result = $this->evaluate($coupon, $user, ['governorate_id' => $this->jeddah->id]);
-
-        $this->assertFalse($result->isEligible);
+        $other = User::factory()->create();
+        $this->makeAddress($other, $this->riyadh->id);
+        $this->makeAddress($other, $this->country->id * 100000 + 7); // unknown governorate id
+        $this->assertFalse($this->evaluate($coupon, $other)->isEligible, 'no match');
     }
 
     /** @test */
-    public function area_in_fails_closed_for_unknown_inactive_and_null_area(): void
+    public function area_in_ignores_delivery_context(): void
+    {
+        // Legacy context key must not influence the verdict either way.
+        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
+        $user = User::factory()->create();
+        $this->makeAddress($user, $this->riyadh->id);
+
+        $this->assertTrue(
+            $this->evaluate($coupon, $user, ['governorate_id' => $this->jeddah->id])->isEligible,
+            'delivery mismatch must not strip saved-address eligibility'
+        );
+
+        $stranger = User::factory()->create();
+        $this->assertFalse(
+            $this->evaluate($coupon, $stranger, ['governorate_id' => $this->riyadh->id])->isEligible,
+            'delivery match must not grant eligibility without a saved address'
+        );
+    }
+
+    /** @test */
+    public function area_in_fails_closed_for_unknown_and_inactive_allowed_ids(): void
+    {
+        $user = User::factory()->create();
+        $this->makeAddress($user, $this->riyadh->id);
+
+        $unknown = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [999999]]);
+        $this->assertFalse($this->evaluate($unknown, $user)->isEligible, 'unknown allowed id');
+
+        $inactive = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->inactive->id]]);
+        $this->assertFalse($this->evaluate($inactive, $user)->isEligible, 'inactive allowed id');
+
+        // Address pointing at an inactive governorate cannot match either.
+        $holder = User::factory()->create();
+        $this->makeAddress($holder, $this->inactive->id);
+        $this->assertFalse($this->evaluate($inactive, $holder)->isEligible, 'inactive address governorate');
+    }
+
+    /** @test */
+    public function area_in_null_governorate_addresses_never_match(): void
     {
         $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
         $user = User::factory()->create();
+        $this->makeAddress($user, null);
 
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => 999999])->isEligible, 'unknown area');
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => $this->inactive->id])->isEligible, 'inactive area');
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => null])->isEligible, 'null area (pickup)');
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => 'abc'])->isEligible, 'invalid area id');
+        $this->assertFalse($this->evaluate($coupon, $user)->isEligible, 'legacy NULL address fails closed');
+    }
+
+    /** @test */
+    public function area_in_deleted_address_stops_matching(): void
+    {
+        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->riyadh->id]]);
+        $user = User::factory()->create();
+        $address = $this->makeAddress($user, $this->riyadh->id);
+
+        $this->assertTrue($this->evaluate($coupon, $user)->isEligible);
+
+        $address->delete();
+
+        $this->assertFalse($this->evaluate($coupon, $user)->isEligible);
+    }
+
+    /** @test */
+    public function area_in_never_counts_another_users_address(): void
+    {
+        $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [$this->jeddah->id]]);
+
+        $userA = User::factory()->create();
+        $userB = User::factory()->create();
+        $this->makeAddress($userB, $this->jeddah->id);
+
+        $this->assertFalse($this->evaluate($coupon, $userA)->isEligible);
+        $this->assertTrue($this->evaluate($coupon, $userB)->isEligible);
     }
 
     /** @test */
@@ -148,9 +238,9 @@ class EligibilityNewRulesTest extends TestCase
 
         $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => []]);
         $user = User::factory()->create();
+        $this->makeAddress($user, $this->riyadh->id);
 
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => $this->riyadh->id])->isEligible);
-        $this->assertFalse($this->evaluate($coupon, $user)->isEligible, 'empty list fails even when deferred');
+        $this->assertFalse($this->evaluate($coupon, $user)->isEligible);
     }
 
     /** @test */
@@ -158,8 +248,10 @@ class EligibilityNewRulesTest extends TestCase
     {
         $user = User::factory()->create();
         CustomerMetrics::create(['user_id' => $user->id, 'completed_orders' => 5]);
-        $ctxRiyadh = ['governorate_id' => $this->riyadh->id];
-        $ctxJeddah = ['governorate_id' => $this->jeddah->id];
+        $this->makeAddress($user, $this->riyadh->id);
+
+        $stranger = User::factory()->create();
+        CustomerMetrics::create(['user_id' => $stranger->id, 'completed_orders' => 5]);
 
         $and = $this->createCoupon('dynamic', [
             'operator' => 'AND',
@@ -168,8 +260,8 @@ class EligibilityNewRulesTest extends TestCase
                 ['type' => 'min_completed_orders', 'value' => 5],
             ],
         ]);
-        $this->assertTrue($this->evaluate($and, $user, $ctxRiyadh)->isEligible);
-        $this->assertFalse($this->evaluate($and, $user, $ctxJeddah)->isEligible);
+        $this->assertTrue($this->evaluate($and, $user)->isEligible);
+        $this->assertFalse($this->evaluate($and, $stranger)->isEligible);
 
         $or = $this->createCoupon('dynamic', [
             'operator' => 'OR',
@@ -178,8 +270,13 @@ class EligibilityNewRulesTest extends TestCase
                 ['type' => 'min_completed_orders', 'value' => 99],
             ],
         ]);
-        $this->assertTrue($this->evaluate($or, $user, $ctxRiyadh)->isEligible);
-        $this->assertFalse($this->evaluate($or, $user, $ctxJeddah)->isEligible);
+        $this->assertTrue($this->evaluate($or, $user)->isEligible);
+        $this->assertFalse($this->evaluate($or, $stranger)->isEligible);
+
+        // Second branch carries for a user whose area branch fails (no email).
+        $noEmail = User::factory()->withoutEmail()->create();
+        CustomerMetrics::create(['user_id' => $noEmail->id, 'completed_orders' => 5]);
+        $this->makeAddress($noEmail, $this->jeddah->id);
 
         $nested = $this->createCoupon('dynamic', [
             'operator' => 'OR',
@@ -187,7 +284,7 @@ class EligibilityNewRulesTest extends TestCase
                 [
                     'operator' => 'AND',
                     'rules' => [
-                        ['type' => 'area_in', 'value' => [$this->riyadh->id, $this->jeddah->id]],
+                        ['type' => 'area_in', 'value' => [$this->riyadh->id]],
                         ['type' => 'has_email', 'value' => true],
                     ],
                 ],
@@ -200,7 +297,8 @@ class EligibilityNewRulesTest extends TestCase
                 ],
             ],
         ]);
-        $this->assertTrue($this->evaluate($nested, $user, $ctxJeddah)->isEligible, 'nested second branch carries');
+        $this->assertTrue($this->evaluate($nested, $noEmail)->isEligible, 'nested second branch carries');
+        $this->assertTrue($this->evaluate($nested, $user)->isEligible, 'first branch carries via address+email');
     }
 
     // =====================================================================
@@ -356,9 +454,9 @@ class EligibilityNewRulesTest extends TestCase
 
         $coupon = $this->createCoupon('dynamic', ['type' => 'area_in', 'value' => [1.5]]);
         $user = User::factory()->create();
+        $this->makeAddress($user, $this->riyadh->id);
 
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => $this->riyadh->id])->isEligible);
-        $this->assertFalse($this->evaluate($coupon, $user, ['governorate_id' => '1.5'])->isEligible, 'context float fails closed');
+        $this->assertFalse($this->evaluate($coupon, $user)->isEligible, 'malformed value fails closed');
     }
 
     /** @test */

@@ -5,7 +5,6 @@ namespace App\Services\Fulfillment;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Location;
 use Marvel\Database\Models\Product;
-use Marvel\Database\Models\Stock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -18,8 +17,8 @@ class ProductLocationService
     public function syncWithStock(int $productId): void
     {
         DB::transaction(function () use ($productId) {
-            // Lock stock row
-            $stock = Stock::where('product_id', $productId)
+            // Lock product row
+            $product = Product::where('id', $productId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -27,7 +26,7 @@ class ProductLocationService
             $totalInLocations = ProductLocation::where('product_id', $productId)
                 ->sum('quantity');
 
-            $stockQuantity = $stock->stock_quantity;
+            $stockQuantity = $product->stock_quantity;
 
             // Validate invariant
             if ($totalInLocations > $stockQuantity) {

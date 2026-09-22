@@ -30,18 +30,13 @@ class CouponController extends Controller
     {
         $request->validate([
             'code' => ['required', 'string', 'max:191'],
-            // Optional delivery area: when supplied, area-targeted coupons
-            // are evaluated strictly now; when omitted, area rules defer
-            // to checkout (authoritative revalidation with the order area).
-            'governorate_id' => ['nullable', 'integer', 'exists:governorates,id'],
         ]);
 
+        // AREA_IN saved-address remediation: coupon area eligibility is
+        // derived from the authenticated user's saved addresses. No
+        // customer-supplied governorate is accepted or needed here.
         $code = $request->get('code');
-        $context = [];
-        if ($request->filled('governorate_id')) {
-            $context['governorate_id'] = (int) $request->input('governorate_id');
-        }
-        $result = $this->couponService->addCouponToCart($code, $context);
+        $result = $this->couponService->addCouponToCart($code);
 
         if ($result === null) {
             return $this->apiResponse(INVALID_COUPON_CODE_OR_COUPON_CANNOT_BE_APPLIED_OR_COUPON_USAGE_LIMIT_REACHED, 400, false, ['reason' => 'no_cart', 'code' => 'COUPON_NO_CART']);

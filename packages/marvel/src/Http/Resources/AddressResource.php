@@ -21,6 +21,7 @@ class AddressResource extends Resource
             "address"=> $this->address,
             "location"=> $this->location ?? [],
             "customer_id"=> $this->customer_id,
+            "governorate_id"=> $this->governorate_id,
             "created_at"=> $this->created_at->toIsoString(),
         ];
     }

@@ -6,6 +6,8 @@ use App\DTOs\Coupon\EligibilityResult;
 use App\Enums\EligibilityRuleType;
 use App\Services\Customer\CustomerMetricsService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
+use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponAssignment;
 use Marvel\Database\Models\CouponClaim;
@@ -27,10 +29,10 @@ class EligibilityEngine
      * Rule trees support AND/OR/nested groups recursively (max depth 10).
      *
      * Evaluation context (optional, never trusted for identity):
-     * - 'governorate_id': checkout delivery area. Key ABSENT (claim/apply
-     *   without area input) defers area_in (passes, revalidated at checkout).
-     *   Key PRESENT (checkout/payment, may be null) evaluates strictly:
-     *   null/unknown/inactive governorate fails closed.
+     * - 'governorate_id': LEGACY checkout delivery area key. It is NO
+     *   LONGER read by any rule: area_in evaluates the authenticated
+     *   user's own saved addresses (strict at every stage, no deferral).
+     *   The key is accepted but ignored.
      *
      * Lock ordering (F-13): read-only; callers hold Targeting FOR UPDATE where needed.
      * Global order: Transaction → Order → Cart → Coupon → Targeting → Assignment → Reservation → Claim → Usage.
@@ -133,7 +135,8 @@ class EligibilityEngine
             // Provenance for the new identity rules (no PII: booleans + own timestamps).
             'has_email' => self::hasStrictEmail($user),
             'registered_at' => $user->created_at?->toIso8601String(),
-            'governorate_id' => $context['governorate_id'] ?? null,
+            // NOTE: no delivery governorate is recorded — area_in is a
+            // saved-address rule and delivery input never affects it.
         ];
 
         $node = $this->evaluateNode($ruleTree, $metrics, $coupon, $user, 0, $context);
@@ -308,7 +311,7 @@ class EligibilityEngine
             EligibilityRuleType::NOT_CLAIMED => $this->evalNotClaimed($coupon, $user),
             EligibilityRuleType::CLAIMED => $this->evalClaimed($coupon, $user),
             EligibilityRuleType::HAS_ASSIGNMENT => $this->evalHasAssignment($coupon, $user),
-            EligibilityRuleType::AREA_IN => $this->evalAreaIn($value, $context),
+            EligibilityRuleType::AREA_IN => $this->evalAreaIn($value, $user),
             EligibilityRuleType::HAS_EMAIL => $this->evalHasEmail($user, $value),
             EligibilityRuleType::REGISTERED_AFTER => $this->evalRegisteredAfter($user, $value),
             EligibilityRuleType::REGISTERED_BEFORE => $this->evalRegisteredBefore($user, $value),
@@ -692,17 +695,22 @@ class EligibilityEngine
     }
 
     /**
-     * Area rule. Canonical source: checkout delivery governorate
-     * (orders.governorate_id → governorates.id, active only).
+     * Area rule. Canonical source: the authenticated user's OWN saved
+     * addresses (address.customer_id = user, address.governorate_id in
+     * the allowed list, governorate active).
+     *
+     * ANY-match: a single matching address suffices. Shipping/delivery
+     * governorate, checkout input, and request-supplied ids are irrelevant
+     * and are never read here.
      *
      * - Rule value: single id or list (normalized; empty/malformed fails closed).
-     * - Context key ABSENT (claim/apply without area input): deferred PASS —
-     *   authoritative enforcement happens at checkout/payment with the
-     *   delivery area. Recorded in the result reason for snapshot provenance.
-     * - Context key PRESENT (checkout/payment, may be null): strict —
-     *   null/unknown/inactive/outside-list fails closed.
+     * - Allowed ids are intersected with ACTIVE governorates (unknown/
+     *   inactive config values can never create eligibility).
+     * - Addresses with NULL governorate_id never match (fail closed, no
+     *   inference from free-form address JSON).
+     * - Strict at every stage (claim/apply/checkout/payment): no deferral.
      */
-    private function evalAreaIn($value, array $context): array
+    private function evalAreaIn($value, User $user): array
     {
         $ids = is_array($value) ? $value : [$value];
         $allowed = [];
@@ -731,51 +739,56 @@ class EligibilityEngine
             ];
         }
 
-        if (!array_key_exists('governorate_id', $context)) {
+        // Rolling-deploy guard: code running before the
+        // address.governorate_id migration must fail closed, never open.
+        if (!Schema::hasColumn('address', 'governorate_id')) {
             return [
-                'passed' => true,
+                'passed' => false,
                 'type' => EligibilityRuleType::AREA_IN->value,
                 'value' => $allowed,
                 'actual' => null,
-                'reason' => 'deferred: no delivery area in context, enforced at checkout',
+                'reason' => 'Address area data unavailable',
             ];
         }
 
-        $governorateId = $context['governorate_id'];
-        if (!self::isStrictPositiveInt($governorateId)) {
-            return [
-                'passed' => false,
-                'type' => EligibilityRuleType::AREA_IN->value,
-                'value' => $allowed,
-                'actual' => $governorateId,
-                'reason' => 'No delivery area provided for an area-targeted coupon',
-            ];
-        }
-        $governorateId = (int) $governorateId;
-
-        $active = Governorate::query()
-            ->whereKey($governorateId)
+        // Active-only allowed set: unknown/inactive governorates in the
+        // coupon config can never create eligibility.
+        $activeAllowed = Governorate::query()
+            ->whereIn('id', $allowed)
             ->where('status', true)
-            ->exists();
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
-        if (!$active) {
+        if (empty($activeAllowed)) {
             return [
                 'passed' => false,
                 'type' => EligibilityRuleType::AREA_IN->value,
                 'value' => $allowed,
-                'actual' => $governorateId,
-                'reason' => 'Unknown or inactive delivery area',
+                'actual' => [],
+                'reason' => 'No active governorate in the allowed list',
             ];
         }
 
-        $passed = in_array($governorateId, $allowed, true);
+        // One indexed existence-shaped query over the user's OWN addresses
+        // only (customer_id scope). NULL governorate_ids never match whereIn.
+        $matched = Address::query()
+            ->where('customer_id', $user->getKey())
+            ->whereIn('governorate_id', $activeAllowed)
+            ->pluck('governorate_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $passed = !empty($matched);
 
         return [
             'passed' => $passed,
             'type' => EligibilityRuleType::AREA_IN->value,
             'value' => $allowed,
-            'actual' => $governorateId,
-            'reason' => $passed ? null : "Delivery area {$governorateId} is not in the allowed list",
+            'actual' => $matched,
+            'reason' => $passed ? null : 'User has no saved address in the allowed areas',
         ];
     }
 

@@ -14,12 +14,14 @@ class Address extends Model
         'default',
         'address',
         'customer_id',
+        'governorate_id',
         'location'
     ];
 
     protected $casts = [
         'address' => 'array',
-        'location' => 'array'
+        'location' => 'array',
+        'governorate_id' => 'integer',
     ];
 
     /**
@@ -28,5 +30,16 @@ class Address extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'customer_id');
+    }
+
+    /**
+     * AREA_IN saved-address remediation: canonical governorate link.
+     * Nullable by design — legacy rows keep NULL and fail closed.
+     *
+     * @return BelongsTo
+     */
+    public function governorate(): BelongsTo
+    {
+        return $this->belongsTo(Governorate::class, 'governorate_id');
     }
 }

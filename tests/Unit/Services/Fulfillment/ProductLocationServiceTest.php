@@ -7,7 +7,6 @@ use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\ProductLocationService;
 use Marvel\Database\Models\Product;
-use Marvel\Database\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -28,28 +27,37 @@ class ProductLocationServiceTest extends TestCase
         $this->service = new ProductLocationService();
 
         // Create warehouse and locations
-        $this->warehouse = Warehouse::factory()->create([
+        $this->warehouse = Warehouse::create([
             'code' => 'TEST',
             'name' => 'Test Warehouse',
             'is_default' => true,
+            'status' => 'active',
         ]);
 
-        $this->locationA = Location::factory()->create([
+        $this->locationA = Location::create([
             'warehouse_id' => $this->warehouse->id,
             'code' => 'A-01',
+            'name' => 'Location A-01',
             'priority' => 10,
+            'status' => 'active',
         ]);
 
-        $this->locationB = Location::factory()->create([
+        $this->locationB = Location::create([
             'warehouse_id' => $this->warehouse->id,
             'code' => 'B-01',
+            'name' => 'Location B-01',
             'priority' => 5,
+            'status' => 'active',
         ]);
 
         // Create product with stock
-        $this->product = Product::factory()->create();
-        Stock::factory()->create([
-            'product_id' => $this->product->id,
+        $this->product = Product::create([
+            'name' => 'Test Product',
+            'slug' => 'test-product-' . \Illuminate\Support\Str::random(8),
+            'price' => 100.00,
+            'product_type' => \Marvel\Enums\ProductType::SIMPLE,
+            'status' => true,
+            'in_stock' => true,
             'stock_quantity' => 100,
             'reserved_quantity' => 0,
         ]);

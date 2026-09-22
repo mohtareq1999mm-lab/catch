@@ -9,48 +9,51 @@ use Illuminate\Database\Seeder;
 class WarehouseSeeder extends Seeder
 {
     /**
-     * Seed default warehouse and sample locations
+     * Run the database seeds.
      */
     public function run(): void
     {
-        // Create main warehouse
+        // Create default warehouse
         $warehouse = Warehouse::create([
             'code' => 'MAIN',
             'name' => 'Main Warehouse',
-            'address' => '123 Industrial Zone',
+            'address' => '123 Warehouse St',
             'city' => 'Cairo',
             'country' => 'Egypt',
             'status' => 'active',
             'is_default' => true,
+            'metadata' => [
+                'capacity' => 10000,
+                'contact_phone' => '+20-xxx-xxxx',
+            ],
         ]);
 
-        // Create storage locations with priority hierarchy
+        // Create sample locations with different priorities
         $locations = [
-            // High-priority picking zone
-            ['code' => 'A-01', 'name' => 'Shelf A-01', 'type' => 'shelf', 'priority' => 10],
-            ['code' => 'A-02', 'name' => 'Shelf A-02', 'type' => 'shelf', 'priority' => 9],
-            ['code' => 'A-03', 'name' => 'Shelf A-03', 'type' => 'shelf', 'priority' => 9],
-
-            // Medium-priority zone
-            ['code' => 'B-01', 'name' => 'Shelf B-01', 'type' => 'shelf', 'priority' => 5],
-            ['code' => 'B-02', 'name' => 'Shelf B-02', 'type' => 'shelf', 'priority' => 5],
-
-            // Low-priority bulk storage
-            ['code' => 'C-01', 'name' => 'Bulk Storage C-01', 'type' => 'bin', 'priority' => 1],
-            ['code' => 'C-02', 'name' => 'Bulk Storage C-02', 'type' => 'bin', 'priority' => 1],
+            ['code' => 'A-01', 'name' => 'Aisle A - Shelf 01', 'type' => 'shelf', 'priority' => 10],
+            ['code' => 'A-02', 'name' => 'Aisle A - Shelf 02', 'type' => 'shelf', 'priority' => 9],
+            ['code' => 'A-03', 'name' => 'Aisle A - Shelf 03', 'type' => 'shelf', 'priority' => 8],
+            ['code' => 'B-01', 'name' => 'Aisle B - Shelf 01', 'type' => 'shelf', 'priority' => 7],
+            ['code' => 'B-02', 'name' => 'Aisle B - Shelf 02', 'type' => 'shelf', 'priority' => 6],
+            ['code' => 'BULK-01', 'name' => 'Bulk Storage Zone 01', 'type' => 'zone', 'priority' => 5],
+            ['code' => 'PICK-01', 'name' => 'Fast Pick Zone 01', 'type' => 'bin', 'priority' => 15],
         ];
 
-        foreach ($locations as $location) {
+        foreach ($locations as $locationData) {
             Location::create([
                 'warehouse_id' => $warehouse->id,
-                'code' => $location['code'],
-                'name' => $location['name'],
-                'type' => $location['type'],
+                'code' => $locationData['code'],
+                'name' => $locationData['name'],
+                'type' => $locationData['type'],
                 'status' => 'active',
-                'priority' => $location['priority'],
+                'priority' => $locationData['priority'],
+                'metadata' => [
+                    'max_weight' => 1000,
+                    'dimensions' => '2m x 1m x 3m',
+                ],
             ]);
         }
 
-        $this->command->info('✅ Default warehouse and 7 locations created');
+        $this->command->info('✓ Created Main Warehouse with ' . count($locations) . ' locations');
     }
 }

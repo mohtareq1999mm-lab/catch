@@ -32,9 +32,9 @@ class CouponOrchestrator
         // Only the missing-table case (test env without targeting migration) is
         // safely skippable, detected via Schema::hasTable, not broad catch.
         //
-        // $context carries evaluation inputs that are not identity: currently
-        // ['governorate_id' => ?int]. Absent key defers area rules (claim/apply
-        // without area input); present key enforces strictly (checkout/payment).
+        // $context carries evaluation inputs that are not identity.
+        // NOTE: area_in no longer reads $context (saved-address rule);
+        // any 'governorate_id' key present is ignored by evaluation.
         $targeting = null;
         if ($user && method_exists($coupon, 'targeting')) {
             $hasTargetingTable = true;

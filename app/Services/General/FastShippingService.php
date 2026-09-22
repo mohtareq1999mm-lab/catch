@@ -102,10 +102,9 @@ class FastShippingService
             if ($cart->coupon) {
                 // CP-07: parity with SCHEDULED checkout — full Orchestrator
                 // (claim + assignment branches), not Validator-only.
-                // Fast checkout always carries a delivery area (required by
-                // FastCheckoutRequest), evaluated strictly here.
-                $fastContext = ['governorate_id' => $request->filled('governorate_id') ? (int) $request->input('governorate_id') : null];
-                $validation = CouponOrchestrator::validateByCode($cart->coupon, $user, $cart->items, $fastContext);
+                // AREA_IN saved-address remediation: the required delivery
+                // area drives shipping only, never coupon eligibility.
+                $validation = CouponOrchestrator::validateByCode($cart->coupon, $user, $cart->items);
                 if (!$validation['valid']) {
                     $cart->update(['coupon' => null]);
                 }

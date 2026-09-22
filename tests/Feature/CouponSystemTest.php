@@ -6,9 +6,11 @@ use App\Services\General\OrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
+use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Coupon;
+use Marvel\Database\Models\CouponTargeting;
 use Marvel\Database\Models\CouponUsage;
 use Marvel\Database\Models\Country;
 use Marvel\Database\Models\Governorate;
@@ -136,6 +138,52 @@ class CouponSystemTest extends TestCase
             'user_id' => $this->user->id,
             'coupon' => 'TEST10',
         ]);
+    }
+
+    /** @test */
+    public function apply_area_coupon_uses_saved_addresses_without_governorate_input(): void
+    {
+        // Case 11: apply body is {code} only; area_in resolves from addresses.
+        $this->authUser();
+        $this->createCartWithItem();
+        $governorate = $this->createCountryAndGovernorate();
+        $this->createCoupon('AREASAVE');
+        CouponTargeting::create([
+            'coupon_id' => Coupon::byCode('AREASAVE')->first()->id,
+            'mode' => 'dynamic',
+            'rule_tree' => ['type' => 'area_in', 'value' => [$governorate->id]],
+        ]);
+        Address::create([
+            'title' => 'Home',
+            'address' => ['zip' => '1', 'city' => 'C', 'state' => 'S', 'country' => 'T', 'street_address' => 'x'],
+            'customer_id' => $this->user->id,
+            'governorate_id' => $governorate->id,
+        ]);
+
+        $response = $this->postJson(self::PREFIX . '/general/coupons/apply', ['code' => 'AREASAVE']);
+
+        $response->assertOk();
+        $response->assertJsonPath('success', true);
+        $this->assertDatabaseHas('carts', ['user_id' => $this->user->id, 'coupon' => 'AREASAVE']);
+    }
+
+    /** @test */
+    public function apply_area_coupon_rejects_user_without_matching_address(): void
+    {
+        $this->authUser();
+        $this->createCartWithItem();
+        $governorate = $this->createCountryAndGovernorate();
+        $this->createCoupon('AREANONE');
+        CouponTargeting::create([
+            'coupon_id' => Coupon::byCode('AREANONE')->first()->id,
+            'mode' => 'dynamic',
+            'rule_tree' => ['type' => 'area_in', 'value' => [$governorate->id]],
+        ]);
+
+        $response = $this->postJson(self::PREFIX . '/general/coupons/apply', ['code' => 'AREANONE']);
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('data.reason', 'not_eligible');
     }
 
     /** @test */

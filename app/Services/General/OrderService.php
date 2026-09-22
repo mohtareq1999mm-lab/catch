@@ -150,13 +150,10 @@ class OrderService
                     throw new \InvalidArgumentException(__('checkout.cart_empty'));
                 }
                 if ($cart->coupon) {
-                    // Area context only when the preview request carries a
-                    // delivery area; otherwise area rules defer to checkout.
-                    $previewContext = [];
-                    if ($request->filled('governorate_id')) {
-                        $previewContext['governorate_id'] = (int) $request->input('governorate_id');
-                    }
-                    $validation = CouponOrchestrator::validateByCode($cart->coupon, $request->user(), $cart->items, $previewContext);
+                    // AREA_IN saved-address remediation: coupon evaluation
+                    // uses the user's saved addresses; the preview request
+                    // delivery area (shipping only) is never coupon input.
+                    $validation = CouponOrchestrator::validateByCode($cart->coupon, $request->user(), $cart->items);
                     if (!$validation['valid']) {
                         $cart->update(['coupon' => null]);
                     }
@@ -216,10 +213,10 @@ class OrderService
                 // CP-09: canonical lookup (case-insensitive, trimmed).
                 $lockedCoupon = Coupon::byCode($cart->coupon)->lockForUpdate()->first();
                 if ($lockedCoupon) {
-                    // Checkout is authoritative: full dynamic revalidation
-                    // with the request delivery area (strict, may be null).
-                    $checkoutContext = ['governorate_id' => $request->filled('governorate_id') ? (int) $request->input('governorate_id') : null];
-                    $validation = CouponOrchestrator::validate($lockedCoupon, $request->user(), $cart->items, $checkoutContext);
+                    // Checkout is authoritative: full dynamic revalidation.
+                    // AREA_IN saved-address remediation: the request delivery
+                    // area drives shipping only, never coupon eligibility.
+                    $validation = CouponOrchestrator::validate($lockedCoupon, $request->user(), $cart->items);
                     if (!$validation['valid']) {
                         $cart->update(['coupon' => null]);
                         $cart->refresh();
@@ -1197,12 +1194,13 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         $orderItems = $order->orderItems()->get()->map(
             fn ($item) => ['product_id' => $item->product_id]
         );
-        // Payment-time revalidation uses the ORDER's persisted delivery area
-        // (snapshot, immune to later profile/address edits). Applies when no
-        // live reservation exists; a live reservation is the checkout-time
-        // commitment (see revalidateAndReacquireReservation).
-        $paymentContext = ['governorate_id' => $order->governorate_id];
-        $validation = \App\Services\Coupon\CouponOrchestrator::validate($coupon, $order->user, $orderItems, $paymentContext);
+        // AREA_IN saved-address remediation: payment-time revalidation
+        // evaluates the order user's CURRENT saved addresses (same rule as
+        // claim/apply/checkout). The ORDER's persisted delivery area
+        // (snapshot) drives shipping only, never coupon eligibility.
+        // Applies when no live reservation exists; a live reservation is
+        // the checkout-time commitment (see revalidateAndReacquireReservation).
+        $validation = \App\Services\Coupon\CouponOrchestrator::validate($coupon, $order->user, $orderItems);
         if (!$validation['valid']) {
             throw new \App\Exceptions\CouponConsumptionException(
                 \App\Exceptions\CouponConsumptionException::REASON_NOT_ELIGIBLE,

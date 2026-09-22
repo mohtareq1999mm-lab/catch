@@ -177,11 +177,10 @@ Accept: application/json
 Content-Type: application/json
 
 {
-  "code": "SAVE20",
-  "governorate_id": 1
+  "code": "SAVE20"
 }
 ```
-Body: `code` required string ≤191 (canonical: trimmed, case-insensitive `Coupon::byCode`); `governorate_id` nullable integer `exists:governorates,id`. When OMITTED, `area_in` rules DEFER (pass now, enforced at checkout); when PRESENT, evaluated strictly. Query parameters: none.
+Body: `code` required string ≤191 (canonical: trimmed, case-insensitive `Coupon::byCode`). No other fields — `area_in` is evaluated from the authenticated user's saved addresses; `governorate_id` is NOT USED, NOT REQUIRED, and NOT part of coupon area eligibility. Query parameters: none.
 
 ### Response (exact, verified against implementation)
 HTTP 200 with the standard envelope (§0), one of:
@@ -238,7 +237,7 @@ Content-Type: application/json
 Body = `OrderCreateRequest` (actual): `name*` string≤255, `user_phone*` string≤255, `user_email` nullable email≤255, `address` required-if physical cart + delivery (array), `notes` nullable, `selected_promotion_id` nullable `exists:promotions,id`, `selected_gift_product_id` nullable `exists:products,id`, `type` nullable `in:mobile,web`, `fulfillment_type` nullable `in:delivery,pickup` (pay_at_cashier forces pickup), `payment_method` nullable `in:online,cod,pay_at_cashier`, `gateway` nullable string≤50, `governorate_id` required-if physical + delivery (integer `exists:governorates,id`), `pickup_location_id` required-if pickup (`exists:pickup_locations,id`). Controller merges `fulfillment_type/payment_method/payment_gateway`. Query parameters: none.
 
 ### Response (exact, verified against implementation)
-Behavior (VERIFIED `OrderService::addItemsInOrder`): locks cart, refreshes prices, asserts products active, revalidates `cart.coupon` with STRICT checkout context (`governorate_id` present, may be null → area fails closed). Invalid coupon is SILENTLY STRIPPED (`cart.coupon=null`) and order proceeds WITHOUT coupon — frontend distinguishes by comparing `order.coupon` (null = removed during revalidation). Totals computed promotion→coupon→tax→shipping; pending order created/reused.
+Behavior (VERIFIED `OrderService::addItemsInOrder`): locks cart, refreshes prices, asserts products active, revalidates `cart.coupon` (area from the user's saved addresses — the request `governorate_id` drives shipping only and never coupon eligibility). Invalid coupon is SILENTLY STRIPPED (`cart.coupon=null`) and order proceeds WITHOUT coupon — frontend distinguishes by comparing `order.coupon` (null = removed during revalidation). Totals computed promotion→coupon→tax→shipping; pending order created/reused.
 Payment branch (verified `PaymentCheckoutHandler`):
 ```json
 {
@@ -284,11 +283,11 @@ Content-Type: application/json
   "gateway": "myfatoorah"
 }
 ```
-Body = `FastCheckoutRequest` (actual): `name*`, `user_phone*`, `user_email` nullable, `address*` array, `notes` nullable, `governorate_id*` required integer `exists:governorates,id`, `selected_promotion_id` nullable, `selected_gift_product_id` nullable, `fulfillment_type` nullable `in:delivery,pickup`, `payment_method` nullable `in:online,cod,pay_at_cashier`, `gateway` nullable, `pickup_location_id` required-if pickup. Governorate is ALWAYS required here → `area_in` always strict. Query parameters: none.
+Body = `FastCheckoutRequest` (actual): `name*`, `user_phone*`, `user_email` nullable, `address*` array, `notes` nullable, `governorate_id*` required integer `exists:governorates,id`, `selected_promotion_id` nullable, `selected_gift_product_id` nullable, `fulfillment_type` nullable `in:delivery,pickup`, `payment_method` nullable `in:online,cod,pay_at_cashier`, `gateway` nullable, `pickup_location_id` required-if pickup. Governorate is ALWAYS required here for shipping; it never affects coupon `area_in` (saved-address rule). Query parameters: none.
 
 ### Response (exact, verified against implementation)
 Same shape and payment branching as §2.E (order + `{url}` for online / `{order_id}` for cod/cashier); invalid coupon stripped silently with the same `order.coupon==null` signal. Error responses: 400 empty cart; 422 validation (missing `governorate_id` surfaces here) / `COD_NOT_AVAILABLE_FOR_PICKUP` / `INVALID_PAYMENT_METHOD`; 500 create failure.
-Frontend action: same as 2.E; missing-area errors appear as 422 `governorate_id` validation.
+Frontend action: same as 2.E. `governorate_id` remains required for shipping; it never affects coupon `area_in` (saved-address rule).
 
 ### 2.G — Payment callbacks (gateway/backend owned)
 
@@ -505,7 +504,7 @@ Frontend action: 201 → user receives DB+Pusher+FCM notification (no email); sh
 
 URIs (both serve): canonical `/api/v1/coupons/{id}/targeting` + legacy alias `/api/v1/admin/coupons/{id}/targeting`.
 - PURPOSE: attach eligibility mode + claim policy + rule tree to a coupon.
-- WHEN: after coupon create, before assign.
+  - WHEN: after coupon create, before assign.
 - STATE CHANGE: upsert/destroy yes; show no. Retry: upsert idempotent (`updateOrCreate`); show safe.
 
 ### Request
@@ -669,7 +668,7 @@ Dashboard: `{"success":true,"message":"...","data":{...analytics payload...}}` (
 | Check | APPLY (preview) | CHECKOUT (authoritative) | RESERVATION (capacity hold) | PAYMENT SUCCESS (completion) |
 |---|---|---|---|---|
 | coupon status/dates | yes | yes | no (assumes checkout) | revalidated ONLY if reservation stale/missing; live hold = commitment |
-| targeting mode + tree (17 rules) | yes (area defers when no governorate) | yes STRICT (governorate present, null fails) | no | same as checkout when revalidating |
+| targeting mode + tree (17 rules) | yes (area = saved addresses, strict) | yes (area = saved addresses, strict; delivery area irrelevant) | no | same as checkout when revalidating |
 | claim (ACTIVE unexpired / REDEEMED block) | yes | yes | no | via claim redemption listener |
 | assignment (usable: exists + !expired + used<max) | yes | yes | no | quota re-checked under `Assignment FOR UPDATE` |
 | limiter (`used + active_reservations < limiter`) | via static `used>=limiter` only | same | YES under `Coupon FOR UPDATE` | re-checked via reserve when stale |
@@ -680,7 +679,7 @@ Decision (P1-4, preserved semantics): 30-min live reservation is a BUSINESS COMM
 
 ## 5. Rule catalog (17, validator parity VERIFIED)
 
-`min_completed_orders, max_completed_orders` (int≥0, metrics.completed_orders); `min_total_spend, max_total_spend` (numeric≥0, DECIMAL-SAFE bccomp at 2dp on `converted_total_price` SUM); `first/last_order_after/before` (parseable datetime, exclusive `isAfter/isBefore`, null→fail); `min/max_coupons_used` (COUNT qualifying coupon orders, int≥0); `claimed` (=ACTIVE unexpired OR REDEEMED; EXPIRED=not claimed), `not_claimed` (inverse, same definition); `has_assignment` (usable assignment only); `area_in` (strict positive ints, active governorate only, absent context defers / present strict, pickup without governorate fails); `has_email` (trim+FILTER_VALIDATE_EMAIL, null/true=require, false=require-absent, verification ignored); `registered_after/before` (users.created_at UTC exclusive, null/invalid fail). Tree: `{operator:AND|OR, rules:[...]}` nested ≤10, fail-closed on unknown operator/rule, malformed, empty group, depth>10.
+`min_completed_orders, max_completed_orders` (int≥0, metrics.completed_orders); `min_total_spend, max_total_spend` (numeric≥0, DECIMAL-SAFE bccomp at 2dp on `converted_total_price` SUM); `first/last_order_after/before` (parseable datetime, exclusive `isAfter/isBefore`, null→fail); `min/max_coupons_used` (COUNT qualifying coupon orders, int≥0); `claimed` (=ACTIVE unexpired OR REDEEMED; EXPIRED=not claimed), `not_claimed` (inverse, same definition); `has_assignment` (usable assignment only); `area_in` (strict positive ints, active governorate only; ANY-match over the authenticated user's own saved `address.governorate_id`; NULL-governorate addresses never match; delivery/checkout governorate irrelevant; strict at every stage, no deferral); `has_email` (trim+FILTER_VALIDATE_EMAIL, null/true=require, false=require-absent, verification ignored); `registered_after/before` (users.created_at UTC exclusive, null/invalid fail). Tree: `{operator:AND|OR, rules:[...]}` nested ≤10, fail-closed on unknown operator/rule, malformed, empty group, depth>10.
 
 ## 6. Notification contract (email EXCLUDED)
 
@@ -696,7 +695,7 @@ Event `CouponAssigned` (dispatched AFTER assignment commit in `CouponAssignmentR
 
 ## 8. Timing (when to call what)
 
-Page load → `GET general/coupons`. Details → frontend route `/coupons/{id}` (no backend show for customers). Claim button → `POST general/coupons/{id}/claim`. My Coupons page → `GET general/coupons/mine`. Apply → `POST general/coupons/apply` (+optional `governorate_id` when known). Checkout → `POST general/checkout` (or `fast-shipping/checkout`). Payment → follow `url` (online) / show order (cod). NEVER call usage/redemption manually — backend callbacks own it.
+Page load → `GET general/coupons`. Details → frontend route `/coupons/{id}` (no backend show for customers). Claim button → `POST general/coupons/{id}/claim`. My Coupons page → `GET general/coupons/mine`. Apply → `POST general/coupons/apply` with `{code}` only (`area_in` is evaluated from the authenticated user's saved addresses; no `governorate_id` is supplied to Coupon Apply). Checkout → `POST general/checkout` (or `fast-shipping/checkout`). Payment → follow `url` (online) / show order (cod). NEVER call usage/redemption manually — backend callbacks own it.
 
 ## 9. Error catalog (machine-readable; use `data.reason`, display `data.code`)
 
@@ -781,7 +780,7 @@ HTTP 200 with the standard envelope (§0):
   }
 }
 ```
-Field semantics: `type` = exact runtime identifier (matches `EligibilityRuleType`, `RuleTreeValidator`, `EligibilityEngine`); `value_type` ∈ `integer|decimal|datetime|none|area_list|boolean_or_null` (only types the system uses); `value_required` false only for `claimed|not_claimed|has_assignment` (value ignored) and `has_email` (null allowed = require email); `min` set (0) only for integer/decimal rules; `allowed_values` set only for `has_email` (`[true,false,null]`); `date_format` set only for the 6 date rules (`parseable datetime string (Y-m-d accepted), UTC, exclusive boundary`); `context` ∈ `customer_history|customer_profile|claim_state|assignment_state|checkout`; `evaluation.*` all true (every rule evaluates at every stage; only `area_in` has `defers_without_context: true` — passes without delivery area at claim/apply, enforced strictly at checkout). `rule_tree.*` mirrors `RuleTreeValidator` exactly (depth 10, AND/OR, nested allowed, empty rejected, null = "no rules" eligible, duplicates allowed, unknown/malformed → 422).
+Field semantics: `type` = exact runtime identifier (matches `EligibilityRuleType`, `RuleTreeValidator`, `EligibilityEngine`); `value_type` ∈ `integer|decimal|datetime|none|area_list|boolean_or_null` (only types the system uses); `value_required` false only for `claimed|not_claimed|has_assignment` (value ignored) and `has_email` (null allowed = require email); `min` set (0) only for integer/decimal rules; `allowed_values` set only for `has_email` (`[true,false,null]`); `date_format` set only for the 6 date rules (`parseable datetime string (Y-m-d accepted), UTC, exclusive boundary`); `context` ∈ `customer_history|customer_profile|customer_addresses|claim_state|assignment_state|checkout`; `evaluation.*` all true (every rule evaluates at every stage; `area_in` has `defers_without_context: false` — strict at claim/apply/checkout/payment from saved addresses, delivery area irrelevant). `rule_tree.*` mirrors `RuleTreeValidator` exactly (depth 10, AND/OR, nested allowed, empty rejected, null = "no rules" eligible, duplicates allowed, unknown/malformed → 422).
 
 ### Rule table (all 17, from verified behavior)
 
@@ -800,7 +799,7 @@ Field semantics: `type` = exact runtime identifier (matches `EligibilityRuleType
 | `claimed` | Holds ACTIVE-unexpired or REDEEMED claim (value ignored) | none | — | claim_state |
 | `not_claimed` | Holds neither ACTIVE-unexpired nor REDEEMED (value ignored) | none | — | claim_state |
 | `has_assignment` | Holds usable assignment (exists, !expired, used<max; value ignored) | none | — | assignment_state |
-| `area_in` | Delivery `governorates.id` (active only) in list; single id or non-empty array, strict positive ints; defers without context | area_list | `[1, 2]` | checkout |
+| `area_in` | Saved `address.governorate_id` (active governorates only) in list; ANY-match over the user's own addresses; single id or non-empty array, strict positive ints; NULL-governorate addresses never match; delivery area irrelevant; strict everywhere | area_list | `[1, 2]` | customer_addresses |
 | `has_email` | Strict email presence (trim+RFC, verification ignored); `true`/`null`=require, `false`=require-absent | boolean_or_null | `true` | customer_profile |
 | `registered_after` | Account `users.created_at` strictly after UTC datetime | datetime | `"2024-01-01"` | customer_profile |
 | `registered_before` | Account `users.created_at` strictly before UTC datetime | datetime | `"2025-01-01"` | customer_profile |
