@@ -3,7 +3,7 @@
 
 namespace Marvel\Database\Repositories;
 
-use App\Services\Coupon\CouponValidator;
+use App\Services\Coupon\CouponOrchestrator;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +28,7 @@ class CouponRepository extends BaseRepository
 
     protected $dataArray = [
         "name",
+        'slug',
         'discount',
         'discount_type',
         'border_color',
@@ -74,7 +75,12 @@ class CouponRepository extends BaseRepository
     {
         try {
             DB::beginTransaction();
-            $coupon = $this->create($request->except('image-desktop', 'image-mobile'));
+            // CP-11: explicit whitelist. Generic input MUST NOT reach
+            // system-managed fields (`used`, `code`, counters). Only the
+            // business fields in $dataArray are persisted; the redeemable
+            // code is always server-generated (Coupon::creating) and the
+            // slug is sanitized/auto-generated server-side.
+            $coupon = $this->create($request->only($this->dataArray));
 
             if ($request->hasFile('image-desktop')) {
                 if (!$this->uploadSingleImage($request, 'image-desktop', $coupon, 'coupons-desktop', 'coupons')) {
@@ -92,6 +98,9 @@ class CouponRepository extends BaseRepository
             return $coupon;
         } catch (Exception $th) {
             DB::rollBack();
+            // S8: keep the generic client-facing error (no oracle) but
+            // report the real cause for operators.
+            report($th);
             throw new MarvelBadRequestException(COULD_NOT_CREATE_THE_RESOURCE);
         }
     }
@@ -103,7 +112,9 @@ class CouponRepository extends BaseRepository
             if (!$coupon) {
                 throw new MarvelBadRequestException(COULD_NOT_UPDATE_THE_RESOURCE);
             }
-            $data = $request->except('image-desktop', 'image-mobile');
+            // CP-11: explicit whitelist (see storeCoupon). `used` and other
+            // system-managed fields are never writable through generic input.
+            $data = $request->only($this->dataArray);
 
             $coupon->update($data);
 
@@ -122,6 +133,8 @@ class CouponRepository extends BaseRepository
             return $coupon;
         } catch (Exception $th) {
             DB::rollBack();
+            // S8: report the real cause; client still gets a generic error.
+            report($th);
             throw new MarvelBadRequestException(COULD_NOT_UPDATE_THE_RESOURCE);
         }
     }
@@ -134,7 +147,9 @@ class CouponRepository extends BaseRepository
         }
         $cart = $user->cart;
 
-        $validation = CouponValidator::validateByCode($code, $user, $cart?->items);
+        // CP-06: dead storefront path (no route). Kept consistent with the
+        // canonical flow: full Orchestrator (claim + assignment branches).
+        $validation = CouponOrchestrator::validateByCode($code, $user, $cart?->items);
         if (!$validation['valid']) {
             throw new MarvelBadRequestException(COULD_NOT_ADD_COUPON_TO_CART_NOT_VALID);
         }
@@ -145,7 +160,8 @@ class CouponRepository extends BaseRepository
             throw new MarvelBadRequestException(COULD_NOT_ADD_COUPON_TO_EMPTY_CART);
         }
 
-        if ($cart->coupon === $code) {
+        // S1: canonical compare (see App CouponService).
+        if (\App\Support\CouponCode::normalize($cart->coupon) === \App\Support\CouponCode::normalize($code)) {
             throw new MarvelBadRequestException(COULD_NOT_ADD_COUPON_TO_CART_YOU_HAVE_ALREADY_APPLIED_A_COUPON);
         }
 

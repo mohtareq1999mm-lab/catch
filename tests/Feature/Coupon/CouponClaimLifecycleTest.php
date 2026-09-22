@@ -117,17 +117,16 @@ class CouponClaimLifecycleTest extends TestCase
     }
 
     /** @test */
-    public function user_can_claim_again_after_first_claim_redeemed()
+    public function user_cannot_claim_again_after_first_claim_redeemed()
     {
         $claim1 = $this->claimService->claim($this->coupon, $this->user);
         $this->claimService->markRedeemed($claim1);
 
-        // Should be able to claim again (if max_claims allows)
-        $claim2 = $this->claimService->claim($this->coupon, $this->user);
-
-        $this->assertNotNull($claim2);
-        $this->assertEquals(CouponClaimStatus::ACTIVE, $claim2->status);
-        $this->assertNotEquals($claim1->id, $claim2->id);
+        // F-16 single-use lifecycle (approved): REDEEMED is permanent and
+        // BLOCKS re-claim. Re-claiming would occupy another max_claims slot
+        // while coupon_usages unique blocks reuse.
+        $this->expectException(CouponClaimException::class);
+        $this->claimService->claim($this->coupon, $this->user);
     }
 
     /** @test */

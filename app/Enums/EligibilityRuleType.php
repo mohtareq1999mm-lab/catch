@@ -4,7 +4,7 @@ namespace App\Enums;
 
 enum EligibilityRuleType: string
 {
-    // Phase 1: Exactly 13 whitelisted rules (NO demographics, NO refund-based)
+    // 17 whitelisted rules: 13 order/claim/assignment + area + email + registration-date.
 
     // Order-based rules
     case MIN_COMPLETED_ORDERS = 'min_completed_orders';
@@ -28,4 +28,15 @@ enum EligibilityRuleType: string
 
     // Assignment-based rule
     case HAS_ASSIGNMENT = 'has_assignment';
+
+    // Area rule: checkout delivery governorate must be in the allowed list.
+    // Canonical source: orders.governorate_id → governorates.id (active only).
+    case AREA_IN = 'area_in';
+
+    // Email presence rule (strict: trimmed + RFC-valid; verification NOT required).
+    case HAS_EMAIL = 'has_email';
+
+    // Registration-date rules: users.created_at (UTC datetime, exclusive boundary).
+    case REGISTERED_AFTER = 'registered_after';
+    case REGISTERED_BEFORE = 'registered_before';
 }

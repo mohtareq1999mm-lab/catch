@@ -36,6 +36,11 @@ use App\Services\Coupon\CouponReservationService;
 use Marvel\Enums\DiscountType;
 use Marvel\Services\Pricing\ProductPricingService;
 
+/**
+ * F-13 global lock ordering (deadlock prevention):
+ * Transaction → Order → Cart → Coupon → CouponTargeting → CouponAssignment
+ * → CouponReservation → CouponClaim → Usage rows → Order side-effects.
+ */
 class OrderService
 {
     private const DEFAULT_PER_PAGE = 15;
@@ -144,7 +149,13 @@ class OrderService
                     throw new \InvalidArgumentException(__('checkout.cart_empty'));
                 }
                 if ($cart->coupon) {
-                    $validation = CouponOrchestrator::validateByCode($cart->coupon, $request->user(), $cart->items);
+                    // Area context only when the preview request carries a
+                    // delivery area; otherwise area rules defer to checkout.
+                    $previewContext = [];
+                    if ($request->filled('governorate_id')) {
+                        $previewContext['governorate_id'] = (int) $request->input('governorate_id');
+                    }
+                    $validation = CouponOrchestrator::validateByCode($cart->coupon, $request->user(), $cart->items, $previewContext);
                     if (!$validation['valid']) {
                         $cart->update(['coupon' => null]);
                     }
@@ -201,9 +212,13 @@ class OrderService
 
             $freeShippingCoupon = false;
             if ($cart->coupon) {
-                $lockedCoupon = Coupon::where('code', $cart->coupon)->lockForUpdate()->first();
+                // CP-09: canonical lookup (case-insensitive, trimmed).
+                $lockedCoupon = Coupon::byCode($cart->coupon)->lockForUpdate()->first();
                 if ($lockedCoupon) {
-                    $validation = CouponOrchestrator::validate($lockedCoupon, $request->user(), $cart->items);
+                    // Checkout is authoritative: full dynamic revalidation
+                    // with the request delivery area (strict, may be null).
+                    $checkoutContext = ['governorate_id' => $request->filled('governorate_id') ? (int) $request->input('governorate_id') : null];
+                    $validation = CouponOrchestrator::validate($lockedCoupon, $request->user(), $cart->items, $checkoutContext);
                     if (!$validation['valid']) {
                         $cart->update(['coupon' => null]);
                         $cart->refresh();
@@ -448,7 +463,8 @@ class OrderService
             ];
         }
 
-        $coupon = Coupon::valid()->where('code', $cart->coupon)->first();
+        // CP-09: canonical lookup (case-insensitive, trimmed).
+        $coupon = Coupon::valid()->byCode($cart->coupon)->first();
         if (!$coupon) {
             return [
                 'finalPrice' => $totalPrice,
@@ -501,7 +517,8 @@ class OrderService
         $coupon = null;
         $couponDiscountMaxAmount = null;
         if ($cart->coupon) {
-            $couponModel = Coupon::valid()->where('code', $cart->coupon)->first();
+            // CP-09: canonical lookup (case-insensitive, trimmed).
+            $couponModel = Coupon::valid()->byCode($cart->coupon)->first();
             if ($couponModel) {
                 $coupon = $couponModel->code;
                 $couponDiscountMaxAmount = $couponModel->max_discount_amount;
@@ -865,6 +882,11 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 if ($order->payment_status !== Order::PAYMENT_STATUS_SUCCESS) {
                     $this->promotionService->decrementUsage($order->promotion_id ? (int) $order->promotion_id : null);
                 }
+
+                // CP-08 (INV-04): every pre-payment cancellation path releases
+                // the coupon reservation exactly once. Delete-by-order is
+                // structurally idempotent (post-payment cancels find no row).
+                $this->couponReservationService->release($order);
             }
 
             event(new OrderStatusChanged($order, $previousStatus, $order->status, $actorId ?? null, $actorType ?? 'system'));
@@ -945,23 +967,25 @@ private function canTransitionOrderStatus(string $from, string $to): bool
     /**
      * Record coupon usage after successful payment.
      *
-     * Policy: Coupon quota is consumed when payment succeeds.
-     * It is NEVER automatically returned on cancellation or refund.
-     * This prevents abuse where a user could re-use the same quota
-     * by repeatedly cancelling and re-ordering.
+     * Fail-closed contract (INV-03, CP-04): an order carrying a coupon
+     * discount MUST NOT complete unless usage is committed here. Any policy
+     * failure throws CouponConsumptionException so the surrounding
+     * transaction rolls back and the order stays non-completed.
      *
-     * For assigned coupons, usage is recorded in both:
-     *   - coupon_assignment_usages (individual audit trail)
-     *   - coupon_assignments.used (aggregate counter)
-     *   - coupons.used (global counter)
+     * Idempotency (INV-02): same-order repeats are no-ops via the
+     * `coupon_consumed` flag + unique-keyed usage rows.
      *
-     * For public coupons, usage is recorded in coupon_usages
-     * with firstOrCreate (one usage per user enforced by unique
-     * constraint on coupon_id, user_id).
+     * Policy: quota is consumed at payment success and NEVER automatically
+     * returned on cancellation/refund (POLICY 5, anti-abuse).
      *
-     * Concurrency: The assignment row is locked (lockForUpdate)
-     * before incrementing, so concurrent checkouts cannot
-     * over-consume the quota.
+     * Assigned coupons record: coupon_assignment_usages + assignments.used +
+     * coupons.used. Public coupons record coupon_usages (firstOrCreate) +
+     * coupons.used.
+     *
+     * Concurrency: coupon / assignment rows are locked (lockForUpdate)
+     * before incrementing, so concurrent completions cannot over-consume.
+     *
+     * @throws \App\Exceptions\CouponConsumptionException
      */
     private function recordCouponUsage($order): void
     {
@@ -969,33 +993,71 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             return;
         }
 
-        $coupon = Coupon::where('code', $order->coupon)->lockForUpdate()->first();
+        // CP-09: canonical lookup (case-insensitive, trimmed).
+        $coupon = Coupon::byCode($order->coupon)->lockForUpdate()->first();
         if (!$coupon) {
-            return;
+            throw new \App\Exceptions\CouponConsumptionException(
+                \App\Exceptions\CouponConsumptionException::REASON_COUPON_MISSING,
+                __('coupon.not_found'),
+                ['order_id' => $order->id, 'code' => $order->coupon],
+            );
         }
 
-        // Reservation will be consumed AFTER validation succeeds
+        // POLICY 4: a missing or expired reservation is revalidated and
+        // reacquired before consumption. Never complete on a stale hold,
+        // never silently skip consumption when the coupon is unavailable.
+        $this->revalidateAndReacquireReservation($order, $coupon);
 
-        $hasAssignments = Schema::hasTable('coupon_assignments') && $coupon->assignments()->exists();
+        // Consumption path follows the ORDER's user grant, not the coupon's
+        // global assignment population: assignment-family modes gate
+        // unassigned users earlier (NOT_ASSIGNED preserved below), while
+        // dynamic / assignment_or_dynamic coupons complete unassigned users
+        // via the public single-use path (CouponUsage unique).
+        $targetingMode = 'assignment';
+        if (Schema::hasTable('coupon_targetings') && method_exists($coupon, 'targeting')) {
+            $targetingMode = $coupon->targeting?->mode ?? 'assignment';
+        }
 
-        if ($hasAssignments) {
+        $assignment = null;
+        if (Schema::hasTable('coupon_assignments')) {
             $assignment = CouponAssignment::where('coupon_id', $coupon->id)
                 ->where('user_id', $order->user_id)
                 ->lockForUpdate()
                 ->first();
+        }
 
-            if (!$assignment) {
-                return;
+        if ($assignment) {
+            if ($assignment->used >= $assignment->max_uses) {
+                throw new \App\Exceptions\CouponConsumptionException(
+                    \App\Exceptions\CouponConsumptionException::REASON_QUOTA_EXHAUSTED,
+                    __('coupon.usage_quota_exceeded'),
+                    ['order_id' => $order->id, 'assignment_id' => $assignment->id],
+                );
             }
 
-            if ($assignment->used >= $assignment->max_uses) {
-                return;
+            // POLICY 1: prior public consumption blocks assigned-path reuse.
+            $publiclyUsed = CouponUsage::where('coupon_id', $coupon->id)
+                ->where('user_id', $order->user_id)
+                ->whereNotNull('used_at')
+                ->exists();
+            if ($publiclyUsed) {
+                throw new \App\Exceptions\CouponConsumptionException(
+                    \App\Exceptions\CouponConsumptionException::REASON_ALREADY_USED,
+                    __('coupon.already_used'),
+                    ['order_id' => $order->id, 'coupon_id' => $coupon->id],
+                );
             }
 
             if (CouponAssignmentUsage::where('coupon_assignment_id', $assignment->id)
                 ->where('order_id', $order->id)
                 ->lockForUpdate()
                 ->exists()) {
+                // S2: idempotent repeat — usage already committed, but make
+                // sure the flag reflects it for future fast-path exits.
+                if (Schema::hasColumn('orders', 'coupon_consumed') && !$order->coupon_consumed) {
+                    $order->update(['coupon_consumed' => true]);
+                }
+
                 return;
             }
 
@@ -1009,7 +1071,7 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 'used_at' => now(),
             ]);
 
-            // FIXED: Consume reservation AFTER successful redemption
+            // Consume reservation AFTER successful redemption
             $this->couponReservationService->consume($order);
 
             DB::afterCommit(function () use ($coupon, $assignment, $order) {
@@ -1024,6 +1086,18 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 ));
             });
         } else {
+            // Assignment-family modes fail closed here (defense in depth —
+            // apply/checkout already reject unassigned users). Dynamic and
+            // assignment_or_dynamic fall through to the public single-use path.
+            if ($targetingMode !== 'dynamic' && $targetingMode !== 'assignment_or_dynamic'
+                && Schema::hasTable('coupon_assignments') && $coupon->assignments()->exists()) {
+                throw new \App\Exceptions\CouponConsumptionException(
+                    \App\Exceptions\CouponConsumptionException::REASON_NOT_ASSIGNED,
+                    __('coupon.not_assigned'),
+                    ['order_id' => $order->id, 'coupon_id' => $coupon->id],
+                );
+            }
+
             $couponUsage = CouponUsage::firstOrCreate(
                 [
                     'coupon_id' => $coupon->id,
@@ -1035,16 +1109,95 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 ]
             );
 
-            if ($couponUsage->wasRecentlyCreated) {
-                $coupon->increment('used');
+            if (!$couponUsage->wasRecentlyCreated) {
+                // Single-use public coupon already consumed by another order:
+                // completing this order would grant a free second discount.
+                throw new \App\Exceptions\CouponConsumptionException(
+                    \App\Exceptions\CouponConsumptionException::REASON_ALREADY_USED,
+                    __('coupon.already_used'),
+                    ['order_id' => $order->id, 'coupon_id' => $coupon->id],
+                );
             }
 
-            // FIXED: Consume reservation AFTER successful redemption
+            $coupon->increment('used');
+
+            // Consume reservation AFTER successful redemption
             $this->couponReservationService->consume($order);
         }
 
         if (Schema::hasColumn('orders', 'coupon_consumed')) {
             $order->update(['coupon_consumed' => true]);
+        }
+    }
+
+    /**
+     * POLICY 4: ensure a live reservation exists at completion.
+     *
+     * A stale (expired) or missing reservation is dropped, eligibility +
+     * capacity are revalidated, and a fresh reservation is acquired. Any
+     * failure throws so completion cannot proceed fail-open.
+     *
+     * @throws \App\Exceptions\CouponConsumptionException
+     */
+    private function revalidateAndReacquireReservation($order, $coupon): void
+    {
+        $reservation = \App\Models\CouponReservation::where('order_id', $order->id)->first();
+
+        if ($reservation && $reservation->expires_at && $reservation->expires_at->isFuture()) {
+            // Live reservation = commitment made at checkout with full
+            // validation (≤30min old). Completion proceeds on that hold;
+            // state drift inside the TTL window is bounded by design
+            // (pre-existing POLICY 4 semantics, identical exposure for all
+            // legacy rules). Only a stale/missing reservation triggers full
+            // revalidation below.
+            return;
+        }
+
+        if (!$order->user) {
+            // Fail closed: no identity means no eligibility (dynamic rules,
+            // assignment checks, and per-user limits cannot be evaluated).
+            // Occurs when the account was deleted after checkout.
+            throw new \App\Exceptions\CouponConsumptionException(
+                \App\Exceptions\CouponConsumptionException::REASON_NOT_ELIGIBLE,
+                __('coupon.not_eligible'),
+                ['order_id' => $order->id, 'coupon_id' => $coupon->id, 'reason' => 'missing_user'],
+            );
+        }
+
+        if ($reservation) {
+            $reservation->delete();
+        }
+
+        // Revalidate against the ORDER's own items (M7: the product gate
+        // must hold at completion too — pending-order reuse can edit items
+        // between checkout and payment). Orders without items skip the gate
+        // exactly as the checkout-time validator does for empty item sets.
+        $orderItems = $order->orderItems()->get()->map(
+            fn ($item) => ['product_id' => $item->product_id]
+        );
+        // Payment-time revalidation uses the ORDER's persisted delivery area
+        // (snapshot, immune to later profile/address edits). Applies when no
+        // live reservation exists; a live reservation is the checkout-time
+        // commitment (see revalidateAndReacquireReservation).
+        $paymentContext = ['governorate_id' => $order->governorate_id];
+        $validation = \App\Services\Coupon\CouponOrchestrator::validate($coupon, $order->user, $orderItems, $paymentContext);
+        if (!$validation['valid']) {
+            throw new \App\Exceptions\CouponConsumptionException(
+                \App\Exceptions\CouponConsumptionException::REASON_NOT_ELIGIBLE,
+                $validation['message'] ?? __('coupon.not_eligible'),
+                ['order_id' => $order->id, 'coupon_id' => $coupon->id, 'reason' => $validation['reason']],
+            );
+        }
+
+        try {
+            $this->couponReservationService->reserve($order, $coupon);
+        } catch (\RuntimeException $e) {
+            throw new \App\Exceptions\CouponConsumptionException(
+                \App\Exceptions\CouponConsumptionException::REASON_NO_CAPACITY,
+                $e->getMessage(),
+                ['order_id' => $order->id, 'coupon_id' => $coupon->id],
+                $e,
+            );
         }
     }
 

@@ -27,8 +27,15 @@ use App\Events\PromotionActivated;
 use App\Events\ReviewApproved;
 use App\Events\ReviewRejected;
 use App\Events\UserRolesUpdated;
+use App\Events\OrderShipped;
+use App\Events\RefundApproved;
+use App\Events\Refund\RefundProcessed;
+use App\Events\Shipment\EstimatedDeliveryChanged;
+use App\Events\Shipment\ShipmentStatusChanged;
 use App\Listeners\RevokePendingDigitalEntitlements;
 use App\Listeners\SendUserFlashSaleAvailableNotification;
+use App\Listeners\Shipment\RecordETAChangeInTimeline;
+use App\Listeners\Shipment\RecordShipmentStatusInTimeline;
 use App\Listeners\SendUserPromotionAvailableNotification;
 use App\Listeners\SendUserDigitalProductsAvailableNotification;
 use App\Listeners\FulfillDigitalProducts;
@@ -129,20 +136,24 @@ class EventServiceProvider extends ServiceProvider
         ],
         OrderDelivered::class => [
             SendUserOrderDeliveredNotification::class,
+            \App\Listeners\RecordOrderDeliveredInTimeline::class,
         ],
         OrderCreated::class => [
             SendNewOrderNotification::class,
             SendUserOrderCreatedNotification::class,
+            \App\Listeners\RecordOrderCreatedInTimeline::class,
         ],
         OrderStatusChanged::class => [
             SendOrderStatusChangedNotification::class,
             \App\Listeners\SendOrderStatusSMS::class,
             \App\Listeners\SendOrderStatusEmail::class,
             \App\Listeners\SendOrderPushNotification::class,
+            \App\Listeners\RecordOrderStatusChangeInTimeline::class,
         ],
         PaymentFailed::class => [
             SendPaymentFailedNotification::class,
             SendUserPaymentFailedNotification::class,
+            \App\Listeners\RecordPaymentFailedInTimeline::class,
         ],
         PaymentSucceeded::class => [
             SendPaymentSucceededNotification::class,
@@ -150,6 +161,22 @@ class EventServiceProvider extends ServiceProvider
             SendUserPaymentSucceededNotification::class,
             FulfillDigitalProducts::class,
             MarkCouponClaimRedeemed::class,
+            \App\Listeners\RecordPaymentSuccessInTimeline::class,
+        ],
+        OrderShipped::class => [
+            \App\Listeners\RecordOrderShippedInTimeline::class,
+        ],
+        RefundApproved::class => [
+            \App\Listeners\RecordRefundApprovedInTimeline::class,
+        ],
+        RefundProcessed::class => [
+            \App\Listeners\Refund\RecordRefundInTimeline::class,
+        ],
+        ShipmentStatusChanged::class => [
+            RecordShipmentStatusInTimeline::class,
+        ],
+        EstimatedDeliveryChanged::class => [
+            RecordETAChangeInTimeline::class,
         ],
         DigitalProductsDelivered::class => [
             SendUserDigitalProductsAvailableNotification::class,

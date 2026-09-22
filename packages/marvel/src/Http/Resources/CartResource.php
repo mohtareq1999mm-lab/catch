@@ -24,7 +24,8 @@ class CartResource extends Resource
             $fastItems = collect();
         }
 
-        $couponModel = $this->coupon ? Coupon::where('code', $this->coupon)->first() : null;
+        // M2/CP-09: canonical lookup (case-insensitive, trimmed).
+        $couponModel = $this->coupon ? Coupon::byCode($this->coupon)->first() : null;
         $couponObject = $couponModel ? CouponResource::make($couponModel) : null;
 
         $subtotal = $items ? round((float) $items->sum('total_price'), 2) : 0;

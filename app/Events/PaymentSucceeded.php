@@ -12,6 +12,11 @@ use Illuminate\Queue\SerializesModels;
  * COD/Cashier paths. Laravel 10 ignores listener-level $afterCommit for
  * queued listeners; event-level ShouldDispatchAfterCommit is the supported
  * deferral mechanism — rollback now discards the whole fan-out.
+ *
+ * F-14 contract: $order MUST be a valid persisted Order model, never null.
+ * Producers MUST guard (fresh() may return null) and skip dispatch with a
+ * warning when the order is missing. Consumers MUST still defensively
+ * return early on invalid order (see MarkCouponClaimRedeemed).
  */
 class PaymentSucceeded implements ShouldDispatchAfterCommit
 {

@@ -70,16 +70,27 @@ class CouponAssignmentRepository extends BaseRepository
             throw new MarvelBadRequestException('COUPON_ALREADY_ASSIGNED_TO_USER');
         }
 
-        $assignment = DB::transaction(function () use ($couponId, $data) {
-            $assignment = CouponAssignment::create([
-                'coupon_id' => $couponId,
-                'user_id' => $data['user_id'],
-                'max_uses' => $data['max_uses'],
-                'expires_at' => $data['expires_at'] ?? null,
-            ]);
+        // F-08/N-03: concurrent inserts can both pass the exists() check.
+        // unique(coupon_id,user_id) is the arbiter; map its violation to a
+        // controlled 409 business response instead of a raw DB exception.
+        // Lock ordering (F-13): Coupon → CouponAssignment.
+        try {
+            $assignment = DB::transaction(function () use ($couponId, $data) {
+                $assignment = CouponAssignment::create([
+                    'coupon_id' => $couponId,
+                    'user_id' => $data['user_id'],
+                    'max_uses' => $data['max_uses'],
+                    'expires_at' => $data['expires_at'] ?? null,
+                ]);
 
-            return $assignment->fresh();
-        });
+                return $assignment->fresh();
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($this->isUniqueViolation($e)) {
+                throw new MarvelBadRequestException('COUPON_ALREADY_ASSIGNED_TO_USER');
+            }
+            throw $e;
+        }
 
         event(new CouponAssigned($assignment));
 
@@ -125,5 +136,16 @@ class CouponAssignmentRepository extends BaseRepository
 
             $assignment->delete();
         });
+    }
+
+    private function isUniqueViolation(\Illuminate\Database\QueryException $e): bool
+    {
+        $sqlState = $e->getCode();
+        $message = strtolower($e->getMessage());
+
+        return $sqlState === '23000'
+            || str_contains($message, 'unique')
+            || str_contains($message, 'duplicate')
+            || str_contains($message, 'unique constraint');
     }
 }

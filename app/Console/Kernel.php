@@ -28,6 +28,10 @@ class Kernel extends ConsoleKernel
         $schedule->command('orders:cancel-unpaid')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('coupons:expire-reservations')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('coupons:expire-claims')->hourly()->withoutOverlapping();
+        // F-06: read-only coupon reconciliation detectors (INV-01–INV-07).
+        // Report-only, never repairs; exit 1 on issues for monitoring/alerting.
+        // withoutOverlapping + onOneServer prevents duplicate executions.
+        $schedule->command('coupons:reconcile')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('cart:notify-abandoned')->hourly()->withoutOverlapping();
         $schedule->command('promotions:notify-ending-soon')->daily()->withoutOverlapping();
         $schedule->command('flash-sales:notify-ending-soon')->daily()->withoutOverlapping();

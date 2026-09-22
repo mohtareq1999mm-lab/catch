@@ -2,6 +2,7 @@
 
 namespace Marvel\Http\Controllers;
 
+use App\Events\Refund\RefundProcessed;
 use App\Events\RefundApproved;
 use App\Events\QuestionAnswered;
 use App\Exceptions\UnsupportedGatewayException;
@@ -317,7 +318,11 @@ class RefundController extends CoreController
 
                     $refreshed = $refund->fresh();
 
+                    // Determine refund type
+                    $refundType = ($refund->amount >= $order->total) ? 'full' : 'partial';
+
                     event(new RefundApproved($refreshed));
+                    event(new RefundProcessed($refreshed, $order, $refundType));
 
                     return $refreshed;
                 });

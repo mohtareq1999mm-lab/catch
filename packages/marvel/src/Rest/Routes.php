@@ -64,7 +64,7 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
  * Protects against brute force and credential stuffing
  *
  */
-Route::middleware(['throttle:login'])->group(function () {
+Route::middleware(['throttle:login', 'lang'])->group(function () {
     Route::post('/register', [UserController::class, 'register']);
     Route::post('/token', [UserController::class, 'token']);
     Route::post('/admin-login', [UserController::class, 'adminToken']);
@@ -74,14 +74,14 @@ Route::middleware(['throttle:login'])->group(function () {
     Route::get('/social/{provider}/callback', [SocialController::class, 'callback']);
 });
 // Logout is not rate limited - users should always be able to log out
-Route::post('/logout', [UserController::class, 'logout'])->middleware('auth:sanctum');
-Route::get('me', [UserController::class, 'me'])->middleware('auth:sanctum');
+Route::post('/logout', [UserController::class, 'logout'])->middleware('auth:sanctum', 'lang');
+Route::get('me', [UserController::class, 'me'])->middleware('auth:sanctum', 'lang');
 
 /**
  * Password Reset Routes - Rate Limited (5/min per IP)
  * Protects against email bombing and account takeover
  */
-Route::middleware(['throttle:sensitive'])->group(function () {
+Route::middleware(['throttle:sensitive', 'lang'])->group(function () {
     Route::post('/forget-password', [UserController::class, 'forgetPassword']);
     Route::post('/verify-forget-password-token', [UserController::class, 'verifyForgetPasswordToken']);
     Route::post('/reset-password', [UserController::class, 'resetPassword']);
@@ -91,12 +91,12 @@ Route::middleware(['throttle:sensitive'])->group(function () {
  * OTP Routes - DISABLED
  * Uncomment if you need phone-based authentication
  */
-Route::middleware(['throttle:otp'])->group(function () {
+Route::middleware(['throttle:otp', 'lang'])->group(function () {
     Route::post('/send-otp-code', [UserController::class, 'sendUserOtp']);
     Route::post('/otp-login', [UserController::class, 'otpLogin']);
 });
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'lang'])->group(function () {
     Route::post('/change-password', [UserController::class, 'changePassword']);
     Route::post('/update-contact', [UserController::class, 'updateContact']); // for phone number
     Route::apiResource('address', AddressController::class);
@@ -106,7 +106,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
  * Available Public Routes
  * ******************************************
  */
-Route::middleware(["throttle:sensitive"])->group(function () {
+Route::middleware(["throttle:sensitive", "lang"])->group(function () {
     Route::post('contacts/{id}/reply', [ContactController::class, 'sendReply']);
     Route::post('contact-us', [ContactController::class, 'store']);
     Route::delete('contacts/delete-all', [ContactController::class, 'deleteAll']);
@@ -114,7 +114,7 @@ Route::middleware(["throttle:sensitive"])->group(function () {
     Route::apiResource('contacts', ContactController::class)->except(['update']);
 });
 
-Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
     //======================== settings site ========================/
     Route::get('settings', [SettingsController::class, 'index'])->middleware('permission:view-settings|update-settings');
     Route::put('settings', [SettingsController::class, 'update'])->middleware('permission:update-settings');
@@ -276,6 +276,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
         Route::put('assignments/{assignment}', [CouponAssignmentController::class, 'update'])->middleware('permission:update-coupon-assignment');
         Route::delete('assignments/{assignment}', [CouponAssignmentController::class, 'destroy'])->middleware('permission:delete-coupon-assignment');
     });
+    Route::apiResource('coupons', CouponController::class);
 
     //============================= wishlists ========================/
     Route::patch('wishlists/toggle', [WishlistController::class, 'toggle']);
@@ -355,7 +356,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin'])->group(function () {
 });
 
 
-Route::middleware(['auth:sanctum', "throttle:cart"])->group(function () {
+Route::middleware(['auth:sanctum', "throttle:cart", "lang"])->group(function () {
     Route::get('cart', [CartController::class, 'index']);
     Route::post('cart', [CartController::class, 'store']);
     Route::get('cart/{id}', [CartController::class, 'show'])->whereNumber('id');
@@ -366,7 +367,7 @@ Route::middleware(['auth:sanctum', "throttle:cart"])->group(function () {
 });
 
 
-Route::middleware(['auth:sanctum', 'throttle:analytics', 'permission:' . \Marvel\Enums\Permission::VIEW_ANALYTICS])->prefix('dashboard')->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:analytics', 'permission:' . \Marvel\Enums\Permission::VIEW_ANALYTICS, 'lang'])->prefix('dashboard')->group(function () {
     Route::get('overview', [DashboardController::class, 'overview']);
     Route::get('revenue', [DashboardController::class, 'revenue']);
     Route::get('order-stats', [DashboardController::class, 'orderStats']);
@@ -389,11 +390,11 @@ Route::middleware(['auth:sanctum', 'throttle:analytics', 'permission:' . \Marvel
 
 
 Route::group(['prefix' => 'admin', 'controller' => NotificationController::class], function () {
-    Route::middleware('permission:' . \Marvel\Enums\Permission::VIEW_NOTIFICATIONS)->group(function () {
+    Route::middleware('permission:' . \Marvel\Enums\Permission::VIEW_NOTIFICATIONS, 'lang')->group(function () {
         Route::get('notifications', 'index');
         Route::get('notifications/unread', 'unread');
     });
-    Route::middleware('permission:' . \Marvel\Enums\Permission::MANAGE_NOTIFICATIONS)->group(function () {
+    Route::middleware('permission:' . \Marvel\Enums\Permission::MANAGE_NOTIFICATIONS, 'lang')->group(function () {
         Route::patch('notifications/{id}/read', 'markAsRead');
         Route::patch('notifications/read-all', 'markAllAsRead');
         Route::delete('notifications/{id}', 'destroy');
@@ -401,7 +402,7 @@ Route::group(['prefix' => 'admin', 'controller' => NotificationController::class
     });
 });
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'lang'])->group(function () {
     Route::get('notifications', [NotificationController::class, 'index']);
     Route::get('notifications/unread', [NotificationController::class, 'unread']);
     Route::get('notifications/{id}', [NotificationController::class, 'show']);
@@ -415,12 +416,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
  * Refund Routes - Rate Limited (5/min per user)
  * Protects against refund fraud attempts
  */
-Route::middleware(['auth:sanctum', 'throttle:refunds'])->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:refunds', 'lang'])->group(function () {
     Route::apiResource('refunds', RefundController::class);
 });
 
 
-Route::prefix('shipments')->middleware('auth:sanctum')->group(function () {
+Route::prefix('shipments')->middleware('auth:sanctum', 'lang')->group(function () {
     Route::get('/', [ShipmentController::class, 'index']);
     Route::get('uuid/{uuid}', [ShipmentController::class, 'showByUuid'])->whereUuid('uuid');
     Route::get('{id}', [ShipmentController::class, 'show'])->whereNumber('id');
@@ -431,7 +432,7 @@ Route::prefix('shipments')->middleware('auth:sanctum')->group(function () {
 
 
 Route::prefix('invoices')->group(function () {
-    Route::middleware(['auth:sanctum'])->group(function () {
+    Route::middleware(['auth:sanctum', 'lang'])->group(function () {
         Route::get('/', [InvoiceController::class, 'index']);
         Route::get('{uuid}/download', [InvoiceController::class, 'download'])->whereUuid('uuid')->middleware('throttle:30,1');
         Route::get('{uuid}/view', [InvoiceController::class, 'view'])->whereUuid('uuid')->middleware('throttle:30,1');

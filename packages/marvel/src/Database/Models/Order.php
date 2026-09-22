@@ -43,6 +43,24 @@ class Order extends Model
     public const FULFILLMENT_STATUS_DELIVERED = 'delivered';
     public const FULFILLMENT_STATUS_CANCELLED = 'cancelled';
 
+    // Shipment Status
+    public const SHIPMENT_STATUS_PENDING = 'pending';
+    public const SHIPMENT_STATUS_LABEL_CREATED = 'label_created';
+    public const SHIPMENT_STATUS_PICKED_UP = 'picked_up';
+    public const SHIPMENT_STATUS_IN_TRANSIT = 'in_transit';
+    public const SHIPMENT_STATUS_OUT_FOR_DELIVERY = 'out_for_delivery';
+    public const SHIPMENT_STATUS_DELIVERED = 'delivered';
+    public const SHIPMENT_STATUS_FAILED_DELIVERY = 'failed_delivery';
+    public const SHIPMENT_STATUS_RETURNED = 'returned';
+    public const SHIPMENT_STATUS_CANCELLED = 'cancelled';
+
+    public const CANCELLATION_REASON_PAYMENT_FAILED = 'payment_failed';
+    public const CANCELLATION_REASON_CUSTOMER_REQUEST = 'customer_request';
+    public const CANCELLATION_REASON_OUT_OF_STOCK = 'out_of_stock';
+    public const CANCELLATION_REASON_FRAUD_DETECTED = 'fraud_detected';
+    public const CANCELLATION_REASON_DUPLICATE_ORDER = 'duplicate_order';
+    public const CANCELLATION_REASON_OTHER = 'other';
+
     protected $table = 'orders';
 
     public $fillable = [
@@ -75,6 +93,7 @@ class Order extends Model
         'currency_rate',
         'currency_rate_date',
         'converted_total_price',
+        'legacy_currency_status',
         'coupon',
         'coupon_discount',
         'coupon_discount_type',
@@ -100,6 +119,13 @@ class Order extends Model
         'paid_at',
         'completed_at',
         'cancelled_at',
+        'cancellation_reason',
+        'cancellation_trigger',
+        'shipment_status',
+        'tracking_number',
+        'courier_name',
+        'estimated_delivery_at',
+        'actual_delivery_at',
     ];
 
     protected $casts = [
@@ -125,6 +151,8 @@ class Order extends Model
         'order_tax_rate' => 'float',
         'order_taxable_amount' => 'float',
         'order_tax_amount' => 'float',
+        'estimated_delivery_at' => 'datetime',
+        'actual_delivery_at' => 'datetime',
     ];
 
     protected $hidden = [

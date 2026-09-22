@@ -52,7 +52,10 @@ class CouponSeeder extends Seeder
                 'start_date' => Carbon::now()->subDays(rand(0, 5))->format('Y-m-d'),
                 'end_date' => Carbon::now()->addDays(rand(5, 60))->format('Y-m-d'),
                 'limiter' => rand(50, 500),
-                'used' => rand(0, 50),
+                // M4: `used` is system-managed (usage rows are authoritative).
+                // Seeded coupons start at zero so the reconciler
+                // (coupons:reconcile) does not report counter mismatch.
+                'used' => 0,
                 'status' => true,
                 'border_color' => sprintf('#%06x', mt_rand(0, 0xFFFFFF)),
                 'borderless' => (bool) rand(0, 1),

@@ -147,6 +147,12 @@ class AssignedCouponSystemTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonPath('success', true);
+
+        // P0 invariant: validation passed with used=2/3, so the code persisted on the cart.
+        $this->assertDatabaseHas('carts', [
+            'user_id' => $this->user->id,
+            'coupon' => 'MULTIUSER1',
+        ]);
     }
 
     // =========================================================================
@@ -1094,6 +1100,9 @@ class AssignedCouponSystemTest extends TestCase
     /** @test */
     public function record_coupon_usage_skips_when_quota_exhausted(): void
     {
+        // CP-04 (INV-03) fail-closed regression: quota exhausted at completion
+        // MUST throw and MUST NOT complete the order. No usage row, no counter
+        // mutation, order stays pending for visible retry/failure handling.
         $coupon = $this->createCoupon('OVERCONSUME');
         $assignment = $this->createAssignment($coupon, $this->user, ['max_uses' => 1, 'used' => 1]);
 
@@ -1107,7 +1116,7 @@ class AssignedCouponSystemTest extends TestCase
             'price' => 90.00,
             'coupon' => $coupon->code,
             'coupon_discount' => 10,
-            'status' => 'completed',
+            'status' => 'pending',
         ]);
 
         Transaction::create([
@@ -1121,10 +1130,25 @@ class AssignedCouponSystemTest extends TestCase
         ]);
 
         $orderService = app(\App\Services\General\OrderService::class);
-        $orderService->changeOrderStatus(null, 'completed', $order->id);
+
+        try {
+            $orderService->changeOrderStatus(null, 'completed', $order->id);
+            $this->fail('Expected CouponConsumptionException when quota is exhausted at completion.');
+        } catch (\App\Exceptions\CouponConsumptionException $e) {
+            $this->assertNotEmpty($e->reason);
+        }
 
         $assignment->refresh();
         $this->assertEquals(1, $assignment->used, 'Used counter must NOT exceed max_uses');
+
+        $order->refresh();
+        $this->assertEquals('pending', $order->status, 'Order must NOT complete without coupon usage.');
+        $this->assertFalse((bool) $order->coupon_consumed);
+
+        $this->assertDatabaseMissing('coupon_assignment_usages', [
+            'coupon_assignment_id' => $assignment->id,
+            'order_id' => $order->id,
+        ]);
     }
 
     // =========================================================================
@@ -1209,5 +1233,60 @@ class AssignedCouponSystemTest extends TestCase
         }
 
         $this->assertTrue($hasExists, 'Must use EXISTS, not COUNT for assignment detection');
+    }
+
+    // =========================================================================
+    // P0: Order-guard schema parity (partial unique index regression)
+    // =========================================================================
+
+    /** @test */
+    public function multiple_completed_orders_per_user_are_allowed(): void
+    {
+        // Proves the pending-order guard is PARTIAL (status='pending' only).
+        // Regression for the SQLite rebuild hazard that stripped the predicate
+        // and left a plain UNIQUE(orders.user_id).
+        foreach (range(1, 2) as $i) {
+            Order::create([
+                'user_id' => $this->user->id,
+                'name' => "Completed $i",
+                'user_phone' => '01000000000',
+                'user_email' => 'test@test.com',
+                'address' => '{}',
+                'total_price' => 80.00,
+                'price' => 90.00,
+                'status' => 'completed',
+            ]);
+        }
+
+        $this->assertEquals(2, Order::where('user_id', $this->user->id)->where('status', 'completed')->count());
+    }
+
+    /** @test */
+    public function second_pending_order_per_user_is_rejected(): void
+    {
+        // Proves the guard itself survived: only ONE pending order per user.
+        Order::create([
+            'user_id' => $this->user->id,
+            'name' => 'Pending 1',
+            'user_phone' => '01000000000',
+            'user_email' => 'test@test.com',
+            'address' => '{}',
+            'total_price' => 80.00,
+            'price' => 90.00,
+            'status' => 'pending',
+        ]);
+
+        $this->expectException(\Illuminate\Database\QueryException::class);
+
+        Order::create([
+            'user_id' => $this->user->id,
+            'name' => 'Pending 2',
+            'user_phone' => '01000000000',
+            'user_email' => 'test@test.com',
+            'address' => '{}',
+            'total_price' => 80.00,
+            'price' => 90.00,
+            'status' => 'pending',
+        ]);
     }
 }

@@ -189,7 +189,8 @@ class ProductPricingService
     public function calculateCouponPriceByCode(string $code, $basePrice): ?float
     {
         return $this->runSafely(function () use ($code, $basePrice): ?float {
-            $coupon = Coupon::valid()->where('code', $code)->first();
+            // M2/CP-09: canonical lookup (case-insensitive, trimmed).
+            $coupon = Coupon::valid()->byCode($code)->first();
 
             if (!$coupon) {
                 return null;

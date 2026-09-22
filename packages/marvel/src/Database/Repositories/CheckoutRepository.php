@@ -47,7 +47,8 @@ class CheckoutRepository
         $cart = $user ? Cart::where('user_id', $user->id)->where('status', 'active')->first() : null;
         if ($cart && $cart->coupon) {
             $couponCode = $cart->coupon;
-            $couponModel = Coupon::where('code', $couponCode)->first();
+            // M2/CP-09: canonical lookup (case-insensitive, trimmed).
+            $couponModel = Coupon::byCode($couponCode)->first();
             if ($couponModel) {
                 $calculation = CouponCalculator::calculate($couponModel, $amount);
                 $couponDiscount = $calculation['discountAmount'];

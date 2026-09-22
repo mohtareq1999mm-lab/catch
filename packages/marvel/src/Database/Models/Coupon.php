@@ -37,6 +37,18 @@ class Coupon extends Model implements HasMedia
         'borderless',
     ];
 
+    /**
+     * F-04: `used` is system-controlled only.
+     * Enforcement is at the repository boundary (CouponRepository $dataArray
+     * whitelists business fields; `used`/`code` never pass via generic admin
+     * input — proven by `store_coupon_strips_system_managed_fields`).
+     * `used` is mutated at runtime only via `increment('used')` in
+     * OrderService::recordCouponUsage; admin configures capacity via `limiter`.
+     * Kept in $fillable for internal/test/seed setup (forceFill alternative
+     * would churn 20+ tests); external mass assignment must always go through
+     * the repository whitelist, never Model::create($request->all()).
+     */
+
     // protected $appends = ['is_valid'];
 
     protected $casts = [
@@ -55,24 +67,131 @@ class Coupon extends Model implements HasMedia
         });
 
         static::creating(function ($coupon) {
+            // B1: normalize BEFORE generation so every persisted code is
+            // canonical. (saving fires before creating on insert, so a
+            // saving-only normalization would miss generated codes.)
             if (!empty($coupon->code)) {
+                $coupon->code = \App\Support\CouponCode::normalize($coupon->code);
+            } else {
+                do {
+                    $code = strtoupper(Str::random(7));
+                } while (self::byCode($code)->exists());
+
+                $coupon->code = \App\Support\CouponCode::normalize(
+                    preg_replace('/\s+/', '_', 'coupon' . '_' . $code)
+                );
+            }
+
+            // M3: case-insensitive canonical duplicate guard (the DB unique
+            // is collation-dependent; SQLite would allow SAVE10/save10).
+            if (self::byCode($coupon->code)->exists()) {
+                throw new \InvalidArgumentException('Coupon code is already taken.');
+            }
+        });
+
+        static::creating(function ($coupon) {
+            // CP-11 hardening: slug is server-managed (NOT NULL column).
+            // A supplied slug is kept when it sanitizes cleanly and is
+            // unused; otherwise a unique suffixed slug is generated (M5:
+            // fully non-latin names sanitize to '' and must not yield
+            // a bare '-xxxxxx' slug).
+            $supplied = Str::slug((string) ($coupon->slug ?? ''));
+            if ($supplied !== '' && !self::where('slug', $supplied)->exists()) {
+                $coupon->slug = $supplied;
+
                 return;
             }
 
-            do {
-                $code = strtoupper(Str::random(7));
-            } while (self::where('code', $code)->exists());
-
-            $coupon->code = strtolower(preg_replace('/\s+/', '_',  'coupon' . "_" . $code));
+            $slug = $supplied !== '' ? $supplied : 'coupon';
+            if ($slug === 'coupon') {
+                $name = $coupon->getAttribute('name');
+                $base = is_array($name) ? ($name['en'] ?? reset($name) ?: 'coupon') : (string) ($name ?: 'coupon');
+                $slug = Str::slug($base) !== '' ? Str::slug($base) : 'coupon';
+            }
+            $candidate = $slug . '-' . strtolower(Str::random(6));
+            $tries = 0;
+            while (self::where('slug', $candidate)->exists() && $tries < 5) {
+                $candidate = $slug . '-' . strtolower(Str::random(6));
+                $tries++;
+            }
+            $coupon->slug = $candidate;
         });
 
         static::saving(function (Coupon $coupon) {
+            // CP-09: canonical normalization on every write. Historical ORDER
+            // snapshots are never touched (normalization applies to the
+            // coupons table only; order lookups match case-insensitively).
+            if (!empty($coupon->code)) {
+                $coupon->code = \App\Support\CouponCode::normalize($coupon->code);
+            }
+
+            // CP-05: required business constraints throw (fail-closed).
+            // Advisory multi-use guidance stays warn-only inside
+            // validateMultiUseConfiguration().
+            $coupon->validateCouponConfiguration();
+
             try {
                 $coupon->validateMultiUseConfiguration();
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning("Coupon validation warning: " . $e->getMessage());
             }
         });
+    }
+
+    /**
+     * CP-05 field enforcement matrix (fail-closed, enforced on every save):
+     *
+     * | field               | rule                                    |
+     * |---------------------|-----------------------------------------|
+     * | discount            | numeric, >= 0; percentage <= 100        |
+     * | discount_type       | percentage | fixed_rate | free_shipping |
+     * | max_discount_amount | null or >= 0                            |
+     * | limiter             | null or integer >= 0                    |
+     * | start/end dates     | end >= start when both set              |
+     * | status              | boolean                                 |
+     * | used                | system-managed (not admin-writable)     |
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function validateCouponConfiguration(): void
+    {
+        $discount = $this->discount;
+
+        if ($discount !== null && (!is_numeric($discount) || (float) $discount < 0)) {
+            throw new \InvalidArgumentException('Coupon discount must be a number >= 0.');
+        }
+
+        $validTypes = \Marvel\Enums\DiscountType::getValues();
+        if ($this->discount_type !== null && !in_array($this->discount_type, $validTypes, true)) {
+            throw new \InvalidArgumentException('Coupon discount_type is invalid.');
+        }
+
+        if (
+            $this->discount_type === \Marvel\Enums\DiscountType::PERCENTAGE
+            && $discount !== null && (float) $discount > 100
+        ) {
+            throw new \InvalidArgumentException('Percentage coupon discount must be <= 100.');
+        }
+
+        if ($this->max_discount_amount !== null && (float) $this->max_discount_amount < 0) {
+            throw new \InvalidArgumentException('Coupon max_discount_amount must be >= 0.');
+        }
+
+        if ($this->limiter !== null && (int) $this->limiter < 0) {
+            throw new \InvalidArgumentException('Coupon limiter must be >= 0.');
+        }
+
+        if ($this->start_date && $this->end_date) {
+            $start = $this->start_date instanceof \DateTimeInterface
+                ? $this->start_date
+                : new \DateTimeImmutable((string) $this->start_date);
+            $end = $this->end_date instanceof \DateTimeInterface
+                ? $this->end_date
+                : new \DateTimeImmutable((string) $this->end_date);
+            if ($end < $start) {
+                throw new \InvalidArgumentException('Coupon end_date must be >= start_date.');
+            }
+        }
     }
 
     /**
@@ -247,8 +366,17 @@ class Coupon extends Model implements HasMedia
                     ->whereDate('end_date', '<', today());
             });
     }
-    public function scopeSearch($query, $field, $term, $locale)
+    /**
+     * CP-09: canonical code lookup. Case-insensitive (UPPER) on every engine
+     * so `save10`, ` SAVE10 ` and `SAVE10` resolve identically. Historical
+     * order snapshots are matched the same way; snapshots are never rewritten.
+     */
+    public function scopeByCode($query, ?string $code)
     {
+        return \App\Support\CouponCode::queryByCode($query, $code);
+    }
+
+    public function scopeSearch($query, $field, $term, $locale)    {
         return $query->where(function ($q) use ($field, $term, $locale) {
             $translatable = $this->translatable ?? [];
             if (in_array($field, $translatable)) {

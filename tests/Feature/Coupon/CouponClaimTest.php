@@ -214,7 +214,7 @@ class CouponClaimTest extends TestCase
             'mode' => 'dynamic',
             'require_claim' => true,
             'max_claims' => 1, // Total capacity: only 1 user can claim
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         // First user claims successfully
@@ -339,7 +339,7 @@ class CouponClaimTest extends TestCase
             'mode' => 'dynamic',
             'require_claim' => true,
             'max_claims' => 10, // High limit to focus on duplicate prevention
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         // First claim succeeds

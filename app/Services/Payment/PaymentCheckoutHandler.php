@@ -53,7 +53,8 @@ class PaymentCheckoutHandler
         // Reserve coupon BEFORE creating gateway invoice (Rule 9)
         if ($order->coupon) {
             try {
-                $coupon = Coupon::where('code', $order->coupon)->first();
+                // CP-09: canonical lookup (case-insensitive, trimmed).
+                $coupon = Coupon::byCode($order->coupon)->first();
                 if ($coupon) {
                     $this->couponReservationService->reserve($order, $coupon);
                 }
@@ -100,7 +101,8 @@ class PaymentCheckoutHandler
         // Reserve coupon for COD payment (Rule 9)
         if ($order->coupon) {
             try {
-                $coupon = Coupon::where('code', $order->coupon)->first();
+                // CP-09: canonical lookup (case-insensitive, trimmed).
+                $coupon = Coupon::byCode($order->coupon)->first();
                 if ($coupon) {
                     $this->couponReservationService->reserve($order, $coupon);
                 }
@@ -132,7 +134,8 @@ class PaymentCheckoutHandler
         // Reserve coupon for cashier payment (Rule 9)
         if ($order->coupon) {
             try {
-                $coupon = Coupon::where('code', $order->coupon)->first();
+                // CP-09: canonical lookup (case-insensitive, trimmed).
+                $coupon = Coupon::byCode($order->coupon)->first();
                 if ($coupon) {
                     $this->couponReservationService->reserve($order, $coupon);
                 }

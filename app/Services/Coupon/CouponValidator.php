@@ -57,7 +57,8 @@ class CouponValidator
 
     public static function validateByCode(string $code, ?User $user = null, ?Collection $items = null): array
     {
-        $coupon = Coupon::where('code', $code)->first();
+        // CP-09: canonical lookup (case-insensitive, trimmed).
+        $coupon = Coupon::byCode($code)->first();
 
         if (!$coupon) {
             return self::invalid('not_found', __('coupon.not_found'));

@@ -26,6 +26,9 @@ class CouponReservationService
      */
     public function reserve(Order $order, Coupon $coupon): CouponReservation
     {
+        // P2: bounded deadlock retry (3). Safe: retried attempts roll back;
+        // reserve is idempotent per order (existing row refreshed, never
+        // double-counted) so a retry can never over-allocate.
         return DB::transaction(function () use ($order, $coupon) {
             // Lock the coupon to check availability
             $lockedCoupon = Coupon::whereKey($coupon->id)
@@ -73,7 +76,7 @@ class CouponReservationService
                 'reserved_at' => now(),
                 'expires_at' => now()->addMinutes(self::RESERVATION_TTL_MINUTES),
             ]);
-        });
+        }, 3);
     }
 
     /**

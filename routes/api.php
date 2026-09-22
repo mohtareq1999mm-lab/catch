@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\Admin\CouponConfigurationController;
 use App\Http\Controllers\Api\User\NotificationPreferencesController;
 use App\Http\Controllers\Api\Admin\AnalyticsController;
 use App\Http\Controllers\Api\Admin\AnalyticsExportController;
+use App\Http\Controllers\Api\Admin\ShipmentController as AdminShipmentController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -120,8 +121,9 @@ Route::prefix('v1/general')->group(function () {
 
     Route::middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
         //======================== coupons ========================/
+        Route::get('coupons/mine', [CouponController::class, 'myCoupons']);
         Route::post('coupons/apply', [CouponController::class, 'applyCoupon']);
-        Route::post('coupons/{id}/claim', [CouponController::class, 'claim']);
+        Route::post('coupons/{id}/claim', [CouponController::class, 'claim'])->whereNumber('id');
         //======================== checkout ========================//
         Route::get('checkout/promotions', [OrderController::class, 'eligiblePromotions']);
         Route::post('checkout', [OrderController::class, 'checkout']);
@@ -195,6 +197,9 @@ Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum', 'throttle:
     Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config');
     Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info');
     Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix');
+    Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show');
+    Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert');
+    Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy');
 });
 
 Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
@@ -218,6 +223,11 @@ Route::prefix('v1/admin/analytics/export')->middleware(['api', 'auth:sanctum', '
     Route::post('orders', [AnalyticsExportController::class, 'exportOrders'])->name('api.admin.analytics.export.orders');
     Route::post('customer-ltv', [AnalyticsExportController::class, 'exportCustomerLTV'])->name('api.admin.analytics.export.ltv');
     Route::post('performance', [AnalyticsExportController::class, 'exportPerformance'])->name('api.admin.analytics.export.performance');
+});
+
+Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->name('api.admin.orders.shipment.show');
+    Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->name('api.admin.orders.shipment.update-status');
 });
         // //======================== shipments ========================/
         // Route::get('shipments/track/{trackingNumber}', [ShipmentController::class, 'trackShipment'])->name('shipments.track');

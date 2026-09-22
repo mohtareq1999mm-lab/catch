@@ -56,7 +56,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => false,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         $result = CouponOrchestrator::validate($coupon, $user);
@@ -75,7 +75,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => true,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         $result = CouponOrchestrator::validate($coupon, $user);
@@ -96,7 +96,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => true,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         CouponClaim::create([
@@ -121,7 +121,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => true,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         // Without claim
@@ -148,7 +148,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => true,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         // Guest users (null user) bypass claim check
@@ -174,7 +174,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => true,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         // Without claim: should fail with claim_required (not expired)
@@ -207,7 +207,7 @@ class CouponClaimIntegrationTest extends TestCase
             'coupon_id' => $coupon->id,
             'mode' => 'dynamic',
             'require_claim' => true,
-            'rule_tree' => ['operator' => 'AND', 'rules' => []],
+            'rule_tree' => ['type' => 'min_completed_orders', 'value' => 0],
         ]);
 
         CouponClaim::create([

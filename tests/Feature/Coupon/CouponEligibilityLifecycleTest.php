@@ -5,6 +5,7 @@ namespace Tests\Feature\Coupon;
 use App\Enums\CouponClaimStatus;
 use App\Enums\EligibilityRuleType;
 use App\Events\PaymentSucceeded;
+use App\Exceptions\CouponClaimException;
 use App\Services\Coupon\CouponClaimService;
 use App\Services\Coupon\Eligibility\EligibilityEngine;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -175,15 +176,17 @@ class CouponEligibilityLifecycleTest extends TestCase
     }
 
     /** @test */
-    public function not_claimed_rule_passes_when_claim_is_redeemed()
+    public function not_claimed_rule_fails_when_claim_is_redeemed()
     {
         $claim = $this->claimService->claim($this->coupon, $this->user);
         $this->claimService->markRedeemed($claim);
 
+        // F-16 single-use lifecycle (approved): REDEEMED is permanent and
+        // blocks NOT_CLAIMED — the consumed coupon cannot be re-earned.
         $result = $this->eligibilityEngine->evaluate($this->coupon, $this->user);
 
-        $this->assertTrue($result->isEligible);
-        $this->assertContains(EligibilityRuleType::NOT_CLAIMED->value, array_column($result->passedRules, 'type'));
+        $this->assertFalse($result->isEligible);
+        $this->assertContains(EligibilityRuleType::NOT_CLAIMED->value, array_column($result->failedRules, 'type'));
     }
 
     /** @test */
@@ -211,17 +214,13 @@ class CouponEligibilityLifecycleTest extends TestCase
         $claim1 = $this->claimService->claim($this->coupon, $this->user);
         $this->claimService->markRedeemed($claim1);
 
-        // After redeem, should pass NOT_CLAIMED (even though historical claim exists)
+        // After redeem, NOT_CLAIMED fails (F-16: REDEEMED blocks re-claim).
         $result1 = $this->eligibilityEngine->evaluate($this->coupon, $this->user);
-        $this->assertTrue($result1->isEligible);
+        $this->assertFalse($result1->isEligible);
 
-        // Create second claim
-        $claim2 = $this->claimService->claim($this->coupon, $this->user);
-        $this->assertEquals(CouponClaimStatus::ACTIVE, $claim2->status);
-
-        // Now should fail NOT_CLAIMED
-        $result2 = $this->eligibilityEngine->evaluate($this->coupon, $this->user);
-        $this->assertFalse($result2->isEligible);
+        // Second claim is rejected.
+        $this->expectException(CouponClaimException::class);
+        $this->claimService->claim($this->coupon, $this->user);
     }
 
     /** @test */
@@ -372,13 +371,12 @@ class CouponEligibilityLifecycleTest extends TestCase
         $claim1->refresh();
         $this->assertEquals(CouponClaimStatus::REDEEMED, $claim1->status);
 
-        // Step 4: User CAN claim again (NOT_CLAIMED passes after redemption)
+        // Step 4: User CANNOT claim again (F-16: REDEEMED is permanent).
         $result3 = $this->eligibilityEngine->evaluate($this->coupon, $this->user);
-        $this->assertTrue($result3->isEligible, 'Should be eligible to reclaim after redemption');
+        $this->assertFalse($result3->isEligible, 'Must NOT be eligible to reclaim after redemption');
 
-        $claim2 = $this->claimService->claim($this->coupon, $this->user);
-        $this->assertEquals(CouponClaimStatus::ACTIVE, $claim2->status);
-        $this->assertNotEquals($claim1->id, $claim2->id);
+        $this->expectException(CouponClaimException::class);
+        $this->claimService->claim($this->coupon, $this->user);
     }
 
     /** @test */

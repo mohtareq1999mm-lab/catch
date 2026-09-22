@@ -21,20 +21,26 @@ class CouponClaimService
      * Claim a coupon for a user.
      *
      * Phase 2 Concurrency Strategy: Parent-row serialization via CouponTargeting FOR UPDATE lock.
-     * 
-     * Lifecycle States:
-     * - ACTIVE: Current valid claim (counts toward capacity, blocks duplicate active claims)
-     * - EXPIRED: TTL reached or manual expiration (releases capacity, allows re-claim)
-     * - REDEEMED: Order completed with coupon (permanent record, counts toward capacity)
+     *
+     * Lifecycle States (F-16 enforced):
+     * - ACTIVE (unexpired): Current valid claim (counts toward capacity, blocks duplicate).
+     * - REDEEMED: Order completed with coupon (permanent, counts toward capacity, BLOCKS re-claim).
+     * - EXPIRED (or time-expired ACTIVE): releases capacity, allows re-claim.
      *
      * Uniqueness Enforcement:
-     * - Database constraint: UNIQUE(coupon_id, user_id) WHERE status='active' (MySQL production)
-     * - Application check: Fallback for SQLite development environment
+     * - Application checks for ACTIVE + REDEEMED under parent-row lock.
+     * - DB unique(coupon_id,user_id) was dropped; duplicate ACTIVE detection
+     *   is covered by coupons:reconcile `duplicate_active_claims` detector.
+     *
+     * Lock ordering (F-13): CouponTargeting → CouponClaim → (eligibility reads).
      *
      * @throws CouponClaimException
      */
     public function claim(Coupon $coupon, User $user): CouponClaim
     {
+        // P2: bounded deadlock retry (3). Safe: any retried attempt rolled
+        // back fully, and the claim insert is guarded by the ACTIVE check +
+        // parent-row lock, so a retry can never double-create.
         return DB::transaction(function () use ($coupon, $user) {
             // CRITICAL: Acquire parent-row lock on CouponTargeting
             // This serializes all claim attempts for this coupon
@@ -51,9 +57,12 @@ class CouponClaimService
                 throw CouponClaimException::claimNotRequired($coupon->getKey());
             }
 
-            // Phase 2: Check for existing ACTIVE claim only
-            // Expired/redeemed claims allow re-claiming
-            // FIX #4: Add expiry validation - check claim hasn't expired
+            // F-16: single-use claim lifecycle.
+            // ACTIVE (unexpired) → cannot claim again (duplicate).
+            // REDEEMED → cannot claim again (already consumed; re-claim would
+            //   occupy another max_claims slot while coupon_usages unique blocks
+            //   reuse — the exact bug). EXPIRED (or time-expired ACTIVE) releases
+            //   capacity and MAY claim again.
             $existingActiveClaim = CouponClaim::query()
                 ->where('coupon_id', $coupon->getKey())
                 ->where('user_id', $user->getKey())
@@ -65,6 +74,16 @@ class CouponClaimService
                 ->exists();
 
             if ($existingActiveClaim) {
+                throw CouponClaimException::alreadyClaimed($coupon->getKey(), $user->getKey());
+            }
+
+            $hasRedeemed = CouponClaim::query()
+                ->where('coupon_id', $coupon->getKey())
+                ->where('user_id', $user->getKey())
+                ->where('status', CouponClaimStatus::REDEEMED)
+                ->exists();
+
+            if ($hasRedeemed) {
                 throw CouponClaimException::alreadyClaimed($coupon->getKey(), $user->getKey());
             }
 
@@ -126,7 +145,7 @@ class CouponClaimService
             ]);
 
             return $claim;
-        });
+        }, 3);
     }
 
     /**

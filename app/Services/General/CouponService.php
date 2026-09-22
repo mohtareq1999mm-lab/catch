@@ -45,7 +45,8 @@ class CouponService
 
     public function calcPriceByCode(string $code, $price): ?float
     {
-        $coupon = Coupon::where('code', $code)->first();
+        // CP-09: canonical lookup (case-insensitive, trimmed).
+        $coupon = Coupon::byCode($code)->first();
 
         if (!$coupon) {
             return null;
@@ -57,12 +58,13 @@ class CouponService
 
     public function findByCode(string $code): ?Coupon
     {
-        return Coupon::where('code', $code)->first();
+        // CP-09: canonical lookup (case-insensitive, trimmed).
+        return Coupon::byCode($code)->first();
     }
 
-    public function addCouponToCart($code)
+    public function addCouponToCart($code, array $context = [])
     {
-        return DB::transaction(function () use ($code) {
+        return DB::transaction(function () use ($code, $context) {
             $user = auth()->user();
 
             if (!$user || !$user->cart) {
@@ -71,11 +73,13 @@ class CouponService
 
             $cart = $user->cart;
 
-            if ($cart->coupon === $code) {
+            // S1: canonical compare so case/whitespace variants hit the
+            // early return instead of re-validating.
+            if (\App\Support\CouponCode::normalize($cart->coupon) === \App\Support\CouponCode::normalize($code)) {
                 return ['already_applied' => true];
             }
 
-            $validation = CouponOrchestrator::validateByCode($code, $user, $cart->items);
+            $validation = CouponOrchestrator::validateByCode($code, $user, $cart->items, $context);
 
             if (!$validation['valid']) {
                 return null;

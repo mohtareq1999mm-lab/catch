@@ -78,7 +78,7 @@ class DatabaseSeeder extends Seeder
 //            ProductVariantSeeder::class,
 //            BrandProductSeeder::class,
             CartSeeder::class,
-//            CouponSeeder::class,
+            CouponSeeder::class,
 //            LocationSeeder::class,
 //            PromotionSeeder::class,
 //            WishlistSeeder::class,

@@ -4,7 +4,7 @@ namespace App\Services\General;
 
 use App\DTOs\CheckoutTotals;
 use App\Services\Checkout\OrderCreationService;
-use App\Services\Coupon\CouponValidator;
+use App\Services\Coupon\CouponOrchestrator;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -100,7 +100,12 @@ class FastShippingService
             $this->assertCartProductsActive($cart);
 
             if ($cart->coupon) {
-                $validation = CouponValidator::validateByCode($cart->coupon, $user, $cart->items);
+                // CP-07: parity with SCHEDULED checkout — full Orchestrator
+                // (claim + assignment branches), not Validator-only.
+                // Fast checkout always carries a delivery area (required by
+                // FastCheckoutRequest), evaluated strictly here.
+                $fastContext = ['governorate_id' => $request->filled('governorate_id') ? (int) $request->input('governorate_id') : null];
+                $validation = CouponOrchestrator::validateByCode($cart->coupon, $user, $cart->items, $fastContext);
                 if (!$validation['valid']) {
                     $cart->update(['coupon' => null]);
                 }

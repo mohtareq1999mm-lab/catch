@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\General;
 
 use App\Http\Controllers\Controller;
 use App\Models\OrderStatusHistory;
+use App\Models\OrderTrackingEvent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Order;
@@ -32,7 +33,7 @@ class OrderTrackingController extends Controller
             $query->where('user_phone', $validated['user_phone']);
         }
 
-        $order = $query->with(['orderItems', 'statusHistory.changedBy'])->first();
+        $order = $query->with(['orderItems'])->first();
 
         if (!$order) {
             return $this->apiResponse('Order not found. Please check your order number and contact details.', 404, false);
@@ -45,7 +46,7 @@ class OrderTrackingController extends Controller
 
         return $this->apiResponse('Order tracking retrieved successfully.', 200, true, [
             'order' => $this->formatOrderForTracking($order),
-            'timeline' => $this->buildTimeline($order),
+            'timeline' => $this->publicTimeline($order),
             'current_status' => $this->getCurrentStatusInfo($order),
             'estimated_delivery' => $this->getEstimatedDelivery($order),
         ]);
@@ -59,7 +60,7 @@ class OrderTrackingController extends Controller
         $order = Order::query()
             ->where('id', $orderId)
             ->where('user_id', Auth::id())
-            ->with(['orderItems', 'statusHistory.changedBy'])
+            ->with(['orderItems'])
             ->first();
 
         if (!$order) {
@@ -73,10 +74,11 @@ class OrderTrackingController extends Controller
 
         return $this->apiResponse('Order tracking retrieved successfully.', 200, true, [
             'order' => $this->formatOrderForTracking($order),
-            'timeline' => $this->buildTimeline($order),
+            'timeline' => $this->timeline($order),
             'current_status' => $this->getCurrentStatusInfo($order),
             'estimated_delivery' => $this->getEstimatedDelivery($order),
             'can_cancel' => $this->canCancel($order),
+            'progress' => $this->progress($order),
         ]);
     }
 
@@ -120,6 +122,153 @@ class OrderTrackingController extends Controller
 
     // Helper methods
 
+    /**
+     * Public timeline - only customer-visible events from OrderTrackingEvent
+     */
+    private function publicTimeline(Order $order): array
+    {
+        return $this->buildTimelineResponse($order, true);
+    }
+
+    /**
+     * Full timeline - all events from OrderTrackingEvent (authenticated users)
+     */
+    private function timeline(Order $order): array
+    {
+        return $this->buildTimelineResponse($order, false);
+    }
+
+    /**
+     * Build timeline response from OrderTrackingEvent table
+     */
+    private function buildTimelineResponse(Order $order, bool $customerVisibleOnly): array
+    {
+        $query = OrderTrackingEvent::query()
+            ->forOrder($order->id)
+            ->orderBy('event_timestamp', 'asc');
+
+        if ($customerVisibleOnly) {
+            $query->customerVisible();
+        }
+
+        $events = $query->get();
+
+        if ($events->isEmpty()) {
+            return [[
+                'timestamp' => $order->created_at?->toIso8601String(),
+                'event_type' => 'order.created',
+                'title' => __('tracking.order.created'),
+                'description' => __('tracking.order.created_description'),
+                'actor' => ['type' => 'system', 'name' => __('tracking.actor.system')],
+                'icon' => 'shopping-cart',
+                'metadata' => null,
+            ]];
+        }
+
+        return $events->map(function (OrderTrackingEvent $event) {
+            return [
+                'timestamp' => $event->event_timestamp->toIso8601String(),
+                'event_type' => $event->event_type,
+                'title' => $event->customer_label_key 
+                    ? __($event->customer_label_key)
+                    : ucfirst(str_replace(['.', '_'], ' ', $event->event_type)),
+                'description' => $this->translateDescription($event),
+                'actor' => [
+                    'type' => $event->actor_type,
+                    'name' => $event->actor_name ?? __('tracking.actor.' . $event->actor_type),
+                ],
+                'icon' => $event->metadata['icon'] ?? 'circle',
+                'metadata' => $event->metadata,
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * Translate description with metadata placeholders
+     */
+    private function translateDescription(OrderTrackingEvent $event): string
+    {
+        if (!$event->customer_description_key) {
+            return '';
+        }
+
+        $metadata = $event->metadata ?? [];
+        
+        return __($event->customer_description_key, $metadata);
+    }
+
+    /**
+     * Order progress widget data
+     */
+    private function progress(Order $order): array
+    {
+        $stages = [
+            'order_placed' => false,
+            'payment_confirmed' => false,
+            'preparing_shipment' => false,
+            'shipped' => false,
+            'out_for_delivery' => false,
+            'delivered' => false,
+        ];
+
+        $events = OrderTrackingEvent::query()
+            ->forOrder($order->id)
+            ->customerVisible()
+            ->get();
+
+        foreach ($events as $event) {
+            $this->markStageComplete($stages, $event->event_type);
+        }
+
+        $stageList = [];
+        $currentStageIndex = 0;
+        $index = 0;
+
+        foreach ($stages as $stage => $completed) {
+            $stageList[] = [
+                'stage' => $stage,
+                'label' => __('tracking.milestone.' . $stage),
+                'completed' => $completed,
+                'is_current' => !$completed && $currentStageIndex === $index,
+            ];
+
+            if ($completed) {
+                $currentStageIndex = $index + 1;
+            }
+
+            $index++;
+        }
+
+        $completedCount = count(array_filter($stages));
+        $totalCount = count($stages);
+        $progressPercentage = $totalCount > 0 
+            ? (int) round(($completedCount / $totalCount) * 100) 
+            : 0;
+
+        return [
+            'stages' => $stageList,
+            'progress_percentage' => $progressPercentage,
+            'completed_stages' => $completedCount,
+            'total_stages' => $totalCount,
+        ];
+    }
+
+    /**
+     * Mark stage as complete based on event type
+     */
+    private function markStageComplete(array &$stages, string $eventType): void
+    {
+        match ($eventType) {
+            'order.created' => $stages['order_placed'] = true,
+            'payment.succeeded' => $stages['payment_confirmed'] = true,
+            'fulfillment.processing' => $stages['preparing_shipment'] = true,
+            'order.shipped', 'shipment.picked_up', 'shipment.in_transit' => $stages['shipped'] = true,
+            'shipment.out_for_delivery', 'fulfillment.out_for_delivery' => $stages['out_for_delivery'] = true,
+            'order.delivered', 'shipment.delivered', 'fulfillment.delivered' => $stages['delivered'] = true,
+            default => null,
+        };
+    }
+
     private function formatOrderForTracking(Order $order): array
     {
         return [
@@ -143,39 +292,7 @@ class OrderTrackingController extends Controller
 
     private function buildTimeline(Order $order): array
     {
-        // Prefer history if available; fallback to at least the current status
-        $history = $order->statusHistory()->orderBy('changed_at', 'asc')->get();
-
-        if ($history->isEmpty()) {
-            return [[
-                'timestamp' => $order->created_at?->toIso8601String(),
-                'status' => $order->status,
-                'payment_status' => $order->payment_status,
-                'fulfillment_status' => $order->fulfillment_status,
-                'title' => $this->getStatusTitle($order->status, true),
-                'description' => 'Your order has been created successfully.',
-                'changed_by' => null,
-                'icon' => $this->getStatusIcon($order->status),
-                'color' => $this->getStatusColor($order->status),
-            ]];
-        }
-
-        return $history->map(function (OrderStatusHistory $record) {
-            return [
-                'timestamp' => $record->changed_at->toIso8601String(),
-                'status' => $record->new_status,
-                'payment_status' => $record->new_payment_status,
-                'fulfillment_status' => $record->new_fulfillment_status,
-                'title' => $this->getTimelineTitle($record),
-                'description' => $record->notes ?? $this->getTimelineDescription($record),
-                'changed_by' => $record->changedBy ? [
-                    'name' => $record->changedBy->name,
-                    'type' => $record->changed_by_type,
-                ] : ['name' => null, 'type' => $record->changed_by_type],
-                'icon' => $this->getStatusIcon($record->new_status),
-                'color' => $this->getStatusColor($record->new_status),
-            ];
-        })->values()->all();
+        return $this->buildTimelineResponse($order, false);
     }
 
     private function getCurrentStatusInfo(Order $order): array
@@ -248,114 +365,5 @@ class OrderTrackingController extends Controller
     {
         return in_array($order->status, [Order::ORDER_STATUS_PENDING, Order::ORDER_STATUS_PROCESSING], true)
             && $order->payment_status !== Order::PAYMENT_STATUS_SUCCESS;
-    }
-
-    private function getTimelineTitle(OrderStatusHistory $record): string
-    {
-        if ($record->old_status === null) {
-            return 'Order Created';
-        }
-
-        return $this->getStatusTitle($record->new_status, false);
-    }
-
-    private function getStatusTitle(string $status, bool $isCreation): string
-    {
-        if ($isCreation) {
-            return 'Order Created';
-        }
-
-        return match ($status) {
-            Order::ORDER_STATUS_PENDING => 'Order Placed',
-            Order::ORDER_STATUS_PROCESSING => 'Order Being Processed',
-            Order::ORDER_STATUS_COMPLETED => 'Order Completed',
-            Order::ORDER_STATUS_DELIVERED => 'Order Delivered',
-            Order::ORDER_STATUS_CANCELLED => 'Order Cancelled',
-            default => ucfirst($status),
-        };
-    }
-
-    private function getTimelineDescription(OrderStatusHistory $record): string
-    {
-        if ($record->old_status === null) {
-            return 'Your order has been created successfully.';
-        }
-
-        return match ($record->new_status) {
-            Order::ORDER_STATUS_PENDING => 'Waiting for payment confirmation.',
-            Order::ORDER_STATUS_PROCESSING => 'Your order is being prepared.',
-            Order::ORDER_STATUS_COMPLETED => 'Payment received and order is ready.',
-            Order::ORDER_STATUS_DELIVERED => 'Your order has been delivered successfully.',
-            Order::ORDER_STATUS_CANCELLED => 'Order has been cancelled.',
-            default => "Status changed to {$record->new_status}",
-        };
-    }
-
-    private function getStatusLabel(string $status): string
-    {
-        return match ($status) {
-            Order::ORDER_STATUS_PENDING => 'Pending Payment',
-            Order::ORDER_STATUS_PROCESSING => 'Processing',
-            Order::ORDER_STATUS_COMPLETED => 'Completed',
-            Order::ORDER_STATUS_DELIVERED => 'Delivered',
-            Order::ORDER_STATUS_CANCELLED => 'Cancelled',
-            default => ucfirst($status),
-        };
-    }
-
-    private function getStatusDescription(Order $order): string
-    {
-        if ($order->status === Order::ORDER_STATUS_PENDING) {
-            return $order->payment_status === Order::PAYMENT_STATUS_PENDING
-                ? 'Waiting for payment confirmation'
-                : 'Order is pending';
-        }
-
-        return match ($order->status) {
-            Order::ORDER_STATUS_PROCESSING => 'Your order is being prepared for shipment',
-            Order::ORDER_STATUS_COMPLETED => 'Your order is ready and will be shipped soon',
-            Order::ORDER_STATUS_DELIVERED => 'Your order has been delivered successfully',
-            Order::ORDER_STATUS_CANCELLED => 'This order has been cancelled',
-            default => 'Order status: ' . $order->status,
-        };
-    }
-
-    private function getStatusIcon(string $status): string
-    {
-        return match ($status) {
-            Order::ORDER_STATUS_PENDING => '⏳',
-            Order::ORDER_STATUS_PROCESSING => '📦',
-            Order::ORDER_STATUS_COMPLETED => '✅',
-            Order::ORDER_STATUS_DELIVERED => '🎉',
-            Order::ORDER_STATUS_CANCELLED => '❌',
-            default => '📋',
-        };
-    }
-
-    private function getStatusColor(string $status): string
-    {
-        return match ($status) {
-            Order::ORDER_STATUS_PENDING => 'yellow',
-            Order::ORDER_STATUS_PROCESSING => 'blue',
-            Order::ORDER_STATUS_COMPLETED => 'green',
-            Order::ORDER_STATUS_DELIVERED => 'green',
-            Order::ORDER_STATUS_CANCELLED => 'red',
-            default => 'gray',
-        };
-    }
-
-    private function getProgressPercentage(Order $order): int
-    {
-        if ($order->status === Order::ORDER_STATUS_CANCELLED) {
-            return 0;
-        }
-
-        return match ($order->status) {
-            Order::ORDER_STATUS_PENDING => 20,
-            Order::ORDER_STATUS_PROCESSING => 50,
-            Order::ORDER_STATUS_COMPLETED => 80,
-            Order::ORDER_STATUS_DELIVERED => 100,
-            default => 0,
-        };
     }
 }

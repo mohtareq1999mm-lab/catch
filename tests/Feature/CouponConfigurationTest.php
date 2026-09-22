@@ -10,6 +10,7 @@ use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponAssignment;
 use Marvel\Database\Models\User;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class CouponConfigurationTest extends TestCase
@@ -63,6 +64,8 @@ class CouponConfigurationTest extends TestCase
     public function validates_public_coupon_configuration()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        Permission::firstOrCreate(['name' => 'view-coupons', 'guard_name' => 'api']);
+        $admin->givePermissionTo('view-coupons');
         Sanctum::actingAs($admin);
 
         $response = $this->postJson('/api/v1/admin/coupons/validate-configuration', [
@@ -80,6 +83,8 @@ class CouponConfigurationTest extends TestCase
     public function rejects_public_coupon_with_multi_use()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        Permission::firstOrCreate(['name' => 'view-coupons', 'guard_name' => 'api']);
+        $admin->givePermissionTo('view-coupons');
         Sanctum::actingAs($admin);
 
         $response = $this->postJson('/api/v1/admin/coupons/validate-configuration', [
@@ -99,6 +104,8 @@ class CouponConfigurationTest extends TestCase
     public function allows_assigned_coupon_with_multi_use()
     {
         $admin = User::factory()->create(['type' => 'admin']);
+        Permission::firstOrCreate(['name' => 'view-coupons', 'guard_name' => 'api']);
+        $admin->givePermissionTo('view-coupons');
         Sanctum::actingAs($admin);
 
         $response = $this->postJson('/api/v1/admin/coupons/validate-configuration', [
@@ -121,6 +128,8 @@ class CouponConfigurationTest extends TestCase
         ]);
 
         $admin = User::factory()->create(['type' => 'admin']);
+        Permission::firstOrCreate(['name' => 'view-coupons', 'guard_name' => 'api']);
+        $admin->givePermissionTo('view-coupons');
         Sanctum::actingAs($admin);
 
         $response = $this->getJson("/api/v1/admin/coupons/{$coupon->id}/usage-info");
@@ -154,6 +163,8 @@ class CouponConfigurationTest extends TestCase
         }
 
         $admin = User::factory()->create(['type' => 'admin']);
+        Permission::firstOrCreate(['name' => 'view-coupons', 'guard_name' => 'api']);
+        $admin->givePermissionTo('view-coupons');
         Sanctum::actingAs($admin);
 
         $response = $this->getJson("/api/v1/admin/coupons/{$coupon->id}/usage-info");
@@ -171,6 +182,8 @@ class CouponConfigurationTest extends TestCase
         $coupon = $this->createCoupon(['code' => 'PUBLIC10']);
 
         $admin = User::factory()->create(['type' => 'admin']);
+        Permission::firstOrCreate(['name' => 'view-coupons', 'guard_name' => 'api']);
+        $admin->givePermissionTo('view-coupons');
         Sanctum::actingAs($admin);
 
         $response = $this->postJson("/api/v1/admin/coupons/{$coupon->id}/suggest-fix", [

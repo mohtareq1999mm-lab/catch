@@ -30,10 +30,18 @@ class CouponController extends Controller
     {
         $request->validate([
             'code' => ['required', 'string', 'max:191'],
+            // Optional delivery area: when supplied, area-targeted coupons
+            // are evaluated strictly now; when omitted, area rules defer
+            // to checkout (authoritative revalidation with the order area).
+            'governorate_id' => ['nullable', 'integer', 'exists:governorates,id'],
         ]);
 
         $code = $request->get('code');
-        $result = $this->couponService->addCouponToCart($code);
+        $context = [];
+        if ($request->filled('governorate_id')) {
+            $context['governorate_id'] = (int) $request->input('governorate_id');
+        }
+        $result = $this->couponService->addCouponToCart($code, $context);
 
         if ($result === null) {
             return $this->apiResponse(INVALID_COUPON_CODE_OR_COUPON_CANNOT_BE_APPLIED_OR_COUPON_USAGE_LIMIT_REACHED, 400, false);
@@ -44,6 +52,65 @@ class CouponController extends Controller
         }
 
         return $this->apiResponse(COUPON_APPLIED_SUCCESSFULLY, 200, true, $result);
+    }
+
+    /**
+     * My Coupons: assignments + claims for the authenticated user.
+     *
+     * FINAL BUSINESS CONTRACT Sec 3 (View → Claim → My Coupons → Apply)
+     * and Sec 6 (assignment discoverable via relationship/API).
+     * Coupon codes are exposed ONLY to their owner (needed for Apply);
+     * the public listing (CouponResource) never exposes codes.
+     *
+     * @OA\Get(
+     *     path="/api/v1/general/coupons/mine",
+     *     tags={"Coupons"},
+     *     summary="My coupons (assigned + claimed)",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\Response(response=200, description="User coupons"),
+     *     @OA\Response(response=401, description="Unauthenticated")
+     * )
+     */
+    public function myCoupons(Request $request)
+    {
+        $userId = $request->user()->getKey();
+
+        $assignments = \Marvel\Database\Models\CouponAssignment::query()
+            ->where('user_id', $userId)
+            ->with('coupon')
+            ->orderByDesc('assigned_at')
+            ->get()
+            ->map(fn ($a) => [
+                'id' => $a->id,
+                'coupon_id' => $a->coupon_id,
+                'code' => $a->coupon?->code,
+                'max_uses' => $a->max_uses,
+                'used' => $a->used,
+                'remaining' => max(0, (int) $a->max_uses - (int) $a->used),
+                'expired' => $a->expires_at !== null && $a->expires_at->isPast(),
+                'expires_at' => $a->expires_at?->toIso8601String(),
+                'assigned_at' => $a->assigned_at?->toIso8601String(),
+            ]);
+
+        $claims = \Marvel\Database\Models\CouponClaim::query()
+            ->where('user_id', $userId)
+            ->with('coupon')
+            ->orderByDesc('claimed_at')
+            ->get()
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'coupon_id' => $c->coupon_id,
+                'code' => $c->coupon?->code,
+                'status' => $c->status instanceof \BackedEnum ? $c->status->value : (string) $c->status,
+                'claimed_at' => $c->claimed_at?->toIso8601String(),
+                'expires_at' => $c->expires_at?->toIso8601String(),
+                'redeemed_at' => $c->redeemed_at?->toIso8601String(),
+            ]);
+
+        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, [
+            'assignments' => $assignments,
+            'claims' => $claims,
+        ]);
     }
 
     /**
@@ -78,11 +145,20 @@ class CouponController extends Controller
                 \App\Http\Resources\Coupon\CouponClaimResource::make($claim)
             );
         } catch (\App\Exceptions\CouponClaimException $e) {
+            // F-11: customer response carries only reason code; internal
+            // diagnostics (failed_rules, coupon/user ids) stay in logs.
+            \Illuminate\Support\Facades\Log::info('Coupon claim rejected', [
+                'reason' => $e->reason,
+                'context' => $e->context,
+                'coupon_id' => $id,
+                'user_id' => $request->user()?->getKey(),
+            ]);
+
             return $this->apiResponse(
                 $this->mapClaimExceptionMessage($e),
                 409,
                 false,
-                ['reason' => $e->reason, 'context' => $e->context]
+                ['reason' => $e->reason]
             );
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->apiResponse(COUPON_NOT_FOUND, 404, false);

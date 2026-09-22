@@ -262,11 +262,20 @@ class CouponController extends CoreController
                 \App\Http\Resources\Coupon\CouponClaimResource::make($claim)
             );
         } catch (\App\Exceptions\CouponClaimException $e) {
+            // F-11: customer response carries only reason code; internal
+            // diagnostics stay in logs.
+            \Illuminate\Support\Facades\Log::info('Coupon claim rejected', [
+                'reason' => $e->reason,
+                'context' => $e->context,
+                'coupon_id' => $id,
+                'user_id' => $request->user()?->getKey(),
+            ]);
+
             return $this->apiResponse(
                 $this->mapClaimExceptionMessage($e),
                 409,
                 false,
-                ['reason' => $e->reason, 'context' => $e->context]
+                ['reason' => $e->reason]
             );
         } catch (ModelNotFoundException $e) {
             return $this->apiResponse(COUPON_NOT_FOUND, 404, false);

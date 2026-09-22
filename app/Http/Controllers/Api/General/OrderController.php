@@ -285,8 +285,10 @@ class OrderController extends Controller
         // Uses integer cents to avoid floating-point authority errors.
         $processed = false;
         $mismatchHandled = false;
+        $couponBlocked = null;
 
-        DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, $isTestGateway, $isProduction, &$processed, &$mismatchHandled) {
+        try {
+            DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, $isTestGateway, $isProduction, &$processed, &$mismatchHandled) {
             $lockedTransaction = Transaction::where('gateway_transaction_id', $paymentId)
                 ->orWhere('invoice_id', $paymentId)
                 ->lockForUpdate()
@@ -451,7 +453,55 @@ class OrderController extends Controller
             $this->orderService->changeOrderStatus($lockedTransaction->invoice_id, 'completed', null, false);
 
             $processed = true;
-        });
+            });
+        } catch (\App\Exceptions\CouponConsumptionException $e) {
+            // M1: coupon consumption refused completion (fail-closed). The
+            // callback transaction rolled back (order stays pending, no
+            // partial usage, idempotency token released for a legitimate
+            // retry after ops intervention). Record the failure visibly so
+            // the gateway does not retry a permanently-blocked completion
+            // forever; reconciliation (coupons:reconcile) surfaces the
+            // paid-at-gateway / pending-local state for manual handling.
+            $couponBlocked = $e;
+        }
+
+        if ($couponBlocked) {
+            try {
+                DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $couponBlocked) {
+                    $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
+                    if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
+                    if ($lt && $lt->status === 'pending') {
+                        $lt->update([
+                            'status' => 'failed',
+                            'error_message' => \Illuminate\Support\Str::limit(strip_tags($couponBlocked->getMessage()), 500, ''),
+                        ]);
+                    }
+                });
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            try {
+                event(new PaymentFailed($order->fresh()));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            $blockedMessage = \Illuminate\Support\Str::limit(strip_tags($couponBlocked->getMessage()), 500, '');
+            if ($callbackType === 'mobile') {
+                return $this->apiResponse(PAYMENT_FAILED, 400, false, [
+                    'status' => 'failed',
+                    'message' => $blockedMessage,
+                    'payment_id' => $paymentId,
+                ]);
+            }
+
+            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+                'status' => 'failed',
+                'message' => $blockedMessage,
+                'payment_id' => $paymentId,
+            ]));
+        }
 
         if ($mismatchHandled) {
             try {
@@ -476,8 +526,14 @@ class OrderController extends Controller
         }
 
         if ($processed) {
+            // F-14: never dispatch PaymentSucceeded with null/invalid order.
             try {
-                event(new PaymentSucceeded($order->fresh()));
+                $fresh = $order ? $order->fresh() : null;
+                if ($fresh) {
+                    event(new PaymentSucceeded($fresh));
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('PaymentSucceeded skipped: order missing in success-callback', ['payment_id' => $paymentId]);
+                }
             } catch (\Throwable $e) {
                 report($e);
             }
@@ -557,10 +613,18 @@ class OrderController extends Controller
             $isProductionErr = app()->environment('production');
             $mismatchInError = false;
             $processedErrorSuccess = false;
+            $couponBlockedError = null;
+            try {
             DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $result, $isTestGatewayErr, $isProductionErr, &$mismatchInError, &$processedErrorSuccess) {
                 $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
                 if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
                 if (!$lt) return;
+                // F-09 parity: token-based idempotency (primary) + status check (secondary).
+                // Prevents concurrent success+error callbacks from double-processing.
+                if (($lt->idempotency_key ?? null) !== null) {
+                    return;
+                }
+                $lt->update(['idempotency_key' => \Illuminate\Support\Str::uuid()->toString()]);
                 $lockedOrder = $lt->order()->lockForUpdate()->first();
                 if (!$lockedOrder) return;
                 if ($lockedOrder->status !== 'pending') return;
@@ -604,6 +668,42 @@ class OrderController extends Controller
                 app(\App\Services\General\OrderService::class)->changeOrderStatus($lt->invoice_id, 'completed', null, false);
                 $processedErrorSuccess = true;
             });
+            } catch (\App\Exceptions\CouponConsumptionException $e) {
+                // F-01: mirror success-callback handling. Coupon refused completion
+                // (fail-closed): transaction rolled back, order stays pending.
+                // Record failure visibly; reconciliation surfaces paid-at-gateway /
+                // pending-local for manual handling. Never bubble as 500.
+                $couponBlockedError = $e;
+            }
+            if ($couponBlockedError) {
+                try {
+                    DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $couponBlockedError) {
+                        $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
+                        if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
+                        if ($lt && $lt->status === 'pending') {
+                            $lt->update([
+                                'status' => 'failed',
+                                'error_message' => \Illuminate\Support\Str::limit(strip_tags($couponBlockedError->getMessage()), 500, ''),
+                            ]);
+                        }
+                    });
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+                try {
+                    if ($order) {
+                        event(new PaymentFailed($order->fresh()));
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+                $blockedMessage = \Illuminate\Support\Str::limit(strip_tags($couponBlockedError->getMessage()), 500, '');
+                if ($errorCallbackType === 'mobile') {
+                    return $this->apiResponse(PAYMENT_FAILED, 400, false, ['status' => 'failed', 'message' => $blockedMessage, 'payment_id' => $paymentId]);
+                }
+
+                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(['status' => 'failed', 'message' => $blockedMessage, 'payment_id' => $paymentId]));
+            }
             if ($mismatchInError) {
                 $sanitized = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? 'Amount or currency mismatch')), 500, '');
                 try { if ($order) event(new PaymentFailed($order)); } catch (\Throwable $e) { report($e); }
@@ -613,7 +713,16 @@ class OrderController extends Controller
                 return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(['status'=>'failed','message'=>$sanitized,'payment_id'=>$paymentId]));
             }
             if ($processedErrorSuccess) {
-                try { event(new \App\Events\PaymentSucceeded($order ? $order->fresh() : null)); } catch (\Throwable $e) { report($e); }
+                // F-14: PaymentSucceeded contract never receives null. Only dispatch
+                // when the authoritative order exists; otherwise skip (logged).
+                try {
+                    $fresh = $order ? $order->fresh() : null;
+                    if ($fresh) {
+                        event(new \App\Events\PaymentSucceeded($fresh));
+                    } else {
+                        \Illuminate\Support\Facades\Log::warning('PaymentSucceeded skipped: order missing in error-callback', ['payment_id' => $paymentId]);
+                    }
+                } catch (\Throwable $e) { report($e); }
             }
             if ($errorCallbackType === 'mobile') {
                 return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, [
