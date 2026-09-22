@@ -17,7 +17,9 @@ use App\Enums\EligibilityRuleType;
  */
 final class RuleTreeValidator
 {
-    private const MAX_DEPTH = 10;
+    // Public so the rules-metadata catalog reports the authoritative limit
+    // from a single source (grammar itself unchanged).
+    public const MAX_DEPTH = 10;
 
     /**
      * @return array{valid: bool, errors: string[]}

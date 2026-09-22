@@ -277,6 +277,9 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
         Route::put('assignments/{assignment}', [CouponAssignmentController::class, 'update'])->middleware('permission:update-coupon-assignment');
         Route::delete('assignments/{assignment}', [CouponAssignmentController::class, 'destroy'])->middleware('permission:delete-coupon-assignment');
     });
+    // Static rule-catalog route MUST precede apiResource('coupons') so
+    // GET coupons/rules is not captured by coupons/{coupon} (show).
+    Route::get('coupons/rules', [\App\Http\Controllers\Api\Admin\CouponRulesController::class, 'show'])->name('api.admin.coupons.rules');
     Route::apiResource('coupons', CouponController::class);
     // Admin coupon configuration helpers
     Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {

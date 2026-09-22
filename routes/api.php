@@ -197,6 +197,7 @@ Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle
 // in packages/marvel/src/Rest/Routes.php under /api/v1/coupons/* with the
 // api.admin.coupons.* names; these aliases carry no names to avoid collision.
 Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('rules', [\App\Http\Controllers\Api\Admin\CouponRulesController::class, 'show']);
     Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration']);
     Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id');
     Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id');
