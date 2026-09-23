@@ -49,7 +49,7 @@ class GovernorateController extends CoreController
     public function index(Request $request): JsonResponse
     {
         $governorates = $this->repository->paginate(
-            (int)$request->get('per_page', 15),
+            (int)$request->get('limit', 15),
             $request->get('search'),
             $request->has('status') ? (bool)$request->get('status') : null,
             $request->get('country_id') ? (int)$request->get('country_id') : null
