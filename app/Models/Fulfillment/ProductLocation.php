@@ -13,12 +13,14 @@ class ProductLocation extends Model
         'location_id',
         'warehouse_id',
         'quantity',
-        'reserved_quantity',
+        // Phase 7: non-authoritative placement hint (renamed from
+        // reserved_quantity). NEVER decides sellable inventory.
+        'allocated_hint',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:2',
-        'reserved_quantity' => 'decimal:2',
+        'allocated_hint' => 'decimal:2',
     ];
 
     public function product(): BelongsTo
@@ -38,7 +40,7 @@ class ProductLocation extends Model
 
     public function availableQuantity(): float
     {
-        return $this->quantity - $this->reserved_quantity;
+        return $this->quantity - $this->allocated_hint;
     }
 
     public function scopeHasStock($query)
