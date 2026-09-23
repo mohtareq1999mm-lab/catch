@@ -78,11 +78,15 @@ class Location extends Model
 
     /**
      * Phase 7: only active, placeable locations participate in allocation.
+     * NULL type = unspecified legacy location → placeable (only explicitly
+     * non-placeable types and inactive status are excluded).
      */
     public function scopePlaceable($query)
     {
         return $query->where('status', self::STATUS_ACTIVE)
-            ->whereIn('type', self::PLACEABLE_TYPES);
+            ->where(function ($q) {
+                $q->whereNull('type')->orWhereIn('type', self::PLACEABLE_TYPES);
+            });
     }
 
     public function scopeByPriority($query)

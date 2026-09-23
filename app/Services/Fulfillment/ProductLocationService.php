@@ -50,7 +50,10 @@ class ProductLocationService
     }
 
     /**
-     * Allocate product from best available locations
+     * Allocate product from best available locations.
+     * Phase 7: allocation reads PLACEMENT HINTS from active, placeable
+     * locations only (quarantine/damaged/returns/inactive excluded). It never
+     * mutates central inventory and never decides sellability.
      */
     public function allocateFromLocations(
         int $productId,
@@ -58,6 +61,7 @@ class ProductLocationService
         ?int $warehouseId = null
     ): array {
         $query = ProductLocation::where('product_locations.product_id', $productId)
+            ->whereHas('location', fn ($q) => $q->placeable())
             ->hasStock();
 
         if ($warehouseId) {
@@ -124,9 +128,9 @@ class ProductLocationService
                 throw new \Exception("Cannot reduce quantity below zero");
             }
 
-            if ($newQuantity < $productLocation->reserved_quantity) {
+            if ($newQuantity < $productLocation->allocated_hint) {
                 throw new \Exception(
-                    "Cannot reduce quantity below reserved amount ({$productLocation->reserved_quantity})"
+                    "Cannot reduce quantity below allocated hint ({$productLocation->allocated_hint})"
                 );
             }
 

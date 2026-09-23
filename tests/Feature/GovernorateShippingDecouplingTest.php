@@ -14,6 +14,7 @@ use Marvel\Database\Models\Governorate;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\ShippingPrice;
 use Marvel\Database\Models\User;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
@@ -227,6 +228,59 @@ class GovernorateShippingDecouplingTest extends TestCase
         $address->update(['governorate_id' => $giza->id]);
 
         $this->assertEquals($cairo->id, $order->fresh()->governorate_id);
+        $this->assertEquals($giza->id, $address->fresh()->governorate_id);
+    }
+
+    /** HTTP: POST /api/v1/address persists governorate_id end-to-end. */
+    public function test_address_store_endpoint_persists_governorate_id(): void
+    {
+        $gov = $this->makeGovernorate('Cairo');
+        $user = $this->makeUser();
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/v1/address', [
+            'title' => 'Home',
+            'address' => ['zip' => '1', 'city' => 'C', 'state' => 'S', 'country' => 'T', 'street_address' => '1 St'],
+            'governorate_id' => $gov->id,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('address', [
+            'customer_id' => $user->id,
+            'governorate_id' => $gov->id,
+        ]);
+
+        // Shipping-disabled governorate accepted at HTTP layer too.
+        $giza = $this->makeGovernorate('Giza');
+        $this->makeShipping($giza, 60.00, false);
+
+        $response = $this->postJson('/api/v1/address', [
+            'title' => 'Work',
+            'address' => ['zip' => '2', 'city' => 'G', 'state' => 'S', 'country' => 'T', 'street_address' => '2 St'],
+            'governorate_id' => $giza->id,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('address', [
+            'customer_id' => $user->id,
+            'governorate_id' => $giza->id,
+        ]);
+    }
+
+    /** HTTP: PUT /api/v1/address/{id} updates governorate_id. */
+    public function test_address_update_endpoint_changes_governorate_id(): void
+    {
+        $cairo = $this->makeGovernorate('Cairo');
+        $giza = $this->makeGovernorate('Giza');
+        $user = $this->makeUser();
+        Sanctum::actingAs($user);
+        $address = $this->makeAddress($user, $cairo->id);
+
+        $response = $this->putJson('/api/v1/address/'.$address->id, [
+            'governorate_id' => $giza->id,
+        ]);
+
+        $response->assertOk();
         $this->assertEquals($giza->id, $address->fresh()->governorate_id);
     }
 }

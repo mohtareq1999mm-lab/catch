@@ -239,7 +239,7 @@ class ReturnService
                 ],
                 [
                     'quantity' => 0,
-                    'reserved_quantity' => 0,
+                    'allocated_hint' => 0,
                 ]
             );
 

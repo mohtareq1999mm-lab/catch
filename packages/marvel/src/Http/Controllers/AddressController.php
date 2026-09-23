@@ -26,6 +26,7 @@ use Prettus\Validator\Exceptions\ValidatorException;
  *     @OA\Property(property="type", type="string", enum={"billing", "shipping"}, example="shipping"),
  *     @OA\Property(property="default", type="boolean", example=true),
  *     @OA\Property(property="address", type="object", description="JSON object containing street, city, state, zip, country"),
+ *     @OA\Property(property="governorate_id", type="integer", nullable=true, example=1, description="Master governorate id (any existing row; shipping availability is NOT required)"),
  *     @OA\Property(property="customer_id", type="integer", example=10),
  *     @OA\Property(property="created_at", type="string", format="date-time"),
  *     @OA\Property(property="updated_at", type="string", format="date-time")
@@ -72,18 +73,19 @@ class AddressController extends CoreController
      *     summary="Create Address",
      *     description="Add a new address to the user's profile.",
      *     security={{"sanctum": {}}},
-     *     @OA\RequestBody(
-     *         required=true,
-     *         @OA\JsonContent(
-     *             required={"title", "type", "address", "customer_id"},
-     *             @OA\Property(property="title", type="string", example="Work"),
-     *             @OA\Property(property="type", type="string", enum={"billing", "shipping"}, example="billing"),
-     *             @OA\Property(property="address", type="object"),
-     *             @OA\Property(property="customer_id", type="integer", example=10),
-     *             @OA\Property(property="default", type="boolean", example=false)
-     *         )
-     *     ),
-     *     @OA\Response(response=201, description="Address created", @OA\JsonContent(ref="#/components/schemas/Address")),
+ *     @OA\RequestBody(
+ *         required=true,
+ *         @OA\JsonContent(
+ *             required={"title", "type", "address", "customer_id"},
+ *             @OA\Property(property="title", type="string", example="Work"),
+ *             @OA\Property(property="type", type="string", enum={"billing", "shipping"}, example="billing"),
+ *             @OA\Property(property="address", type="object"),
+ *             @OA\Property(property="governorate_id", type="integer", nullable=true, example=1, description="Master governorate id (any existing row; shipping availability is NOT required)"),
+ *             @OA\Property(property="customer_id", type="integer", example=10),
+ *             @OA\Property(property="default", type="boolean", example=false)
+ *         )
+ *     ),
+ *     @OA\Response(response=201, description="Address created", @OA\JsonContent(ref="#/components/schemas/Address")),
      *     @OA\Response(response=401, description="Unauthenticated"),
      *     @OA\Response(response=422, description="Validation error")
      * )
