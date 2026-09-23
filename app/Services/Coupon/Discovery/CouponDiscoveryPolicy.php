@@ -5,27 +5,30 @@ namespace App\Services\Coupon\Discovery;
 use App\Services\Coupon\CouponClaimRequirement;
 use App\Services\Coupon\Eligibility\EligibilityEngine;
 use Marvel\Database\Models\Coupon;
+use Marvel\Database\Models\CouponClaim;
 use Marvel\Database\Models\User;
 
 /**
  * Canonical customer-facing coupon discovery policy.
  *
  * THE single decision point for visibility, eligibility, claim requirement,
- * and code exposure. Every customer coupon listing endpoint consumes this —
- * no endpoint may implement its own interpretation.
+ * claim status, action, and code exposure. Every customer coupon listing
+ * endpoint consumes this — no endpoint, resource, or controller may
+ * implement its own interpretation. Resources render; they never decide.
  *
- * Business matrix (authenticated customer):
- * - public (no targeting, no assignments)                    → SHOW, code SHOWN
- * - targeted + eligible + requires_claim=false               → SHOW, code SHOWN
- * - targeted + eligible + requires_claim=true                → SHOW, code HIDDEN
- *   (the code is revealed by the Claim operation itself)
- * - targeted + not eligible                                  → HIDDEN
- * - assignment-only (assignments, no targeting)              → HIDDEN here
- *   (discovered via "My Coupons", which exposes owner codes)
+ * Three visibility categories (never conflated):
+ * - targeted:       a targeting configuration exists (takes precedence).
+ * - assignment-only: assignments exist but no targeting (personal grants —
+ *                   private to assignees via My Coupons, never the catalog).
+ * - public:         neither targeting nor assignments.
  *
- * Guests: pure-public coupons only, codes hidden (CP-02: the
- * unauthenticated listing never exposes redeemable codes). Targeted coupons
- * need identity — no guest targeting is invented.
+ * VISIBILITY ≠ ELIGIBILITY ≠ USABILITY: the general catalog shows public +
+ * targeted regardless of eligibility; eligibility only shapes code/action.
+ * Inclusion stays with the consumer: the catalog drops assignment-only
+ * rows; the personalized feed additionally drops ineligible rows.
+ *
+ * Guests: public + targeted rows listed, codes always hidden (CP-02),
+ * no usable action, targeted never eligible. No guest targeting invented.
  *
  * Admin APIs are explicitly out of scope: they may expose codes/config.
  */
@@ -36,44 +39,44 @@ class CouponDiscoveryPolicy
     ) {}
 
     /**
-     * @return array{visibility: 'public'|'targeted'|null, requires_claim: bool, eligible: bool, can_expose_code: bool, include: bool}
+     * @return array{visibility: 'public'|'targeted'|'assignment-only', requires_claim: bool, eligible: bool, claim_status: 'redeemed'|'claimed'|'not_required'|'claimable', action: 'apply'|'claim'|null, can_expose_code: bool}
      */
-    public function decide(Coupon $coupon, ?User $user): array
+    public function decide(Coupon $coupon, ?User $user, ?CouponClaim $claim = null): array
     {
         $targeting = $coupon->targeting;
         $requiresClaim = CouponClaimRequirement::forCoupon($coupon);
 
         if ($targeting !== null) {
-            // Targeted coupons need an identity-bound Engine verdict.
-            $eligible = $user !== null && $this->engine->evaluate($coupon, $user)->isEligible;
             $visibility = 'targeted';
         } else {
             $hasAssignments = $coupon->relationLoaded('assignments')
                 ? $coupon->assignments->isNotEmpty()
                 : $coupon->assignments()->exists();
-
-            if ($hasAssignments) {
-                return [
-                    'visibility' => null,
-                    'requires_claim' => false,
-                    'eligible' => false,
-                    'can_expose_code' => false,
-                    'include' => false,
-                ];
-            }
-
-            // Public: the Engine trivially passes targeting-less coupons
-            // (no_targeting), so no evaluation — and no identity — is needed.
-            $visibility = 'public';
-            $eligible = true;
+            $visibility = $hasAssignments ? 'assignment-only' : 'public';
         }
+
+        if ($user !== null) {
+            // Uniform Engine verdict across modes; apply-time gates
+            // (assignment, claim) stay authoritative downstream.
+            $eligible = $this->engine->evaluate($coupon, $user)->isEligible;
+        } else {
+            $eligible = $visibility === 'public';
+        }
+
+        $state = CouponAction::resolve($eligible, $requiresClaim, $claim);
+
+        // Guests browse only: no claim/apply affordance without identity.
+        $action = $user !== null ? $state['action'] : null;
 
         return [
             'visibility' => $visibility,
             'requires_claim' => $requiresClaim,
             'eligible' => $eligible,
-            'can_expose_code' => $user !== null && ($visibility === 'public' || ! $requiresClaim),
-            'include' => $eligible,
+            'claim_status' => $state['claim_status'],
+            'action' => $action,
+            'can_expose_code' => $user !== null && $eligible
+                && $visibility !== 'assignment-only'
+                && ($visibility === 'public' || ! $requiresClaim),
         ];
     }
 }

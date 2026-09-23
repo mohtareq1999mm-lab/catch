@@ -6,6 +6,7 @@ use App\Audit\ActivityAuditService;
 use App\Events\CouponCreated;
 use App\Events\Coupons\CouponActivated;
 use App\Events\Coupons\CouponDisabled;
+use App\Services\Coupon\Discovery\CouponDiscoveryCache;
 use Marvel\Database\Models\Coupon;
 
 class CouponObserver
@@ -21,6 +22,10 @@ class CouponObserver
         );
 
         event(new CouponCreated($coupon));
+
+        // Customer discovery caches (listing + personalized) must rebuild:
+        // validity, classification, and codes all derive from coupon rows.
+        CouponDiscoveryCache::invalidate();
 
         // Created-active coupons enter the distribution plane immediately
         // (targeting may not exist yet — the start path skips
@@ -39,6 +44,10 @@ class CouponObserver
         if (empty($dirty)) {
             return;
         }
+
+        // Any persisted coupon change (status, dates, limiter, discount…)
+        // can alter validity, classification, or codes in discovery caches.
+        CouponDiscoveryCache::invalidate();
 
         $statusChanged = array_key_exists('status', $dirty);
         $hasOtherChanges = count($dirty) > ($statusChanged ? 1 : 0);
@@ -93,6 +102,8 @@ class CouponObserver
 
     public function deleted(Coupon $coupon): void
     {
+        CouponDiscoveryCache::invalidate();
+
         ActivityAuditService::recordModel(
             $coupon,
             'deleted',

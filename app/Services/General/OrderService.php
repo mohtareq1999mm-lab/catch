@@ -1166,6 +1166,10 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         if (Schema::hasColumn('orders', 'coupon_consumed')) {
             $order->update(['coupon_consumed' => true]);
         }
+
+        // Consumption moves quotas/validity: retire discovery caches so the
+        // catalog stops advertising exhausted coupons.
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
     }
 
     /**

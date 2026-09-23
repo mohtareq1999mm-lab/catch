@@ -223,9 +223,26 @@ class AvailableCouponsApiTest extends TestCase
         $this->assertCount(0, $response->json('data.data'));
     }
 
-    public function test_assigned_targeted_coupon_appears_once_as_targeted()
+    public function test_assignment_only_coupon_excluded_from_personalized_feed()
     {
-        // Coupon with both targeting (assignment mode) and an assignment
+        // Assignments without targeting are owned grants (My Coupons), not
+        // actionable discovery items.
+        $coupon = $this->createPublicCoupon();
+        $user = User::factory()->create();
+        \Marvel\Database\Models\CouponAssignment::create([
+            'coupon_id' => $coupon->id, 'user_id' => $user->id,
+            'max_uses' => 3, 'used' => 0,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/v1/general/coupons/available');
+        $response->assertOk();
+        $this->assertCount(0, $response->json('data.data'));
+    }
+
+    public function test_assigned_targeted_coupon_appears_once_as_targeted()
+    {        // Coupon with both targeting (assignment mode) and an assignment
         // for the user: eligible, classified targeted, never duplicated.
         $code = 'MIX-'.Str::random(8);
         $coupon = Coupon::create([

@@ -25,17 +25,41 @@ class CouponController extends Controller
         // so authenticated responses must never share the anonymous cache
         // entry (short per-user TTL mirrors the discovery service).
         $user = $request->user();
+
+        if ($user === null && $request->bearerToken() !== null) {
+            // A credential was presented but resolves to nobody (expired,
+            // revoked, or malformed token). Serve 401 instead of silently
+            // degrading to the guest shape: the documented client flow
+            // clears the dead token and re-authenticates on 401, which is
+            // the only way the customer can receive their codes. The token
+            // itself is never logged. Guests without any header are
+            // unaffected and keep the public listing below.
+            \Illuminate\Support\Facades\Log::info('coupon.discovery.unresolvable_bearer_token', [
+                'path' => $request->path(),
+            ]);
+
+            return $this->apiResponse('Unauthenticated.', 401, false);
+        }
         $coupons = $this->couponService->getCoupons($request, $user);
+
+        // Versioned keys: CouponDiscoveryCache::invalidate() retires every
+        // listing variant after coupon/targeting/assignment/claim/usage
+        // writes (see the helper for the mutation matrix).
+        $version = \App\Services\Coupon\Discovery\CouponDiscoveryCache::version();
 
         if ($user) {
             $couponsCache = $this->remember(
                 FrontendResource::COUPONS->value,
-                md5($request->fullUrl().':user:'.$user->getKey()),
+                md5($request->fullUrl().':user:'.$user->getKey().':v'.$version),
                 $coupons,
                 now()->addMinute(),
             );
         } else {
-            $couponsCache = $this->remember(FrontendResource::COUPONS->value, md5($request->fullUrl()), $coupons);
+            $couponsCache = $this->remember(
+                FrontendResource::COUPONS->value,
+                md5($request->fullUrl().':v'.$version),
+                $coupons
+            );
         }
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CustomerCouponResource::collection($couponsCache));
