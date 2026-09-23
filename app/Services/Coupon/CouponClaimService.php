@@ -41,7 +41,7 @@ class CouponClaimService
         // P2: bounded deadlock retry (3). Safe: any retried attempt rolled
         // back fully, and the claim insert is guarded by the ACTIVE check +
         // parent-row lock, so a retry can never double-create.
-        return DB::transaction(function () use ($coupon, $user) {
+        $claim = DB::transaction(function () use ($coupon, $user) {
             // CRITICAL: Acquire parent-row lock on CouponTargeting
             // This serializes all claim attempts for this coupon
             $targeting = CouponTargeting::query()
@@ -146,6 +146,11 @@ class CouponClaimService
 
             return $claim;
         }, 3);
+
+        // Post-commit: the customer's claim/action state changed.
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
+
+        return $claim;
     }
 
     /**
@@ -198,6 +203,8 @@ class CouponClaimService
             'status' => CouponClaimStatus::REDEEMED,
             'redeemed_at' => now(),
         ]);
+
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
     }
 
     /**
@@ -209,12 +216,18 @@ class CouponClaimService
      */
     public function expireExpiredClaims(): int
     {
-        return CouponClaim::query()
+        $expired = CouponClaim::query()
             ->where('status', CouponClaimStatus::ACTIVE)
             ->where('expires_at', '<=', now())
             ->whereNotNull('expires_at')
             ->update([
                 'status' => CouponClaimStatus::EXPIRED,
             ]);
+
+        if ($expired > 0) {
+            \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
+        }
+
+        return $expired;
     }
 }

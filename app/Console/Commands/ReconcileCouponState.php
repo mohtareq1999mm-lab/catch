@@ -253,7 +253,7 @@ class ReconcileCouponState extends Command
             ->groupBy('a.id', 'a.coupon_id', 'a.user_id', 'a.used', 'a.max_uses')
             ->havingRaw('COUNT(au.id) != a.used')
             ->limit(100)
-            ->get(['a.id', 'a.coupon_id', 'a.user_id', 'a.used', 'a.max_uses', DB::raw('COUNT(au.id) as rows')])
+            ->get(['a.id', 'a.coupon_id', 'a.user_id', 'a.used', 'a.max_uses', DB::raw('COUNT(au.id) as usage_rows')])
             ->map(fn ($r) => (array) $r)
             ->all();
     }

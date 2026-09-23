@@ -1140,7 +1140,7 @@ Schema::create('users', function (Blueprint $table) {
 
     private function setupAdminPermissions(): void
     {
-        $permission = \Spatie\Permission\Models\Permission::create(['name' => 'update-order-status']);
+        $permission = \Spatie\Permission\Models\Permission::create(['name' => 'payments.mark_paid']);
         $this->admin->givePermissionTo($permission);
         Sanctum::actingAs($this->admin);
     }

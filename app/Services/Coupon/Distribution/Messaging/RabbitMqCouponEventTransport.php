@@ -64,9 +64,14 @@ class RabbitMqCouponEventTransport implements CouponEventTransport
         $stopped = false;
 
         $callback = function (AMQPMessage $message) use ($handler, $queue, &$processed, $maxMessages, $deadline, &$stopped): void {
-            $headers = [];
-            $rawHeaders = $message->get('application_headers');
+            // Headerless messages (foreign publishes, redeliveries) must
+            // degrade to empty headers, never crash the consumer: attempt
+            // tracking falls back to the envelope/body defaults downstream.
+            $rawHeaders = $message->has('application_headers')
+                ? $message->get('application_headers')
+                : null;
 
+            $headers = [];
             if ($rawHeaders instanceof AMQPTable) {
                 $headers = $rawHeaders->getNativeData();
             }
@@ -112,7 +117,14 @@ class RabbitMqCouponEventTransport implements CouponEventTransport
                 $timeout = min($timeout, $remaining);
             }
 
-            $channel->wait(null, false, $timeout);
+            // Idle polls surface as AMQPTimeoutException: not an error, just
+            // no delivery inside this slice — keep polling until the deadline
+            // or message budget is reached.
+            try {
+                $channel->wait(null, false, $timeout);
+            } catch (\PhpAmqpLib\Exception\AMQPTimeoutException) {
+                continue;
+            }
 
             if ($stopped || ($maxMessages > 0 && $processed >= $maxMessages)) {
                 break;

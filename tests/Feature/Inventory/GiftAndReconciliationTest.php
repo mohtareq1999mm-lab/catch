@@ -148,7 +148,8 @@ class GiftAndReconciliationTest extends TestCase
     private function grantPermission(): void
     {
         $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'update-order-status', 'guard_name' => 'api']);
-        $this->makeUser()->givePermissionTo($permission);
+        $markPaid = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
+        $this->makeUser()->givePermissionTo([$permission, $markPaid]);
     }
 
     // ==================================================================
@@ -206,7 +207,8 @@ class GiftAndReconciliationTest extends TestCase
         $order->update(['promotion_id' => $promotion->id]);
 
         $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'update-order-status', 'guard_name' => 'api']);
-        $user->givePermissionTo($permission);
+        $markPaid = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
+        $user->givePermissionTo([$permission, $markPaid]);
         $this->postJson(self::PREFIX . '/checkout/cod/' . $order->id . '/mark-paid')->assertStatus(200);
 
         $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->refresh()->inventory_state);

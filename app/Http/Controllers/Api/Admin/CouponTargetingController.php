@@ -132,6 +132,10 @@ class CouponTargetingController extends Controller
         // Distribution: a new targeting version re-opens evaluation.
         event(new \App\Events\Coupons\CouponTargetingChanged($coupon->fresh()));
 
+        // Discovery caches key visibility, claim requirement, and codes off
+        // this row — retire them alongside the distribution fan-out.
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
+
         return $this->apiResponse(UPDATED_COUPON_SUCCESSFULLY, 200, true, CouponTargetingResource::make($targeting->fresh()));
     }
 
@@ -154,6 +158,9 @@ class CouponTargetingController extends Controller
         // Distribution: removing targeting returns the coupon to
         // always-eligible; in-flight targeted runs stop harmlessly.
         event(new \App\Events\Coupons\CouponTargetingChanged($coupon->fresh()));
+
+        // The coupon flips back to public visibility: retire discovery caches.
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
 
         return $this->apiResponse(DELETED_COUPON_SUCCESSFULLY, 200, true);
     }

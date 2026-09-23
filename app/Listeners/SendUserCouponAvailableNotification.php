@@ -21,14 +21,18 @@ class SendUserCouponAvailableNotification implements ShouldQueue
 
     /**
      * Global fan-out, fail-closed. Sends ONLY when the coupon is proven
-     * public: no assignments AND no targeting AND past the creation grace
-     * window (targeting is added after creation in the admin flow; a fresh
+     * publicly discoverable: the explicit is_public flag, or (legacy) no
+     * assignments — AND no targeting AND past the creation grace window
+     * (targeting is added after creation in the admin flow; a fresh
      * coupon without targeting may still become targeted). The public
      * sweep (coupons:detect-public) delivers mature public coupons.
      */
     public function sendIfMaturePublic(\Marvel\Database\Models\Coupon $coupon): bool
     {
-        if ($coupon->assignments()->exists()) {
+        // Assignments never demote publicity: only a private (flag off)
+        // assigned coupon is refused here.
+        if (! (bool) ($coupon->getAttribute('is_public') ?? false)
+            && $coupon->assignments()->exists()) {
             return false;
         }
 
@@ -44,7 +48,8 @@ class SendUserCouponAvailableNotification implements ShouldQueue
             return false;
         }
 
-        $graceMinutes = max(1, (int) config('coupon-distribution.public_grace_minutes', 15));
+        // Authoritative business delay (public_grace_minutes, default 4 min).
+        $graceMinutes = max(1, (int) config('coupon-distribution.public_grace_minutes', 4));
 
         if ($coupon->created_at !== null && $coupon->created_at->diffInMinutes(now()) < $graceMinutes) {
             // Too fresh to prove public — the sweep delivers it once mature.

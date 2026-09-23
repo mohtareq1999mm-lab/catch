@@ -33,6 +33,7 @@ class DistributionStartHandler
         private readonly CouponCandidateSelector $selector,
         private readonly CouponOutboxService $outbox,
         private readonly CouponEventLogService $eventLog,
+        private readonly \App\Services\Coupon\Audience\CouponAudienceResolver $audience,
     ) {}
 
     /**
@@ -80,6 +81,14 @@ class DistributionStartHandler
         $cap = max(1, (int) ($payload['audience_cap'] ?? config('coupon-distribution.default_audience_cap', 10000)));
 
         $candidateQuery = $this->selector->queryFor($coupon, $cap);
+
+        // Audience union (§6) via the authoritative resolver: assigned users
+        // join rule-derived candidates. Recipient uniqueness + transition
+        // NOTIFIED-state keep this duplicate-free; per-user eligibility
+        // still decides notification at evaluate time.
+        if ($coupon->assignments()->exists()) {
+            $this->audience->applyAssignedUnion($candidateQuery, $coupon->getKey());
+        }
 
         // Single-user triggers (registration / address / order): evaluate
         // just this user instead of scanning the candidate audience.

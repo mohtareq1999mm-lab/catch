@@ -36,7 +36,9 @@
         "spatie/laravel-activitylog": "*",
         "spatie/laravel-one-time-passwords": "^1.0",
         "spatie/laravel-translatable": "*",
+        "srmklive/paypal": "^3.0",
         "stevebauman/purify": "6.0.2",
+        "stripe/stripe-php": "^13.1",
         "symfony/http-client": "6.3.7",
         "symfony/mailgun-mailer": "6.3.6"
     },

@@ -11,8 +11,9 @@ use Marvel\Database\Models\Coupon;
  *
  * The creation-time listener defers fresh coupons (targeting may still be
  * added — fail-closed against the global code leak). This sweep delivers
- * coupons that stayed public past the grace window: no assignments and
- * still no targeting. Dedupe: skips coupons that already fanned out
+ * coupons that stayed publicly discoverable past the grace window:
+ * explicit is_public flag, or (legacy) still no assignments — and still
+ * no targeting. Dedupe: skips coupons that already fanned out
  * (a coupon.available notification row exists for the coupon).
  */
 class DetectPublicCouponsCommand extends Command
@@ -23,12 +24,17 @@ class DetectPublicCouponsCommand extends Command
 
     public function handle(SendUserCouponAvailableNotification $listener): int
     {
-        $graceMinutes = max(1, (int) config('coupon-distribution.public_grace_minutes', 15));
+        $graceMinutes = max(1, (int) config('coupon-distribution.public_grace_minutes', 4));
         $cutoff = now()->subMinutes($graceMinutes);
 
         $coupons = Coupon::query()
             ->where('created_at', '<', $cutoff)
-            ->whereDoesntHave('assignments')
+            ->where(function ($q) {
+                // Publicly discoverable (explicit flag survives assignments)
+                // or legacy public (no assignments). Targeting rows are
+                // always excluded below.
+                $q->whereDoesntHave('assignments')->orWhere('is_public', true);
+            })
             ->whereDoesntHave('targeting')
             ->cursor();
 

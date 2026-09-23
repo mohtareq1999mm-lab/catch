@@ -38,6 +38,7 @@ class CouponRepository extends BaseRepository
         'limiter',
         'status',
         "max_discount_amount",
+        'is_public',
     ];
 
     public function getDataArray(): array

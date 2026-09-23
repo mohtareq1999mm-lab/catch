@@ -122,7 +122,8 @@ class CheckoutPendingOrderRedesignTest extends TestCase
     private function grantPermission(): void
     {
         $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'update-order-status', 'guard_name' => 'api']);
-        $this->user->givePermissionTo($permission);
+        $markPaid = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
+        $this->user->givePermissionTo([$permission, $markPaid]);
     }
 
     private function createPromotion(): Promotion

@@ -75,8 +75,11 @@ class OrderItemSnapshotTest extends CurrencyTestCase
     }
 
     /** @test */
-    public function order_items_store_both_catalog_and_effective_amounts(): void
+    public function order_items_store_catalog_consistent_amounts(): void
     {
+        // Catalog authority (D-01): order/item currency is ALWAYS the catalog
+        // code (USD here), even with a KWD user preference. No effective
+        // conversion touches order snapshots.
         $this->seedCurrencyData();
 
         app(CurrencyService::class)->setBaseCurrency(Currency::query()->where('code', 'KWD')->firstOrFail());
@@ -87,17 +90,19 @@ class OrderItemSnapshotTest extends CurrencyTestCase
         $service = app(OrderCreationService::class);
         $order = $this->createOrder($service, $user, $cart, 100.0);
 
+        $this->assertSame('USD', $order->currency_code);
+
         $this->assertTrue($service->createOrderItems($order, $cart));
 
         $item = $order->orderItems()->first();
 
         $this->assertNotNull($item);
-        $this->assertSame('KWD', $item->currency_code);
+        $this->assertSame('USD', $item->currency_code);
         $this->assertSame('USD', $item->catalog_currency_code);
         $this->assertSame(100.0, (float) $item->catalog_price);
         $this->assertSame(100.0, (float) $item->catalog_total_price);
-        $this->assertSame(22.1, (float) $item->product_price);
-        $this->assertSame(22.1, (float) $item->product_total_price);
+        $this->assertSame(100.0, (float) $item->product_price);
+        $this->assertSame(100.0, (float) $item->product_total_price);
     }
 
     /** @test */
@@ -153,8 +158,10 @@ $this->assertSame('USD', $persisted->currency_code);
     }
 
     /** @test */
-    public function checkout_fails_when_the_effective_currency_has_no_rate(): void
+    public function checkout_ignores_preference_currency_without_rate_and_uses_catalog(): void
     {
+        // Catalog authority (D-01): a preference for a currency with no rate
+        // (EUR) no longer fails checkout — the order is created in catalog USD.
         $this->seedCurrencyData();
 
         $this->createCurrency('EUR');
@@ -164,13 +171,9 @@ $this->assertSame('USD', $persisted->currency_code);
 
         $service = app(OrderCreationService::class);
 
-        try {
-            $this->createOrder($service, $user, $cart, 100.0);
-            $this->fail('Expected InvalidArgumentException was not thrown.');
-        } catch (\InvalidArgumentException $e) {
-            $this->assertStringContainsString('EUR', $e->getMessage());
-        }
+        $order = $this->createOrder($service, $user, $cart, 100.0);
 
-        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame('USD', $order->currency_code);
+        $this->assertSame(100.0, (float) $order->total_price);
     }
 }

@@ -15,6 +15,7 @@ return [
     'gateways' => [
         'myfatoorah' => [
             'class' => App\Services\Gateway\MyFatoorahGateway::class,
+            'enabled' => env('MYFATOORAH_ENABLED', true),
             'api_key' => env('MYFATOORAH_API_KEY'),
             'base_url' => env('MYFATOORAH_BASE_URL', 'https://apitest.myfatoorah.com/v2/'),
             // Currencies supported by MyFatoorah. Checkout is blocked when the
@@ -23,6 +24,31 @@ return [
                 'strtoupper',
                 explode(',', (string) env('MYFATOORAH_SUPPORTED_CURRENCIES', 'KWD,SAR,AED,BHD,QAR,OMR,EGP'))
             ))),
+            'methods' => ['online'],
+        ],
+        'stripe' => [
+            'class' => App\Services\Gateway\StripeGateway::class,
+            'enabled' => env('STRIPE_ENABLED', false),
+            'secret_key' => env('STRIPE_SECRET_KEY'),
+            'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+            'supported_currencies' => array_values(array_filter(array_map(
+                'strtoupper',
+                explode(',', (string) env('STRIPE_SUPPORTED_CURRENCIES', 'USD,EUR,KWD,SAR,AED'))
+            ))),
+            'methods' => ['online'],
+        ],
+        'paypal' => [
+            'class' => 'App\Services\Gateway\PayPalGateway',
+            'enabled' => env('PAYPAL_ENABLED', false),
+            'mode' => env('PAYPAL_MODE', 'sandbox'),
+            'client_id' => env('PAYPAL_CLIENT_ID'),
+            'client_secret' => env('PAYPAL_CLIENT_SECRET'),
+            'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
+            'supported_currencies' => array_values(array_filter(array_map(
+                'strtoupper',
+                explode(',', (string) env('PAYPAL_SUPPORTED_CURRENCIES', 'USD,EUR'))
+            ))),
+            'methods' => ['online'],
         ],
     ],
 ];

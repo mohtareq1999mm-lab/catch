@@ -506,6 +506,8 @@ class OrdersProductionHardenTest extends TestCase
         ]);
 
         Permission::create(['name' => 'update-order-status', 'guard_name' => 'api']);
+        // F-1: manual mark-paid routes require the dedicated permission.
+        Permission::create(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
     }
 
     private function createCartWithItems(int $quantity = 2, ?Product $product = null): Cart
@@ -1530,7 +1532,7 @@ class OrdersProductionHardenTest extends TestCase
         ]);
 
         Sanctum::actingAs($this->admin);
-        $this->admin->givePermissionTo('update-order-status');
+        $this->admin->givePermissionTo('payments.mark_paid');
 
         $this->postJson(self::PREFIX . "/checkout/cod/{$order->id}/mark-paid")
             ->assertStatus(200);
@@ -1540,7 +1542,7 @@ class OrdersProductionHardenTest extends TestCase
     public function mark_paid_returns_404_for_nonexistent_order()
     {
         Sanctum::actingAs($this->admin);
-        $this->admin->givePermissionTo('update-order-status');
+        $this->admin->givePermissionTo('payments.mark_paid');
 
         $this->postJson(self::PREFIX . '/checkout/cod/99999/mark-paid')
             ->assertStatus(404);

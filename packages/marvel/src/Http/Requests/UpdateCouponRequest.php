@@ -48,6 +48,7 @@ class UpdateCouponRequest extends FormRequest
             'end_date'      => 'sometimes|date_format:Y-m-d|after_or_equal:start_date',
             'limiter'       => 'nullable|integer|min:0',
             'status'        => 'sometimes|in:1,0',
+            'is_public'     => 'sometimes|boolean',
 
         ];
     }

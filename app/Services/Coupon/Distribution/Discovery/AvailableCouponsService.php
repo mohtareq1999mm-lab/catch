@@ -2,7 +2,7 @@
 
 namespace App\Services\Coupon\Distribution\Discovery;
 
-use App\Enums\CouponClaimStatus;
+use App\Services\Coupon\Discovery\CouponDiscoveryCache;
 use App\Services\Coupon\Discovery\CouponDiscoveryPolicy;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
@@ -19,10 +19,12 @@ use Marvel\Database\Models\User;
  *
  * Discovery categories (single deterministic classification per coupon):
  * - targeted: has a targeting row and the user is Engine-eligible.
- * - public: no targeting row and no assignments (canonical public =
- *   Coupon::isPublic()). The Engine trivially passes these (no_targeting).
- * Assignment-only coupons (assignments but no targeting) are excluded here;
- * their owners discover them via "My Coupons", which exposes codes.
+ * - public: no targeting row and publicly discoverable (explicit is_public
+ *   flag, or legacy no-assignments state). The Engine trivially passes
+ *   these (no_targeting). Assignments never demote a public coupon.
+ * Private assignment-only coupons (assignments, no targeting, flag off) are
+ * excluded here; their owners discover them via "My Coupons", which
+ * exposes codes.
  *
  * Cache is scoped per (user, page, targeting-version, limit): 60s TTL.
  */
@@ -41,11 +43,14 @@ class AvailableCouponsService
         $page = max(1, $page);
 
         // Version scoping: any targeting, coupon, or assignment edit busts
-        // the cache (assignments flip public ↔ assigned classification).
+        // the cache (assignments flip public ↔ assigned classification),
+        // plus the discovery generation counter (covers deletes and claim
+        // writes, which MAX(updated_at) versioning alone can miss).
         $version = implode('|', [
             (string) \Marvel\Database\Models\CouponTargeting::query()->max('updated_at'),
             (string) Coupon::query()->max('updated_at'),
             (string) CouponAssignment::query()->max('updated_at'),
+            (string) CouponDiscoveryCache::version(),
         ]);
         $cacheKey = implode(':', ['coupon:available', $user->getKey(), $page, $limit, md5($version)]);
 
@@ -64,9 +69,11 @@ class AvailableCouponsService
             ->valid()
             ->where(function ($q) {
                 // Targeted candidates (any targeting row) plus public
-                // candidates (no assignments). Assignment-only coupons are
+                // candidates (no assignments, or the public flag — which
+                // survives assignments). Assignment-only private coupons are
                 // excluded — see class docblock.
-                $q->whereHas('targeting')->orWhereDoesntHave('assignments');
+                $q->whereHas('targeting')->orWhereDoesntHave('assignments')
+                    ->orWhere('is_public', true);
             })
             ->with(['targeting'])
             ->orderByDesc('coupons.id')
@@ -84,15 +91,17 @@ class AvailableCouponsService
 
         foreach ($paginator->getCollection() as $coupon) {
             // Canonical discovery decision (visibility, eligibility, claim
-            // requirement, code exposure) — shared with every customer
-            // listing endpoint. Ineligible targeted coupons are skipped.
-            $decision = $this->policy->decide($coupon, $user);
+            // requirement, claim status, action, code exposure) — shared
+            // with every customer listing endpoint. This personalized
+            // surface keeps eligibility filtering: only actionable coupons
+            // are listed, and assignment-only grants never appear here.
+            $claim = $claims->get($coupon->getKey());
+            $decision = $this->policy->decide($coupon, $user, $claim);
 
-            if (! $decision['include']) {
+            if (! $decision['eligible'] || $decision['visibility'] === 'assignment-only') {
                 continue;
             }
 
-            $claim = $claims->get($coupon->getKey());
             $items[] = $this->present($coupon, $claim, $decision);
         }
 
@@ -111,46 +120,23 @@ class AvailableCouponsService
     }
 
     /**
-     * @param array{visibility: 'public'|'targeted'|null, requires_claim: bool, eligible: bool, can_expose_code: bool, include: bool} $decision
+     * @param array{visibility: 'public'|'targeted'|'assignment-only', requires_claim: bool, eligible: bool, claim_status: string, action: 'apply'|'claim'|null, can_expose_code: bool} $decision
      * @return array<string, mixed>
      */
     private function present(Coupon $coupon, ?CouponClaim $claim, array $decision): array
     {
-        $requiresClaim = $decision['requires_claim'];
-
-        $status = $claim?->status;
-        $statusValue = $status instanceof \BackedEnum ? $status->value : (string) $status;
-
-        $activeClaim = $claim !== null
-            && $statusValue === CouponClaimStatus::ACTIVE->value
-            && ($claim->expires_at === null || $claim->expires_at->isFuture());
-
-        if ($claim !== null && $statusValue === CouponClaimStatus::REDEEMED->value) {
-            $claimStatus = 'redeemed';
-            $action = 'none';
-        } elseif ($activeClaim) {
-            $claimStatus = 'claimed';
-            $action = 'apply';
-        } elseif (! $requiresClaim) {
-            $claimStatus = 'not_required';
-            $action = 'apply';
-        } else {
-            $claimStatus = 'claimable';
-            $action = 'claim';
-        }
-
         return [
             'id' => $coupon->getKey(),
             'name' => $coupon->name,
             'slug' => $coupon->slug,
             'image' => $coupon->image,
             'visibility' => $decision['visibility'],
-            'claim_status' => $claimStatus,
-            'requires_claim' => $requiresClaim,
+            'claim_status' => $decision['claim_status'],
+            'requires_claim' => $decision['requires_claim'],
             'code' => $decision['can_expose_code'] ? $coupon->code : null,
             'claim_id' => $claim?->getKey(),
             'expires_at' => $coupon->end_date?->toIso8601String(),
-            'action' => $action,
+            'action' => $decision['action'],
         ];
     }
 }

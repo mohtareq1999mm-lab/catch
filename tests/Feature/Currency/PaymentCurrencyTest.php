@@ -20,13 +20,14 @@ use Marvel\Database\Models\Order;
 class PaymentCurrencyTest extends CurrencyTestCase
 {
     /**
-     * Create an order that is authoritative in KWD (effective + base) while the catalog is USD.
+     * Create an order that is authoritative in KWD (catalog + base authority).
      */
     private function createOrderInKwd(float $subtotal = 100.0): Order
     {
         $this->seedCurrencyData();
 
         app(CurrencyService::class)->setBaseCurrency(Currency::query()->where('code', 'KWD')->firstOrFail());
+        app(CurrencyService::class)->setCatalogCurrency(Currency::query()->where('code', 'KWD')->firstOrFail());
 
         $customer = $this->createCustomerWithCurrencyPreference('KWD');
         $cart = Cart::create(['user_id' => $customer->id, 'status' => 'active', 'total_price' => $subtotal]);

@@ -45,9 +45,33 @@ return [
     'available_default_limit' => (int) env('COUPON_AVAILABLE_DEFAULT_LIMIT', 15),
     'available_max_limit' => (int) env('COUPON_AVAILABLE_MAX_LIMIT', 50),
 
+    // ONE authoritative intentional business delay (minutes). Every
+    // deliberate coupon fan-out wait derives from it: trigger-run outbox
+    // delay (×60 s) and the public-maturity grace (minutes). Queue latency,
+    // retry backoff, TTLs, leases, reservation windows and scheduler
+    // cadences are separate mechanisms and MUST NOT be derived from this.
+    'delay_minutes' => (int) env('COUPON_DELAY_MINUTES', 4),
+
     // Creation grace before a coupon may be treated as proven public by
     // the global fan-out (targeting is added after creation; fail-closed).
-    'public_grace_minutes' => (int) env('COUPON_PUBLIC_GRACE_MINUTES', 15),
+    // Defaults to the authoritative business delay; an explicit
+    // COUPON_PUBLIC_GRACE_MINUTES override is still honored.
+    'public_grace_minutes' => (int) env(
+        'COUPON_PUBLIC_GRACE_MINUTES',
+        (int) env('COUPON_DELAY_MINUTES', 4)
+    ),
+
+    // Distribution/notification delay (seconds) applied to trigger-driven
+    // runs (activation, targeting changes). Defaults to the authoritative
+    // business delay; an explicit COUPON_DISTRIBUTION_DELAY_SECONDS override
+    // is still honored. The coupon is valid immediately; only fan-out waits.
+    // The consumer reloads current coupon state at execution, so admin edits
+    // inside the window win (stale runs abort on tree drift). Explicit manual
+    // runs stay immediate (delay 0 at call).
+    'distribution_delay_seconds' => (int) env(
+        'COUPON_DISTRIBUTION_DELAY_SECONDS',
+        ((int) env('COUPON_DELAY_MINUTES', 4)) * 60
+    ),
 
     // Admin permission required for manual distribution + run inspection.
     // Reuses the existing coupon permission convention (explicit, documented).

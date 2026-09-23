@@ -73,6 +73,24 @@ class CouponOutboxService
     }
 
     /**
+     * Record a delayed envelope: the row commits atomically with the
+     * business state but becomes publishable only after $delaySeconds.
+     * No immediate job is dispatched on purpose — the minutely sweep
+     * (publishDue, available_at-gated) owns delivery. Used for
+     * distribution-start fan-out (coupon valid now, notify later).
+     */
+    public function recordDelayed(CouponEventEnvelope $envelope, int $delaySeconds): CouponOutbox
+    {
+        $row = $this->record($envelope);
+
+        if ($delaySeconds > 0) {
+            $row->update(['available_at' => now()->addSeconds($delaySeconds)]);
+        }
+
+        return $row->fresh();
+    }
+
+    /**
      * Publish a single outbox row by event_id. Returns true when published.
      * Broker-down keeps the row pending (with backoff); poison payloads
      * mark the row failed after the attempt budget. A row freshly claimed
@@ -92,6 +110,11 @@ class CouponOutboxService
         if ($row->status === CouponOutboxStatus::FAILED) {
             return false;
         }
+
+        // NOTE: available_at is a sweep hint only (publishDue filters on
+        // it, including distribution-delay windows). publishOne is the
+        // explicit recovery path and deliberately ignores it — see
+        // recordDelayed().
 
         $leaseCutoff = now()->subSeconds(self::LEASE_SECONDS);
 

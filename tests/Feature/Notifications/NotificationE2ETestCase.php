@@ -153,6 +153,14 @@ abstract class NotificationE2ETestCase extends TestCase
      * Swap the real Pusher client behind the real PusherBroadcaster with the
      * recording double. The broadcaster instance is a shared singleton, so all
      * subsequent broadcast traffic in the process is recorded.
+     *
+     * Driver-swap repair: channel patterns register on the broadcaster
+     * instance active at require-time (BroadcastManager::__call forwards to
+     * the default driver). Boot registered them on the phpunit `log` driver;
+     * forgetDrivers() above orphaned them, so re-require the definitions to
+     * bind them to the fresh pusher driver. Without this, every
+     * private-channel auth check 403s in tests while production (pusher
+     * from boot) authorizes correctly.
      */
     protected function setupBroadcastRecorder(): void
     {
@@ -161,6 +169,8 @@ abstract class NotificationE2ETestCase extends TestCase
             if ($broadcaster instanceof PusherBroadcaster) {
                 $this->pusher = new RecordingPusher();
                 $broadcaster->setPusher($this->pusher);
+
+                require base_path('routes/channels.php');
             }
         } catch (\Throwable $e) {
             $this->pusher = null;

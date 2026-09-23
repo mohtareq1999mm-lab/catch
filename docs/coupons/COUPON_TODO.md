@@ -1,0 +1,22 @@
+# Coupon TODO — final checklist
+
+- [x] API inventory (33 routes from route:list)
+- [x] Audience representation (`audience_type` exposed + tested + runtime-proven)
+- [x] Targeting mode (`targeting_mode` exposed; 4 modes truth-tabled + runtime-proven)
+- [x] Admin flow (create→target→assign→distribute re-proven over HTTP)
+- [x] Customer flow (discover→claim→apply→checkout→usage re-proven over HTTP)
+- [x] Claim (locking + lifecycle + races proven)
+- [x] Apply (orchestrator matrix proven)
+- [x] Checkout (revalidation + snapshot + reservation proven)
+- [x] Reservation (30-min TTL + races proven)
+- [x] Payment (COD/cashier/error paths HTTP; gateway interactive BLOCKED)
+- [x] Consumption (exactly-once proven ×4 scenarios)
+- [x] Notifications (4 types + dedup + sweep proven)
+- [x] Pusher (backend publishes proven; client OUT OF SCOPE)
+- [x] RabbitMQ (live pipeline proven; DLQs empty)
+- [x] Outbox (delay + sweep + recovery proven)
+- [x] Testing (new 4/4 + suites green; failures isolated pre-existing)
+- [x] Documentation (11 required docs complete: discovery report + master + audience + notification + E2E + verification + implementation + todo + endpoint contract + API documentation)
+- [x] Contract closure: 32 endpoints × 23-section template, REST-vs-INTERNAL labeled, flow-linkage map
+- [!] BLOCKED: live gateway callbacks, runtime-429, fan-out client receipt
+- [-] OUT OF SCOPE: frontend/Echo/browser, money redesign, unrelated GraphQL/WMS/payment work

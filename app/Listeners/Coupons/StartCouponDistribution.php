@@ -29,10 +29,34 @@ class StartCouponDistribution implements ShouldQueue
             : CouponDistributionTriggerType::TARGETING_CHANGED;
 
         try {
+            // A coupon deleted after the event fired leaves nothing to
+            // distribute: drop the job instead of retrying a ghost.
+            $coupon = $event->coupon->fresh('targeting');
+
+            if ($coupon === null) {
+                Log::info('coupon.trigger.skipped_deleted_coupon', [
+                    'coupon_id' => $event->coupon->getKey(),
+                    'trigger' => $trigger->value,
+                ]);
+
+                return;
+            }
+
+            // Trigger-driven fan-out waits the authoritative business delay
+            // (coupon-distribution.distribution_delay_seconds, default 4 min).
+            // The coupon itself is valid immediately. The consumer reloads
+            // current coupon state at execution; stale runs abort on tree
+            // drift, and edits schedule fresh delayed runs.
+            $delaySeconds = max(0, (int) config('coupon-distribution.distribution_delay_seconds', 240));
+
             app(DistributionService::class)->startDistribution(
-                $event->coupon->fresh('targeting'),
+                $coupon,
                 $trigger,
                 'activation',
+                null,
+                null,
+                null,
+                $delaySeconds,
             );
         } catch (NonDistributableCouponException $e) {
             // Expected: targeting removed or mode not dynamic (e.g. coupon

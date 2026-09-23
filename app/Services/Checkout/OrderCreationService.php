@@ -32,13 +32,14 @@ class OrderCreationService
     {
         $shippingPrice = $shippingPrice ?? 0;
         // Authoritative formula: net total + taxes + shipping + fast shipping.
-        $totalPrice = round(
+        // Rounded to the CATALOG currency exponent (3dp for KWD/BHD/OMR/JOD/TND).
+        $totalPrice = \App\Services\Payment\CurrencyPrecision::roundForCurrency(
             (float) $checkoutTotals->finalTotal
             + $checkoutTotals->productTaxAmount()
             + $checkoutTotals->orderTaxAmount()
             + $shippingPrice
             + ($fastShippingFee ?? 0),
-            2
+            $this->currencyService->getCatalogCode()
         );
 
         $currencySnapshot = $this->resolveCurrencySnapshot($totalPrice);
@@ -146,13 +147,14 @@ class OrderCreationService
     {
         $shippingPrice = $shippingPrice ?? 0;
         // Authoritative formula: net total + taxes + shipping + fast shipping.
-        $totalPrice = round(
+        // Rounded to the CATALOG currency exponent (3dp for KWD/BHD/OMR/JOD/TND).
+        $totalPrice = \App\Services\Payment\CurrencyPrecision::roundForCurrency(
             (float) $checkoutTotals->finalTotal
             + $checkoutTotals->productTaxAmount()
             + $checkoutTotals->orderTaxAmount()
             + $shippingPrice
             + ($fastShippingFee ?? 0),
-            2
+            $this->currencyService->getCatalogCode()
         );
 
         $currencySnapshot = $this->resolveCurrencySnapshot($totalPrice);
@@ -242,7 +244,7 @@ class OrderCreationService
 $quantity = max(1, (int) ($item->quantity ?? 0));
                 $lineTotal = (float) ($item->total_price ?? 0);
                 $catalogUnitPrice = $quantity > 0 ? $lineTotal / $quantity : 0;
-                $promotionDiscountAmount = round(max(0, ((float) ($item->price ?? 0) * $quantity) - $lineTotal), 2);
+                $promotionDiscountAmount = \App\Services\Payment\CurrencyPrecision::roundForCurrency(max(0, ((float) ($item->price ?? 0) * $quantity) - $lineTotal), $this->currencyService->getCatalogCode());
 
                 $product = $item->product ?? null;
                 $variant = $item->productVariant ?? null;
@@ -305,8 +307,8 @@ $quantity = max(1, (int) ($item->quantity ?? 0));
                     $orderItemData = array_merge($orderItemData, [
                         'currency_code' => $order->currency_code ?? $this->currencyService->getEffectiveCode(),
                         'catalog_currency_code' => $this->currencyService->getCatalogCode(),
-                        'catalog_price' => round($catalogUnitPrice, 2),
-                        'catalog_total_price' => round($lineTotal, 2),
+                        'catalog_price' => \App\Services\Payment\CurrencyPrecision::roundForCurrency($catalogUnitPrice, $this->currencyService->getCatalogCode()),
+                        'catalog_total_price' => \App\Services\Payment\CurrencyPrecision::roundForCurrency($lineTotal, $this->currencyService->getCatalogCode()),
                     ]);
                 }
 
@@ -425,20 +427,18 @@ private function resolveCurrencySnapshot(float $totalPrice): array
 
 $catalogCode = $this->currencyService->getCatalogCode();
         $baseCode = $this->currencyService->getBaseCode();
-        $effectiveCode = $this->currencyService->getEffectiveCode();
 
-        $effectiveConversion = $this->safeConvert($totalPrice, $catalogCode, $effectiveCode);
-        $effectiveTotal = round((float) $effectiveConversion->convertedAmount, 2);
-        $baseConversion = $this->safeConvert($effectiveTotal, $effectiveCode, $baseCode);
+        $catalogTotal = \App\Services\Payment\CurrencyPrecision::roundForCurrency($totalPrice, $catalogCode);
+        $baseConversion = $this->safeConvert($catalogTotal, $catalogCode, $baseCode);
 
         return [
-            'currency_code' => $effectiveCode,
+            'currency_code' => $catalogCode,
             'base_currency_code' => $baseCode,
             'catalog_currency_code' => $catalogCode,
             'currency_rate' => $baseConversion->rate,
             'currency_rate_date' => $baseConversion->effectiveDate,
-            'total_price' => $effectiveTotal,
-            'converted_total_price' => round((float) $baseConversion->convertedAmount, 2),
+            'total_price' => $catalogTotal,
+            'converted_total_price' => \App\Services\Payment\CurrencyPrecision::roundForCurrency((float) $baseConversion->convertedAmount, $baseCode),
         ];
     }
 
@@ -461,7 +461,7 @@ $catalogCode = $this->currencyService->getCatalogCode();
             return null;
         }
 
-        $toCode = strtoupper($toCode ?? $this->currencyService->getEffectiveCode());
+        $toCode = strtoupper($toCode ?? $this->currencyService->getCatalogCode());
 
         try {
             return $this->currencyService->convertPrice(
@@ -481,19 +481,19 @@ $catalogCode = $this->currencyService->getCatalogCode();
     private function snapshotTaxAmount(float $catalogAmount, ?string $effectiveCode): float
     {
         if ($effectiveCode === null) {
-            return round($catalogAmount, 2);
+            return \App\Services\Payment\CurrencyPrecision::roundForCurrency($catalogAmount, $this->currencyService->getCatalogCode());
         }
         $converted = $this->convertToEffective($catalogAmount, $effectiveCode);
-        return $converted === null ? 0.0 : round($converted, 2);
+        return $converted === null ? 0.0 : \App\Services\Payment\CurrencyPrecision::roundForCurrency($converted, $effectiveCode);
     }
 
     private function snapshotTaxableAmount(float $catalogAmount, ?string $effectiveCode): float
     {
         if ($effectiveCode === null) {
-            return round($catalogAmount, 2);
+            return \App\Services\Payment\CurrencyPrecision::roundForCurrency($catalogAmount, $this->currencyService->getCatalogCode());
         }
         $converted = $this->convertToEffective($catalogAmount, $effectiveCode);
-        return $converted === null ? 0.0 : round($converted, 2);
+        return $converted === null ? 0.0 : \App\Services\Payment\CurrencyPrecision::roundForCurrency($converted, $effectiveCode);
     }
 
 

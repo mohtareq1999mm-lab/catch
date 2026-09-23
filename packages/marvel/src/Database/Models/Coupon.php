@@ -35,6 +35,7 @@ class Coupon extends Model implements HasMedia
         'status',
         'border_color',
         'borderless',
+        'is_public',
     ];
 
     /**
@@ -56,6 +57,7 @@ class Coupon extends Model implements HasMedia
         'start_date' => 'date',
         'end_date' => 'date',
         'borderless' => 'boolean',
+        'is_public' => 'boolean',
     ];
 
     protected static function boot()

@@ -25,5 +25,9 @@ interface PaymentGatewayContract
 
     public function name(): string;
 
+    public function code(): string;
+
+    public function isConfigured(): bool;
+
     public function supportsCurrency(string $currencyCode): bool;
 }

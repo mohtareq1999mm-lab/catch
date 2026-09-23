@@ -150,6 +150,10 @@ class CartOrderLifecycleTest extends TestCase
         if (Schema::hasTable('permissions')) {
             $perm = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'update-order-status', 'guard_name' => 'api']);
             $this->admin->givePermissionTo($perm);
+            // F-1: legacy-path completion of unpaid orders requires the
+            // dedicated manual-payment permission (mirrors PermissionSeeder).
+            $permMarkPaid = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
+            $this->admin->givePermissionTo($permMarkPaid);
             $permView = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'view-orders', 'guard_name' => 'api']);
             $permView2 = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'view-order', 'guard_name' => 'api']);
             $this->admin->givePermissionTo([$permView, $permView2]);

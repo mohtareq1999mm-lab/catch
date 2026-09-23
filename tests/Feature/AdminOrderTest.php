@@ -56,11 +56,15 @@ class AdminOrderTest extends TestCase
         \Spatie\Permission\Models\Permission::create(['name' => Permission::VIEW_ORDERS, 'guard_name' => 'api']);
         \Spatie\Permission\Models\Permission::create(['name' => Permission::VIEW_ORDER, 'guard_name' => 'api']);
         \Spatie\Permission\Models\Permission::create(['name' => Permission::UPDATE_ORDER_STATUS, 'guard_name' => 'api']);
+        // F-1: completing an unpaid order via the legacy status path requires
+        // the dedicated manual-payment permission (mirrors PermissionSeeder).
+        \Spatie\Permission\Models\Permission::create(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
 
         $this->admin->givePermissionTo([
             Permission::VIEW_ORDERS,
             Permission::VIEW_ORDER,
-            Permission::UPDATE_ORDER_STATUS]);
+            Permission::UPDATE_ORDER_STATUS,
+            'payments.mark_paid']);
 
         $this->product = Product::create([
             'name' => 'Test Product',

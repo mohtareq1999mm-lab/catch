@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\General;
 
 use App\DTOs\GatewayResult;
 use App\Enums\FrontendResource;
+use App\Exceptions\PaymentMismatchException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Invoice\CustomerInvoiceResource;
 use App\Http\Resources\Order\OrderCollection;
@@ -13,6 +14,8 @@ use App\Services\General\CartInventoryService;
 use App\Services\General\OrderService;
 use App\Services\Inventory\OrderReservationService;
 use App\Services\Payment\PaymentCheckoutHandler;
+use App\Services\Payment\PaymentCompletionOutcome;
+use App\Services\Payment\PaymentCompletionService;
 use App\Services\Payment\PaymentGatewayFactory;
 use App\Events\OrderCancelled;
 use App\Events\PaymentFailed;
@@ -39,6 +42,8 @@ class OrderController extends Controller
         private OrderReservationService $orderReservationService,
         private PaymentGatewayFactory $paymentGatewayFactory,
         private PaymentCheckoutHandler $paymentCheckoutHandler,
+        private PaymentCompletionService $paymentCompletionService,
+        private \App\Services\Payment\PaymentCurrencyResolver $currencyResolver,
     ) {
         $this->orderService = $orderService;
         $this->cartInventoryService = $cartInventoryService;
@@ -122,9 +127,17 @@ class OrderController extends Controller
         }
 
         if ($paymentMethod === 'online') {
-            $orderPrice = round((float) $order->total_price, 2);
+            // Round to the order currency exponent so 3dp totals (KWD/...) reach
+            // the gateway intact instead of being truncated to 2dp here.
+            $orderPrice = \App\Services\Payment\CurrencyPrecision::roundForCurrency(
+                (float) $order->total_price,
+                $this->currencyResolver->forOrder($order)
+            );
             if ($orderPrice <= 0) {
-                return $this->apiResponse(FILED_TO_CREATE_ORDER_TRY_AGAIN, 500, false);
+                // D-05: zero-value online orders complete WITHOUT the gateway.
+                // No invoice, no redirect, no provider call — a paid zero-amount
+                // transaction plus the canonical completed transition.
+                return $this->completeZeroValueOnlineOrder($request, $order, $gateway);
             }
             return $this->paymentCheckoutHandler->handleOnlinePayment($request, $order, $orderPrice, $gateway);
         }
@@ -140,12 +153,73 @@ class OrderController extends Controller
         return $this->apiResponse(INVALID_PAYMENT_METHOD, 422, false);
     }
 
+    /**
+     * D-05 zero-value policy: an online order totaling <= 0 completes
+     * locally. The gateway is never called (there is nothing to collect):
+     * its enabled/configured state is therefore irrelevant here (explicit
+     * gateway-bypass exemption — no invoice, no redirect, no provider call).
+     * The order currency must still be one the gateway claims to support, so
+     * a zero-value order cannot complete in a currency no provider would
+     * settle. Canonical completion runs through changeOrderStatus — the same
+     * path as manual mark-paid — so inventory, coupons, promotions, invoice,
+     * and the PaymentSucceeded lifecycle behave identically.
+     */
+    private function completeZeroValueOnlineOrder(Request $request, Order $order, string $gateway): JsonResponse
+    {
+        try {
+            $zeroAdapter = $this->paymentGatewayFactory->make($gateway);
+        } catch (\App\Exceptions\UnsupportedGatewayException $e) {
+            return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 422, false);
+        }
+
+        $zeroCurrency = $this->currencyResolver->forOrder($order);
+
+        if (!$zeroAdapter->supportsCurrency($zeroCurrency)) {
+            return $this->apiResponse(
+                __('message.ERROR.PAYMENT_CURRENCY_UNSUPPORTED', ['currency' => $zeroCurrency]),
+                422,
+                false
+            );
+        }
+
+        try {
+            DB::transaction(function () use ($request, $order, $gateway) {
+                $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+                $lockedOrder->transactions()->create([
+                    'user_id' => $request->user()->id,
+                    'payment_method' => 'online',
+                    'status' => 'paid',
+                    'amount' => 0,
+                    'currency' => $this->currencyResolver->forOrder($lockedOrder),
+                    'paid_at' => now(),
+                    // No gateway column exists on transactions; the provider
+                    // name rides along as technical metadata next to the
+                    // zero-value marker (never PII).
+                    'gateway_response' => ['zero_value' => true, 'gateway' => $gateway],
+                ]);
+
+                // Canonical completion (emits PaymentSucceeded on success).
+                // Coupon refusal throws and rolls everything back (fail-closed).
+                // Authority exemption: the requester is the customer, but the
+                // payable amount is zero, so no payment permission applies.
+                $this->orderService->changeOrderStatus(null, 'completed', $lockedOrder->id, true, null, null, false);
+            });
+        } catch (\RuntimeException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
+
+        return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, [
+            'order_id' => $order->id,
+        ]);
+    }
+
     public function markCodAsPaid(int $orderId, Request $request): JsonResponse
     {
         $order = Order::query()->findOrFail($orderId);
 
         try {
-            $this->orderService->markCodAsPaid($order);
+            $this->orderService->markCodAsPaid($order, $this->manualPaidReason($request));
         } catch (\RuntimeException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         }
@@ -158,12 +232,32 @@ class OrderController extends Controller
         $order = Order::query()->findOrFail($orderId);
 
         try {
-            $this->orderService->markCashierPaid($order);
+            $this->orderService->markCashierPaid($order, $this->manualPaidReason($request));
         } catch (\RuntimeException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         }
 
         return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true);
+    }
+
+    /**
+     * Optional manual-payment audit reason. Unvalidated free text is never
+     * trusted: non-strings are dropped, tags stripped, length capped. The
+     * service re-sanitizes before persisting to history metadata.
+     *
+     * NOTE (truncation): capped at 500 chars to fit the order_status_history
+     * metadata JSON column and keep admin audit rows bounded — longer input
+     * is cut, never rejected, so a verbose reason can't 422 a valid mark-paid.
+     */
+    private function manualPaidReason(Request $request): ?string
+    {
+        $reason = $request->input('reason');
+
+        if (!is_string($reason) || trim($reason) === '') {
+            return null;
+        }
+
+        return \Illuminate\Support\Str::limit(strip_tags($reason), 500, '');
     }
 
     public function checkoutCallback(Request $request)
@@ -189,6 +283,9 @@ class OrderController extends Controller
         $gatewayName = $transaction?->payment_method ?? $gatewayName;
 
         try {
+            // Verify path goes through the factory (which delegates to the
+            // registry): disabled gateways still verify existing payments,
+            // and factory mocks keep intercepting in tests.
             $gateway = $this->paymentGatewayFactory->make($gatewayName);
         } catch (\App\Exceptions\UnsupportedGatewayException $e) {
             return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
@@ -285,14 +382,17 @@ class OrderController extends Controller
             ]));
         }
 
-        // Transactionally safe mismatch handling + success path under same lock.
-        // Uses integer cents to avoid floating-point authority errors.
+        // Canonical completion runs inside PaymentCompletionService under the
+        // same row locks. This controller keeps: txn lookup, verify call,
+        // unknown-order fail-safe, DB::transaction + locks, coupon-blocked
+        // catch + token rotation, mismatch → failed marking, events, and the
+        // mobile-vs-redirect responses.
         $processed = false;
         $mismatchHandled = false;
         $couponBlocked = null;
 
         try {
-            DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, &$processed, &$mismatchHandled) {
+            DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $result, &$processed, &$mismatchHandled) {
             $lockedTransaction = Transaction::where('gateway_transaction_id', $paymentId)
                 ->orWhere('invoice_id', $paymentId)
                 ->lockForUpdate()
@@ -309,102 +409,24 @@ class OrderController extends Controller
                 return;
             }
 
-            // GAP-C001 FIX: Token-based idempotency check (PRIMARY defense)
-            // If idempotency_key is already set, this transaction has been processed.
-            // Return immediately to prevent duplicate processing in concurrent scenarios.
-            if ($lockedTransaction->idempotency_key !== null) {
-                \Log::info('Payment callback idempotent return - already processed', [
-                    'transaction_id' => $lockedTransaction->id,
-                    'idempotency_key' => $lockedTransaction->idempotency_key,
-                    'payment_id' => $paymentId,
-                ]);
-                return;
-            }
-
-            // Set idempotency token immediately after acquiring lock and before any business logic.
-            // This ensures no concurrent request can proceed past this point for the same transaction.
-            $idempotencyToken = \Illuminate\Support\Str::uuid()->toString();
-            $lockedTransaction->update(['idempotency_key' => $idempotencyToken]);
-
             $lockedOrder = $lockedTransaction->order()->lockForUpdate()->first();
 
-            if (!$lockedOrder) {
-                return;
-            }
-
-            // Status-based check (SECONDARY defense for backwards compatibility and sanity)
-            if ($lockedOrder->status !== 'pending') {
-                \Log::info('Payment callback status-based return - order not pending', [
+            try {
+                $outcome = $this->paymentCompletionService->completeLocked(
+                    $lockedTransaction,
+                    $lockedOrder,
+                    $result,
+                    ['test_bypass' => $this->isTestGatewayBypassAllowed()],
+                );
+            } catch (PaymentMismatchException $e) {
+                // Fail-closed marking inside the same lock: the service changed
+                // nothing except the idempotency token, which is retained here
+                // exactly as the legacy inline path did.
+                \Log::warning('Payment completion mismatch - blocking order', [
                     'transaction_id' => $lockedTransaction->id,
-                    'order_id' => $lockedOrder->id,
-                    'order_status' => $lockedOrder->status,
-                    'idempotency_key' => $idempotencyToken,
+                    'reason' => $e->reason,
+                    'context' => $e->context,
                 ]);
-                return;
-            }
-
-            // Re-evaluate amount/currency inside the lock (fail-closed on null). Use 1000 factor for 3-decimal currencies (KWD/BHD).
-            $hasMismatch = false;
-            $expectedCents = (int) round((float) $lockedOrder->total_price * 1000);
-            $receivedCents = $result->amount !== null ? (int) round((float) $result->amount * 1000) : null;
-            $receivedCurrency = $result->currency !== null ? strtoupper(trim((string) $result->currency)) : null;
-            $expectedCurrencyFresh = $lockedOrder->currency_code ?? $lockedOrder->base_currency_code ?? config('payment.default_currency', 'EGP');
-            $expectedCurrencyNorm = strtoupper(trim((string) $expectedCurrencyFresh));
-
-            if ($receivedCents === null) {
-                $hasMismatch = true;
-                \Log::warning('Payment amount missing - blocking order', [
-                    'order_id' => $lockedOrder->id,
-                    'expected_cents' => $expectedCents,
-                    'received' => $result->amount,
-                ]);
-            } elseif ($receivedCents !== $expectedCents) {
-                if ($this->isTestGatewayBypassAllowed()) {
-                    \Log::info('Payment amount mismatch ignored (test gateway bypass explicitly enabled)', [
-                        'order_id' => $lockedOrder->id,
-                        'expected_cents' => $expectedCents,
-                        'received_cents' => $receivedCents,
-                        'expected' => (float) $lockedOrder->total_price,
-                        'received' => $result->amount,
-                    ]);
-                } else {
-                    $hasMismatch = true;
-                    \Log::warning('Payment amount mismatch - blocking order', [
-                        'order_id' => $lockedOrder->id,
-                        'expected_cents' => $expectedCents,
-                        'received_cents' => $receivedCents,
-                        'currency' => $result->currency,
-                    ]);
-                }
-            }
-
-            if (!$hasMismatch) {
-                if ($receivedCurrency === null) {
-                    $hasMismatch = true;
-                    \Log::warning('Payment currency missing - blocking order', [
-                        'order_id' => $lockedOrder->id,
-                        'expected' => $expectedCurrencyNorm,
-                        'received' => $result->currency,
-                    ]);
-                } elseif ($receivedCurrency !== $expectedCurrencyNorm) {
-                    if ($this->isTestGatewayBypassAllowed()) {
-                        \Log::info('Payment currency mismatch ignored (test gateway bypass explicitly enabled)', [
-                            'order_id' => $lockedOrder->id,
-                            'expected' => $expectedCurrencyNorm,
-                            'received' => $receivedCurrency,
-                        ]);
-                    } else {
-                        $hasMismatch = true;
-                        \Log::warning('Payment currency mismatch - blocking order', [
-                            'order_id' => $lockedOrder->id,
-                            'expected' => $expectedCurrencyNorm,
-                            'received' => $receivedCurrency,
-                        ]);
-                    }
-                }
-            }
-
-            if ($hasMismatch) {
                 $existingResponse = is_array($lockedTransaction->gateway_response) ? $lockedTransaction->gateway_response : [];
                 $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
                 // Preserve callback type if present
@@ -421,42 +443,13 @@ class OrderController extends Controller
                 return;
             }
 
-            $existingResponse = is_array($lockedTransaction->gateway_response) ? $lockedTransaction->gateway_response : [];
-            $callbackType = $existingResponse['_callback_type'] ?? null;
-            $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
-            if ($callbackType) {
-                $mergedResponse['_callback_type'] = $callbackType;
+            // Processed → success event + success response below. Every other
+            // outcome (idempotent replay, non-pending order, duplicate-hold,
+            // unknown order) falls through silently with no event — identical
+            // to the legacy early returns.
+            if ($outcome === PaymentCompletionOutcome::Processed) {
+                $processed = true;
             }
-            $sanitizedPaid = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? '')), 500, '');
-            $lockedTransaction->update([
-                'status' => 'paid',
-                'gateway_response' => $mergedResponse,
-                'error_message' => $sanitizedPaid ?: null,
-                'paid_at' => now(),
-            ]);
-
-            $orderUpdateData = [];
-            if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'payment_status')) {
-                $orderUpdateData['payment_status'] = \Marvel\Enums\PaymentStatus::SUCCESS;
-            }
-            if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'paid_at')) {
-                $orderUpdateData['paid_at'] = now();
-            }
-            if (!empty($orderUpdateData)) {
-                $lockedOrder->update($orderUpdateData);
-            }
-
-            // Commit THIS order's reservation. The order snapshot is the only
-            // inventory source — the current cart is never read here.
-            $this->orderReservationService->commit($lockedOrder);
-
-            $this->orderService->finalizePromotionUsageAfterPayment($lockedOrder);
-
-            // emitPaymentSuccess = false: this callback owns the PaymentSucceeded
-            // dispatch and fires it once after the transaction commits.
-            $this->orderService->changeOrderStatus($lockedTransaction->invoice_id, 'completed', null, false);
-
-            $processed = true;
             });
         } catch (\App\Exceptions\CouponConsumptionException $e) {
             // M1: coupon consumption refused completion (fail-closed). The
@@ -592,6 +585,9 @@ class OrderController extends Controller
         $gatewayName = $transaction?->payment_method ?? $gatewayName;
 
         try {
+            // Verify path goes through the factory (which delegates to the
+            // registry): disabled gateways still verify existing payments,
+            // and factory mocks keep intercepting in tests.
             $gateway = $this->paymentGatewayFactory->make($gatewayName);
         } catch (\App\Exceptions\UnsupportedGatewayException $e) {
             return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
@@ -629,32 +625,21 @@ class OrderController extends Controller
                 $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
                 if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
                 if (!$lt) return;
-                // F-09 parity: token-based idempotency (primary) + status check (secondary).
-                // Prevents concurrent success+error callbacks from double-processing.
-                if (($lt->idempotency_key ?? null) !== null) {
-                    return;
-                }
-                $lt->update(['idempotency_key' => \Illuminate\Support\Str::uuid()->toString()]);
                 $lockedOrder = $lt->order()->lockForUpdate()->first();
-                if (!$lockedOrder) return;
-                if ($lockedOrder->status !== 'pending') return;
-                $expectedCurrencyErr = $lockedOrder->currency_code ?? $lockedOrder->base_currency_code ?? config('payment.default_currency', 'EGP');
-                $expectedCentsErr = (int) round((float) $lockedOrder->total_price * 1000);
-                $receivedCentsErr = $result->amount !== null ? (int) round((float) $result->amount * 1000) : null;
-                $receivedCurrencyErr = $result->currency !== null ? strtoupper(trim((string) $result->currency)) : null;
-                $expectedCurrencyNormErr = strtoupper(trim((string) $expectedCurrencyErr));
-                $hasMismatch = false;
-                if ($receivedCentsErr === null) $hasMismatch = true;
-                elseif ($receivedCentsErr !== $expectedCentsErr) {
-                    if (!$this->isTestGatewayBypassAllowed()) $hasMismatch = true;
-                }
-                if (!$hasMismatch) {
-                    if ($receivedCurrencyErr === null) $hasMismatch = true;
-                    elseif ($receivedCurrencyErr !== $expectedCurrencyNormErr) {
-                        if (!$this->isTestGatewayBypassAllowed()) $hasMismatch = true;
-                    }
-                }
-                if ($hasMismatch) {
+                try {
+                    $outcome = $this->paymentCompletionService->completeLocked(
+                        $lt,
+                        $lockedOrder,
+                        $result,
+                        ['test_bypass' => $this->isTestGatewayBypassAllowed()],
+                    );
+                } catch (PaymentMismatchException $e) {
+                    // F-09 parity: fail-closed marking inside the same lock.
+                    \Log::warning('Payment completion mismatch in error-callback - blocking order', [
+                        'transaction_id' => $lt->id,
+                        'reason' => $e->reason,
+                        'context' => $e->context,
+                    ]);
                     $sanitized = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? 'Amount or currency mismatch')), 500, '');
                     $merged = is_array($result->rawResponse) ? $result->rawResponse : [];
                     if (isset($lt->gateway_response['_callback_type'])) $merged['_callback_type'] = $lt->gateway_response['_callback_type'];
@@ -662,21 +647,12 @@ class OrderController extends Controller
                     $mismatchInError = true;
                     return;
                 }
-                // Success with no mismatch via error-callback: complete payment atomically (avoid orphan pending)
-                $existingResponse = is_array($lt->gateway_response) ? $lt->gateway_response : [];
-                $cbType = $existingResponse['_callback_type'] ?? null;
-                $mergedResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
-                if ($cbType) $mergedResponse['_callback_type'] = $cbType;
-                $sanitizedOk = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? '')), 500, '');
-                $lt->update(['status'=>'paid','gateway_response'=>$mergedResponse,'error_message'=>$sanitizedOk ?: null,'paid_at'=>now()]);
-                $orderUpdateData = [];
-                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'payment_status')) $orderUpdateData['payment_status'] = \Marvel\Enums\PaymentStatus::SUCCESS;
-                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'paid_at')) $orderUpdateData['paid_at'] = now();
-                if (!empty($orderUpdateData)) $lockedOrder->update($orderUpdateData);
-                app(\App\Services\Inventory\OrderReservationService::class)->commit($lockedOrder);
-                app(\App\Services\General\OrderService::class)->finalizePromotionUsageAfterPayment($lockedOrder);
-                app(\App\Services\General\OrderService::class)->changeOrderStatus($lt->invoice_id, 'completed', null, false);
-                $processedErrorSuccess = true;
+                // Only a fresh canonical completion flips the success flag;
+                // replays, non-pending orders, duplicate-holds, and unknown
+                // orders fall through with no second completion and no event.
+                if ($outcome === PaymentCompletionOutcome::Processed) {
+                    $processedErrorSuccess = true;
+                }
             });
             } catch (\App\Exceptions\CouponConsumptionException $e) {
                 // F-01: mirror success-callback handling. Coupon refused completion
@@ -879,16 +855,35 @@ class OrderController extends Controller
     }
 
     /**
-     * B5: test-gateway amount/currency bypass gate. The URL-substring check only
-     * DETECTS the test host; bypass additionally requires the explicit
-     * `payment.test_gateway_bypass_enabled` flag AND a local/testing environment.
-     * Staging/QA pointing at apitest therefore still blocks mismatches.
+     * B5: test-gateway amount/currency bypass gate. The canonical base URL
+     * lives in the `payment` tree (config/payment.php
+     * gateways.myfatoorah.base_url, as the registry documents); the legacy
+     * `services` tree (config/services.php myfatoorah.base_url) is read as a
+     * fallback. When both are set, BOTH must point at the apitest host — a
+     * split-brain config (one live, one test) fails closed. Bypass
+     * additionally requires the explicit `payment.test_gateway_bypass_enabled`
+     * flag AND a local/testing environment. Staging/QA pointing at apitest
+     * therefore still blocks mismatches.
      */
     private function isTestGatewayBypassAllowed(): bool
     {
-        if (!str_contains((string) config('services.myfatoorah.base_url', ''), 'apitest')) {
+        $paymentUrl = trim((string) config('payment.gateways.myfatoorah.base_url', ''));
+        $servicesUrl = trim((string) config('services.myfatoorah.base_url', ''));
+
+        $candidates = array_values(array_filter([$paymentUrl, $servicesUrl], fn (string $url): bool => $url !== ''));
+
+        // No URL configured anywhere → never bypass. Otherwise every
+        // configured URL must indicate the test host.
+        if ($candidates === []) {
             return false;
         }
+
+        foreach ($candidates as $url) {
+            if (!str_contains($url, 'apitest')) {
+                return false;
+            }
+        }
+
         if (!config('payment.test_gateway_bypass_enabled', false)) {
             return false;
         }

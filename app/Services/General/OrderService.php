@@ -636,7 +636,7 @@ class OrderService
             if (Schema::hasColumn('settings', 'order_tax_enabled')) {
                 $settings = Settings::first();
                 $orderTaxEnabled = (bool) ($settings->order_tax_enabled ?? false);
-                $orderTaxRate = $settings->order_tax_rate !== null ? (float) $settings->order_tax_rate : null;
+                $orderTaxRate = $settings?->order_tax_rate !== null ? (float) $settings?->order_tax_rate : null;
             }
         } catch (\Throwable $e) { report($e); }
 
@@ -691,9 +691,9 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         return in_array($to, self::$allowedFulfillmentTransitions[$from] ?? [], true);
     }
 
-    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true)
+    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true)
     {
-        return DB::transaction(function () use ($invoiceId, $status, $orderId, $emitPaymentSuccess) {
+        return DB::transaction(function () use ($invoiceId, $status, $orderId, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority) {
             $order = null;
             $transaction = null;
 
@@ -723,6 +723,27 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                         'from' => $previousStatus,
                         'to' => $status,
                     ])
+                );
+            }
+
+            // F-1: completing an UNPAID order is a financial act. An
+            // authenticated actor needs payments.mark_paid; system/gateway
+            // paths (callbacks, webhooks, zero-value, reconciliation) run
+            // unauthenticated or pass $assertPaymentAuthority=false because
+            // payment authority was established elsewhere (provider
+            // verification or zero amount). Paid orders stay on the normal
+            // fulfillment path regardless of actor.
+            if ($status === 'completed' && $assertPaymentAuthority && auth()->check()
+                && !$this->orderHasSuccessfulPayment($order) && !$this->actorCanMarkPaid()
+            ) {
+                \Illuminate\Support\Facades\Log::warning('Order completion blocked: missing payments.mark_paid', [
+                    'order_id' => $order->id,
+                    'actor_id' => auth()->id(),
+                    'previous_status' => $previousStatus,
+                ]);
+
+                throw new \RuntimeException(
+                    __('message.ERROR.PERMISSION_MISSING_PERMISSIONS')
                 );
             }
 
@@ -781,9 +802,14 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                         $actorId = auth()->id();
                         try {
                             $user = auth()->user();
-                            $isAdmin = method_exists($user, 'hasPermissionTo')
-                                ? $user->hasPermissionTo('update-order-status')
-                                : (method_exists($user, 'can') ? $user->can('update-order-status') : false);
+                            // F-1: manual payment confirmation now carries
+                            // payments.mark_paid; the legacy order permission
+                            // is still recognized during the transition.
+                            $isAdmin = method_exists($user, 'hasAnyPermission')
+                                ? $user->hasAnyPermission(['payments.mark_paid', 'update-order-status'])
+                                : (method_exists($user, 'hasPermissionTo')
+                                    ? ($user->hasPermissionTo('payments.mark_paid') || $user->hasPermissionTo('update-order-status'))
+                                    : (method_exists($user, 'can') ? ($user->can('payments.mark_paid') || $user->can('update-order-status')) : false));
                             $actorType = $isAdmin ? 'admin' : 'user';
                         } catch (\Throwable $e) {
                             $actorType = 'user';
@@ -798,19 +824,37 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                         || isset($updateData['fulfillment_status']);
 
                     if ($shouldRecord) {
+                        $historyMetadata = [
+                            'invoice_id' => $invoiceId,
+                            'old_payment_status' => $oldPaymentStatus,
+                            'new_payment_status' => $updateData['payment_status'] ?? $order->payment_status,
+                            'old_fulfillment_status' => $oldFulfillmentStatus,
+                            'new_fulfillment_status' => $updateData['fulfillment_status'] ?? $order->fulfillment_status,
+                        ];
+                        $historyNotes = "Status changed from {$previousStatus} to {$order->status}";
+                        // Manual-audit context (mark-paid reason, transaction,
+                        // action): appended without altering the canonical text.
+                        $sanitizedReason = $auditReason !== null && trim($auditReason) !== ''
+                            ? \Illuminate\Support\Str::limit(strip_tags($auditReason), 500, '')
+                            : null;
+                        if ($sanitizedReason !== null) {
+                            $historyNotes .= " — Reason: {$sanitizedReason}";
+                            $historyMetadata['reason'] = $sanitizedReason;
+                        }
+                        if (is_array($auditContext)) {
+                            foreach ($auditContext as $contextKey => $contextValue) {
+                                if (!array_key_exists($contextKey, $historyMetadata)) {
+                                    $historyMetadata[$contextKey] = $contextValue;
+                                }
+                            }
+                        }
                         $order->recordStatusChange(
                             oldStatus: $previousStatus,
                             newStatus: $order->status,
                             changedBy: $actorId,
                             changedByType: $actorType,
-                            notes: "Status changed from {$previousStatus} to {$order->status}",
-                            metadata: [
-                                'invoice_id' => $invoiceId,
-                                'old_payment_status' => $oldPaymentStatus,
-                                'new_payment_status' => $updateData['payment_status'] ?? $order->payment_status,
-                                'old_fulfillment_status' => $oldFulfillmentStatus,
-                                'new_fulfillment_status' => $updateData['fulfillment_status'] ?? $order->fulfillment_status,
-                            ],
+                            notes: $historyNotes,
+                            metadata: $historyMetadata,
                             oldPaymentStatus: $oldPaymentStatus,
                             newPaymentStatus: $updateData['payment_status'] ?? $order->payment_status,
                             oldFulfillmentStatus: $oldFulfillmentStatus,
@@ -948,9 +992,43 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         });
     }
 
-    public function markCodAsPaid(Order $order): void
+    /**
+     * F-1 helper: has the order actually been paid (paid transaction or
+     * success payment status)? Used to keep paid orders on the normal
+     * fulfillment path while blocking financial completion of unpaid ones.
+     */
+    private function orderHasSuccessfulPayment(Order $order): bool
     {
-        DB::transaction(function () use ($order) {
+        if (($order->payment_status ?? null) === Order::PAYMENT_STATUS_SUCCESS) {
+            return true;
+        }
+
+        return $order->transactions()->where('status', 'paid')->exists();
+    }
+
+    /**
+     * F-1 helper: does the current authenticated actor hold the dedicated
+     * manual-payment permission? The legacy update-order-status permission
+     * is intentionally NOT sufficient here.
+     */
+    private function actorCanMarkPaid(): bool
+    {
+        try {
+            $user = auth()->user();
+
+            if (!$user || !method_exists($user, 'hasAnyPermission')) {
+                return false;
+            }
+
+            return (bool) $user->hasAnyPermission(['payments.mark_paid']);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    public function markCodAsPaid(Order $order, ?string $reason = null): void
+    {
+        DB::transaction(function () use ($order, $reason) {
             $transaction = $order->transactions()
                 ->where('payment_method', 'cod')
                 ->where('status', 'pending')
@@ -971,13 +1049,20 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             // (inventory commit, promotion finalization, coupon usage,
             // OrderStatusChanged, PaymentSucceeded) lives solely in
             // changeOrderStatus() so there is one authoritative path.
-            $this->changeOrderStatus(null, 'completed', $order->id);
+            // The manual-audit context (actor is resolved inside from the
+            // authenticated user; action, transaction and reason ride along)
+            // lands on the same immutable history row.
+            $this->changeOrderStatus(null, 'completed', $order->id, true, $reason, [
+                'action' => 'manual_mark_paid',
+                'payment_method' => 'cod',
+                'transaction_id' => $transaction->id,
+            ]);
         });
     }
 
-    public function markCashierPaid(Order $order): void
+    public function markCashierPaid(Order $order, ?string $reason = null): void
     {
-        DB::transaction(function () use ($order) {
+        DB::transaction(function () use ($order, $reason) {
             $transaction = $order->transactions()
                 ->where('payment_method', 'pay_at_cashier')
                 ->where('status', 'pending')
@@ -998,7 +1083,14 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             // (inventory commit, promotion finalization, coupon usage,
             // OrderStatusChanged, PaymentSucceeded) lives solely in
             // changeOrderStatus() so there is one authoritative path.
-            $this->changeOrderStatus(null, 'completed', $order->id);
+            // The manual-audit context (actor is resolved inside from the
+            // authenticated user; action, transaction and reason ride along)
+            // lands on the same immutable history row.
+            $this->changeOrderStatus(null, 'completed', $order->id, true, $reason, [
+                'action' => 'manual_mark_paid',
+                'payment_method' => 'pay_at_cashier',
+                'transaction_id' => $transaction->id,
+            ]);
         });
     }
 
@@ -1166,6 +1258,10 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         if (Schema::hasColumn('orders', 'coupon_consumed')) {
             $order->update(['coupon_consumed' => true]);
         }
+
+        // Consumption moves quotas/validity: retire discovery caches so the
+        // catalog stops advertising exhausted coupons.
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
     }
 
     /**

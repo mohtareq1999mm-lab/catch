@@ -34,6 +34,7 @@ class DistributionService
         ?string $triggerId = null,
         ?int $audienceCap = null,
         ?string $correlationId = null,
+        int $delaySeconds = 0,
     ): array {
         $targeting = $coupon->targeting;
 
@@ -45,7 +46,7 @@ class DistributionService
 
         $treeHash = TreeHash::forRuleTree($targeting->rule_tree, (string) $targeting->mode);
 
-        [$run, $created] = DB::transaction(function () use ($coupon, $treeHash, $trigger, $scope, $triggerId, $audienceCap, $correlationId) {
+        [$run, $created] = DB::transaction(function () use ($coupon, $treeHash, $trigger, $scope, $triggerId, $audienceCap, $correlationId, $delaySeconds) {
             [$run, $created] = $this->runs->startOrJoin(
                 $coupon->getKey(), $treeHash, $trigger, $scope, $triggerId
             );
@@ -79,7 +80,14 @@ class DistributionService
                 treeHash: $treeHash,
             );
 
-            $this->outbox->recordAndDispatch($envelope);
+            // Delayed fan-out (trigger-driven runs): the coupon is valid
+            // now; the sweep publishes when the window lapses. Immediate
+            // manual runs keep delay 0 (recordAndDispatch).
+            if ($delaySeconds > 0) {
+                $this->outbox->recordDelayed($envelope, $delaySeconds);
+            } else {
+                $this->outbox->recordAndDispatch($envelope);
+            }
 
             return [$run, true];
         });

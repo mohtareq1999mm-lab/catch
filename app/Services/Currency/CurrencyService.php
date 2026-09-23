@@ -168,13 +168,18 @@ $user ??= auth()->user() ?? auth('sanctum')->user();
         $amount = (string) $amount;
 
         if ($fromCode === $toCode) {
-            return round((float) $amount, 2);
+            return \App\Services\Payment\CurrencyPrecision::roundForCurrency((float) $amount, $toCode);
         }
 
         $targetRate = $this->resolveRate($toCode, $date);
         $sourceRate = $this->resolveRate($fromCode, $date);
 
-        return round((float) bcdiv(bcmul($amount, $targetRate, self::SCALE), $sourceRate, self::SCALE), 2);
+        // Round to the TARGET currency's exponent (3dp for KWD/BHD/OMR/JOD/TND,
+        // 2dp otherwise) — a fixed 2dp round would silently truncate 3dp totals.
+        return \App\Services\Payment\CurrencyPrecision::roundForCurrency(
+            (float) bcdiv(bcmul($amount, $targetRate, self::SCALE), $sourceRate, self::SCALE),
+            $toCode
+        );
     }
 
     public function storeCurrency(array $data): Currency

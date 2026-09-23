@@ -90,6 +90,13 @@ class PermissionSeeder extends Seeder
             'delete-governorate',
             'manage-shipping-prices',
 
+            // 💳 Payments (F-1 hardening: financial actions are distinct from
+            // generic order-status updates; run this seeder after deploy)
+            'payments.mark_paid',
+            'payments.refund',
+            'payments.verify',
+            'payments.reconcile',
+
             // 👤 Customer
             'view-profile',
             'update-profile',
@@ -123,6 +130,12 @@ class PermissionSeeder extends Seeder
             'update-attribute',
             'delete-attribute',
             'update-order-status',
+            // F-1: financial payment actions (mark-paid, refund, verify,
+            // reconcile) are granted alongside update-order-status.
+            'payments.mark_paid',
+            'payments.refund',
+            'payments.verify',
+            'payments.reconcile',
             'answer-question',
             'create-author',
             'create-manufacturer',
@@ -320,6 +333,12 @@ class PermissionSeeder extends Seeder
             'update-attribute',
             'delete-attribute',
             'update-order-status',
+            // F-1: financial payment actions (mark-paid, refund, verify,
+            // reconcile) are granted alongside update-order-status.
+            'payments.mark_paid',
+            'payments.refund',
+            'payments.verify',
+            'payments.reconcile',
             'answer-question',
             'create-author',
             'create-manufacturer',

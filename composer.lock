@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f501a5a8e6478d46461adacffc95825c",
+    "content-hash": "6b8d6285261ef68430db3b5e37400f71",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -11006,12 +11006,12 @@
             "version": "3.0.19",
             "source": {
                 "type": "git",
-                "url": "https://github.com/srmklive/laravel-paypal.git",
+                "url": "https://github.com/blendbyte/laravel-paypal.git",
                 "reference": "ece40beaa55153119be30e74fff71001882629ce"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/srmklive/laravel-paypal/zipball/ece40beaa55153119be30e74fff71001882629ce",
+                "url": "https://api.github.com/repos/blendbyte/laravel-paypal/zipball/ece40beaa55153119be30e74fff71001882629ce",
                 "reference": "ece40beaa55153119be30e74fff71001882629ce",
                 "shasum": ""
             },
@@ -11029,12 +11029,12 @@
             "type": "library",
             "extra": {
                 "laravel": {
-                    "providers": [
-                        "Srmklive\\PayPal\\Providers\\PayPalServiceProvider"
-                    ],
                     "aliases": {
                         "PayPal": "Srmklive\\PayPal\\Facades\\PayPal"
-                    }
+                    },
+                    "providers": [
+                        "Srmklive\\PayPal\\Providers\\PayPalServiceProvider"
+                    ]
                 }
             },
             "autoload": {
@@ -11061,8 +11061,8 @@
                 "web service"
             ],
             "support": {
-                "issues": "https://github.com/srmklive/laravel-paypal/issues",
-                "source": "https://github.com/srmklive/laravel-paypal/tree/3.0.19"
+                "issues": "https://github.com/blendbyte/laravel-paypal/issues",
+                "source": "https://github.com/blendbyte/laravel-paypal/tree/3.0.19"
             },
             "time": "2023-02-20T14:35:50+00:00"
         },

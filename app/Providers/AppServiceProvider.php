@@ -138,6 +138,18 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        RateLimiter::for('payment-webhook', function (Request $request) {
+            return Limit::perMinute(20)
+                ->by($request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => __('message.too_many_requests'),
+                        'data' => null,
+                    ], 429, $headers);
+                });
+        });
+
         RateLimiter::for('public-tracking', function (Request $request) {
             return Limit::perMinute(10)
                 ->by($request->ip())

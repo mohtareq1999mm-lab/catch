@@ -180,7 +180,8 @@ class CheckoutApiTest extends TestCase
         $this->assertNotNull($order);
 
         $permission = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'update-order-status', 'guard_name' => 'api']);
-        $this->user->givePermissionTo($permission);
+        $markPaid = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
+        $this->user->givePermissionTo([$permission, $markPaid]);
 
         $this->postJson(self::PREFIX . '/checkout/cod/' . $order->id . '/mark-paid');
 

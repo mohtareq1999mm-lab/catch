@@ -492,7 +492,8 @@ Schema::create('users', function (Blueprint $table) {
             'password' => bcrypt('password'),
         ]);
         $permission = \Spatie\Permission\Models\Permission::create(['name' => 'update-order-status']);
-        $this->admin->givePermissionTo($permission);
+        $markPaid = \Spatie\Permission\Models\Permission::create(['name' => 'payments.mark_paid']);
+        $this->admin->givePermissionTo([$permission, $markPaid]);
 
         $this->product = Product::create([
             'name' => 'Test Product',

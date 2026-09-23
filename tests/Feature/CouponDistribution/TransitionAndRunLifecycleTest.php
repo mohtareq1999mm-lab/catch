@@ -112,6 +112,42 @@ class TransitionAndRunLifecycleTest extends TestCase
             ->count());
     }
 
+    public function test_new_tree_hash_reopens_notified_user_for_reevaluation()
+    {
+        $coupon = $this->createDynamicCoupon(['type' => 'min_completed_orders', 'value' => 0]);
+        $user = User::factory()->create();
+        CustomerMetrics::create(['user_id' => $user->id, 'completed_orders' => 1]);
+
+        $result = app(DistributionService::class)->startDistribution(
+            $coupon->fresh('targeting'), CouponDistributionTriggerType::MANUAL, 'manual'
+        );
+        $run = $result['run'];
+
+        $recipient = \App\Models\CouponDistributionRecipient::query()->create([
+            'run_id' => $run->id, 'coupon_id' => $coupon->id, 'user_id' => $user->id,
+            'tree_hash' => $run->tree_hash, 'status' => 'discovered',
+        ]);
+
+        $cause = CouponEventEnvelope::create(CouponDistributionEvents::USER_EVALUATE, $coupon->id);
+        $transitions = app(EligibilityTransitionService::class);
+
+        $first = $transitions->evaluate($coupon, $user, $run, $recipient->fresh(), $cause, $run->tree_hash);
+        $this->assertSame(EligibilityTransitionService::OUTCOME_NOTIFIED_PATH, $first['outcome']);
+
+        // Same version again: duplicate, never a second request.
+        $repeat = $transitions->evaluate($coupon, $user, $run, $recipient->fresh(), $cause, $run->tree_hash);
+        $this->assertSame(EligibilityTransitionService::OUTCOME_DUPLICATE, $repeat['outcome']);
+
+        // New targeting version: legitimate reevaluation, exactly one more request.
+        $v2 = str_repeat('b', 64);
+        $third = $transitions->evaluate($coupon, $user, $run, $recipient->fresh(), $cause, $v2);
+        $this->assertSame(EligibilityTransitionService::OUTCOME_NOTIFIED_PATH, $third['outcome']);
+
+        $this->assertSame(2, \App\Models\CouponOutbox::query()
+            ->where('event_type', CouponDistributionEvents::NOTIFICATION_REQUESTED)
+            ->count());
+    }
+
     public function test_maybe_finish_matrix()
     {
         $coupon = $this->createDynamicCoupon(['type' => 'min_completed_orders', 'value' => 0]);

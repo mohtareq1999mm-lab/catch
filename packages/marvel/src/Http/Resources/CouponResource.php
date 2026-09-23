@@ -15,6 +15,12 @@ class CouponResource extends Resource
      */
     public function toArray($request)
     {
+        // Single authoritative audience resolution per row: the resolver
+        // owns is_public × has_assignments × has_targeting composition.
+        // This resource only formats (no business logic here).
+        $audience = app(\App\Services\Coupon\Audience\CouponAudienceResolver::class)
+            ->resolve($this->resource);
+
         return [
             'id'            => $this->id,
             'code'          => $this->code,
@@ -37,12 +43,46 @@ class CouponResource extends Resource
             'used'          => $this->used,
             'status'        => (bool) $this->status,
             'is_valid'      => CouponValidator::validate($this->resource)['valid'],
-            'is_assigned'   => $this->relationLoaded('assignments') ? $this->assignments->isNotEmpty() : $this->assignments()->exists(),
-            'assignments'   => $this->relationLoaded('assignments')
-                ? $this->assignments->toArray()
-                : $this->assignments()->get()->toArray(),
+            // Authoritative composite audience (see CouponAudienceResolver).
+            'audience'      => $audience,
+            // Legacy compatibility fields (documented meanings):
+            // is_assigned = has assignment rows; audience_type = composite
+            // label (pre-flag values keep exact meaning); targeting_mode =
+            // eligibility evaluation mode only, never publicity.
+            'is_assigned'   => $audience['has_assignments'],
+            'audience_type' => $audience['type'],
+            'targeting_mode' => $this->relationLoaded('targeting')
+                ? ($this->targeting?->mode ?? null)
+                : optional($this->targeting()->first())->mode,
+            'targeting'     => $this->relationLoaded('targeting') && $this->targeting !== null
+                ? \App\Http\Resources\Coupon\CouponTargetingResource::make($this->targeting)
+                : null,
+            'assignments'   => $this->presentAssignments(),
             'created_at'    => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Owner/admin-safe assignment shape (id, quotas, timestamps only —
+     * never user PII beyond user_id; the full user object stays in the
+     * dedicated assignment endpoints).
+     */
+    private function presentAssignments(): array
+    {
+        $rows = $this->relationLoaded('assignments')
+            ? $this->assignments
+            : $this->assignments()->get();
+
+        return $rows->map(fn ($a) => [
+            'id' => $a->id,
+            'coupon_id' => $a->coupon_id,
+            'user_id' => $a->user_id,
+            'max_uses' => $a->max_uses,
+            'used' => $a->used,
+            'remaining' => max(0, (int) $a->max_uses - (int) $a->used),
+            'expires_at' => $a->expires_at?->toIso8601String(),
+            'assigned_at' => $a->assigned_at?->toIso8601String(),
+        ])->all();
     }
 
     private function roundMoney($value): ?float

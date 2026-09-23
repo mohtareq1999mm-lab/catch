@@ -94,6 +94,10 @@ class CouponAssignmentRepository extends BaseRepository
 
         event(new CouponAssigned($assignment));
 
+        // Assignment population drives discovery classification and quota
+        // display: retire customer listing caches.
+        \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
+
         return $assignment;
     }
 
@@ -117,6 +121,7 @@ class CouponAssignmentRepository extends BaseRepository
 
         if (!empty($allowed)) {
             $assignment->update($allowed);
+            \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
         }
 
         return $assignment->fresh()->load('user');
@@ -135,6 +140,8 @@ class CouponAssignmentRepository extends BaseRepository
             }
 
             $assignment->delete();
+
+            \App\Services\Coupon\Discovery\CouponDiscoveryCache::invalidate();
         });
     }
 

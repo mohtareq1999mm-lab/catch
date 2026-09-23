@@ -118,6 +118,7 @@ class PickupLocationPricingIntegrationTest extends TestCase
             'update-pickup-location',
             'delete-pickup-location',
             'update-order-status',
+            'payments.mark_paid',
             'view-orders',
             'view-order',
         ];

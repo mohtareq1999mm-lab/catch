@@ -9,9 +9,29 @@ use Marvel\Database\Models\Order;
 
 class MyFatoorahGateway implements PaymentGatewayContract
 {
+    /**
+     * gateway_response allowlist: only technical provider fields are ever
+     * persisted/logged. Customer PII (CustomerName, CustomerMobile,
+     * CustomerEmail, personal data) is stripped at the source. Layer-added
+     * keys (_callback_type, _coupon_blocked_*) are merged afterwards by the
+     * controller/handler and are unaffected.
+     */
+    private const RESPONSE_ALLOWLIST = [
+        'InvoiceId',
+        'InvoiceStatus',
+        'InvoiceValue',
+        'DisplayCurrencyIso',
+        'InvoiceURL',
+        'RefundId',
+        'RefundStatus',
+        'IsDirectPayment',
+        'PaymentURL',
+    ];
+
     public function __construct(
         private MyfatoraService $myfatoraService,
         private \App\Services\Payment\CustomerContactResolver $customerContactResolver,
+        private \App\Services\Payment\PaymentCurrencyResolver $currencyResolver,
     ) {}
 
 public function createInvoice(
@@ -21,7 +41,7 @@ public function createInvoice(
         string $errorUrl,
         array $metadata = []
     ): GatewayResult {
-        $orderCurrency = $order->currency_code ?? $order->base_currency_code ?? config('payment.default_currency', 'EGP');
+        $orderCurrency = $this->currencyResolver->forOrder($order);
 
         if (!$this->supportsCurrency($orderCurrency)) {
             return new GatewayResult(
@@ -64,7 +84,7 @@ public function createInvoice(
             return new GatewayResult(
                 success: false,
                 errorMessage: data_get($response, 'Data.InvoiceError') ?? 'Invalid gateway response',
-                rawResponse: $response,
+                rawResponse: $this->sanitizeResponse($response),
             );
         }
 
@@ -72,8 +92,9 @@ public function createInvoice(
             success: true,
             redirectUrl: $invoiceUrl,
             gatewayTransactionId: (string) $invoiceId,
+            currency: $orderCurrency,
             status: 'pending',
-            rawResponse: $response,
+            rawResponse: $this->sanitizeResponse($response),
         );
     }
 
@@ -102,7 +123,7 @@ public function createInvoice(
             return new GatewayResult(
                 success: false,
                 errorMessage: 'Invalid gateway response',
-                rawResponse: $response,
+                rawResponse: $this->sanitizeResponse($response),
             );
         }
 
@@ -115,13 +136,25 @@ public function createInvoice(
             currency: $invoiceCurrency,
             status: $isPaid ? 'paid' : 'failed',
             errorMessage: $isPaid ? null : (data_get($response, 'Data.InvoiceError') ?? 'Payment not completed'),
-            rawResponse: $response,
+            rawResponse: $this->sanitizeResponse($response),
         );
     }
 
 public function name(): string
     {
         return 'myfatoorah';
+    }
+
+    public function code(): string
+    {
+        return 'myfatoorah';
+    }
+
+    public function isConfigured(): bool
+    {
+        $key = config('payment.gateways.myfatoorah.api_key');
+
+        return is_string($key) ? trim($key) !== '' : !empty($key);
     }
 
     public function supportsCurrency(string $currencyCode): bool
@@ -136,7 +169,7 @@ public function name(): string
         float $amount,
         ?string $reason = null
     ): GatewayResult {
-        $orderCurrency = $order->currency_code ?? $order->base_currency_code ?? config('payment.default_currency', 'EGP');
+        $orderCurrency = $this->currencyResolver->forOrder($order);
 
         if (!$this->supportsCurrency($orderCurrency)) {
             return new GatewayResult(
@@ -176,13 +209,81 @@ public function name(): string
         $refundId = data_get($response, 'Data.RefundId');
         $refundStatus = data_get($response, 'Data.RefundStatus');
 
+        // Fail-closed: a refund counts as successful ONLY when the provider
+        // positively confirms it via RefundStatus. MyFatoorah surfaces the
+        // outcome there (e.g. "Refunded"); an unknown, refused, pending, or
+        // absent status is a failure even though the HTTP call succeeded
+        // (MyfatoraService only returns IsSuccess responses).
+        if (!$this->isRefundConfirmed($refundStatus)) {
+            return new GatewayResult(
+                success: false,
+                errorMessage: data_get($response, 'Message')
+                    ?? data_get($response, 'Data.InvoiceError')
+                    ?? 'Refund not confirmed by gateway',
+                rawResponse: $this->sanitizeResponse($response),
+            );
+        }
+
 return new GatewayResult(
             success: true,
             gatewayTransactionId: $refundId ? (string) $refundId : null,
             amount: $amount,
             currency: $orderCurrency,
-            status: $refundStatus ?? 'refunded',
-            rawResponse: $response,
+            status: is_string($refundStatus) ? $refundStatus : 'refunded',
+            rawResponse: $this->sanitizeResponse($response),
         );
+    }
+
+    /**
+     * Positive provider confirmation for MakeRefund: the status names a
+     * completed refund ("Refunded") and carries no refusal/pending marker
+     * ("RefundFailed", "RefundPending", ...).
+     */
+    private function isRefundConfirmed(mixed $refundStatus): bool
+    {
+        if (!is_string($refundStatus) || trim($refundStatus) === '') {
+            return false;
+        }
+
+        $normalized = strtolower($refundStatus);
+
+        if (!str_contains($normalized, 'refund')) {
+            return false;
+        }
+
+        foreach (['fail', 'error', 'reject', 'declin', 'cancel', 'void', 'pend'] as $negative) {
+            if (str_contains($normalized, $negative)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Strip a provider payload down to the technical allowlist before it is
+     * stored in gateway_response or logs. Unknown shapes collapse to an
+     * empty Data envelope (fail-closed, never PII).
+     */
+    private function sanitizeResponse(?array $response): ?array
+    {
+        if (!is_array($response)) {
+            return null;
+        }
+
+        $data = data_get($response, 'Data');
+
+        if (!is_array($data)) {
+            return ['Data' => []];
+        }
+
+        $allowed = [];
+        foreach (self::RESPONSE_ALLOWLIST as $key) {
+            if (array_key_exists($key, $data)) {
+                $allowed[$key] = $data[$key];
+            }
+        }
+
+        return ['Data' => $allowed];
     }
 }

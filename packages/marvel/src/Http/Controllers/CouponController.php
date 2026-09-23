@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
 use Marvel\Exceptions\MarvelException;
 use Marvel\Http\Requests\CouponRequest;
+use Marvel\Http\Requests\CouponIndexRequest;
 use Marvel\Http\Requests\UpdateCouponRequest;
 use Marvel\Database\Repositories\CouponRepository;
 use Prettus\Validator\Exceptions\ValidatorException;
@@ -79,11 +80,14 @@ class CouponController extends CoreController
      *     )
      * )
      */
-    public function index(Request $request)
+    public function index(CouponIndexRequest $request)
     {
-        $limit = $request->limit ?? 15;
+        $limit = (int) ($request->input('limit', 15));
         $query = $this->fetchCoupons($request);
-        $coupons = $query->paginate($limit)->withQueryString();
+        // Eager audience relations for the resource's computed audience
+        // (avoids per-row queries; read-only optimization). Assignment
+        // columns cover the shaped rows rendered by CouponResource.
+        $coupons = $query->with(['assignments:id,coupon_id,user_id,max_uses,used,expires_at,assigned_at', 'targeting'])->paginate($limit)->withQueryString();
         $couponData = CouponResource::collection($coupons)->response()->getData(true);
         $couponCache = $this->remember(FrontendResource::COUPONS->value,md5($request->fullUrl()),$couponData);
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, [
@@ -114,12 +118,23 @@ class CouponController extends CoreController
             $query = $query->valid();
         }
         if ($Inactive) {
-            $query = $query->invalid();
+            // Grouped: scopeInvalid carries top-level ORs that must not
+            // escape AND-combination (same class of fix as search below).
+            $query = $query->where(fn ($q) => $q->invalid());
         }
         if ($search) {
-            $query = $query->search('name', $search, app()->getLocale())
-                ->orWhere('code', 'like', "%$search%");
+            // Grouped so the OR never escapes AND-combination with sibling
+            // filters (previously `valid AND name OR code` let code matches
+            // bypass validity — same results when used alone).
+            $query = $query->where(function ($q) use ($search) {
+                $q->search('name', $search, app()->getLocale())
+                    ->orWhere('code', 'like', "%$search%");
+            });
         }
+        // Extended admin filters (validated on the HTTP path via
+        // CouponIndexRequest; lenient on the GraphQL path as before).
+        // Single home: App\Services\Coupon\Discovery\AdminCouponFilter.
+        $query = \App\Services\Coupon\Discovery\AdminCouponFilter::apply($query, $request);
         if ($order && in_array($order, ['id', 'code', 'name', 'discount', 'discount_type', 'start_date', 'end_date', 'limiter', 'used', 'status', 'created_at', 'updated_at'])) {
             $query = $query->orderBy($order, $sortedBy === 'desc' ? 'desc' : 'asc');
         }
@@ -142,6 +157,7 @@ class CouponController extends CoreController
         try {
 
             $coupon =  $this->repository->where('id', $id)->orWhere('code', $id)->firstOrFail();
+            $coupon->loadMissing(['assignments:id,coupon_id,user_id,max_uses,used,expires_at,assigned_at', 'targeting']);
             return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CouponResource::make($coupon));
         } catch (Throwable $e) {
             return $this->apiResponse(NOT_FOUND, 404, false);

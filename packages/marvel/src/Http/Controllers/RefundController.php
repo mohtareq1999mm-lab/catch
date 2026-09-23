@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Balance;
 use Marvel\Database\Models\Order;
+use Marvel\Database\Models\Refund;
 use Marvel\Database\Models\Wallet;
 use Marvel\Database\Repositories\RefundRepository;
 use Marvel\Enums\Permission;
@@ -264,6 +265,49 @@ class RefundController extends CoreController
             }
 
             if ($request->status == RefundStatus::APPROVED) {
+                // F-AUDIT-02: atomic claim — exactly one approver may drive
+                // this request to the provider. A concurrent approval sees a
+                // non-pending row and fails instead of double-refunding.
+                $claimed = DB::transaction(function () use ($refund) {
+                    $locked = Refund::query()->whereKey($refund->id)->lockForUpdate()->first();
+
+                    if (!$locked || $locked->status !== RefundStatus::PENDING) {
+                        return false;
+                    }
+
+                    $locked->update(['status' => RefundStatus::PROCESSING]);
+
+                    return true;
+                });
+
+                if (!$claimed) {
+                    throw new HttpException(400, ALREADY_REFUNDED);
+                }
+
+                // F-AUDIT-02: cross-path cap — the admin refund endpoint
+                // shares the txn `_refunds` ledger. Approving a full request
+                // on top of recorded refunds would over-refund, so it is
+                // rejected (remainder stays handlable via the admin path).
+                $refundService = app(\App\Services\Payment\PaymentRefundService::class);
+                $remaining = $refundService->ledgerRemaining((int) $refund->order_id);
+
+                if ($remaining !== null) {
+                    $requestMinor = \App\Services\Payment\CurrencyPrecision::toMinorUnits(
+                        (float) $refund->amount,
+                        $remaining['currency']
+                    );
+
+                    if ($requestMinor > $remaining['remaining_minor']) {
+                        Refund::query()->whereKey($refund->id)->update(['status' => RefundStatus::PENDING]);
+                        throw new HttpException(400, WRONG_REFUND);
+                    }
+                }
+
+                $gatewayRefunded = false;
+                $providerRef = null;
+                $providerStatus = null;
+                $ledgerCurrency = $remaining['currency'] ?? null;
+
                 // Call gateway refund BEFORE database transaction
                 if ($refund->order && $refund->order->payment_gateway) {
                     try {
@@ -271,8 +315,13 @@ class RefundController extends CoreController
                         $result = $gateway->refund($refund->order, (float) $refund->amount);
 
                         if (!$result->success) {
+                            Refund::query()->whereKey($refund->id)->update(['status' => RefundStatus::PENDING]);
                             throw new HttpException(400, $result->errorMessage ?? 'Refund failed at payment gateway');
                         }
+
+                        $gatewayRefunded = true;
+                        $providerRef = $result->gatewayTransactionId;
+                        $providerStatus = $result->status;
                     } catch (UnsupportedGatewayException $e) {
                         // Offline or unsupported payment method — skip gateway refund
                     }
@@ -280,9 +329,28 @@ class RefundController extends CoreController
 
                 // Wrap entire refund approval in a transaction with proper locking
                 // to prevent race conditions and ensure data consistency
-                return DB::transaction(function () use ($request, $refund) {
+                try {
+                    return DB::transaction(function () use ($request, $refund, $gatewayRefunded, $providerRef, $providerStatus, $ledgerCurrency, $refundService, $user) {
                     // Update refund status first
                     $this->repository->updateRefund($request, $refund);
+
+                    if ($gatewayRefunded) {
+                        // F-AUDIT-02: share the provider outcome with the
+                        // admin paid-minus-ledger cap (ledger note only —
+                        // states and side effects stay owned by this
+                        // workflow). allowOverCap: provider money already
+                        // moved, so the outcome must be recorded, flagged.
+                        $refundService->noteProviderRefund(
+                            (int) $refund->order_id,
+                            (float) $refund->amount,
+                            (string) ($ledgerCurrency ?? ''),
+                            $providerRef,
+                            'marvel-refund-request-'.$refund->id,
+                            $providerStatus,
+                            $user?->id,
+                            true,
+                        );
+                    }
 
                     try {
                         $order = Order::findOrFail($refund->order_id);
@@ -325,7 +393,17 @@ class RefundController extends CoreController
                     event(new RefundProcessed($refreshed, $order, $refundType));
 
                     return $refreshed;
-                });
+                    });
+                } catch (\Throwable $e) {
+                    // F-AUDIT-02: release the claim so a retry re-processes
+                    // instead of wedging on PROCESSING. A provider-side
+                    // outcome (if the gateway call had succeeded) is
+                    // preserved in the shared ledger note for ops.
+                    Refund::query()->whereKey($refund->id)
+                        ->where('status', RefundStatus::PROCESSING)
+                        ->update(['status' => RefundStatus::PENDING]);
+                    throw $e;
+                }
             }
 
             // Non-approved status updates don't need transaction

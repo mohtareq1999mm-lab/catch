@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\General\GovernorateController;
 use App\Http\Controllers\Api\General\HomeController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\General\OrderController;
+use App\Http\Controllers\Api\General\PaymentWebhookController;
 use App\Http\Controllers\Api\General\PickupLocationController;
 use App\Http\Controllers\Api\General\ProductController;
 use App\Http\Controllers\Api\General\PromotionController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\Api\General\TagController;
 use App\Http\Controllers\Api\ShipmentController;
 use App\Http\Controllers\Api\General\OrderTrackingController;
 use App\Http\Controllers\Api\Admin\AdminOrderTrackingController;
+use App\Http\Controllers\Api\Admin\PaymentGatewaySettingsController;
 use App\Http\Controllers\Api\Admin\CouponConfigurationController;
 use App\Http\Controllers\Api\User\NotificationPreferencesController;
 use App\Http\Controllers\Api\Admin\AnalyticsController;
@@ -115,6 +117,11 @@ Route::prefix('v1/general')->group(function () {
         //======================== payment callbacks (gateway redirect, public) ========================/
         Route::match(['get', 'post'], 'checkout/callback', [OrderController::class, 'checkoutCallback'])->middleware('throttle:payment-callback')->name('api.checkout.callback');
         Route::match(['get', 'post'], 'checkout/error-callback', [OrderController::class, 'checkoutErrorCallback'])->middleware('throttle:payment-callback')->name('api.checkout.errorCallback');
+        //======================== payment webhooks (provider-signed, public) ========================/
+        // MyFatoorah has NO webhook: browser-callback only (see
+        // PaymentWebhookController class docblock for why).
+        Route::post('checkout/webhooks/stripe', [PaymentWebhookController::class, 'stripe'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.stripe');
+        Route::post('checkout/webhooks/paypal', [PaymentWebhookController::class, 'paypal'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.paypal');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
         Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle:public-tracking')->name('api.tracking.public');
     });
@@ -128,8 +135,10 @@ Route::prefix('v1/general')->group(function () {
         //======================== checkout ========================//
         Route::get('checkout/promotions', [OrderController::class, 'eligiblePromotions']);
         Route::post('checkout', [OrderController::class, 'checkout']);
-        Route::post('checkout/cod/{orderId}/mark-paid', [OrderController::class, 'markCodAsPaid'])->middleware(['permission:update-order-status']);
-        Route::post('checkout/cashier/{orderId}/mark-paid', [OrderController::class, 'markCashierPaid'])->middleware(['permission:update-order-status']);
+        // F-1 hardening: manual payment confirmation requires the dedicated
+        // financial permission, NOT the generic update-order-status.
+        Route::post('checkout/cod/{orderId}/mark-paid', [OrderController::class, 'markCodAsPaid'])->middleware(['permission:payments.mark_paid']);
+        Route::post('checkout/cashier/{orderId}/mark-paid', [OrderController::class, 'markCashierPaid'])->middleware(['permission:payments.mark_paid']);
         //======================== fast shipping checkout ========================/
         Route::post('fast-shipping/checkout', [FastShippingController::class, 'checkout']);
         //======================== orders ========================//
@@ -231,9 +240,20 @@ Route::prefix('v1/admin/analytics/export')->middleware(['api', 'auth:sanctum', '
     Route::post('performance', [AnalyticsExportController::class, 'exportPerformance'])->name('api.admin.analytics.export.performance');
 });
 
+Route::prefix('v1/admin/payment-gateways')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
+    Route::get('/', [PaymentGatewaySettingsController::class, 'index'])->middleware('permission:view-settings|update-settings')->name('api.admin.payment-gateways.index');
+    Route::put('/{code}', [PaymentGatewaySettingsController::class, 'update'])->middleware('permission:update-settings')->name('api.admin.payment-gateways.update');
+});
+
 Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->name('api.admin.orders.shipment.show');
     Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->name('api.admin.orders.shipment.update-status');
+});
+
+// Admin payment operations (F-1): gateway refund against a paid order.
+// Fail-closed — every validation failure is a 422, never a provider call.
+Route::prefix('v1/admin/payments')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
+    Route::post('{order}/refund', [\App\Http\Controllers\Api\Admin\PaymentRefundController::class, 'refund'])->whereNumber('order')->middleware('permission:payments.refund')->name('api.admin.payments.refund');
 });
         // //======================== shipments ========================/
         // Route::get('shipments/track/{trackingNumber}', [ShipmentController::class, 'trackShipment'])->name('shipments.track');

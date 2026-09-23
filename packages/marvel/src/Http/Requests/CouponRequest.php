@@ -48,6 +48,10 @@ class CouponRequest extends FormRequest
             'end_date'      => 'required|date_format:Y-m-d|after_or_equal:start_date',
             'limiter'       => 'nullable|integer|min:0',
             'status'        => 'sometimes|in:1,0',
+            // Independent public-discoverability flag. Optional on create
+            // (defaults to false = same visibility as legacy coupons);
+            // assignments never change it implicitly.
+            'is_public'     => 'sometimes|boolean',
         ];
     }
 
