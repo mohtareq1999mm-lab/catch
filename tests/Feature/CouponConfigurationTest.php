@@ -192,7 +192,9 @@ class CouponConfigurationTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('data.recommended_action', 'convert_to_assigned')
-            ->assertJsonStructure(['data' => ['steps', 'example_code']]);
+            ->assertJsonStructure(['data' => ['steps', 'summary', 'expected_result', 'warnings']]);
+
+        $this->assertArrayNotHasKey('example_code', $response->json('data'));
     }
 
     /** @test */

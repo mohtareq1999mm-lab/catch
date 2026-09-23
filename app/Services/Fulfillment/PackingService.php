@@ -5,6 +5,9 @@ namespace App\Services\Fulfillment;
 use App\Models\Fulfillment\PackingTask;
 use App\Models\Fulfillment\PackingStation;
 use App\Models\Fulfillment\Fulfillment;
+use App\Models\Fulfillment\FulfillmentItem;
+use App\Models\Fulfillment\Package;
+use App\Models\Fulfillment\PackageItem;
 use App\Models\Shipment;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +17,7 @@ class PackingService
 {
     public function __construct(
         private FulfillmentTransition $transitions,
+        private \App\Services\Shipment\ShipmentService $shipments,
     ) {}
     /**
      * Create a packing task from a completed fulfillment
@@ -166,7 +170,9 @@ class PackingService
     }
 
     /**
-     * Create shipment from verified packing task
+     * Create shipment from verified packing task.
+     * Phase 11: delegated to ShipmentService (boundary guard + idempotency).
+     * The ready_to_ship→shipped fulfillment move happens at DISPATCH, not here.
      */
     public function createShipment(PackingTask $task, array $shipmentData): Shipment
     {
@@ -176,37 +182,40 @@ class PackingService
 
         return DB::transaction(function () use ($task, $shipmentData) {
             $fulfillment = $task->fulfillment;
-            $order = $fulfillment->order;
 
-            $trackingNumber = $this->generateTrackingNumber();
-
-            $shipment = Shipment::create([
-                'tracking_number' => $trackingNumber,
-                'order_id' => $order->id,
-                'fulfillment_id' => $fulfillment->id,
-                'packing_task_id' => $task->id,
-                'courier' => $shipmentData['courier'] ?? null,
-                'shipping_method' => $shipmentData['shipping_method'] ?? 'standard',
-                'status' => 'pending',
-                'total_weight' => $task->weight,
-                'dimensions' => $task->dimensions,
-                'destination_address' => $shipmentData['destination_address'] ?? json_decode($order->address, true),
-                'notes' => $shipmentData['notes'] ?? null,
-            ]);
-
-            // P11 owns shipment creation via ShipmentService; until then this
-            // legacy path stays but writes fulfillment state via the owner.
-            // NOTE(P11): delegate creation to ShipmentService + ready_to_ship guard.
-            $this->transitions->transition($fulfillment, 'shipped', ['reason' => 'shipment_dispatched']);
+            $shipment = $this->shipments->createForFulfillment(
+                $fulfillment,
+                [
+                    'packing_task_id' => $task->id,
+                    'tracking_number' => $this->generateTrackingNumber(),
+                    'courier' => $shipmentData['courier'] ?? null,
+                    'shipping_method' => $shipmentData['shipping_method'] ?? 'standard',
+                    'total_weight' => $task->weight,
+                    'dimensions' => $task->dimensions,
+                    'destination_address' => $shipmentData['destination_address'] ?? $this->destinationAddress($fulfillment),
+                    'notes' => $shipmentData['notes'] ?? null,
+                ],
+                $shipmentData['idempotency_key'] ?? null,
+            );
 
             Log::info('Shipment created from packing task', [
                 'shipment_id' => $shipment->id,
                 'task_id' => $task->id,
-                'tracking_number' => $trackingNumber,
+                'tracking_number' => $shipment->tracking_number,
             ]);
 
             return $shipment;
         });
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function destinationAddress(Fulfillment $fulfillment): ?array
+    {
+        $address = $fulfillment->order?->address;
+
+        return is_array($address) ? $address : json_decode((string) $address, true);
     }
 
     /**
@@ -285,5 +294,154 @@ class PackingService
             'in_progress' => (clone $query)->whereIn('status', ['assigned', 'packing', 'packed'])->count(),
             'cancelled' => (clone $query)->where('status', 'cancelled')->count(),
         ];
+    }
+
+    /**
+     * Phase 10: create an open package for a fulfillment (multi-package ready).
+     */
+    public function createPackage(Fulfillment $fulfillment, ?int $packingTaskId = null, array $attributes = []): Package
+    {
+        if (!in_array($fulfillment->status, ['packing', 'picked'], true)) {
+            throw new \Exception(
+                "Cannot create package for fulfillment in status: {$fulfillment->status}"
+            );
+        }
+
+        return DB::transaction(function () use ($fulfillment, $packingTaskId, $attributes) {
+            $package = Package::create([
+                'fulfillment_id' => $fulfillment->id,
+                'order_id' => $fulfillment->order_id,
+                'packing_task_id' => $packingTaskId,
+                'package_number' => $this->generatePackageNumber(),
+                'status' => Package::STATUS_OPEN,
+                'weight' => $attributes['weight'] ?? null,
+                'dimensions' => $attributes['dimensions'] ?? null,
+                'notes' => $attributes['notes'] ?? null,
+            ]);
+
+            Log::info('Package created', [
+                'package_id' => $package->id,
+                'fulfillment_id' => $fulfillment->id,
+            ]);
+
+            return $package->fresh();
+        });
+    }
+
+    /**
+     * Phase 10: add picked quantity to an open package.
+     * Enforces SUM(package_items.quantity) <= fulfillment_item.quantity_picked
+     * with a locked read-check-write (unique constraint alone is insufficient).
+     *
+     * @throws \Exception on over-pack, duplicate, unpicked, or sealed package.
+     */
+    public function addItemToPackage(Package $package, int $fulfillmentItemId, float $quantity): PackageItem
+    {
+        return DB::transaction(function () use ($package, $fulfillmentItemId, $quantity) {
+            $lockedPackage = Package::whereKey($package->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedPackage->status !== Package::STATUS_OPEN) {
+                throw new \Exception("Cannot modify package in status: {$lockedPackage->status}");
+            }
+
+            $item = FulfillmentItem::whereKey($fulfillmentItemId)->lockForUpdate()->firstOrFail();
+
+            if ((int) $item->fulfillment_id !== (int) $lockedPackage->fulfillment_id) {
+                throw new \Exception('Package item belongs to a different fulfillment');
+            }
+            if ($quantity <= 0) {
+                throw new \Exception('Package quantity must be greater than zero');
+            }
+
+            $alreadyPacked = PackageItem::where('fulfillment_item_id', $item->id)
+                ->whereHas('package', fn ($q) => $q->where('status', '!=', Package::STATUS_VOIDED))
+                ->sum('quantity');
+            $picked = (float) $item->quantity_picked;
+
+            if ($picked <= 0) {
+                throw new \Exception('Cannot pack unpicked quantity');
+            }
+            if ((float) $alreadyPacked + $quantity > $picked) {
+                throw new \Exception(
+                    "Over-pack rejected: picked {$picked}, already packed {$alreadyPacked}, requested {$quantity}"
+                );
+            }
+
+            $existingItem = PackageItem::where('package_id', $lockedPackage->id)
+                ->where('fulfillment_item_id', $item->id)
+                ->lockForUpdate()
+                ->first();
+
+            $packageItem = PackageItem::updateOrCreate(
+                ['package_id' => $lockedPackage->id, 'fulfillment_item_id' => $item->id],
+                [
+                    'order_item_id' => $item->order_item_id,
+                    'quantity' => (float) ($existingItem?->quantity ?? 0) + $quantity,
+                ],
+            );
+
+            Log::info('Package item added', [
+                'package_id' => $lockedPackage->id,
+                'fulfillment_item_id' => $item->id,
+                'quantity' => $quantity,
+            ]);
+
+            return $packageItem->fresh();
+        });
+    }
+
+    /**
+     * Phase 10: seal an open package (immutable contents, scan barcode).
+     */
+    public function sealPackage(Package $package, ?float $weight = null, ?array $dimensions = null): Package
+    {
+        return DB::transaction(function () use ($package, $weight, $dimensions) {
+            $locked = Package::whereKey($package->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->status !== Package::STATUS_OPEN) {
+                throw new \Exception("Cannot seal package in status: {$locked->status}");
+            }
+            if ($locked->items()->count() === 0) {
+                throw new \Exception('Cannot seal an empty package');
+            }
+
+            $locked->update([
+                'status' => Package::STATUS_SEALED,
+                'barcode' => $locked->barcode ?? $this->generatePackageBarcode(),
+                'weight' => $weight ?? $locked->weight,
+                'dimensions' => $dimensions ?? $locked->dimensions,
+                'sealed_at' => now(),
+            ]);
+
+            Log::info('Package sealed', ['package_id' => $locked->id]);
+
+            return $locked->fresh();
+        });
+    }
+
+    /**
+     * Generate unique package barcode (WHICH PACKAGE identity).
+     */
+    private function generatePackageBarcode(): string
+    {
+        do {
+            $barcode = 'PKG-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -8));
+            $exists = Package::where('barcode', $barcode)->exists();
+        } while ($exists);
+
+        return $barcode;
+    }
+
+    /**
+     * Generate unique package number.
+     */
+    private function generatePackageNumber(): string
+    {
+        do {
+            $number = 'PCK-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+            $exists = Package::where('package_number', $number)->exists();
+        } while ($exists);
+
+        return $number;
     }
 }

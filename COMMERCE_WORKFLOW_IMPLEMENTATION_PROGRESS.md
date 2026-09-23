@@ -7,9 +7,9 @@
 
 ## Overall Status
 
-Current Phase: Phase 7 — Warehouse (Phase 6 VERIFIED)
-Current Step: Phase 6 gate passed; advancing autonomously per §43
-Overall Completion: Phase 0–6 of 17 done (new numbering); P7–P17 pending
+Current Phase: COMPLETE — all 17 phases VERIFIED (P14 sqlite-subset)
+Current Step: Final report written; secret backup removed
+Overall Completion: 17/17 phases done; production gates documented
 Last Verified At: 2026-09-22 (UTC)
 Current Blocker: Human approval required before Phase 2 (APPROVE PHASE 2 gate;
 prior §55 gate carried over). Phase 1 gate re-verified this run — see Phase 1 Gate Check below.
@@ -486,27 +486,462 @@ delegation note; scopeByPriority FIELD() is MySQL-only (P16 portability).
 ### Final Verdict
 VERIFIED — auto-advancing to Phase 7 (Warehouse/Locations/Barcode).
 
-# Phase 6 — Warehouse / Locations — Status: NOT STARTED
+# Phase 7 (new) — Warehouse/Locations/Barcode — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
 
-# Phase 7 — Picking — Status: NOT STARTED
+## Phase 7 — Final Report
 
-# Phase 8 — Batch Picking — Status: NOT STARTED
+### Objective
+Consistent warehouse/location model, unambiguous barcode identity, resolved
+ProductLocation role (hint, never authority).
 
-# Phase 9 — Packing / Packages — Status: NOT STARTED
+### What Was Implemented
+1. Migration `2026_09_23_000002`: +locations.barcode (unique, nullable);
+   rename product_locations.reserved_quantity → allocated_hint (down() restores).
+2. `Location`: TYPE_* constants, PLACEABLE_TYPES, scopePlaceable (active +
+   placeable-or-null type; quarantine/damaged/returns/inactive excluded).
+   NULL-type legacy compatibility proven by failing-then-passing unit tests.
+3. `ProductLocationService::allocateFromLocations`: filters placeable locations
+   (whereHas location→placeable); uses allocated_hint.
+4. `BarcodeResolver` (new) + `UnknownBarcodeException`: WHAT (SKU/variant) vs
+   WHERE (barcode/code, warehouse-scoped) vs WHICH (fulfillment/order); package/
+   shipment kinds deferred to P10/P11 tables.
+5. `ReturnService` restock fixture key updated.
 
-# Phase 10 — Shipment — Status: NOT STARTED
+### Files Changed
+- database/migrations/2026_09_23_000002_* (new)
+- app/Models/Fulfillment/{Location,ProductLocation}.php
+- app/Services/Fulfillment/{ProductLocationService,ReturnService}.php
+- app/Services/Warehouse/BarcodeResolver.php (new)
+- app/Exceptions/UnknownBarcodeException.php (new)
+- tests/Feature/Warehouse/BarcodeResolverTest.php (new, 5 tests)
+- tests/Unit/Services/Fulfillment/* (hint rename alignment)
+- COMMERCE_WAREHOUSE_FLOW.md (implemented-state sync)
 
-# Phase 11 — Delivery / Completion — Status: NOT STARTED
+### Database Changes
+One additive migration (rename is reversible via down()).
 
-# Phase 12 — Security — Status: NOT STARTED
+### Tests Executed
+- BarcodeResolverTest: 5 passed. FulfillmentLifecycleTest: 6 passed.
+- Unit fulfillment suites: 51 passed.
 
-# Phase 13 — Concurrency / Idempotency — Status: NOT STARTED
+### Remaining Risks
+Package/shipment barcode kinds pending P10/P11; multi-barcode-per-SKU deferred
+(Q5 default); CHECK constraints in old migration reference renamed column on
+fresh MySQL installs (P16: amend old migration constraint names — sqlite unaffected).
 
-# Phase 14 — Observability / Audit — Status: NOT STARTED
+### Final Verdict
+VERIFIED — auto-advancing to Phase 8 (Order Picking).
 
-# Phase 15 — Legacy Cleanup — Status: NOT STARTED
+# Phase 8 (new) — Order Picking — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
 
-# Phase 16 — Full Validation — Status: NOT STARTED
+## Phase 8 — Final Report
+
+### Objective
+Operational single-order picking: claim, scan-validate, confirm, audit, resume.
+
+### What Was Implemented
+1. Migration `2026_09_23_000003`: picking_tasks.batch_id nullable; claim fields
+   (claimed_by/at/expires_at); order denorm (order_id/order_item_id); op_seq+scan_log.
+2. `PickingExecutionService` (new, shared engine): exclusive claim (one winner, 409
+   loser, same-worker re-claim refreshes lease, override flag); release-to-pool
+   (keeps progress); scan-validated confirm (WHERE via BarcodeResolver, WHAT incl.
+   variant check, remaining-qty, all under row lock); op_seq replay dedupe; rejects
+   logged with expected-vs-scanned evidence; fan-back item increment; sweepExpiredClaims.
+3. `OrderPickingService` (new): standalone tasks per unpicked allocated item,
+   idempotent reuse of open tasks, skips unallocated items.
+4. `BatchPickingService::recordPick`: locked + remaining-qty validation (was
+   required-qty on possibly stale model); batch-complete advances fulfillments
+   to picked via owner (Phase 6 wiring completed here).
+5. Exceptions: `PickingValidationException` (reason + context).
+
+### Files Changed
+- database/migrations/2026_09_23_000003_* (new)
+- app/Services/Fulfillment/{PickingExecutionService,OrderPickingService}.php (new)
+- app/Exceptions/PickingValidationException.php (new)
+- app/Models/Fulfillment/PickingTask.php (new fields)
+- app/Services/Fulfillment/BatchPickingService.php (locked recordPick)
+- tests/Feature/Fulfillment/OrderPickingTest.php (new, 5 tests)
+- tests/Unit/.../BatchPickingServiceTest.php (remaining-qty message)
+
+### Database Changes
+One additive migration (nullable changes need doctrine/dbal — present).
+
+### Tests Executed
+- OrderPickingTest: 5 passed (exclusive claim, scan confirm + fan-back, 2 reject
+  paths, replay idempotency, release/resume across workers).
+- Unit fulfillment suites: 51 passed.
+
+### Remaining Risks
+Warehouse scoping needs user→warehouse mapping (P13); supervisor override API (P13);
+claim sweeper scheduling (P12); batch scan flow uses engine in P9.
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 9 (Batch Picking).
+
+# Phase 9 (new) — Batch Picking — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 9 — Final Report
+
+### Objective
+Batch picking without breaking order identity; race safety vs individual picking.
+
+### What Was Implemented
+1. Batch tasks carry order denorm (order_id/order_item_id) at creation (fan-out
+   traceability without join dependence).
+2. `refreshBatchProgress` (new): recompute picked_items under lock after engine
+   confirms; completes batch + advances fulfillments via owner. Batch scan flow =
+   engine.confirm + refresh (documented; recordPick kept for direct entry).
+3. Double-pick guard: OrderPickingService skips items with ANY open task (order OR
+   batch); batch creation path unchanged (owner enforces pending→picking).
+4. Design decision (evidence): per-item tasks grouped by location (not one
+   aggregated unit task) — attribution without fan-out math; quantity-aggregated
+   batches recorded as future optimization, not built.
+
+### Files Changed
+- app/Services/Fulfillment/BatchPickingService.php (denorm + refresh helper)
+- app/Services/Fulfillment/OrderPickingService.php (cross-flow guard)
+- tests/Feature/Fulfillment/BatchPickingTest.php (new, 3 tests)
+
+### Database Changes
+NONE (uses Phase 8 columns).
+
+### Tests Executed
+- BatchPickingTest (feature): 3 passed (grouping+fan-out tallies, double-pick
+  guard, progress refresh + fulfillment advance).
+
+### Remaining Risks
+Aggregated-quantity batches deferred; batch-skip vs fulfillment-advance interplay
+(skipped tasks don't advance — supervisor resolves, P12).
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 10 (Packing/Packages).
+
+# Phase 10 (new) — Packing/Packages — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 10 — Final Report
+
+### Objective
+Package model, picked-quantity invariant, multi-package split, seal rules.
+
+### What Was Implemented
+1. Migration `2026_09_23_000004`: packages (fulfillment + order denorm + task link
+   + number/barcode unique + open/sealed/handed_off/voided) + package_items
+   (unique package×item, order denorm).
+2. `Package`/`PackageItem` models. `PackingService`: createPackage (packing/picked
+   only), addItemToPackage (locked read-check-write: cross-fulfillment, unpicked,
+   over-pack rejected; same-package merge), sealPackage (non-empty, barcode label,
+   immutable after).
+3. `BarcodeResolver`: +package kind (barcode or package_number).
+
+### Files Changed
+- database/migrations/2026_09_23_000004_* (new)
+- app/Models/Fulfillment/{Package,PackageItem}.php (new)
+- app/Services/Fulfillment/PackingService.php (package methods)
+- app/Services/Warehouse/BarcodeResolver.php (+package kind)
+- tests/Feature/Fulfillment/PackingTest.php (new, 2 tests / 12 assertions)
+
+### Database Changes
+One additive migration (up/down; verified via RefreshDatabase suite).
+
+### Tests Executed
+- PackingTest: 2 passed (4+6 split + over-pack; unpicked/foreign/empty-seal/sealed-modify rejects; barcode issuance).
+
+### Remaining Risks
+Supervisor reopen (voided) policy unimplemented (P12); package↔shipment handoff (P11);
+dimensions/weight validation rules are permissive by design (carrier contract later).
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 11 (Shipment/Dispatch/Delivery).
+
+# Phase 11 (new) — Shipment/Dispatch/Delivery — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 11 — Final Report
+
+### Objective
+Authoritative shipment lifecycle: guarded creation, dispatch, delivery, completion.
+
+### What Was Implemented
+1. Migration `2026_09_23_000005`: +shipments.idempotency_key (unique, nullable).
+2. `ShipmentService::createForFulfillment`: locked ready_to_ship guard (throws
+   otherwise — proven when the model gate rejected a test jump), idempotent per
+   key, status label_created.
+3. `dispatch`: shipment →picked_up + fulfillment ready_to_ship→shipped atomically
+   (owner-mediated; single writer preserved).
+4. `markDelivered`: walks carrier chain (in_transit→out_for_delivery→delivered,
+   skipping via model gate), fulfillment →delivered, then completion rule.
+5. `maybeCompleteOrder`: completed + payment-success + ALL fulfillments delivered
+   (+ at least one fulfillment; digital-only orders untouched) → canonical
+   changeOrderStatus delivered.
+6. `PackingService::createShipment` delegated to ShipmentService (P11 note closed);
+   fulfillment ships at dispatch, not creation.
+
+### Files Changed
+- database/migrations/2026_09_23_000005_* (new)
+- app/Models/Shipment.php (+fillable)
+- app/Services/Shipment/ShipmentService.php (DI + 4 methods)
+- app/Services/Fulfillment/PackingService.php (delegation)
+- tests/Feature/Fulfillment/ShipmentBoundaryTest.php (new, 3 tests)
+- tests/Unit/Services/Fulfillment/PackingServiceTest.php (label_created/dispatch)
+- tests/Unit/Invoice/InvoiceLifecycleTest.php (container resolution)
+
+### Database Changes
+One additive migration.
+
+### Tests Executed
+- ShipmentBoundaryTest: 3 passed (guard, idempotency+dispatch, multi-fulfillment
+  completion gating). Unit fulfillment: 51 passed. InvoiceLifecycle: 24 passed.
+
+### Remaining Risks
+Carrier API integration is future work (state machine ready); failed-delivery/
+return initiation paths owned by P12.
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 12 (Cancel/Return/Refund/Recovery).
+
+# Phase 12 (new) — Cancel/Return/Refund/Recovery — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 12 — Final Report
+
+### Objective
+Recovery paths as safe as happy paths; no inconsistent money/stock/coupon/order.
+
+### What Was Implemented
+1. FINDING (critical): `RestoreInventoryOnRefund` listener = UNREGISTERED duplicate
+   restore (no committed-claim, no digital exclusion, independent guard → double
+   restore if wired). Deprecated in code (P16 removal). Single owner reaffirmed.
+2. `InventoryRestoreService::restoreLines` (new): per-line sellable restore, capped
+   at (line qty − already restored), committed-only, digital-excluded. `restore()`
+   now restores REMAINDERS only (partial-return safe).
+3. Migration `2026_09_23_000006`: +order_products.restored_quantity (default 0).
+4. `ReturnService::restockReturnItem`: duplicate-restock guard (fully-restocked
+   throws); central restore BEFORE hint update (authority-first ordering); sellable
+   only via isRestockable (damaged/quarantine stay hint-free).
+5. `syncWithStock` demoted to drift monitor (returns bool, logs warning) — its own
+   test proved the throwing gate wedged legitimate returns (B2 live-fire).
+6. `FulfillmentService::cancelFulfillment` (new): owner cancel + skip open picking
+   tasks + cancel open packing tasks; inventory/coupon owned by order path.
+
+### Files Changed
+- app/Services/Inventory/InventoryRestoreService.php (restoreLines + remainder)
+- app/Services/Fulfillment/ReturnService.php (guard + central-first restock)
+- app/Services/Fulfillment/ProductLocationService.php (monitor, bool)
+- app/Services/Fulfillment/FulfillmentService.php (cancel orchestration)
+- app/Listeners/RestoreInventoryOnRefund.php (deprecated)
+- database/migrations/2026_09_23_000006_* (new)
+- tests/Feature/Fulfillment/ReturnRecoveryTest.php (new, 4 tests)
+- tests/Unit/.../ProductLocationServiceTest.php (drift assertions)
+
+### Database Changes
+One additive migration.
+
+### Tests Executed
+- ReturnRecoveryTest: 4 passed (per-line restore, duplicate reject, cancel-after-
+  partial no-double-credit + restore no-op, operational cancel).
+- Unit fulfillment suites: 51 passed (Return 12 incl.).
+
+### Remaining Risks
+Refund-gateway failure/retry flows (adapter exists; E2E refund test in P17);
+supervisor void/reopen policy (documented, unimplemented); gift/rental restore
+semantics preserved as-is (flagged, not changed).
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 13 (Security & Permissions).
+
+# Phase 13 (new) — Security & Permissions — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 13 — Final Report
+
+### Objective
+Least-privilege warehouse roles, financial separation, warehouse scoping.
+
+### What Was Implemented
+1. Marvel `Permission` enum: +10 WMS constants (additive).
+2. Migration `2026_09_23_000007`: users.warehouse_id nullable FK nullOnDelete.
+3. Marvel `User` fillable: +warehouse_id (additive).
+4. `PermissionSeeder::seedWarehouseRoles` (new): 10 perms + picker/packer/
+   supervisor/manager roles with least privilege (pickers NEVER financial;
+   display_name NOT NULL trap avoided per existing convention).
+5. `WarehouseAccess` (new): allows() = Spatie perm (guard api, exception-safe) +
+   home-warehouse match (manage-warehouse global; unscoped/homeless denied);
+   denyUnless() throws AuthorizationException.
+
+### Files Changed
+- packages/marvel/src/Enums/Permission.php (+10 consts)
+- packages/marvel/src/Database/Models/User.php (+fillable)
+- database/migrations/2026_09_23_000007_* (new)
+- database/seeders/PermissionSeeder.php (WMS block)
+- app/Services/Warehouse/WarehouseAccess.php (new)
+- tests/Feature/Warehouse/WarehouseSecurityTest.php (new, 5 tests)
+
+### Database Changes
+One additive migration.
+
+### Tests Executed
+- WarehouseSecurityTest: 5 passed (seeder least-privilege incl. financial
+  absence, home scoping, homeless denial, permissionless denial, exception).
+
+### Remaining Risks
+Route-level enforcement awaits WMS admin APIs (service guards ready);
+supervisor override API surface (P13 engine flag exists); role assignment UX.
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 14 (Concurrency/Idempotency).
+
+# Phase 14 (new) — Concurrency/Idempotency — Status: VERIFIED* (*sqlite subset)
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 14 — Final Report
+
+### Objective
+Attack races/replays; prove no duplicate business effect.
+
+### What Was Implemented
+`tests/Feature/Fulfillment/ConcurrencyAttackTest.php` (new, 4 tests):
+1. Expired lease steal (travel 16min → second worker wins).
+2. Foreign-worker confirm rejected (task_claimed_by_other, zero movement).
+3. Double completion safe (commit/coupon/promo all conditional no-ops).
+4. Unkeyed duplicate release returns pending fulfillment (no spurious rows).
+Prior coverage reused: claim exclusivity + replay dedupe (P8), over-pack (P10),
+duplicate shipment/callback (P2/P11), coupon races + reaper races (P5),
+last-unit serialization shape (P5 sqlite).
+
+### MySQL Probe
+`phpunit.mysql.xml` (127.0.0.1:3307) → connection REFUSED. Row-lock behavior on
+the production engine is NOT VERIFIED — recorded honestly; required before
+production launch (staging gate). All lock code uses standard lockForUpdate +
+conditional claims (InnoDB-safe by construction, unproven here).
+
+### Files Changed
+- tests/Feature/Fulfillment/ConcurrencyAttackTest.php (new)
+
+### Database Changes
+NONE.
+
+### Tests Executed
+- ConcurrencyAttackTest: 4 passed.
+
+### Remaining Risks
+True parallel FU-lock proof needs MySQL staging (P17 gate item); sqlite
+lockForUpdate is a no-op — conditional-update paths are the real guard there.
+
+### Final Verdict
+VERIFIED* (sqlite-serializable subset) — auto-advancing to Phase 15.
+
+# Phase 15 (new) — Observability/Audit/Events — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 15 — Final Report
+
+### Objective
+Traceable transitions; safe event timing; claim-lease recycling.
+
+### What Was Implemented
+1. `SweepExpiredPickingClaims` command (new) + 5-min schedule (matches 15-min
+   default lease): recycles disconnected workers' tasks, preserves progress.
+2. Event-timing review: all Phase 6–12 services emit writes+Log only (no new
+   pre-commit side effects); markDelivered evaluates completion outside the
+   shipment tx; P3 listener policy re-verified.
+3. Audit coverage verified: transitions (actor/reason), claims, confirms
+   (scan_log + reject logs with expected-vs-scanned), packs/seals/shipments/
+   restocks/cancels all structured-logged; order_status_history pre-existing.
+
+### Files Changed
+- app/Console/Commands/SweepExpiredPickingClaims.php (new)
+- app/Console/Kernel.php (register + schedule)
+- tests/Feature/Fulfillment/ConcurrencyAttackTest.php (+sweeper test)
+
+### Database Changes
+NONE.
+
+### Tests Executed
+- ConcurrencyAttackTest: 5 passed (incl. sweeper via artisan call).
+
+### Remaining Risks
+Central log sink/PII scrubbing is platform scope; metrics dashboards future work.
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 16 (Legacy Cleanup).
+
+# Phase 16 (new) — Legacy Cleanup — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 16 — Final Report
+
+### Objective
+Remove proven-dead code; contain (not break) live legacy paths.
+
+### What Was Implemented
+1. DELETED `app/Listeners/RestoreInventoryOnRefund.php` (zero code refs,
+   unregistered, deprecated P12; duplicate restore authority eliminated).
+2. REMOVED `GET check-card-payment` public test-PAN route (docs-only refs).
+3. REFACTORED `Fulfillment::scopeByPriority` FIELD() → portable CASE.
+4. KEPT with evidence (NOT touched — human decision required to migrate):
+   - `Marvel OrderRepository::updateOrder` + `syncOrderStatusColumn` + traits:
+     LIVE via GraphQL updateOrder + REST update → repository path (raw status
+     write, no inventory/coupon/audit). Migrating to canonical writer changes
+     vendor-balance/child-order/legacy-vocabulary behavior → §27 gate item.
+   - `packages/marvel/src/Payment/*`: referenced by WebHookController +
+     ShopServiceProvider → webhook audit required before removal.
+   - RabbitMQ: independent decision, untouched per lock.
+   - `getPaymentStatusAttribute` fallback: keep + backfill later.
+
+### Files Changed
+- DELETED: app/Listeners/RestoreInventoryOnRefund.php
+- packages/marvel/src/Rest/Routes.php (route removal + note)
+- app/Models/Fulfillment/Fulfillment.php (portable ordering)
+
+### Database Changes
+NONE.
+
+### Tests Executed
+- Route-loading proof: admin tracking auth test passes post-removal.
+
+### Remaining Risks
+Legacy order-update bypass unguarded by inventory/coupon logic (contained by
+shop/super-admin permission; tracked for migration decision); MySQL CHECK vs
+rename verification needs staging (can't run here).
+
+### Final Verdict
+VERIFIED — auto-advancing to Phase 17 (Final Validation).
+
+# Phase 17 (new) — Final Validation — Status: VERIFIED
+Started: 2026-09-23 · Completed: 2026-09-23 · Branch: main @ 107dd6b
+
+## Phase 17 — Final Report
+
+### Validation Battery (all executed this run)
+SecurityRemediation 32 ✓ · Lifecycle family 50 ✓ · Reservation 24 ✓ (1
+transient flake, 3 consecutive greens; suspect time-boundary reaper test) ·
+Gift 8 ✓ · Fulfillment 6 ✓ · OrderPicking 5 ✓ · BatchPicking 3 ✓ · Packing 2 ✓ ·
+Shipment 3 ✓ · ReturnRecovery 4 ✓ · ConcurrencyAttack 5 ✓ · Barcode 5 ✓ ·
+WarehouseSecurity 5 ✓ · Unit fulfillment 51 ✓ · InvoiceLifecycle 24 ✓ ·
+CheckoutApi 13 ✓ · PaymentCurrency 5 ✓ · Stress 6/9 (3 pre-existing rig fails).
+TOTAL: 245 passing.
+
+### Repo-wide Audit (§24)
+No duplicate authorities (hints monitored, never decisive) · single payment
+factory, zero provider branches · single order writer (+ contained legacy) ·
+single fulfillment owner · coupon single-owner untouched · callbacks guarded ·
+locks+keys throughout · no new pre-commit side effects · dead code removed or
+decision-gated.
+
+### Deliverables
+COMMERCE_WORKFLOW_FINAL_REPORT.md (new, §30). Secret backup removed
+(.env.bak deleted post-validation). 7 migrations, 8 new test files, 12 arch docs.
+
+### Staging Gates (must pass before production)
+Fresh MySQL migrate (CHECK/rename interplay) · MySQL lock proof · queue workers
++ sweeper cadence · secrets audit · legacy-bypass migration decision.
+
+### Final Verdict
+PROJECT COMPLETE (conditional go — staging gates open, no in-scope BLOCKERs).
 
 ---
 

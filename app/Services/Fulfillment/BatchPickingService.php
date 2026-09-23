@@ -55,6 +55,8 @@ class BatchPickingService
 
             // Group by location for optimized picking route
             $itemsByLocation = $allItems->groupBy('product_location_id');
+            // Phase 9: order map for fan-out denorm (avoids N+1 on item->fulfillment).
+            $orderByFulfillment = $fulfillments->pluck('order_id', 'id');
 
             // Create picking tasks ordered by location priority
             $sequence = 1;
@@ -66,6 +68,10 @@ class BatchPickingService
                         'batch_id' => $batch->id,
                         'fulfillment_item_id' => $item->id,
                         'product_location_id' => $locationId,
+                        // Phase 9: fan-out traceability denorm (never rely on
+                        // joins alone when attributing picked units to orders).
+                        'order_id' => $orderByFulfillment[$item->fulfillment_id] ?? null,
+                        'order_item_id' => $item->order_item_id,
                         'quantity_to_pick' => $item->quantity,
                         'quantity_picked' => 0,
                         'status' => 'pending',
@@ -153,10 +159,13 @@ class BatchPickingService
         ?string $notes = null
     ): PickingTask {
         return DB::transaction(function () use ($task, $quantity, $notes) {
-            // Validate quantity
-            if ($quantity > $task->quantity_to_pick) {
+            // Phase 8: lock + validate against REMAINING (not just required).
+            $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
+            $remaining = (float) $locked->quantity_to_pick - (float) $locked->quantity_picked;
+
+            if ($quantity > $remaining) {
                 throw new \Exception(
-                    "Picked quantity ({$quantity}) exceeds required quantity ({$task->quantity_to_pick})"
+                    "Picked quantity ({$quantity}) exceeds remaining quantity ({$remaining})"
                 );
             }
 
@@ -164,7 +173,8 @@ class BatchPickingService
                 throw new \Exception('Picked quantity must be greater than zero');
             }
 
-            $newTotal = $task->quantity_picked + $quantity;
+            $task = $locked;
+            $newTotal = (float) $task->quantity_picked + $quantity;
 
             // Update task
             $updates = [
@@ -213,6 +223,27 @@ class BatchPickingService
             ]);
 
             return $task->fresh();
+        });
+    }
+
+    /**
+     * Phase 9: recompute batch progress after engine-confirmed picks.
+     * Batch scan flow = PickingExecutionService::confirm + this refresh
+     * (recordPick remains for direct quantity entry with the same guards).
+     */
+    public function refreshBatchProgress(FulfillmentBatch $batch): FulfillmentBatch
+    {
+        return DB::transaction(function () use ($batch) {
+            $locked = FulfillmentBatch::whereKey($batch->id)->lockForUpdate()->firstOrFail();
+            $completedTasks = $locked->pickingTasks()->where('status', 'picked')->count();
+            $locked->update(['picked_items' => $completedTasks]);
+
+            if ($locked->isComplete() && $locked->status !== 'completed') {
+                $locked->update(['status' => 'completed', 'completed_at' => now()]);
+                $this->advanceFullyPickedFulfillments($locked);
+            }
+
+            return $locked->fresh();
         });
     }
 

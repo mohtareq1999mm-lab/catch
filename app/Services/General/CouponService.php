@@ -4,12 +4,24 @@ namespace App\Services\General;
 
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Coupon;
+use Marvel\Database\Models\User;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Coupon\CouponCalculator;
+use App\Services\Coupon\Discovery\CouponDiscoveryPolicy;
 
 class CouponService
 {
-    public function getCoupons($request)
+    /**
+     * Customer coupon listing with the canonical discovery policy applied.
+     *
+     * Authenticated: public coupons plus Engine-eligible targeted coupons;
+     * ineligible targeted and assignment-only coupons are excluded (the
+     * latter live under "My Coupons"). Guests: pure-public coupons only.
+     * Each returned model carries its `discoveryDecision` relation for the
+     * resource layer. Existing search/date/id filters and ordering are
+     * preserved; result stays a plain limited Collection (no paginator).
+     */
+    public function getCoupons($request, ?User $user = null)
     {
         $name = $request->get("search", false);
         $limit = min(100, max(1, (int) $request->get('limit', 10)));
@@ -34,7 +46,26 @@ class CouponService
             }
         }
 
-        return $coupons->orderBy('id', $order)->limit($limit)->get();
+        if ($user) {
+            $coupons->where(function ($query) {
+                $query->whereHas('targeting')->orWhereDoesntHave('assignments');
+            });
+        } else {
+            $coupons->whereDoesntHave('targeting')->whereDoesntHave('assignments');
+        }
+
+        $models = $coupons->with(['targeting'])->orderBy('id', $order)->limit($limit)->get();
+
+        $policy = app(CouponDiscoveryPolicy::class);
+
+        return $models
+            ->map(function ($coupon) use ($policy, $user) {
+                $coupon->setRelation('discoveryDecision', $policy->decide($coupon, $user));
+
+                return $coupon;
+            })
+            ->filter(fn ($coupon) => (bool) $coupon->getRelation('discoveryDecision')['include'])
+            ->values();
     }
 
     public function calcPrice(Coupon $coupon, $price)

@@ -98,7 +98,7 @@ class BatchPickingServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         ProductLocation::create([
@@ -106,7 +106,7 @@ class BatchPickingServiceTest extends TestCase
             'location_id' => $this->locationB->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 30,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
     }
 
@@ -259,7 +259,7 @@ class BatchPickingServiceTest extends TestCase
         $task = $batch->pickingTasks->first();
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('exceeds required quantity');
+        $this->expectExceptionMessage('exceeds remaining quantity');
 
         $this->service->recordPick($task, 10);
     }

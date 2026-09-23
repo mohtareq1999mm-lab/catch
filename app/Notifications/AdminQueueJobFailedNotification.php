@@ -19,7 +19,11 @@ class AdminQueueJobFailedNotification extends Notification implements ShouldQueu
 
     public function __construct(
         public string $jobName,
-        public string $queue,
+        // Named failedQueue (not queue): Illuminate\Bus\Queueable already
+        // defines $queue for dispatch routing, and the constructor routes
+        // this alert via onQueue() — sharing the name fatals at class load
+        // and would clobber the failed job's queue with our own.
+        public string $failedQueue,
         public string $errorMessage,
     ) {
         $this->onQueue(\App\Enums\QueueName::medium());
@@ -38,13 +42,13 @@ class AdminQueueJobFailedNotification extends Notification implements ShouldQueu
                 'ar' => "\u{0641}\u{0634}\u{0644} \u{062A}\u{0646}\u{0641}\u{064A}\u{0630} \u{0645}\u{0647}\u{0645}\u{0629} \u{062E}\u{0644}\u{0641}\u{064A}\u{0629}",
             ],
             'message' => [
-                'en' => "Job [{$this->jobName}] on queue [{$this->queue}] failed after all retries: {$this->errorMessage}",
-                'ar' => "\u{0641}\u{0634}\u{0644}\u{062A} \u{0627}\u{0644}\u{0645}\u{0647}\u{0645}\u{0629} [{$this->jobName}] \u{0639}\u{0644}\u{0649} \u{0627}\u{0644}\u{0642}\u{0627\u{0626}\u{0645}\u{0629}} [{$this->queue}]",
+                'en' => "Job [{$this->jobName}] on queue [{$this->failedQueue}] failed after all retries: {$this->errorMessage}",
+                'ar' => "\u{0641}\u{0634}\u{0644}\u{062A} \u{0627}\u{0644}\u{0645}\u{0647}\u{0645}\u{0629} [{$this->jobName}] \u{0639}\u{0644}\u{0649} \u{0627}\u{0644}\u{0642}\u{0627}\u{0626}\u{0645}\u{0629}} [{$this->failedQueue}]",
             ],
             'icon' => 'alert-triangle',
             'resource_type' => 'queue_job',
             'job' => $this->jobName,
-            'queue' => $this->queue,
+            'queue' => $this->failedQueue,
         ];
     }
 

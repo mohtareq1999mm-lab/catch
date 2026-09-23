@@ -59,7 +59,7 @@ class ProductLocationServiceTest extends TestCase
             'status' => true,
             'in_stock' => true,
             'stock_quantity' => 100,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
     }
 
@@ -72,13 +72,12 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 120, // Exceeds stock of 100
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('exceeds stock quantity');
-
-        $this->service->syncWithStock($this->product->id);
+        // Phase 12: drift is reported (false), never thrown — legitimate
+        // flows (returns, receiving) transiently exceed central stock.
+        $this->assertFalse($this->service->syncWithStock($this->product->id));
     }
 
     /** @test */
@@ -90,7 +89,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 60,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         ProductLocation::create([
@@ -98,7 +97,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationB->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 40,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         // Should not throw
@@ -115,7 +114,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 30,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         ProductLocation::create([
@@ -123,7 +122,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationB->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 20,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         $allocations = $this->service->allocateFromLocations($this->product->id, 40);
@@ -147,7 +146,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 30,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         $this->expectException(\Exception::class);
@@ -157,14 +156,14 @@ class ProductLocationServiceTest extends TestCase
     }
 
     /** @test */
-    public function it_respects_reserved_quantity_during_allocation()
+    public function it_respects_allocated_hint_during_allocation()
     {
         ProductLocation::create([
             'product_id' => $this->product->id,
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 20, // 30 available
+            'allocated_hint' => 20, // 30 available
         ]);
 
         $allocations = $this->service->allocateFromLocations($this->product->id, 25);
@@ -182,7 +181,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         $this->service->updateLocationQuantity($productLocation->id, 25, 'stock_receipt');
@@ -199,7 +198,7 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         $this->expectException(\Exception::class);
@@ -216,11 +215,11 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 20,
+            'allocated_hint' => 20,
         ]);
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Cannot reduce quantity below reserved amount');
+        $this->expectExceptionMessage('Cannot reduce quantity below allocated hint');
 
         $this->service->updateLocationQuantity($productLocation->id, -40); // Would leave 10, but reserved is 20
     }
@@ -233,13 +232,14 @@ class ProductLocationServiceTest extends TestCase
             'location_id' => $this->locationA->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 90,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
-        // Attempting to add 20 would exceed stock of 100
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('exceeds stock quantity');
-
+        // Phase 12: placement hints may transiently exceed central stock
+        // (returns, receiving) — recorded as drift, never thrown.
         $this->service->updateLocationQuantity($productLocation->id, 20);
+
+        $this->assertEquals(110, (int) $productLocation->refresh()->quantity);
+        $this->assertFalse($this->service->syncWithStock($this->product->id));
     }
 }

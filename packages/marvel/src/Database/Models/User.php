@@ -61,6 +61,8 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
         'email_verified_at',
         'phone_number',
         'remember_token',
+        // Phase 13: home warehouse for staff scoping (nullable).
+        'warehouse_id',
     ];
 
     /**

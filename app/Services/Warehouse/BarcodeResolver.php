@@ -61,10 +61,14 @@ class BarcodeResolver
             ];
         }
 
-        // WHICH FULFILLMENT / WHICH ORDER.
+        // WHICH FULFILLMENT / WHICH ORDER / WHICH PACKAGE.
         $fulfillment = Fulfillment::where('fulfillment_number', $code)->first();
         if ($fulfillment) {
             return ['kind' => 'fulfillment', 'id' => $fulfillment->id, 'label' => $fulfillment->fulfillment_number];
+        }
+        $package = \App\Models\Fulfillment\Package::where('barcode', $code)->orWhere('package_number', $code)->first();
+        if ($package) {
+            return ['kind' => 'package', 'id' => $package->id, 'label' => $package->barcode ?? $package->package_number];
         }
         $order = Order::where('order_number', $code)->first();
         if ($order) {

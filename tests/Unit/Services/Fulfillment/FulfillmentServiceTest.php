@@ -77,7 +77,7 @@ class FulfillmentServiceTest extends TestCase
             'location_id' => $this->location->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         // Create order with order items

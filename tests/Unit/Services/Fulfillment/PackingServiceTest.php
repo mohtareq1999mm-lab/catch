@@ -33,7 +33,7 @@ class PackingServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->service = new PackingService(new FulfillmentTransition());
+        $this->service = app(\App\Services\Fulfillment\PackingService::class);
 
         $this->user = \App\Models\User::create([
             'name' => 'Test User',
@@ -123,7 +123,7 @@ class PackingServiceTest extends TestCase
             'location_id' => $location->id,
             'warehouse_id' => $this->warehouse->id,
             'quantity' => 50,
-            'reserved_quantity' => 0,
+            'allocated_hint' => 0,
         ]);
 
         FulfillmentItem::create([
@@ -257,8 +257,13 @@ class PackingServiceTest extends TestCase
         $this->assertEquals($this->fulfillment->id, $shipment->fulfillment_id);
         $this->assertEquals($task->id, $shipment->packing_task_id);
         $this->assertEquals('DHL', $shipment->courier);
-        $this->assertEquals('pending', $shipment->status);
+        // Phase 11: creation lands at label_created; fulfillment ships at dispatch.
+        $this->assertEquals('label_created', $shipment->status);
         $this->assertEquals(2.5, $shipment->total_weight);
+        $this->assertEquals('ready_to_ship', $this->fulfillment->fresh()->status);
+
+        $dispatched = app(\App\Services\Shipment\ShipmentService::class)->dispatch($shipment->id);
+        $this->assertEquals('picked_up', $dispatched->status);
         $this->assertEquals('shipped', $this->fulfillment->fresh()->status);
     }
 

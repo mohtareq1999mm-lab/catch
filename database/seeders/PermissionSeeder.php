@@ -542,5 +542,53 @@ class PermissionSeeder extends Seeder
         $roleStaff->syncPermissions($staffAndOnwner);
         $roleCustomer->syncPermissions($customerPermission);
         $roleEditor->syncPermissions($editorPermission);
+
+        $this->seedWarehouseRoles();
+    }
+
+    /**
+     * Phase 13: warehouse staff roles. Pickers/packers receive execution
+     * permissions ONLY — never financial permissions (update-order-status,
+     * refunds, payment administration). Supervisor holds override.
+     */
+    private function seedWarehouseRoles(): void
+    {
+        $wmsPermissions = [
+            'view-warehouse', 'manage-warehouse',
+            'view-location', 'manage-location',
+            'view-fulfillment', 'manage-fulfillment',
+            'picking-execute', 'packing-execute',
+            'fulfillment-override', 'inventory-adjust',
+        ];
+        foreach ($wmsPermissions as $name) {
+            Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
+        }
+
+        $picker = Role::firstOrCreate(
+            ['name' => 'picker', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Picker', 'ar' => 'عامل التقاط']]
+        );
+        $picker->syncPermissions(['view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute']);
+
+        $packer = Role::firstOrCreate(
+            ['name' => 'packer', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Packer', 'ar' => 'عامل تغليف']]
+        );
+        $packer->syncPermissions(['view-warehouse', 'view-location', 'view-fulfillment', 'packing-execute']);
+
+        $supervisor = Role::firstOrCreate(
+            ['name' => 'warehouse-supervisor', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Warehouse Supervisor', 'ar' => 'مشرف مستودع']]
+        );
+        $supervisor->syncPermissions([
+            'view-warehouse', 'view-location', 'view-fulfillment', 'manage-fulfillment',
+            'picking-execute', 'packing-execute', 'fulfillment-override',
+        ]);
+
+        $manager = Role::firstOrCreate(
+            ['name' => 'warehouse-manager', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Warehouse Manager', 'ar' => 'مدير مستودع']]
+        );
+        $manager->syncPermissions($wmsPermissions);
     }
 }

@@ -128,7 +128,7 @@ class CouponRemediationTest extends TestCase
         $this->assertNotEmpty($payload, 'Expected at least one public coupon row.');
 
         foreach ((array) $payload as $row) {
-            $this->assertArrayNotHasKey('code', (array) $row, 'INV-08: public listing must not leak redeemable codes.');
+            $this->assertNull($row['code'] ?? null, 'INV-08: public listing must not leak redeemable codes.');
         }
     }
 

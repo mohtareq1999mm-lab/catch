@@ -298,6 +298,18 @@ final class Permission extends Enum
     public const CREATE_SHIPMENT = 'create-shipment';
     public const UPDATE_SHIPMENT = 'update-shipment';
 
+    // 🏭 Warehouse / WMS (Phase 13 — picker/packer NEVER gain financial perms)
+    public const VIEW_WAREHOUSE = 'view-warehouse';
+    public const MANAGE_WAREHOUSE = 'manage-warehouse';
+    public const VIEW_LOCATION = 'view-location';
+    public const MANAGE_LOCATION = 'manage-location';
+    public const VIEW_FULFILLMENT = 'view-fulfillment';
+    public const MANAGE_FULFILLMENT = 'manage-fulfillment';
+    public const PICKING_EXECUTE = 'picking-execute';
+    public const PACKING_EXECUTE = 'packing-execute';
+    public const FULFILLMENT_OVERRIDE = 'fulfillment-override';
+    public const INVENTORY_ADJUST = 'inventory-adjust';
+
     // 🔑 Digital licenses (Workstream 5, decision A4)
     public const MANAGE_DIGITAL_LICENSES = 'manage-digital-licenses';
 

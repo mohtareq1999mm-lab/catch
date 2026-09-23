@@ -21,11 +21,15 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\NotifyPromotionsEndingSoon::class,
         \App\Console\Commands\NotifyFlashSalesEndingSoon::class,
         \App\Console\Commands\SyncCurrencyRates::class,
+        \App\Console\Commands\SweepExpiredPickingClaims::class,
     ];
 
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('orders:cancel-unpaid')->everyFiveMinutes()->withoutOverlapping();
+        // Phase 15: picking-claim leases (default 15 min) recycle on the same
+        // cadence so disconnected workers free tasks promptly.
+        $schedule->command('picking:sweep-expired-claims')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('coupons:expire-reservations')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('coupons:expire-claims')->hourly()->withoutOverlapping();
         // F-06: read-only coupon reconciliation detectors (INV-01–INV-07).

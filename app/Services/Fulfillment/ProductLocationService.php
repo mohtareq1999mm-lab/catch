@@ -11,12 +11,14 @@ use Illuminate\Support\Facades\Log;
 class ProductLocationService
 {
     /**
-     * Sync product locations with stock quantity
-     * CRITICAL: Ensures SUM(locations) <= Stock.stock_quantity
+     * Verify placement hints against central stock.
+     * Phase 12: MONITOR, never a throwing gate (locked decision). Hints are
+     * last-known placement; legitimate flows (returns, receiving) transiently
+     * exceed central stock before it is updated. Returns drift status.
      */
-    public function syncWithStock(int $productId): void
+    public function syncWithStock(int $productId): bool
     {
-        DB::transaction(function () use ($productId) {
+        return DB::transaction(function () use ($productId) {
             // Lock product row
             $product = Product::where('id', $productId)
                 ->lockForUpdate()
@@ -30,15 +32,13 @@ class ProductLocationService
 
             // Validate invariant
             if ($totalInLocations > $stockQuantity) {
-                Log::error('Product location quantity exceeds stock', [
+                Log::warning('Product location quantity exceeds stock (drift monitor)', [
                     'product_id' => $productId,
                     'stock_quantity' => $stockQuantity,
                     'total_in_locations' => $totalInLocations,
                 ]);
 
-                throw new \Exception(
-                    "Product location total ($totalInLocations) exceeds stock quantity ($stockQuantity)"
-                );
+                return false;
             }
 
             Log::info('Product location sync validated', [
@@ -46,6 +46,8 @@ class ProductLocationService
                 'stock_quantity' => $stockQuantity,
                 'total_in_locations' => $totalInLocations,
             ]);
+
+            return true;
         });
     }
 

@@ -30,10 +30,16 @@ class HandleFailedQueueJob
         ]);
 
         try {
+            // Exception bytes are untrusted (may contain binary/invalid
+            // UTF-8 that would break the notification's JSON payload or DB
+            // insert). Normalize only the alert-bound copy — the original
+            // message above stays intact in logs and failed_jobs.
+            $safeMessage = mb_convert_encoding($message, 'UTF-8', 'UTF-8');
+
             $admins = \Marvel\Database\Models\User::role(\Marvel\Enums\Role::SUPER_ADMIN)->get();
 
             if ($admins->isNotEmpty()) {
-                Notification::send($admins, new AdminQueueJobFailedNotification($jobName, $queue, $message));
+                Notification::send($admins, new AdminQueueJobFailedNotification($jobName, $queue, $safeMessage));
             }
         } catch (\Throwable $e) {
             // Alerting must never mask the original failure.

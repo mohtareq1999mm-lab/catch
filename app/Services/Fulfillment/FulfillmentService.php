@@ -222,6 +222,41 @@ class FulfillmentService
     }
 
     /**
+     * Phase 12: operational cancellation of a fulfillment (e.g. order cancelled
+     * mid-pick). Cancels the fulfillment via the single owner, skips open
+     * picking tasks (picked progress stays on items for audit), cancels open
+     * packing tasks. Inventory/coupon release is owned by the order cancel
+     * path (changeOrderStatus) — never duplicated here.
+     */
+    public function cancelFulfillment(Fulfillment $fulfillment, string $reason, array $context = []): Fulfillment
+    {
+        return DB::transaction(function () use ($fulfillment, $reason, $context) {
+            $cancelled = $this->transitions->transition(
+                $fulfillment, 'cancelled', $context + ['reason' => $reason]
+            );
+
+            $itemIds = $cancelled->items()->pluck('id');
+            if ($itemIds->isNotEmpty()) {
+                \App\Models\Fulfillment\PickingTask::whereIn('fulfillment_item_id', $itemIds)
+                    ->whereIn('status', ['pending', 'assigned', 'picking'])
+                    ->update(['status' => 'skipped', 'notes' => 'Fulfillment cancelled: ' . $reason]);
+            }
+
+            \App\Models\Fulfillment\PackingTask::where('fulfillment_id', $cancelled->id)
+                ->whereNotIn('status', ['verified', 'cancelled'])
+                ->update(['status' => 'cancelled', 'notes' => 'Fulfillment cancelled: ' . $reason]);
+
+            Log::warning('Fulfillment cancelled operationally', [
+                'fulfillment_id' => $cancelled->id,
+                'order_id' => $cancelled->order_id,
+                'reason' => $reason,
+            ]);
+
+            return $cancelled->fresh();
+        });
+    }
+
+    /**
      * Assign fulfillment to user
      */
     public function assignToUser(Fulfillment $fulfillment, int $userId): Fulfillment

@@ -226,11 +226,30 @@ class ReturnService
             );
         }
 
+        // Phase 12: duplicate-restock protection (restock is not idempotent
+        // by quantity — a second call for the same approval must fail loudly).
+        if ($returnItem->isFullyRestocked()) {
+            throw new \Exception(
+                "Return item #{$returnItem->id} is already fully restocked"
+            );
+        }
+
         if ($quantity > $returnItem->quantity_approved) {
             throw new \Exception('Restock quantity cannot exceed approved quantity');
         }
 
         return DB::transaction(function () use ($returnItem, $locationId, $quantity) {
+            // Phase 12: central restore FIRST, placement hint second — the
+            // authority moves before its projection, so the drift monitor
+            // never observes an inconsistent intermediate state.
+            $returnOrder = $returnItem->returnRequest?->order ?? $returnItem->returnRequest()->first()?->order;
+            if ($returnOrder && $returnItem->order_item_id) {
+                app(\App\Services\Inventory\InventoryRestoreService::class)->restoreLines(
+                    $returnOrder,
+                    [['order_item_id' => (int) $returnItem->order_item_id, 'quantity' => $quantity]],
+                );
+            }
+
             $productLocation = ProductLocation::firstOrCreate(
                 [
                     'product_id' => $returnItem->product_id,

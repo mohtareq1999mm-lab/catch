@@ -6,6 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
+use App\Services\Coupon\CouponClaimRequirement;
 
 class UserCouponAvailableNotification extends Notification implements ShouldQueue
 {
@@ -40,6 +41,7 @@ class UserCouponAvailableNotification extends Notification implements ShouldQueu
             'action_url' => "/coupons/{$this->coupon->id}",
             'coupon_id' => $this->coupon->id,
             'coupon_code' => $this->coupon->code,
+            'requires_claim' => CouponClaimRequirement::forCoupon($this->coupon),
             'coupon_type' => $this->coupon->type ?? null,
         ];
     }

@@ -46,7 +46,7 @@ class FulfillmentLifecycleTest extends TestCase
         ]);
         ProductLocation::create([
             'product_id' => $product->id, 'location_id' => $location->id,
-            'warehouse_id' => $warehouse->id, 'quantity' => $qty, 'reserved_quantity' => 0,
+            'warehouse_id' => $warehouse->id, 'quantity' => $qty, 'allocated_hint' => 0,
         ]);
     }
 

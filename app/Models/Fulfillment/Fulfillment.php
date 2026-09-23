@@ -92,7 +92,10 @@ class Fulfillment extends Model
 
     public function scopeByPriority($query)
     {
-        return $query->orderByRaw("FIELD(priority, 'high', 'normal', 'low')");
+        // Phase 16: portable priority ordering (FIELD() is MySQL-only).
+        return $query->orderByRaw(
+            "CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 3 END"
+        );
     }
 
     public function scopeForWarehouse($query, int $warehouseId)

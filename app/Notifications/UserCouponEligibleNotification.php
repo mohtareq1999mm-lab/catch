@@ -6,6 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
+use App\Services\Coupon\CouponClaimRequirement;
 
 /**
  * Per-user dynamic-eligibility notification (type coupon.eligible).
@@ -53,6 +54,7 @@ class UserCouponEligibleNotification extends Notification implements ShouldQueue
             'resource_id' => $coupon?->id,
             'action_url' => "/coupons/{$coupon?->id}",
             'coupon_id' => $coupon?->id,
+            'requires_claim' => CouponClaimRequirement::forCoupon($coupon),
             'tree_hash' => $this->treeHash,
             'run_id' => $this->distributionRunId,
         ];

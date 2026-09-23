@@ -57,7 +57,7 @@ class InvoiceLifecycleTest extends TestCase
             $this->timelineService,
         );
 
-        $this->shipmentService = new ShipmentService();
+        $this->shipmentService = app(ShipmentService::class);
 
         $this->createOrder();
     }

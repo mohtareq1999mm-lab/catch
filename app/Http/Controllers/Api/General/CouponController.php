@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\General;
 
 use App\Enums\FrontendResource;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\Coupons\CouponResource;
+use App\Http\Resources\Coupons\CustomerCouponResource;
 use App\Services\General\CouponService;
 use App\Traits\HasCache;
 use Marvel\Traits\ApiResponse;
@@ -21,9 +21,24 @@ class CouponController extends Controller
 
     public function index(Request $request)
     {
-        $coupons = $this->couponService->getCoupons($request);
-        $couponsCache = $this->remember(FrontendResource::COUPONS->value, md5($request->fullUrl()), $coupons);
-        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CouponResource::collection($couponsCache));
+        // Customer discovery: the response carries per-customer eligibility,
+        // so authenticated responses must never share the anonymous cache
+        // entry (short per-user TTL mirrors the discovery service).
+        $user = $request->user();
+        $coupons = $this->couponService->getCoupons($request, $user);
+
+        if ($user) {
+            $couponsCache = $this->remember(
+                FrontendResource::COUPONS->value,
+                md5($request->fullUrl().':user:'.$user->getKey()),
+                $coupons,
+                now()->addMinute(),
+            );
+        } else {
+            $couponsCache = $this->remember(FrontendResource::COUPONS->value, md5($request->fullUrl()), $coupons);
+        }
+
+        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CustomerCouponResource::collection($couponsCache));
     }
 
     public function applyCoupon(Request $request)
@@ -174,9 +189,9 @@ class CouponController extends Controller
     /**
      * Available coupons: personalized discovery for the authenticated user.
      *
-     * Advisory only — Engine-eligible, valid, targeted coupons with
-     * owner-safe shells (never codes, rules, or counters). Claim/apply/
-     * checkout revalidate authoritatively.
+     * Advisory only — valid public coupons plus Engine-eligible targeted
+     * coupons, with owner-safe shells (never codes, rules, or counters).
+     * Claim/apply/checkout revalidate authoritatively.
      *
      * @OA\Get(
      *     path="/api/v1/general/coupons/available",

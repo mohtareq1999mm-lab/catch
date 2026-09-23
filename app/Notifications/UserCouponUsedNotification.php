@@ -6,6 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
+use App\Services\Coupon\CouponClaimRequirement;
 
 class UserCouponUsedNotification extends Notification implements ShouldQueue
 {
@@ -47,6 +48,7 @@ class UserCouponUsedNotification extends Notification implements ShouldQueue
             'coupon_code' => $this->coupon?->code,
             'order_id' => $this->order?->id,
             'remaining_uses' => $this->remainingUses,
+            'requires_claim' => CouponClaimRequirement::forCoupon($this->coupon),
             'consumed_at' => $this->consumedAt?->toIso8601String(),
         ];
     }

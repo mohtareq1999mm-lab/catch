@@ -465,13 +465,8 @@ Route::prefix('invoices')->group(function () {
 });
 
 
-Route::get('check-card-payment', function () {
-    return [
-        'CardNumber' => '2223000000000007',
-        'CardExpiryMonthand year' => '01/39',
-        'CardCVV' => '100',
-    ];
-});
+// Phase 16: removed public test-card endpoint (exposed test PAN/CVV without
+// auth or throttle). Test payments use the gateway sandbox directly.
 
 
 Route::get('/enum-types', function () {

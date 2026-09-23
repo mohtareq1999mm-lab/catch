@@ -18,6 +18,7 @@ class Shipment extends Model
         'fulfillment_id',
         'packing_task_id',
         'tracking_number',
+        'idempotency_key',
         'courier',
         'status',
         'shipping_method',
