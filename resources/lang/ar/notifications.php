@@ -52,6 +52,10 @@ return [
             'title' => 'تم استخدام القسيمة',
             'body' => 'لقد استخدمت القسيمة :coupon_code.',
         ],
+        'eligible' => [
+            'title' => 'قسيمة متاحة لك',
+            'body' => 'خبر سار — أنت مؤهل للحصول على :coupon_name. افتحها للمطالبة بها.',
+        ],
     ],
     'flash_sale' => [
         'available' => [

@@ -4,6 +4,8 @@ namespace App\Observers;
 
 use App\Audit\ActivityAuditService;
 use App\Events\CouponCreated;
+use App\Events\Coupons\CouponActivated;
+use App\Events\Coupons\CouponDisabled;
 use Marvel\Database\Models\Coupon;
 
 class CouponObserver
@@ -19,6 +21,14 @@ class CouponObserver
         );
 
         event(new CouponCreated($coupon));
+
+        // Created-active coupons enter the distribution plane immediately
+        // (targeting may not exist yet — the start path skips
+        // non-distributable coupons and the targeting hook starts the run
+        // once targeting lands).
+        if ($coupon->status) {
+            event(new CouponActivated($coupon));
+        }
     }
 
     public function updated(Coupon $coupon): void
@@ -49,6 +59,14 @@ class CouponObserver
                 old: ['status' => $oldStatus],
                 new: ['status' => $newStatus],
             );
+
+            // Distribution lifecycle: disabled→enabled = activation fan-out,
+            // enabled→disabled = cancel in-flight runs. After-commit events.
+            if (! $oldStatus && $newStatus) {
+                event(new CouponActivated($coupon));
+            } elseif ($oldStatus && ! $newStatus) {
+                event(new CouponDisabled($coupon));
+            }
         }
 
         if ($hasOtherChanges) {

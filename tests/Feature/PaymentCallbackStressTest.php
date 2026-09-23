@@ -239,6 +239,8 @@ class PaymentCallbackStressTest extends TestCase
             $table->text('gateway_response')->nullable();
             $table->text('error_message')->nullable();
             $table->timestamp('paid_at')->nullable();
+            // Mirrors production transactions table: callback idempotency token.
+            $table->string('idempotency_key')->nullable()->unique();
             $table->timestamps();
         });
 
@@ -488,7 +490,9 @@ class PaymentCallbackStressTest extends TestCase
         $response->assertStatus(302);
 
         $this->assertEquals('pending', $order->fresh()->status);
-        $this->assertEquals('pending', $order->fresh()->transactions()->first()->status);
+        // Canonical behavior (locked): mismatch fails the attempt visibly so the
+        // gateway does not retry forever; the ORDER stays pending for retry.
+        $this->assertEquals('failed', $order->fresh()->transactions()->first()->status);
 
         Event::assertDispatched(PaymentFailed::class);
     }
@@ -496,12 +500,14 @@ class PaymentCallbackStressTest extends TestCase
     /** @test */
     public function callback_with_non_existent_transaction_redirects_success(): void
     {
+        // B4 (locked architecture): gateway-verified payment with NO local
+        // transaction/order must fail safe — never render a success UI.
         $this->mockSuccessfulGateway('payment-nonexistent', times: 1);
 
         $response = $this->get(self::PREFIX . '/checkout/callback?paymentId=payment-nonexistent');
 
         $response->assertStatus(302);
-        $this->assertStringContainsString('payment/success', $response->headers->get('Location'));
+        $this->assertStringContainsString('payment/failed', $response->headers->get('Location'));
     }
 
     /** @test */

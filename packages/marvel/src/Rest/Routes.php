@@ -289,6 +289,11 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
         Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show');
         Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert');
         Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy');
+        // Coupon distribution (RabbitMQ event backbone): manual runs + status.
+        // Permission: update-coupon (in-controller, explicit + documented).
+        Route::post('{id}/distribute', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'distribute'])->whereNumber('id');
+        Route::get('{id}/distributions', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'index'])->whereNumber('id');
+        Route::get('{id}/distributions/{runId}', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'show'])->whereNumber(['id', 'runId']);
     });
 
     //============================= wishlists ========================/

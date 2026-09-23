@@ -62,6 +62,16 @@ abstract class NotificationE2ETestCase extends TestCase
 
         $this->beginDatabaseTransaction();
 
+        // The suite asserts on real broadcasts: resolve the Pusher
+        // broadcaster with dummy credentials (no network on construct) so
+        // setupBroadcastRecorder() can swap in the RecordingPusher.
+        // phpunit.xml forces BROADCAST_DRIVER=log; override per-test here.
+        config(['broadcasting.default' => 'pusher']);
+        config(['broadcasting.connections.pusher.key' => 'e2e-test-key']);
+        config(['broadcasting.connections.pusher.secret' => 'e2e-test-secret']);
+        config(['broadcasting.connections.pusher.app_id' => 'e2e-test-app']);
+        Broadcast::forgetDrivers();
+
         $this->setupBroadcastRecorder();
     }
 

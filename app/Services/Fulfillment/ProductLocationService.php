@@ -57,12 +57,11 @@ class ProductLocationService
         float $requiredQuantity,
         ?int $warehouseId = null
     ): array {
-        $query = ProductLocation::where('product_id', $productId)
-            ->hasStock()
-            ->with('location');
+        $query = ProductLocation::where('product_locations.product_id', $productId)
+            ->hasStock();
 
         if ($warehouseId) {
-            $query->forWarehouse($warehouseId);
+            $query->where('product_locations.warehouse_id', $warehouseId);
         }
 
         // Order by location priority, then quantity

@@ -145,6 +145,11 @@ class OrderReservationLifecycleTest extends TestCase
             'total_price' => $product->price * $qty,
             'status' => 'pending',
             'payment_status' => Order::PAYMENT_STATUS_PENDING,
+            // Production checkout always denominates the order; the gateway
+            // mocks in this suite settle in EGP, so the fixture must match
+            // (otherwise the correct currency-mismatch guard trips).
+            'currency_code' => 'EGP',
+            'base_currency_code' => 'EGP',
         ]);
 
         $order->orderItems()->create([
@@ -817,14 +822,17 @@ class OrderReservationLifecycleTest extends TestCase
 
         // Payment success alters NO physical counters.
         $order->forceFill(['paid_at' => null])->save();
+        // Settle in the ORDER's real currency (HTTP checkout denominates it;
+        // hardcoding a different currency trips the correct mismatch guard).
+        $orderCurrency = $order->currency_code ?? $order->base_currency_code ?? 'EGP';
         Transaction::create([
             'order_id' => $order->id, 'user_id' => $user->id,
             'payment_method' => 'myfatoorah', 'status' => 'pending',
-            'amount' => (float) $order->total_price, 'currency' => 'EGP',
+            'amount' => (float) $order->total_price, 'currency' => $orderCurrency,
             'invoice_id' => 'D-' . $order->id, 'gateway_transaction_id' => 'DP-' . $order->id,
         ]);
         $gateway = \Mockery::mock(PaymentGatewayContract::class);
-        $gateway->shouldReceive('verifyPayment')->andReturn(new GatewayResult(success: true, gatewayTransactionId: 'DP-' . $order->id, amount: (float) $order->total_price, currency: 'EGP', status: 'paid'));
+        $gateway->shouldReceive('verifyPayment')->andReturn(new GatewayResult(success: true, gatewayTransactionId: 'DP-' . $order->id, amount: (float) $order->total_price, currency: $orderCurrency, status: 'paid'));
         $factory = \Mockery::mock(PaymentGatewayFactory::class);
         $factory->shouldReceive('make')->andReturn($gateway);
         $this->app->instance(PaymentGatewayFactory::class, $factory);

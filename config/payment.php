@@ -6,6 +6,12 @@ return [
     'order_timeout_hours' => env('ORDER_TIMEOUT_HOURS', 24),
     'cod_order_timeout_hours' => env('COD_ORDER_TIMEOUT_HOURS', 24 * 7),
 
+    // B5 hardening: amount/currency mismatch bypass on the MyFatoorah test host
+    // requires BOTH this explicit flag AND a local/testing environment (checked in
+    // OrderController::isTestGatewayBypassAllowed). Default OFF — a staging host
+    // pointing at apitest must never silently complete underpaid orders.
+    'test_gateway_bypass_enabled' => env('PAYMENT_TEST_GATEWAY_BYPASS', false),
+
     'gateways' => [
         'myfatoorah' => [
             'class' => App\Services\Gateway\MyFatoorahGateway::class,

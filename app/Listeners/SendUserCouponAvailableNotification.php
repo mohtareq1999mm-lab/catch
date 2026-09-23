@@ -16,12 +16,39 @@ class SendUserCouponAvailableNotification implements ShouldQueue
 
     public function handle(CouponCreated $event): void
     {
-        $coupon = $event->coupon;
+        $this->sendIfMaturePublic($event->coupon);
+    }
 
-        // Only broadcast to everyone when the coupon is public (no per-user assignments).
-        // Coupons that get assigned later notify their specific users via CouponAssigned.
+    /**
+     * Global fan-out, fail-closed. Sends ONLY when the coupon is proven
+     * public: no assignments AND no targeting AND past the creation grace
+     * window (targeting is added after creation in the admin flow; a fresh
+     * coupon without targeting may still become targeted). The public
+     * sweep (coupons:detect-public) delivers mature public coupons.
+     */
+    public function sendIfMaturePublic(\Marvel\Database\Models\Coupon $coupon): bool
+    {
         if ($coupon->assignments()->exists()) {
-            return;
+            return false;
+        }
+
+        try {
+            $targeting = $coupon->targeting;
+        } catch (\Throwable) {
+            return false;
+        }
+
+        if ($targeting !== null) {
+            // Any targeting row (any mode) routes through the targeted
+            // plane or assignment path — never the global broadcast.
+            return false;
+        }
+
+        $graceMinutes = max(1, (int) config('coupon-distribution.public_grace_minutes', 15));
+
+        if ($coupon->created_at !== null && $coupon->created_at->diffInMinutes(now()) < $graceMinutes) {
+            // Too fresh to prove public — the sweep delivers it once mature.
+            return false;
         }
 
         $userModel = config('auth.providers.users.model');
@@ -33,5 +60,7 @@ class SendUserCouponAvailableNotification implements ShouldQueue
                     $user->notify(new UserCouponAvailableNotification($coupon));
                 }
             });
+
+        return true;
     }
 }

@@ -227,6 +227,11 @@ class Order extends Model
         return $this->hasMany(\App\Models\OrderStatusHistory::class, 'order_id')->orderBy('changed_at', 'desc');
     }
 
+    public function fulfillments(): HasMany
+    {
+        return $this->hasMany(\App\Models\Fulfillment\Fulfillment::class, 'order_id');
+    }
+
     /**
      * Record a status change in the immutable order_status_history table.
      * Safe to call inside or outside a transaction; ShouldDispatchAfterCommit

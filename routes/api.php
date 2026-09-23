@@ -122,6 +122,7 @@ Route::prefix('v1/general')->group(function () {
     Route::middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
         //======================== coupons ========================/
         Route::get('coupons/mine', [CouponController::class, 'myCoupons']);
+        Route::get('coupons/available', [CouponController::class, 'available']);
         Route::post('coupons/apply', [CouponController::class, 'applyCoupon']);
         Route::post('coupons/{id}/claim', [CouponController::class, 'claim'])->whereNumber('id');
         //======================== checkout ========================//
@@ -204,6 +205,7 @@ Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum', 'throttle:
     Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id');
     Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id');
     Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id');
+
 });
 
 Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {

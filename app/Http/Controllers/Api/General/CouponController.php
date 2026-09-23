@@ -171,6 +171,42 @@ class CouponController extends Controller
         }
     }
 
+    /**
+     * Available coupons: personalized discovery for the authenticated user.
+     *
+     * Advisory only — Engine-eligible, valid, targeted coupons with
+     * owner-safe shells (never codes, rules, or counters). Claim/apply/
+     * checkout revalidate authoritatively.
+     *
+     * @OA\Get(
+     *     path="/api/v1/general/coupons/available",
+     *     tags={"Coupons"},
+     *     summary="Coupons available to me",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\Response(response=200, description="Available coupons"),
+     *     @OA\Response(response=401, description="Unauthenticated")
+     * )
+     */
+    public function available(Request $request)
+    {
+        $request->validate([
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $service = app(\App\Services\Coupon\Distribution\Discovery\AvailableCouponsService::class);
+        $result = $service->forUser(
+            $request->user(),
+            (int) $request->query('page', 1),
+            (int) $request->query('limit', config('coupon-distribution.available_default_limit', 15)),
+        );
+
+        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, [
+            'data' => $result['data'],
+            'meta' => $result['meta'],
+        ]);
+    }
+
     private function mapClaimExceptionMessage(\App\Exceptions\CouponClaimException $e): string
     {
         return match ($e->reason) {

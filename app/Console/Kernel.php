@@ -71,6 +71,16 @@ class Kernel extends ConsoleKernel
         $schedule->call(function () {
             \App\Services\Metrics\OrderTrackingMetrics::reset();
         })->daily()->name('reset-order-tracking-metrics');
+
+        // Coupon distribution event backbone (RabbitMQ transport, MySQL truth).
+        // The immediate after-commit publish job carries fresh events; the
+        // sweep covers crashes between commit and that job. Activation scan
+        // is deduplicated (repeat ticks converge to one run per tree).
+        $schedule->command('coupons:publish-outbox --batch=100')->everyMinute()->withoutOverlapping()->onOneServer();
+        $schedule->command('coupons:detect-activations')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+        $schedule->command('coupons:detect-expiry')->hourly()->withoutOverlapping()->onOneServer();
+        $schedule->command('coupons:detect-public')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+        $schedule->command('coupons:prune-events --days=90')->monthly()->withoutOverlapping()->onOneServer();
     }
 
     /**

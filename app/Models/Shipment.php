@@ -15,6 +15,8 @@ class Shipment extends Model
     protected $fillable = [
         'uuid',
         'order_id',
+        'fulfillment_id',
+        'packing_task_id',
         'tracking_number',
         'courier',
         'status',
@@ -59,6 +61,16 @@ class Shipment extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(\Marvel\Database\Models\Order::class);
+    }
+
+    public function fulfillment(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Fulfillment\Fulfillment::class);
+    }
+
+    public function packingTask(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Fulfillment\PackingTask::class);
     }
 
     public function canTransitionTo(string $target): bool

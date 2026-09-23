@@ -27,8 +27,12 @@ class CouponNotificationE2ETest extends NotificationE2ETestCase
         $admin = $this->createUser('admin');
 
         // CouponObserver::created dispatches CouponCreated -> fan-out listener.
+        // Mature past the creation grace: the global path only serves
+        // proven-public coupons (fail-closed against targeted leaks).
         $coupon = $this->createCouponWithoutEvents();
-        event(new CouponCreated($coupon));
+        DB::table('coupons')->where('id', $coupon->id)
+            ->update(['created_at' => now()->subMinutes(30)]);
+        event(new CouponCreated($coupon->fresh()));
 
         foreach ([$userA, $userB] as $user) {
             $this->assertDatabaseNotification(

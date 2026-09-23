@@ -142,6 +142,23 @@ class UserNotificationTest extends TestCase
             $table->timestamps();
         });
 
+        // Mirrors production coupon_targetings (mode as plain string to
+        // avoid enum-value drift). Required by the global fan-out guard.
+        if (!Schema::hasTable('coupon_targetings')) {
+            Schema::create('coupon_targetings', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('coupon_id');
+                $table->string('mode', 60)->default('assignment');
+                $table->boolean('require_claim')->default(false);
+                $table->unsignedInteger('max_claims')->nullable();
+                $table->unsignedInteger('claim_ttl_hours')->nullable();
+                $table->json('rule_tree')->nullable();
+                $table->timestamps();
+
+                $table->unique('coupon_id');
+            });
+        }
+
         Schema::create('refunds', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('customer_id')->nullable();
@@ -671,8 +688,11 @@ class UserNotificationTest extends TestCase
         $user = $this->createRegularUser();
         $admin = $this->createAdminUser();
         $coupon = $this->createCoupon();
+        // Global path serves proven-public coupons only (creation grace).
+        \Illuminate\Support\Facades\DB::table('coupons')->where('id', $coupon->id)
+            ->update(['created_at' => now()->subMinutes(30)]);
 
-        (new SendUserCouponAvailableNotification())->handle(new CouponCreated($coupon));
+        (new SendUserCouponAvailableNotification())->handle(new CouponCreated($coupon->fresh()));
 
         Notification::assertSentTo($user, UserCouponAvailableNotification::class, function ($n) {
             $this->assertLocaleMap($n);
@@ -693,7 +713,7 @@ class UserNotificationTest extends TestCase
             'max_uses' => 1,
         ]);
 
-        (new SendUserCouponAvailableNotification())->handle(new CouponCreated($coupon));
+        (new SendUserCouponAvailableNotification())->handle(new CouponCreated($coupon->fresh()));
 
         Notification::assertNotSentTo($user, UserCouponAvailableNotification::class);
     }

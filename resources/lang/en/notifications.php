@@ -52,6 +52,10 @@ return [
             'title' => 'Coupon used',
             'body' => 'You have used the coupon :coupon_code.',
         ],
+        'eligible' => [
+            'title' => 'A coupon is available for you',
+            'body' => 'Good news — you are eligible for :coupon_name. Open it to claim.',
+        ],
     ],
     'flash_sale' => [
         'available' => [

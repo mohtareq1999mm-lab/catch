@@ -272,6 +272,69 @@ Schema::create('categories', function (Blueprint $table) {
             $table->timestamps();
         });
 
+        // Mirrors 2026_09_12_000001 production migration: order-event listeners
+        // query per-user channel preferences; absence breaks event paths.
+        Schema::create('user_notification_preferences', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->unique();
+            $table->boolean('email_enabled')->default(true);
+            $table->boolean('sms_enabled')->default(true);
+            $table->boolean('push_enabled')->default(true);
+            $table->boolean('websocket_enabled')->default(true);
+            $table->json('event_preferences')->nullable();
+            $table->boolean('email_verified')->default(false);
+            $table->boolean('phone_verified')->default(false);
+            $table->timestamp('email_verified_at')->nullable();
+            $table->timestamp('phone_verified_at')->nullable();
+            $table->time('quiet_hours_start')->nullable();
+            $table->time('quiet_hours_end')->nullable();
+            $table->boolean('respect_quiet_hours')->default(false);
+            $table->string('notification_language', 10)->default('en');
+            $table->timestamps();
+        });
+
+        // Mirrors 2026_09_12_000002 production migration (string status: sqlite
+        // has no enum type; test semantics identical). Order-event listeners
+        // insert delivery rows; absence breaks cancel/complete event paths.
+        Schema::create('order_notifications', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id');
+            $table->unsignedBigInteger('user_id');
+            $table->string('event_type', 50);
+            $table->string('channel', 20);
+            $table->string('status', 20)->default('pending');
+            $table->string('subject')->nullable();
+            $table->text('message')->nullable();
+            $table->timestamp('sent_at')->nullable();
+            $table->timestamp('delivered_at')->nullable();
+            $table->timestamp('failed_at')->nullable();
+            $table->text('failure_reason')->nullable();
+            $table->string('provider', 50)->nullable();
+            $table->string('provider_message_id')->nullable();
+            $table->json('provider_response')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            $table->index(['order_id', 'channel', 'event_type']);
+        });
+
+        // Mirrors 2026_09_12_000003 production migration. Push listeners query
+        // active unexpired tokens on every order event; absence breaks them.
+        Schema::create('user_device_tokens', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('token', 500);
+            $table->string('platform', 20)->default('web');
+            $table->string('device_name')->nullable();
+            $table->string('device_id')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->string('app_version')->nullable();
+            $table->string('os_version')->nullable();
+            $table->timestamps();
+            $table->index(['user_id', 'is_active']);
+        });
+
         Schema::create('media', function (Blueprint $table) {
             $table->id();
             $table->morphs('model');
@@ -342,6 +405,23 @@ Schema::create('categories', function (Blueprint $table) {
             $table->timestamps();
             $table->index(['coupon_id', 'expires_at']);
             $table->unique(['order_id']);
+        });
+
+        // Mirrors database/migrations/2026_09_10_000001 (+ later mode/claim
+        // extensions). Mode is a plain string here to avoid enum-value drift
+        // between the helper and production migrations.
+        Schema::create('coupon_targetings', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('coupon_id')->constrained('coupons')->cascadeOnDelete();
+            $table->string('mode', 60)->default('assignment');
+            $table->boolean('require_claim')->default(false);
+            $table->unsignedInteger('max_claims')->nullable();
+            $table->unsignedInteger('claim_ttl_hours')->nullable();
+            $table->json('rule_tree')->nullable();
+            $table->timestamps();
+
+            $table->unique('coupon_id');
+            $table->index('require_claim');
         });
 
         Schema::create('roles', function (Blueprint $table) {
@@ -658,6 +738,8 @@ Schema::create('categories', function (Blueprint $table) {
             $table->text('error_message')->nullable();
             $table->string('qr_code_url', 500)->nullable();
             $table->timestamp('paid_at')->nullable();
+            // Mirrors production: callback idempotency token (controller writes it).
+            $table->string('idempotency_key')->nullable()->unique();
             $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->timestamps();
         });

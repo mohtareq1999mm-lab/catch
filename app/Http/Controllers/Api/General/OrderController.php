@@ -262,24 +262,28 @@ class OrderController extends Controller
             ]));
         }
 
+        // B4: gateway-verified but locally unknown payment. Fail SAFE — never
+        // present a success UI for an order that does not exist locally.
         if (!$order) {
+            \Illuminate\Support\Facades\Log::warning('Payment callback for unknown order blocked', [
+                'payment_id' => $paymentId,
+                'gateway_verified' => $result->success,
+            ]);
+            $unknownMessage = __(PAYMENT_FAILED);
             if ($callbackType === 'mobile') {
-                return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, [
-                    'status' => 'success',
-                    'message' => __(PAYMENT_SUCCESSFUL),
+                return $this->apiResponse(PAYMENT_FAILED, 400, false, [
+                    'status' => 'failed',
+                    'message' => $unknownMessage,
                     'payment_id' => $paymentId,
                 ]);
             }
 
-            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/success?' . http_build_query([
-                'status' => 'success',
-                'message' => __(PAYMENT_SUCCESSFUL),
+            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+                'status' => 'failed',
+                'message' => $unknownMessage,
                 'payment_id' => $paymentId,
             ]));
         }
-
-        $isTestGateway = str_contains(config('services.myfatoorah.base_url', ''), 'apitest');
-        $isProduction = app()->environment('production');
 
         // Transactionally safe mismatch handling + success path under same lock.
         // Uses integer cents to avoid floating-point authority errors.
@@ -288,7 +292,7 @@ class OrderController extends Controller
         $couponBlocked = null;
 
         try {
-            DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, $isTestGateway, $isProduction, &$processed, &$mismatchHandled) {
+            DB::transaction(function () use ($order, $transaction, $paymentId, $verifiedInvoiceId, $result, &$processed, &$mismatchHandled) {
             $lockedTransaction = Transaction::where('gateway_transaction_id', $paymentId)
                 ->orWhere('invoice_id', $paymentId)
                 ->lockForUpdate()
@@ -355,8 +359,8 @@ class OrderController extends Controller
                     'received' => $result->amount,
                 ]);
             } elseif ($receivedCents !== $expectedCents) {
-                if ($isTestGateway && !$isProduction) {
-                    \Log::info('Payment amount mismatch ignored (test gateway, non-production)', [
+                if ($this->isTestGatewayBypassAllowed()) {
+                    \Log::info('Payment amount mismatch ignored (test gateway bypass explicitly enabled)', [
                         'order_id' => $lockedOrder->id,
                         'expected_cents' => $expectedCents,
                         'received_cents' => $receivedCents,
@@ -383,8 +387,8 @@ class OrderController extends Controller
                         'received' => $result->currency,
                     ]);
                 } elseif ($receivedCurrency !== $expectedCurrencyNorm) {
-                    if ($isTestGateway && !$isProduction) {
-                        \Log::info('Payment currency mismatch ignored (test gateway, non-production)', [
+                    if ($this->isTestGatewayBypassAllowed()) {
+                        \Log::info('Payment currency mismatch ignored (test gateway bypass explicitly enabled)', [
                             'order_id' => $lockedOrder->id,
                             'expected' => $expectedCurrencyNorm,
                             'received' => $receivedCurrency,
@@ -456,12 +460,10 @@ class OrderController extends Controller
             });
         } catch (\App\Exceptions\CouponConsumptionException $e) {
             // M1: coupon consumption refused completion (fail-closed). The
-            // callback transaction rolled back (order stays pending, no
-            // partial usage, idempotency token released for a legitimate
-            // retry after ops intervention). Record the failure visibly so
-            // the gateway does not retry a permanently-blocked completion
-            // forever; reconciliation (coupons:reconcile) surfaces the
-            // paid-at-gateway / pending-local state for manual handling.
+            // callback transaction rolled back (order stays pending, no partial
+            // usage). Record the failure visibly; reconciliation
+            // (coupons:reconcile) surfaces the paid-at-gateway / pending-local
+            // state for manual handling.
             $couponBlocked = $e;
         }
 
@@ -471,8 +473,18 @@ class OrderController extends Controller
                     $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
                     if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
                     if ($lt && $lt->status === 'pending') {
+                        // M2: rotate the idempotency token (the rolled-back attempt
+                        // never persisted one) and stamp the block reason, so a
+                        // legitimate retry after ops intervention reprocesses
+                        // instead of wedging on a stale token. Status stays failed
+                        // so automatic gateway retries cannot complete payment.
+                        $merged = is_array($lt->gateway_response) ? $lt->gateway_response : [];
+                        $merged['_coupon_blocked_at'] = now()->toIso8601String();
+                        $merged['_coupon_blocked_reason'] = \Illuminate\Support\Str::limit(strip_tags($couponBlocked->getMessage()), 500, '');
                         $lt->update([
                             'status' => 'failed',
+                            'idempotency_key' => null,
+                            'gateway_response' => $merged,
                             'error_message' => \Illuminate\Support\Str::limit(strip_tags($couponBlocked->getMessage()), 500, ''),
                         ]);
                     }
@@ -609,13 +621,11 @@ class OrderController extends Controller
         $errorCallbackType = $this->getCallbackType($transaction, $request);
 
         if ($result->success) {
-            $isTestGatewayErr = str_contains(config('services.myfatoorah.base_url', ''), 'apitest');
-            $isProductionErr = app()->environment('production');
             $mismatchInError = false;
             $processedErrorSuccess = false;
             $couponBlockedError = null;
             try {
-            DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $result, $isTestGatewayErr, $isProductionErr, &$mismatchInError, &$processedErrorSuccess) {
+            DB::transaction(function () use ($paymentId, $verifiedInvoiceId, $result, &$mismatchInError, &$processedErrorSuccess) {
                 $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
                 if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
                 if (!$lt) return;
@@ -636,12 +646,12 @@ class OrderController extends Controller
                 $hasMismatch = false;
                 if ($receivedCentsErr === null) $hasMismatch = true;
                 elseif ($receivedCentsErr !== $expectedCentsErr) {
-                    if (!($isTestGatewayErr && !$isProductionErr)) $hasMismatch = true;
+                    if (!$this->isTestGatewayBypassAllowed()) $hasMismatch = true;
                 }
                 if (!$hasMismatch) {
                     if ($receivedCurrencyErr === null) $hasMismatch = true;
                     elseif ($receivedCurrencyErr !== $expectedCurrencyNormErr) {
-                        if (!($isTestGatewayErr && !$isProductionErr)) $hasMismatch = true;
+                        if (!$this->isTestGatewayBypassAllowed()) $hasMismatch = true;
                     }
                 }
                 if ($hasMismatch) {
@@ -681,8 +691,15 @@ class OrderController extends Controller
                         $lt = Transaction::where('gateway_transaction_id', $paymentId)->orWhere('invoice_id', $paymentId)->lockForUpdate()->first();
                         if (!$lt) $lt = Transaction::where('gateway_transaction_id', $verifiedInvoiceId)->orWhere('invoice_id', $verifiedInvoiceId)->lockForUpdate()->first();
                         if ($lt && $lt->status === 'pending') {
+                            // M2 parity with success-callback: rotate token + stamp
+                            // block reason so legitimate retry reprocesses.
+                            $mergedErr = is_array($lt->gateway_response) ? $lt->gateway_response : [];
+                            $mergedErr['_coupon_blocked_at'] = now()->toIso8601String();
+                            $mergedErr['_coupon_blocked_reason'] = \Illuminate\Support\Str::limit(strip_tags($couponBlockedError->getMessage()), 500, '');
                             $lt->update([
                                 'status' => 'failed',
+                                'idempotency_key' => null,
+                                'gateway_response' => $mergedErr,
                                 'error_message' => \Illuminate\Support\Str::limit(strip_tags($couponBlockedError->getMessage()), 500, ''),
                             ]);
                         }
@@ -723,6 +740,27 @@ class OrderController extends Controller
                         \Illuminate\Support\Facades\Log::warning('PaymentSucceeded skipped: order missing in error-callback', ['payment_id' => $paymentId]);
                     }
                 } catch (\Throwable $e) { report($e); }
+            }
+            // B4 parity: gateway-verified but locally unknown payment. Fail SAFE —
+            // never present a success UI for an order that does not exist locally.
+            if (!$order) {
+                \Illuminate\Support\Facades\Log::warning('Payment error-callback for unknown order blocked', [
+                    'payment_id' => $paymentId,
+                    'gateway_verified' => $result->success,
+                ]);
+                $unknownMessage = __(PAYMENT_FAILED);
+                if ($errorCallbackType === 'mobile') {
+                    return $this->apiResponse(PAYMENT_FAILED, 400, false, [
+                        'status' => 'failed',
+                        'message' => $unknownMessage,
+                        'payment_id' => $paymentId,
+                    ]);
+                }
+                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+                    'status' => 'failed',
+                    'message' => $unknownMessage,
+                    'payment_id' => $paymentId,
+                ]));
             }
             if ($errorCallbackType === 'mobile') {
                 return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, [
@@ -838,5 +876,22 @@ class OrderController extends Controller
             return $requested;
         }
         return 'web';
+    }
+
+    /**
+     * B5: test-gateway amount/currency bypass gate. The URL-substring check only
+     * DETECTS the test host; bypass additionally requires the explicit
+     * `payment.test_gateway_bypass_enabled` flag AND a local/testing environment.
+     * Staging/QA pointing at apitest therefore still blocks mismatches.
+     */
+    private function isTestGatewayBypassAllowed(): bool
+    {
+        if (!str_contains((string) config('services.myfatoorah.base_url', ''), 'apitest')) {
+            return false;
+        }
+        if (!config('payment.test_gateway_bypass_enabled', false)) {
+            return false;
+        }
+        return app()->environment('local', 'testing');
     }
 }

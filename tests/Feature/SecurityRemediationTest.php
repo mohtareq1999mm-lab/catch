@@ -357,8 +357,11 @@ class SecurityRemediationTest extends TestCase
     public function test_payment_callback_test_gateway_allowed_in_non_production(): void
     {
         $originalBaseUrl = config('services.myfatoorah.base_url');
+        $originalBypass = config('payment.test_gateway_bypass_enabled');
         try {
             config(['services.myfatoorah.base_url' => 'https://apitest.myfatoorah.com/v2/']);
+            // B5: bypass now requires the explicit flag, even off-production.
+            config(['payment.test_gateway_bypass_enabled' => true]);
             // Ensure not production
             app()['env'] = 'testing';
             $user = $this->makeUser('customer');
@@ -369,8 +372,61 @@ class SecurityRemediationTest extends TestCase
             $this->assertStringContainsString('/payment/success', $resp->headers->get('Location') ?? '');
         } finally {
             config(['services.myfatoorah.base_url' => $originalBaseUrl]);
+            config(['payment.test_gateway_bypass_enabled' => $originalBypass]);
             app()['env'] = 'testing';
         }
+    }
+
+    public function test_payment_callback_test_gateway_blocked_by_default(): void
+    {
+        // B5: apitest host WITHOUT the explicit flag must still block mismatches,
+        // even in a non-production environment (staging misconfiguration safety).
+        $originalBaseUrl = config('services.myfatoorah.base_url');
+        $originalBypass = config('payment.test_gateway_bypass_enabled');
+        try {
+            config(['services.myfatoorah.base_url' => 'https://apitest.myfatoorah.com/v2/']);
+            config(['payment.test_gateway_bypass_enabled' => false]);
+            app()['env'] = 'testing';
+            $user = $this->makeUser('customer');
+            [$order, $tx] = $this->createOrderWithTransaction($user, 100, 'KWD');
+            $this->mockGatewaySuccess($tx->gateway_transaction_id, 999, 'KWD');
+            $resp = $this->getJson('/api/v1/general/checkout/callback?paymentId=' . $tx->gateway_transaction_id);
+            $resp->assertStatus(302);
+            $this->assertStringContainsString('/payment/failed', $resp->headers->get('Location') ?? '');
+            $tx->refresh();
+            $this->assertEquals('failed', $tx->status);
+        } finally {
+            config(['services.myfatoorah.base_url' => $originalBaseUrl]);
+            config(['payment.test_gateway_bypass_enabled' => $originalBypass]);
+            app()['env'] = 'testing';
+        }
+    }
+
+    public function test_payment_callback_unknown_order_never_shows_success(): void
+    {
+        // B4: gateway-verified payment with NO local transaction/order must fail
+        // safe — never render a success UI. Covers both callbacks × web/mobile.
+        $unknownId = 'PAY-UNKNOWN-' . uniqid();
+        $this->mockGatewaySuccess($unknownId, 100, 'KWD');
+
+        $web = $this->getJson('/api/v1/general/checkout/callback?paymentId=' . $unknownId);
+        $web->assertStatus(302);
+        $this->assertStringContainsString('/payment/failed', $web->headers->get('Location') ?? '');
+        $this->assertStringNotContainsString('/payment/success', $web->headers->get('Location') ?? '');
+
+        $this->mockGatewaySuccess($unknownId, 100, 'KWD');
+        $mobile = $this->getJson('/api/v1/general/checkout/callback?paymentId=' . $unknownId . '&type=mobile');
+        $mobile->assertStatus(400);
+        $this->assertEquals('failed', $mobile->json('data.status') ?? $mobile->json('status'));
+
+        $this->mockGatewaySuccess($unknownId, 100, 'KWD');
+        $errWeb = $this->getJson('/api/v1/general/checkout/error-callback?paymentId=' . $unknownId);
+        $errWeb->assertStatus(302);
+        $this->assertStringContainsString('/payment/failed', $errWeb->headers->get('Location') ?? '');
+
+        $this->mockGatewaySuccess($unknownId, 100, 'KWD');
+        $errMobile = $this->getJson('/api/v1/general/checkout/error-callback?paymentId=' . $unknownId . '&type=mobile');
+        $errMobile->assertStatus(400);
     }
 
     public function test_payment_callback_duplicate_is_idempotent(): void

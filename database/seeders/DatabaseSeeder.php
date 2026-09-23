@@ -80,6 +80,7 @@ class DatabaseSeeder extends Seeder
             CartSeeder::class,
             CouponSeeder::class,
             LocationSeeder::class,
+            QatarLocationSeeder::class,
             PromotionSeeder::class,
             WishlistSeeder::class,
             ContentPageSeeder::class,

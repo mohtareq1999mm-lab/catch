@@ -422,9 +422,18 @@ class OrderService
             return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => null];
         }
 
-        $governorate = Governorate::query()->where('id', $governorateId)->where('status', true)->first();
+        // Governorate/shipping decoupling: existence and shippability are
+        // separate concerns. A nonexistent id yields the null triple (FK
+        // safety for the order snapshot). An existent-but-inactive
+        // governorate keeps its id (snapshot truth = selected delivery
+        // area) with zero shipping — master status must not erase the area.
+        $governorate = Governorate::query()->where('id', $governorateId)->first();
         if (!$governorate) {
             return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => null];
+        }
+
+        if (!$governorate->status) {
+            return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => $governorateId];
         }
 
         $shippingPrice = $governorate->shippingPrice()
@@ -862,6 +871,10 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                             $metricsService = $this->customerMetricsService
                                 ?? app(\App\Services\Customer\CustomerMetricsService::class);
                             $metricsService->rebuildForUser($fresh->user);
+
+                            // Coupon distribution: metrics-family trees may
+                            // now evaluate differently for this user.
+                            event(new \App\Events\Coupons\CustomerMetricsUpdated($fresh->user, $fresh->getKey()));
                         }
                     } catch (\Throwable $e) {
                         report($e);
@@ -921,8 +934,14 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             // completed => payment succeeded: emit the payment-success lifecycle
             // exactly once per completion. Callers that already own the payment
             // event (gateway callback) pass $emitPaymentSuccess = false.
+            // D1: listener failures (e.g. invoice generation) must never roll
+            // back a valid completion — same guard the callbacks already use.
             if ($status === 'completed' && $emitPaymentSuccess) {
-                event(new \App\Events\PaymentSucceeded($order));
+                try {
+                    event(new \App\Events\PaymentSucceeded($order));
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
 
             return $order;

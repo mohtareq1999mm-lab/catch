@@ -29,6 +29,12 @@ class GenerateInvoiceListener implements ShouldQueue
 
         try {
             $this->invoiceService->generateFromOrder($order);
+        } catch (\App\Exceptions\CurrencyMismatchException $e) {
+            // Deterministic validation failure (e.g. currency allowlist):
+            // retrying cannot succeed. Log + report, do NOT rethrow (would
+            // poison the queue ×tries and 500 sync callers after commit).
+            Log::error('Skipping invoice for order ' . ($order?->id ?? 'unknown') . ': ' . $e->getMessage());
+            report($e);
         } catch (\Throwable $e) {
             Log::error('Failed to generate invoice for order ' . ($order?->id ?? 'unknown') . ': ' . $e->getMessage());
             report($e);

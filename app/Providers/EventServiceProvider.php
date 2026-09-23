@@ -4,6 +4,12 @@ namespace App\Providers;
 
 use App\Events\AdminLoggedIn;
 use App\Events\ContactMessageReceived;
+use App\Events\Coupons\CouponActivated;
+use App\Events\Coupons\CouponDisabled;
+use App\Events\Coupons\CouponExpired;
+use App\Events\Coupons\CouponTargetingChanged;
+use App\Events\Coupons\CustomerMetricsUpdated;
+use App\Events\Coupons\UserAddressChanged;
 use App\Events\DigitalProductsDelivered;
 use App\Events\FrontendCacheInvalidation;
 use App\Events\InvoiceCreated;
@@ -52,6 +58,9 @@ use App\Listeners\SendOrderStatusChangedNotification;
 use App\Listeners\SendPaymentFailedNotification;
 use App\Listeners\SendPaymentSucceededNotification;
 use App\Listeners\Coupon\MarkCouponClaimRedeemed;
+use App\Listeners\Coupons\CancelCouponDistribution;
+use App\Listeners\Coupons\StartCouponDistribution;
+use App\Listeners\Coupons\StartUserCouponDistribution;
 use App\Listeners\SendUserCouponAssignedNotification;
 use App\Listeners\SendUserCouponAvailableNotification;
 use App\Listeners\SendUserCouponUsedNotification;
@@ -68,6 +77,7 @@ use App\Listeners\SendUserFlashSalePriceDropNotification;
 use App\Listeners\SendUserReviewApprovedNotification;
 use App\Listeners\SendUserReviewRejectedNotification;
 use App\Observers\BrandObserver;
+use App\Observers\AddressObserver;
 use App\Observers\CategoryObserver;
 use App\Observers\ContentPageObserver;
 use App\Observers\CouponObserver;
@@ -87,6 +97,7 @@ use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Marvel\Database\Models\Banner;
+use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Brand;
 use Marvel\Database\Models\Category;
 use Marvel\Database\Models\Coupon;
@@ -125,6 +136,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         Registered::class => [
             SendEmailVerificationNotification::class,
+            StartUserCouponDistribution::class,
         ],
         UserRolesUpdated::class => [
             LogUserRolesUpdated::class,
@@ -190,6 +202,24 @@ class EventServiceProvider extends ServiceProvider
         CouponCreated::class => [
             SendUserCouponAvailableNotification::class,
         ],
+        CouponActivated::class => [
+            StartCouponDistribution::class,
+        ],
+        CouponTargetingChanged::class => [
+            StartCouponDistribution::class,
+        ],
+        CouponDisabled::class => [
+            CancelCouponDistribution::class,
+        ],
+        CouponExpired::class => [
+            CancelCouponDistribution::class,
+        ],
+        UserAddressChanged::class => [
+            StartUserCouponDistribution::class,
+        ],
+        CustomerMetricsUpdated::class => [
+            StartUserCouponDistribution::class,
+        ],
         PromotionActivated::class => [
             SendUserPromotionAvailableNotification::class,
             SendUserPromotionPriceDropNotification::class,
@@ -227,6 +257,7 @@ class EventServiceProvider extends ServiceProvider
      * @var array
      */
     protected $observers = [
+        Address::class         => [AddressObserver::class],
         Product::class        => [ProductObserver::class, MediaCleanupObserver::class],
         Category::class       => [CategoryObserver::class, MediaCleanupObserver::class],
         Brand::class          => [BrandObserver::class, MediaCleanupObserver::class],
