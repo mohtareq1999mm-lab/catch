@@ -4,6 +4,7 @@ namespace App\Services\General;
 
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Coupon;
+use Marvel\Database\Models\CouponClaim;
 use Marvel\Database\Models\User;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Coupon\CouponCalculator;
@@ -12,14 +13,17 @@ use App\Services\Coupon\Discovery\CouponDiscoveryPolicy;
 class CouponService
 {
     /**
-     * Customer coupon listing with the canonical discovery policy applied.
+     * Customer coupon catalog with the canonical discovery policy applied.
      *
-     * Authenticated: public coupons plus Engine-eligible targeted coupons;
-     * ineligible targeted and assignment-only coupons are excluded (the
-     * latter live under "My Coupons"). Guests: pure-public coupons only.
-     * Each returned model carries its `discoveryDecision` relation for the
-     * resource layer. Existing search/date/id filters and ordering are
-     * preserved; result stays a plain limited Collection (no paginator).
+     * VISIBILITY ≠ ELIGIBILITY: public + targeted coupons are all listed
+     * subject to normal validity; eligibility only shapes code/action.
+     * Private assignment-only coupons (assignments, no targeting, public
+     * flag off) are excluded — personal grants belong to My Coupons.
+     * Publicly discoverable coupons stay listed even with assignments.
+     * Guests see public + targeted rows with codes hidden. Each model carries `discoveryDecision`
+     * (+`userClaim` when signed in) for the resource layer. Search/date/id
+     * filters and ordering are preserved; result stays a plain limited
+     * Collection (no paginator).
      */
     public function getCoupons($request, ?User $user = null)
     {
@@ -46,25 +50,44 @@ class CouponService
             }
         }
 
-        if ($user) {
-            $coupons->where(function ($query) {
-                $query->whereHas('targeting')->orWhereDoesntHave('assignments');
-            });
-        } else {
-            $coupons->whereDoesntHave('targeting')->whereDoesntHave('assignments');
-        }
+        $models = $coupons
+            ->where(function ($query) {
+                // Catalog = public + targeted. Assignment-only coupons
+                // (assignments without targeting AND without the public
+                // flag) are excluded for everyone: personal grants stay
+                // private to assignees via My Coupons. Publicly
+                // discoverable coupons stay listed even with assignments.
+                $query->whereHas('targeting')->orWhereDoesntHave('assignments')
+                    ->orWhere('is_public', true);
+            })
+            ->with(['targeting'])
+            ->orderBy('id', $order)->limit($limit)->get();
 
-        $models = $coupons->with(['targeting'])->orderBy('id', $order)->limit($limit)->get();
+        // One batched claim lookup per listing (mirrors the personalized
+        // surface): per-coupon claim state drives claim/action derivation.
+        if ($user) {
+            $claims = CouponClaim::query()
+                ->where('user_id', $user->getKey())
+                ->whereIn('coupon_id', $models->map->getKey()->all())
+                ->get()
+                ->keyBy('coupon_id');
+        } else {
+            $claims = collect();
+        }
 
         $policy = app(CouponDiscoveryPolicy::class);
 
         return $models
-            ->map(function ($coupon) use ($policy, $user) {
-                $coupon->setRelation('discoveryDecision', $policy->decide($coupon, $user));
+            ->map(function ($coupon) use ($policy, $user, $claims) {
+                $coupon->setRelation(
+                    'discoveryDecision',
+                    $policy->decide($coupon, $user, $claims->get($coupon->getKey()))
+                );
+                $coupon->setRelation('userClaim', $claims->get($coupon->getKey()));
 
                 return $coupon;
             })
-            ->filter(fn ($coupon) => (bool) $coupon->getRelation('discoveryDecision')['include'])
+            ->filter(fn ($coupon) => $coupon->getRelation('discoveryDecision')['visibility'] !== 'assignment-only')
             ->values();
     }
 
