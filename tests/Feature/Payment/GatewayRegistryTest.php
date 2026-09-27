@@ -220,6 +220,17 @@ class GatewayRegistryTest extends CurrencyTestCase
     /** @test */
     public function stripe_paypal_known_but_not_initiable_by_default(): void
     {
+        // Hermetic defaults: a developer .env may carry real-looking Stripe
+        // values (e.g. STRIPE_ENABLED=true with a publishable key pasted into
+        // the secret slot). This test asserts DEFAULT-gate behavior, so pin
+        // the canonical keys to unconfigured/disabled regardless of .env.
+        config(['payment.gateways.stripe.secret_key' => '']);
+        config(['payment.gateways.stripe.webhook_secret' => '']);
+        config(['payment.gateways.stripe.enabled' => false]);
+        config(['payment.gateways.paypal.client_id' => '']);
+        config(['payment.gateways.paypal.client_secret' => '']);
+        config(['payment.gateways.paypal.enabled' => false]);
+
         $registry = app(PaymentGatewayRegistry::class);
 
         $this->assertNotNull(app(GatewaySettingsService::class)->definition('stripe'));
@@ -230,5 +241,27 @@ class GatewayRegistryTest extends CurrencyTestCase
 
         $this->assertFalse($stripe['ok']);
         $this->assertFalse($paypal['ok']);
+    }
+
+    /**
+     * @test
+     *
+     * Real-E2E regression (2026-09-27): the container auto-resolved the
+     * nullable StripeClient constructor arg to an empty-key instance, so
+     * every provider call failed with "No API key provided" despite a
+     * configured key. The AppServiceProvider binding must leave client
+     * construction to the gateway's lazy initializer.
+     */
+    public function container_resolved_stripe_gateway_keeps_lazy_client(): void
+    {
+        $gateway = app(\App\Services\Gateway\StripeGateway::class);
+
+        $property = new \ReflectionProperty($gateway, 'client');
+        $property->setAccessible(true);
+
+        $this->assertNull(
+            $property->getValue($gateway),
+            'Container must not inject an SDK client; StripeGateway::client() builds it from config on first use.'
+        );
     }
 }

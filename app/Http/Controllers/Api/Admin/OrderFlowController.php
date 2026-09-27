@@ -35,7 +35,15 @@ class OrderFlowController extends Controller
             $query->where('is_active', filter_var($request->get('is_active'), FILTER_VALIDATE_BOOLEAN));
         }
 
-        $flows = $query->orderBy('id')->paginate((int) $request->get('per_page', 50));
+        if ($request->filled('search')) {
+            $search = $this->escapeLike((string) $request->get('search'));
+            $query->where(function ($q) use ($search) {
+                $q->where('code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            });
+        }
+
+        $flows = $query->orderBy('id')->paginate($this->perPage($request));
 
         return $this->apiResponse('Order flows retrieved successfully.', 200, true, [
             'data' => OrderFlowResource::collection($flows->items()),
@@ -69,19 +77,23 @@ class OrderFlowController extends Controller
             return $this->apiResponse($e->getMessage(), 422, false);
         }
 
-        $flow = DB::transaction(function () use ($data, $statuses) {
-            $flow = OrderFlow::create([
-                'code' => $data['code'],
-                'name' => $data['name'],
-                'shipping_type' => $data['shipping_type'],
-                'is_default' => $data['is_default'] ?? false,
-                'is_active' => $data['is_active'] ?? true,
-            ]);
-            $this->syncStatuses($flow, $statuses);
-            $this->enforceSingleDefault($flow);
+        try {
+            $flow = DB::transaction(function () use ($data, $statuses) {
+                $flow = OrderFlow::create([
+                    'code' => $data['code'],
+                    'name' => $data['name'],
+                    'shipping_type' => $data['shipping_type'],
+                    'is_default' => $data['is_default'] ?? false,
+                    'is_active' => $data['is_active'] ?? true,
+                ]);
+                $this->syncStatuses($flow, $statuses);
+                $this->enforceSingleDefault($flow);
 
-            return $flow->fresh()->load('statuses');
-        });
+                return $flow->fresh()->load('statuses');
+            });
+        } catch (\InvalidArgumentException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
 
         return $this->apiResponse('Order flow created successfully.', 201, true,
             (new OrderFlowResource($flow))->toArray(request()));
@@ -103,15 +115,25 @@ class OrderFlowController extends Controller
 
         // shipping_type is the flow identity and is unique per flow (see
         // OrderFlowUpsertRequest): it can never be changed to another value.
-        $flow = DB::transaction(function () use ($flow, $data, $statuses) {
-            $flow->update(array_intersect_key($data, array_flip(['code', 'name', 'is_default', 'is_active'])));
-            if (isset($statuses)) {
-                $this->syncStatuses($flow, $statuses);
-            }
-            $this->enforceSingleDefault($flow);
+        // The explicit check stays even though validation would usually
+        // reject first — it documents intent for future types (sea/air).
+        if (isset($data['shipping_type']) && $data['shipping_type'] !== $flow->shipping_type) {
+            return $this->apiResponse('shipping_type cannot be changed. Create a new flow instead.', 422, false);
+        }
 
-            return $flow->fresh()->load('statuses');
-        });
+        try {
+            $flow = DB::transaction(function () use ($flow, $data, $statuses) {
+                $flow->update(array_intersect_key($data, array_flip(['code', 'name', 'is_default', 'is_active'])));
+                if (isset($statuses)) {
+                    $this->syncStatuses($flow, $statuses);
+                }
+                $this->enforceSingleDefault($flow);
+
+                return $flow->fresh()->load('statuses');
+            });
+        } catch (\InvalidArgumentException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
 
         return $this->apiResponse('Order flow updated successfully.', 200, true,
             (new OrderFlowResource($flow))->toArray(request()));
@@ -120,9 +142,33 @@ class OrderFlowController extends Controller
     /**
      * Array order IS the transition map: position N -> N+1.
      * Removing a status re-links its neighbours automatically.
+     *
+     * @throws \InvalidArgumentException when in-flight orders sit at a
+     *                                   removed, non-terminal status.
      */
     private function syncStatuses(OrderFlow $flow, iterable $statuses): void
     {
+        $newIds = collect($statuses)->map(fn ($status) => (int) $status->id)->all();
+        $currentIds = OrderFlowStatus::query()->where('flow_id', $flow->id)->pluck('status_id')
+            ->map(fn ($id) => (int) $id)->all();
+        $removed = array_diff($currentIds, $newIds);
+
+        if (!empty($removed)
+            && \Illuminate\Support\Facades\Schema::hasColumn('orders', 'current_status_id')
+        ) {
+            $inFlight = \Marvel\Database\Models\Order::query()
+                ->where('flow_id', $flow->id)
+                ->whereIn('current_status_id', $removed)
+                ->whereNotIn('status', ['delivered', 'cancelled', 'completed'])
+                ->count();
+
+            if ($inFlight > 0) {
+                throw new \InvalidArgumentException(
+                    "Cannot remove statuses holding {$inFlight} in-flight order(s). Move them first."
+                );
+            }
+        }
+
         OrderFlowStatus::query()->where('flow_id', $flow->id)->delete();
 
         $sort = 1;
@@ -135,9 +181,24 @@ class OrderFlowController extends Controller
         }
     }
 
+    private function perPage(Request $request): int
+    {
+        return max(1, min(200, (int) $request->get('per_page', 50)));
+    }
+
+    private function escapeLike(string $value): string
+    {
+        return addcslashes($value, '%_\\');
+    }
+
     /**
      * Exactly one active default per shipping_type. The most recently saved
      * default wins; the previous default is demoted (never deleted).
+     *
+     * Known limitation: concurrent writers can both read-then-write
+     * is_default=true. Admin-only, low-frequency surface; the shipping_type
+     * UNIQUE key still guarantees a single flow per type, so order routing
+     * (which keys on shipping_type, not is_default) is unaffected.
      */
     private function enforceSingleDefault(OrderFlow $flow): void
     {

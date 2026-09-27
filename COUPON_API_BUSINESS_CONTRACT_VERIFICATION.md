@@ -89,3 +89,84 @@ All documented endpoints were traced to real routes + controllers + requests/res
 - `api-desc/coupon/api.md`, `api-desc/coupon-assignment/api.md` (cross-checked; stale areas noted, not used as truth)
 - `tests/Feature/Coupon/` (claim lifecycle, eligibility, audience matrix, admin list filters, checkout revalidation), `tests/Feature/CouponAssignment/` (API + validation), `tests/Feature/CouponDistribution/AvailableCouponsApiTest.php`, `AdminDistributionApiTest.php` (existence confirmed; individual assertions spot-checked)
 - `packages/marvel/src/GraphQL/Schema/models/coupon.graphql` (REST/GraphQL separation note)
+
+## Available Targeted Coupons Verification
+
+Traced source chain (all read verbatim, no assumptions):
+`routes/api.php:50` (prefix `v1/general`) → `:129` (`api, auth:sanctum,
+throttle:authenticated` group) → `:132` (`GET coupons/available` →
+`CouponController::available`) →
+`app/Http/Controllers/Api/General/CouponController.php:229-247` →
+`app/Services/Coupon/Distribution/Discovery/AvailableCouponsService.php`
+(`forUser`/`computeForUser`/`present`) →
+`app/Services/Coupon/Discovery/CouponDiscoveryPolicy.php:48-89` (`decide`) +
+`app/Services/Coupon/Eligibility/EligibilityEngine.php:34-90` (`evaluate`,
+4 modes, fail-closed) + `CouponClaimRequirement::forCoupon` +
+`CouponAction::resolve` + `Coupon::scopeValid` (`packages/marvel/src/Database/Models/Coupon.php:337-353`)
+→ envelope `Marvel\Traits\ApiResponse::apiResponse` (`status/message/success/data`).
+Full URL: `GET /api/v1/general/coupons/available` (the `coupons/available`
+string in the task is the route path inside the prefix group, not the full URL).
+Tests: `tests/Feature/CouponDistribution/AvailableCouponsApiTest.php` (13 tests).
+
+### Route
+VERIFIED — `GET /api/v1/general/coupons/available`, sanctum-required, throttle:authenticated.
+
+### Request
+VERIFIED — optional `page` (int ≥ 1, default 1) + `limit` (int 1–50, default
+`coupon-distribution.available_default_limit` = 15, clamped to
+`available_max_limit` = 50); 422 on violation; no body; bearer token required.
+
+### Response
+VERIFIED — envelope `{status, message, success, data:{data[], meta}}`; item
+shell `{id, name, slug, image, visibility, claim_status, requires_claim, code,
+claim_id, expires_at, action}` (no discount/rule/counter fields);
+`meta = {current_page, per_page, total (= eligible items on this page only),
+has_more_pages}`. Discount is never calculated/returned here (advisory shelf;
+`CouponCalculator` runs at apply/checkout).
+
+### Existing Availability Logic
+VERIFIED — reuses the canonical flow, no second system: `scopeValid` (status,
+dates vs today, `limiter=null` = unlimited else `used < limiter`) +
+candidate gate (`whereHas(targeting)` OR `whereDoesntHave(assignments)` OR
+`is_public`) + per-item `CouponDiscoveryPolicy::decide` +
+`EligibilityEngine::evaluate` (assignment / dynamic / and / or, fail-closed).
+
+### Targeting-Only Behavior
+NOT VERIFIED — DOES NOT HOLD. The premise "returns ONLY coupons that have
+Targeting" contradicts the implementation: eligible PUBLIC coupons without a
+targeting row are returned by design (candidate gate, policy `public`
+branch, and 3 passing tests:
+`test_public_coupon_returned_with_public_visibility`,
+`test_public_and_targeted_mix_classified_per_coupon`,
+`test_expired_disabled_exhausted_public_coupons_excluded`). `has_targeting`
+(row exists, any mode) is verified as the targeting definition, distinct from
+Audience (resolver composite, visibility only) — but presence of targeting is
+one candidate path, not a result filter. No targeting-only shelf exists in the
+current codebase.
+
+### Non-Targeted Coupon Exclusion
+PARTIALLY VERIFIED — excluded ONLY when private-assigned (assignment rows, no
+targeting, flag off → `assignment-only`, 2 tests) or ineligible/invalid.
+Public non-targeted coupons are INCLUDED when eligible (tests prove it).
+
+### Customer Eligibility
+VERIFIED — ineligible targeted coupons excluded
+(`test_ineligible_coupon_is_excluded`,
+`test_meta_total_counts_only_eligible_items`); eligible targeted included with
+`targeted` visibility; claim-required coupons hide `code` pre-claim; active
+claim → `claimed`/`apply` + `claim_id`; assignment-mode needs a live
+quota-left unexpired grant; combined modes need both (AND) / either (OR);
+`meta.total` never leaks hidden-campaign counts.
+
+### Error Behavior
+VERIFIED — 401 missing/invalid token (`test_unauthenticated_is_rejected`);
+422 bad `page`/`limit` (controller `$request->validate`); no 404/409 branches
+on this endpoint (claim conflicts belong to POST `/{id}/claim`).
+
+### Existing Tests
+VERIFIED — 13/13 behaviors in `AvailableCouponsApiTest` listed above cover
+auth, eligible/ineligible targeted, claim-state shells, pagination meta,
+public + mixed visibility, assignment-only exclusion (×2), assigned+targeted
+dedup, expired/disabled/exhausted exclusion. NO existing test proves
+targeting-only behavior (the suite proves the opposite for public coupons):
+NOT VERIFIED BY EXISTING TESTS for the targeting-only premise.

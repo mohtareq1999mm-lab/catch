@@ -117,6 +117,35 @@ class GatewaySettingsService
     }
 
     /**
+     * Client-safe public view of every known gateway, in admin sort order.
+     *
+     * Same source as getAdminView() (same merge, same order), trimmed to
+     * what the storefront needs: {code, display_name,
+     * supported_currencies, supports_catalog_currency}. Internal fields
+     * (enabled, configured, methods, sort_order) stay admin-only and
+     * secrets are never present. No availability verdict is computed here —
+     * checkout stays the final authority (HTTP 422) when a setting changes
+     * between this read and order submit.
+     *
+     * @return array<int, array{code: string, display_name: string, supported_currencies: array<int, string>, supports_catalog_currency: bool}>
+     */
+    public function getPublicView(string $catalogCode): array
+    {
+        $catalogCode = strtoupper($catalogCode);
+
+        return array_map(function (array $row) use ($catalogCode) {
+            $supported = array_map('strtoupper', array_values((array) ($row['supported_currencies'] ?? [])));
+
+            return [
+                'code' => $row['code'],
+                'display_name' => $row['display_name'],
+                'supported_currencies' => $supported,
+                'supports_catalog_currency' => in_array($catalogCode, $supported, true),
+            ];
+        }, $this->getAdminView());
+    }
+
+    /**
      * Persist an admin override. ONLY the {enabled, display_name, sort_order}
      * allowlist is stored — secrets, class, supported_currencies and methods
      * present in $data are ignored and stay env-only. An explicit null for

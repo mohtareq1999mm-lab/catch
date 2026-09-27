@@ -45,9 +45,16 @@ return new class extends Migration
         $this->widenStatusEnum(self::LEGACY, self::WIDENED);
 
         if (Schema::hasColumn('orders', 'shipping_type')) {
-            Schema::table('orders', function (Blueprint $table) {
-                $table->index('shipping_type', 'orders_shipping_type_idx');
-            });
+            try {
+                Schema::table('orders', function (Blueprint $table) {
+                    $table->index('shipping_type', 'orders_shipping_type_idx');
+                });
+            } catch (\Throwable $e) {
+                // Index already exists (partial re-run): never fail the deploy.
+                logger()->warning('Order flow migration: shipping_type index skipped.', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 
@@ -99,7 +106,12 @@ return new class extends Migration
             return;
         }
 
-        $localFlowId = DB::table('order_flows')->where('shipping_type', 'local')->value('id');
+        // Fail-closed parity with runtime resolution: only an ACTIVE local
+        // flow may adopt legacy orders.
+        $localFlowId = DB::table('order_flows')
+            ->where('shipping_type', 'local')
+            ->where('is_active', true)
+            ->value('id');
         if (!$localFlowId) {
             return;
         }
@@ -110,13 +122,22 @@ return new class extends Migration
             DB::table('orders')->whereNull('flow_id')->update(['flow_id' => $localFlowId]);
         }
 
-        // Every legacy status has a matching catalog row by design.
+        // Every legacy status has a matching catalog row by design. Unknown
+        // values cannot satisfy the FK: count them loudly and leave the
+        // mirror null for manual remediation instead of failing the deploy.
         if (Schema::hasColumn('orders', 'current_status_id')) {
             foreach ($statusIds as $code => $id) {
                 DB::table('orders')
                     ->where('status', $code)
                     ->whereNull('current_status_id')
                     ->update(['current_status_id' => $id]);
+            }
+
+            $unmapped = DB::table('orders')->whereNull('current_status_id')->count();
+            if ($unmapped > 0) {
+                logger()->warning('Order flow backfill: orders with unmapped status left without current_status_id.', [
+                    'count' => $unmapped,
+                ]);
             }
         }
     }

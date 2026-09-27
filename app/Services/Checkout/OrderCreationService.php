@@ -117,17 +117,19 @@ class OrderCreationService
 
         // Order Status Flow assignment (local default). Guarded for rolling
         // deploy / suites without the flow tables: legacy pending applies.
-        // Throws InvalidArgumentException for unsupported/unavailable types
-        // (fail-closed) BEFORE any further side effects.
-        try {
-            if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+        // Fail-closed: unsupported/unavailable shipping types AND flow
+        // misconfiguration (empty flow) abort creation via
+        // InvalidArgumentException BEFORE any further side effects, so no
+        // flow-less order can ever persist when the columns exist.
+        if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+            try {
                 app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order, $shippingType);
                 $order->refresh();
+            } catch (\InvalidArgumentException $e) {
+                throw $e;
+            } catch (\RuntimeException $e) {
+                throw new \InvalidArgumentException($e->getMessage(), 0, $e);
             }
-        } catch (\InvalidArgumentException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            report($e);
         }
 
         // Record initial creation history (immutable audit). Guard for rolling deploy / tests without migration.

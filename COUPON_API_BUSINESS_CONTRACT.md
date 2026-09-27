@@ -231,6 +231,152 @@ Authorization: Bearer <customer token>
 
 ---
 
+## Available Targeted Coupons
+
+### Endpoint
+
+```text
+GET /api/v1/general/coupons/available
+```
+
+Source: `routes/api.php` line 132 (`Route::get('coupons/available', ...)` inside the
+`v1/general` prefix group), handled by
+`App\Http\Controllers\Api\General\CouponController::available`, served by
+`App\Services\Coupon\Distribution\Discovery\AvailableCouponsService::forUser`.
+Auth: `auth:sanctum` (+ `throttle:authenticated`). Guests get 401 — there is no
+guest variation of this endpoint.
+
+### Purpose
+
+Returns the personalized "you can use these" shelf for the signed-in customer:
+coupons that pass basic validity (`scopeValid`) AND the existing
+`EligibilityEngine` verdict for this customer. Advisory only — claim / apply /
+checkout revalidate authoritatively. No new eligibility system is used; the
+exact same `CouponDiscoveryPolicy::decide` + `EligibilityEngine::evaluate` flow
+as the other customer listing surfaces decides every item.
+
+### Request
+
+```http
+GET /api/v1/general/coupons/available?page=1&limit=15
+Authorization: Bearer <sanctum-token>
+Accept: application/json
+```
+
+| Field | Required? | Example | Business Meaning |
+| ----- | --------- | ------- | ---------------- |
+| `page` | No (integer, min 1; default 1) | `1` | Which page of the shelf |
+| `limit` | No (integer 1–50; default 15 from `coupon-distribution.available_default_limit`) | `15` | Shelf size (clamped to `available_max_limit`) |
+
+No other query parameters are supported. No request body.
+
+### Response
+
+Envelope is the standard `ApiResponse` shape (`status`, `message`, `success`,
+`data`). Each item is the owner-safe shell built by
+`AvailableCouponsService::present` — it is NOT a `CouponResource` and never
+carries discount fields, rule trees, counters, or pre-claim codes:
+
+```json
+{
+  "status": 200,
+  "message": "Data fetched successfully",
+  "success": true,
+  "data": {
+    "data": [
+      {
+        "id": 12,
+        "name": "Welcome 10%",
+        "slug": "welcome-10-x7k2qa",
+        "image": null,
+        "visibility": "targeted",
+        "claim_status": "claimable",
+        "requires_claim": true,
+        "code": null,
+        "claim_id": null,
+        "expires_at": "2026-10-27T00:00:00+00:00",
+        "action": "claim"
+      }
+    ],
+    "meta": { "current_page": 1, "per_page": 15, "total": 1, "has_more_pages": false }
+  }
+}
+```
+
+Field meanings: `visibility` is `public` (no targeting row, publicly
+discoverable) or `targeted` (a `coupon_targetings` row exists); `claim_status`
+is `claimable` / `claimed` / `not_required` / `redeemed` with the matching
+`action` (`claim` / `apply` / `null`); `code` is exposed ONLY for `public`
+coupons or targeted coupons with no claim requirement — claim-first targeted
+coupons return `code: null` until claimed; `claim_id` is the customer's claim
+row when one exists; `expires_at` is the coupon `end_date` (ISO 8601).
+`meta.total` counts the eligible items on THIS page only (never the pre-filter
+paginator total, so hidden-campaign counts do not leak); `has_more_pages`
+drives fetching page+1. Note: eligibility filtering happens AFTER pagination,
+so a page can hold fewer items than `limit`.
+
+### Business Logic
+
+```text
+Customer requests available coupons (auth required)
+        ↓
+scopeValid at SQL level (status, dates vs today, used < limiter)
+        ↓
+Candidate gate: has targeting row OR has no assignments OR is_public flag
+(assignment-only private grants never enter; they live in /mine)
+        ↓
+Per coupon: CouponDiscoveryPolicy::decide
+  visibility (targeting row? → targeted) +
+  eligible = EligibilityEngine verdict for this customer +
+  claim_status/action via CouponAction::resolve +
+  requires_claim from coupon_targetings.require_claim
+        ↓
+Drop ineligible items and assignment-only items
+        ↓
+Return owner-safe shells + page-scoped meta
+```
+
+Targeting semantics (authoritative): `has_targeting` = a `coupon_targetings`
+row exists, any mode (`assignment` = live usable grant required;
+`dynamic` = rule tree evaluated, fail-closed; `assignment_and_dynamic` = both;
+`assignment_or_dynamic` = either). Audience (`CouponAudienceResolver`, the
+`is_public × assignments × targeting` display composite) decides visibility
+only — it is never substituted for the targeting evaluation.
+
+### Important Rules
+
+- Coupon without Targeting but publicly discoverable AND engine-eligible IS
+  returned (`visibility: public`) — proven by
+  `test_public_coupon_returned_with_public_visibility` and
+  `test_public_and_targeted_mix_classified_per_coupon`.
+- Coupon with Targeting but customer ineligible is NOT returned
+  (`test_ineligible_coupon_is_excluded`, `test_meta_total_counts_only_eligible_items`).
+- Coupon expired / disabled / exhausted / outside dates is NOT returned
+  (`scopeValid`, proven for public coupons by
+  `test_expired_disabled_exhausted_public_coupons_excluded`).
+- Assignment without targeting is NEVER returned here, even for its owner
+  (discovered via `GET /mine`); assignment + targeting (`assignment` mode with
+  a live quota-left grant) IS returned once as `targeted`
+  (`test_assigned_targeted_coupon_appears_once_as_targeted`).
+- Claimed (active claim) targeted coupon is returned with
+  `claim_status: claimed`, `action: apply`, `claim_id` set — code stays `null`
+  while `requires_claim` is true.
+- **DIVERGENCE NOTICE (verified): this endpoint does NOT return "ONLY coupons
+  that have Targeting".** Eligible public coupons without targeting are
+  returned by design (service candidate gate + policy + 3 passing tests). A
+  targeting-only shelf does not exist in the current codebase — do not
+  document or build frontend logic assuming non-targeted coupons are absent.
+
+#### Performance Finding (documented, not changed)
+
+Pagination runs BEFORE engine evaluation (bounded engine calls per page);
+claims for the page load in one query; `targeting` is eager-loaded. Residual
+N+1: `CouponDiscoveryPolicy::decide` calls `assignments()->exists()` per
+coupon WITHOUT a targeting row. Result is cached 60s per (user, page, limit,
+version); any targeting/coupon/assignment write busts the version.
+
+---
+
 ### Endpoint 4 — Apply coupon to cart
 
 ```text

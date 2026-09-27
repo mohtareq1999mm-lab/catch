@@ -34,7 +34,11 @@ class OrderFlowService
         self::SHIPPING_INTERNATIONAL,
     ];
 
-    /** All codes orders.status may hold (legacy 5 + logistics + milestones). */
+    /**
+     * All codes orders.status may hold. MUST stay in sync with the widened
+     * orders.status ENUM (see 2026_09_28_000002 + 2026_09_29_000001): every
+     * code mirrorable into orders.status must exist in the ENUM.
+     */
     public const ALL_STATUS_CODES = [
         'pending',
         'processing',
@@ -43,6 +47,7 @@ class OrderFlowService
         'in_transit',
         'arrived_at_destination_country',
         'customs_clearance',
+        'customs_hold',
         'customs_cleared',
         'local_carrier',
         'out_for_delivery',
@@ -51,6 +56,15 @@ class OrderFlowService
         'returned',
         'completed',
         'cancelled',
+        // Global vocabulary: ORDER-compatible display/planning steps that are
+        // executable only inside custom flows (not in the seeded flows, so
+        // the proven pending→processing→completed milestone chain is kept).
+        'confirmed',
+        'ready_to_ship',
+        'ready_for_pickup',
+        'picked_up',
+        'export_processing',
+        'import_processing',
     ];
 
     /**
@@ -68,7 +82,10 @@ class OrderFlowService
             ['code' => 'in_transit', 'name' => 'In Transit', 'description' => 'Shipment moving between hubs', 'is_active' => true],
             ['code' => 'arrived_at_destination_country', 'name' => 'Arrived at Destination Country', 'description' => 'International shipment arrived in the destination country', 'is_active' => true],
             ['code' => 'customs_clearance', 'name' => 'Customs Clearance', 'description' => 'Shipment under customs inspection', 'is_active' => true],
+            ['code' => 'customs_hold', 'name' => 'Customs Hold', 'description' => 'Customs held the shipment for additional review (custom flows only)', 'is_active' => true],
             ['code' => 'customs_cleared', 'name' => 'Customs Cleared', 'description' => 'Customs released the shipment', 'is_active' => true],
+            ['code' => 'export_processing', 'name' => 'Export Processing', 'description' => 'Shipment prepared for export (custom flows only)', 'is_active' => true],
+            ['code' => 'import_processing', 'name' => 'Import Processing', 'description' => 'Shipment processed on import (custom flows only)', 'is_active' => true],
             ['code' => 'local_carrier', 'name' => 'Local Carrier', 'description' => 'Handed to the local last-mile carrier', 'is_active' => true],
             ['code' => 'out_for_delivery', 'name' => 'Out for Delivery', 'description' => 'Courier is delivering the order', 'is_active' => true],
             ['code' => 'delivered', 'name' => 'Delivered', 'description' => 'Order delivered to the customer', 'is_active' => true],
@@ -76,6 +93,12 @@ class OrderFlowService
             ['code' => 'returned', 'name' => 'Returned', 'description' => 'Order returned to sender', 'is_active' => true],
             ['code' => 'completed', 'name' => 'Completed', 'description' => 'Payment confirmed / order fulfilled', 'is_active' => true],
             ['code' => 'cancelled', 'name' => 'Cancelled', 'description' => 'Order cancelled', 'is_active' => true],
+            // Global vocabulary (ORDER-compatible, custom-flows-only): kept
+            // out of the seeded flows to preserve the proven milestone chain.
+            ['code' => 'confirmed', 'name' => 'Confirmed', 'description' => 'Order confirmed, awaiting preparation (custom flows only)', 'is_active' => true],
+            ['code' => 'ready_to_ship', 'name' => 'Ready to Ship', 'description' => 'Order ready to hand to the carrier (custom flows only)', 'is_active' => true],
+            ['code' => 'ready_for_pickup', 'name' => 'Ready for Pickup', 'description' => 'Order ready for customer pickup (custom flows only)', 'is_active' => true],
+            ['code' => 'picked_up', 'name' => 'Picked Up', 'description' => 'Shipment picked up from origin (custom flows only)', 'is_active' => true],
         ];
     }
 
@@ -99,7 +122,7 @@ class OrderFlowService
                 'code' => 'international',
                 'name' => 'International Flow',
                 'shipping_type' => self::SHIPPING_INTERNATIONAL,
-                'is_default' => false,
+                'is_default' => true,
                 'is_active' => true,
                 'statuses' => [
                     'pending',
@@ -173,21 +196,6 @@ class OrderFlowService
         return $flow;
     }
 
-    public function defaultFlow(): OrderFlow
-    {
-        $flow = OrderFlow::query()
-            ->where('shipping_type', self::SHIPPING_LOCAL)
-            ->where('is_active', true)
-            ->first()
-            ?? OrderFlow::query()->where('is_default', true)->where('is_active', true)->first();
-
-        if (!$flow) {
-            throw new \RuntimeException(__('checkout.flow_not_configured'));
-        }
-
-        return $flow;
-    }
-
     /** @return Collection<int, OrderStatus> ordered by sort_order */
     public function orderedStatuses(OrderFlow $flow): Collection
     {
@@ -243,10 +251,18 @@ class OrderFlowService
 
     /**
      * Flow-side transition check. Union semantics with the legacy map:
-     * anything the legacy map allows stays allowed; logistics steps additionally
-     * require immediate-succession in the order's flow. Cancellation remains a
-     * universal exit from any non-terminal status (mirrors legacy spirit and
-     * the fulfillment/shipment machines).
+     * anything the legacy map allows stays allowed; logistics steps
+     * additionally require immediate-succession in the order's flow.
+     *
+     * Supervised exits (mirror the shipment machine, keep flows linear):
+     * - completed: payment milestone, reachable from any non-terminal flow
+     *   status (COD paid on delivery completes from packed/shipped/...).
+     * - cancelled: universal exit EXCEPT from completed (legacy forbids
+     *   cancelling paid orders; refunds keep status completed), delivered
+     *   and cancelled (terminal).
+     * - failed_delivery / returned: carrier exits around out_for_delivery.
+     * Transitions INTO an inactive status are fail-closed (admin must
+     * reorder/reactivate; the path never silently re-routes).
      */
     public function allowsFlowTransition(?Order $order, string $from, string $to): bool
     {
@@ -263,7 +279,19 @@ class OrderFlowService
         }
 
         if ($to === 'cancelled') {
+            return $from !== 'completed';
+        }
+
+        if ($to === 'completed') {
             return true;
+        }
+
+        if ($to === 'failed_delivery') {
+            return $from === 'out_for_delivery';
+        }
+
+        if ($to === 'returned') {
+            return in_array($from, ['failed_delivery', 'out_for_delivery'], true);
         }
 
         $flow = OrderFlow::query()->find($order->flow_id);
@@ -273,7 +301,7 @@ class OrderFlowService
 
         $next = $this->nextStatus($flow, $from);
 
-        return $next !== null && $next->code === $to;
+        return $next !== null && $next->code === $to && (bool) $next->is_active;
     }
 
     /**

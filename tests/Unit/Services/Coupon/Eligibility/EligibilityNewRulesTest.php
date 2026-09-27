@@ -150,7 +150,9 @@ class EligibilityNewRulesTest extends TestCase
 
         $other = User::factory()->create();
         $this->makeAddress($other, $this->riyadh->id);
-        $this->makeAddress($other, $this->country->id * 100000 + 7); // unknown governorate id
+        // Inactive governorate never matches (an unknown id would violate
+        // the address.governorate_id FK on MySQL; sqlite silently allowed it).
+        $this->makeAddress($other, $this->inactive->id);
         $this->assertFalse($this->evaluate($coupon, $other)->isEligible, 'no match');
     }
 

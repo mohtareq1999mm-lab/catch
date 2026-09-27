@@ -849,16 +849,16 @@ class DashboardService
 
     private function dateFormat(string $format): string
     {
-        $driver = DB::connection()->getDriverName();
-
+        // MySQL-only date formatting (SQLite support removed with the
+        // project-wide MySQL standardization; DATE_FORMAT/YEARWEEK are canonical).
         $map = [
-            '%M' => $driver === 'sqlite' ? "CAST(strftime('%m', created_at) AS INTEGER)" : "DATE_FORMAT(created_at, '%M')",
-            '%Y-%m' => $driver === 'sqlite' ? "strftime('%Y-%m', created_at)" : "DATE_FORMAT(created_at, '%Y-%m')",
-            '%Y-%u' => $driver === 'sqlite' ? "strftime('%Y-%W', created_at)" : "YEARWEEK(created_at, 1)",
-            '%c' => $driver === 'sqlite' ? "CAST(strftime('%m', created_at) AS INTEGER)" : "DATE_FORMAT(created_at, '%c')",
+            '%M' => "DATE_FORMAT(created_at, '%M')",
+            '%Y-%m' => "DATE_FORMAT(created_at, '%Y-%m')",
+            '%Y-%u' => "YEARWEEK(created_at, 1)",
+            '%c' => "DATE_FORMAT(created_at, '%c')",
         ];
 
-        return $map[$format] ?? "strftime('{$format}', created_at)";
+        return $map[$format] ?? "DATE_FORMAT(created_at, '{$format}')";
     }
 
     private function percentageChange(float $previous, float $current): float

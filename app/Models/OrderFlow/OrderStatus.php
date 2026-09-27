@@ -26,18 +26,4 @@ class OrderStatus extends Model
             ->withPivot('sort_order')
             ->withTimestamps();
     }
-
-    public function isReferenced(): bool
-    {
-        if (OrderFlowStatus::query()->where('status_id', $this->getKey())->exists()) {
-            return true;
-        }
-
-        try {
-            return \Illuminate\Support\Facades\Schema::hasColumn('orders', 'current_status_id')
-                && \Marvel\Database\Models\Order::query()->where('current_status_id', $this->getKey())->exists();
-        } catch (\Throwable) {
-            return true;
-        }
-    }
 }

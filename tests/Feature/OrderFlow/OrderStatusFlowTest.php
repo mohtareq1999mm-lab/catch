@@ -467,4 +467,98 @@ class OrderStatusFlowTest extends TestCase
         $this->assertSame('cancelled', $order->status);
         $this->assertSame('cancelled', $order->currentStatus->code);
     }
+
+    public function test_payment_can_complete_from_logistics_step(): void
+    {
+        // COD paid on delivery: completion must stay reachable after packing.
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+        $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+
+        Sanctum::actingAs($this->admin);
+        $service = app(\App\Services\General\OrderService::class);
+        $service->changeOrderStatus(null, 'processing', $order->id);
+        $service->changeOrderStatus(null, 'packed', $order->id);
+        $service->changeOrderStatus(null, 'completed', $order->id);
+
+        $order->refresh();
+        $this->assertSame('completed', $order->status);
+        $this->assertSame(Order::PAYMENT_STATUS_SUCCESS, $order->payment_status);
+    }
+
+    public function test_completed_order_cannot_be_cancelled(): void
+    {
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+        $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+
+        Sanctum::actingAs($this->admin);
+        $service = app(\App\Services\General\OrderService::class);
+        $service->changeOrderStatus(null, 'completed', $order->id);
+
+        try {
+            $service->changeOrderStatus(null, 'cancelled', $order->id);
+            $this->fail('Cancelling a completed order must be rejected.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('completed', $e->getMessage());
+        }
+
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_carrier_exits_failed_delivery_and_returned(): void
+    {
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+        $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+        $service = app(\App\Services\General\OrderService::class);
+
+        foreach (['processing', 'packed', 'shipped', 'out_for_delivery'] as $step) {
+            $service->changeOrderStatus(null, $step, $order->id);
+        }
+        $service->changeOrderStatus(null, 'failed_delivery', $order->id);
+        $this->assertSame('failed_delivery', $order->fresh()->status);
+        $service->changeOrderStatus(null, 'returned', $order->id);
+        $this->assertSame('returned', $order->fresh()->status);
+        $this->assertSame('returned', $order->fresh()->currentStatus->code);
+    }
+
+    public function test_admin_patch_advances_flow_and_lists_targets(): void
+    {
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+        $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+
+        Sanctum::actingAs($this->admin);
+        $this->patchJson('/api/v1/orders/' . $order->id . '/status', ['status' => 'processing'])
+            ->assertOk();
+        $resp = $this->patchJson('/api/v1/orders/' . $order->id . '/status', ['status' => 'packed'])
+            ->assertOk();
+
+        // Flow-aware dropdown offers the successor, not a skip.
+        $targets = $resp->json('data.available_statuses') ?? [];
+        $this->assertContains('shipped', $targets);
+        $this->assertNotContains('delivered', $targets);
+
+        // Skipping ahead is rejected through the same endpoint.
+        $this->patchJson('/api/v1/orders/' . $order->id . '/status', ['status' => 'delivered'])
+            ->assertStatus(422);
+    }
+
+    public function test_flow_cannot_drop_status_holding_inflight_orders(): void
+    {
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+        $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+        $service = app(\App\Services\General\OrderService::class);
+        $service->changeOrderStatus(null, 'processing', $order->id);
+        $service->changeOrderStatus(null, 'packed', $order->id);
+
+        $flow = OrderFlow::query()->where('shipping_type', 'local')->firstOrFail();
+        $ids = $flow->statuses()->orderBy('order_flow_statuses.sort_order')->pluck('order_statuses.id')->all();
+        $ids = array_values(array_filter($ids, fn ($id) => $id !== $this->statusId('packed')));
+
+        $this->adminPut("/api/v1/admin/order-flows/{$flow->id}", ['status_ids' => $ids])
+            ->assertStatus(422);
+    }
 }

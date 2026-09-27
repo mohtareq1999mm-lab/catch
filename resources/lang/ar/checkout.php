@@ -5,6 +5,9 @@ return [
     'cart_not_found' => 'السلة غير موجودة',
     'cart_empty' => 'السلة فارغة',
     'pay_at_cashier_requires_pickup' => 'عند اختيار الدفع عند الكاشير، يجب عليك اختيار نوع التوصيل استلام من الفرع.',
+    'payment_method_online' => 'دفع إلكتروني',
+    'payment_method_cod' => 'الدفع عند الاستلام',
+    'payment_method_pay_at_cashier' => 'الدفع عند الكاشير',
 
     // Fast Shipping
     'fast_shipping_unavailable' => 'الشحن السريع غير متاح في هذا الوقت.',

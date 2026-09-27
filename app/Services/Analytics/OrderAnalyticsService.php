@@ -137,7 +137,7 @@ class OrderAnalyticsService
             ')
             ->first();
 
-        // Fallback for SQLite where is_delayed is integer
+        // Casts keep aggregate output integer-typed on every driver.
         $delayed = (int) ($data->delayed_count ?? 0);
         $slaMet = (int) ($data->sla_met ?? 0);
         $total = (int) ($data->total ?? 0);
@@ -228,8 +228,7 @@ class OrderAnalyticsService
 
     private function getOrdersTimeSeries(Carbon $dateFrom, string $dateFormat): array
     {
-        $driver = DB::getDriverName();
-        $formatExpr = $driver === 'sqlite' ? $this->sqliteDateFormat($dateFormat) : "DATE_FORMAT(created_at, '{$dateFormat}')";
+        $formatExpr = "DATE_FORMAT(created_at, '{$dateFormat}')";
 
         return DB::table('orders')
             ->where('created_at', '>=', $dateFrom)
@@ -243,8 +242,7 @@ class OrderAnalyticsService
 
     private function getRevenueTimeSeries(Carbon $dateFrom, string $dateFormat): array
     {
-        $driver = DB::getDriverName();
-        $formatExpr = $driver === 'sqlite' ? $this->sqliteDateFormat($dateFormat) : "DATE_FORMAT(created_at, '{$dateFormat}')";
+        $formatExpr = "DATE_FORMAT(created_at, '{$dateFormat}')";
 
         return DB::table('orders')
             ->where('created_at', '>=', $dateFrom)
@@ -259,8 +257,7 @@ class OrderAnalyticsService
 
     private function getAvgOrderValueTimeSeries(Carbon $dateFrom, string $dateFormat): array
     {
-        $driver = DB::getDriverName();
-        $formatExpr = $driver === 'sqlite' ? $this->sqliteDateFormat($dateFormat) : "DATE_FORMAT(created_at, '{$dateFormat}')";
+        $formatExpr = "DATE_FORMAT(created_at, '{$dateFormat}')";
 
         return DB::table('orders')
             ->where('created_at', '>=', $dateFrom)
@@ -271,18 +268,6 @@ class OrderAnalyticsService
             ->get()
             ->map(fn($row) => ['date' => $row->date, 'value' => round($row->value ?? 0, 2)])
             ->toArray();
-    }
-
-    private function sqliteDateFormat(string $mysqlFormat): string
-    {
-        // Map MySQL DATE_FORMAT to SQLite strftime
-        return match ($mysqlFormat) {
-            '%Y-%m-%d %H:00:00' => "strftime('%Y-%m-%d %H:00:00', created_at)",
-            '%Y-%m-%d' => "strftime('%Y-%m-%d', created_at)",
-            '%Y-%W' => "strftime('%Y-%W', created_at)",
-            '%Y-%m' => "strftime('%Y-%m', created_at)",
-            default => "strftime('%Y-%m-%d', created_at)",
-        };
     }
 
     public function getTopCustomers(int $limit = 10): array

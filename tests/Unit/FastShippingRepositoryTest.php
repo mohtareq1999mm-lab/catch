@@ -92,10 +92,10 @@ class FastShippingRepositoryTest extends TestCase
     /** @test */
     public function validate_checkout_returns_translated_error_when_disabled()
     {
-        Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
+        $country = Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
 
         $governorate = Governorate::create([
-            'country_id' => 1,
+            'country_id' => $country->id,
             'name' => 'Cairo',
             'status' => true,
             'is_fast_shipping_enabled' => true,
@@ -110,7 +110,7 @@ class FastShippingRepositoryTest extends TestCase
     /** @test */
     public function validate_checkout_returns_translated_error_for_empty_cart()
     {
-        Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
+        $country = Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
 
         Settings::create([
             'language' => 'en',
@@ -126,7 +126,7 @@ class FastShippingRepositoryTest extends TestCase
         ]);
 
         $governorate = Governorate::create([
-            'country_id' => 1,
+            'country_id' => $country->id,
             'name' => 'Cairo',
             'status' => true,
             'is_fast_shipping_enabled' => true,

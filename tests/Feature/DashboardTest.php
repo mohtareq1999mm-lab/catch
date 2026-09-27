@@ -114,21 +114,28 @@ class DashboardTest extends TestCase
 
     private function makeTransaction(int $orderId, array $overrides = []): Transaction
     {
+        // Resolve the owner from the order: hardcoding user_id breaks on
+        // FK-enforcing engines (MySQL) when no user with that id exists.
+        $userId = Order::query()->whereKey($orderId)->value('user_id');
+
         return Transaction::create(array_merge([
             'invoice_id' => rand(1000, 9999),
-            'user_id' => 1,
+            'user_id' => $userId,
             'payment_method' => 'stripe',
             'order_id' => $orderId], $overrides));
     }
 
     private function makeRefund(int $orderId, array $overrides = []): void
     {
+        // Same FK rule as makeTransaction: use the order's real user.
+        $userId = Order::query()->whereKey($orderId)->value('user_id');
+
         $data = array_merge([
             'amount' => 50.00,
             'title' => 'Test Refund',
             'status' => RefundPolicyStatus::APPROVED,
             'order_id' => $orderId,
-            'user_id' => 1], $overrides);
+            'user_id' => $userId], $overrides);
 
         DB::table('refunds')->insert($data + [
             'created_at' => now(),

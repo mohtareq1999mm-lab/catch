@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\General\HomeController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\General\OrderController;
 use App\Http\Controllers\Api\General\PaymentWebhookController;
+use App\Http\Controllers\Api\General\PaymentGatewayController;
 use App\Http\Controllers\Api\General\PickupLocationController;
 use App\Http\Controllers\Api\General\ProductController;
 use App\Http\Controllers\Api\General\PromotionController;
@@ -114,6 +115,8 @@ Route::prefix('v1/general')->group(function () {
         //============================ currencies ========================/
         Route::get('currencies', [CurrencyController::class, 'index']);
         Route::post('currencies/select', [CurrencyController::class, 'select']);
+        //======================== payment options (public availability snapshot) ========================/
+        Route::get('payment-gateways', [PaymentGatewayController::class, 'index'])->name('api.general.payment-gateways.index');
         //======================== payment callbacks (gateway redirect, public) ========================/
         Route::match(['get', 'post'], 'checkout/callback', [OrderController::class, 'checkoutCallback'])->middleware('throttle:payment-callback')->name('api.checkout.callback');
         Route::match(['get', 'post'], 'checkout/error-callback', [OrderController::class, 'checkoutErrorCallback'])->middleware('throttle:payment-callback')->name('api.checkout.errorCallback');
@@ -206,16 +209,6 @@ Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle
 // /api/v1/admin/coupons/* URLs (tests, admin frontend). Canonical routes live
 // in packages/marvel/src/Rest/Routes.php under /api/v1/coupons/* with the
 // api.admin.coupons.* names; these aliases carry no names to avoid collision.
-Route::prefix('v1/admin/coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('rules', [\App\Http\Controllers\Api\Admin\CouponRulesController::class, 'show']);
-    Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration']);
-    Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id');
-    Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id');
-    Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id');
-    Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id');
-    Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id');
-
-});
 
 Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
     Route::get('notification-preferences', [NotificationPreferencesController::class, 'index'])->name('api.user.notification-preferences.index');
@@ -272,3 +265,9 @@ Route::prefix('v1/admin/payments')->middleware(['api', 'auth:sanctum', 'throttle
         // //======================== shipments ========================/
         // Route::get('shipments/track/{trackingNumber}', [ShipmentController::class, 'trackShipment'])->name('shipments.track');
         // Route::get('shipments/{id}', [ShipmentController::class, 'show'])->middleware('auth:sanctum');
+
+
+//Card: 4242 4242 4242 4242
+//Expiry: أي تاريخ مستقبلي
+//CVC: أي 3 أرقام
+//ZIP: أي قيمة مناسبة

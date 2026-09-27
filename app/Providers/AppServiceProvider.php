@@ -55,6 +55,18 @@ class AppServiceProvider extends ServiceProvider
                 $app->make(\App\Services\Invoice\Validators\SnapshotVersionValidator::class),
             )
         );
+
+        // StripeGateway lazy-builds its SDK client from config on first use.
+        // The container must NOT auto-resolve the nullable StripeClient
+        // constructor arg: it would inject an empty-key instance and every
+        // provider call would fail with "No API key provided" despite a
+        // configured key (proven by real Stripe TEST E2E, 2026-09-27).
+        $this->app->bind(
+            \App\Services\Gateway\StripeGateway::class,
+            fn($app) => new \App\Services\Gateway\StripeGateway(
+                $app->make(\App\Services\Payment\PaymentCurrencyResolver::class)
+            )
+        );
     }
 
     /**

@@ -5,6 +5,9 @@ return [
     'cart_not_found' => 'Cart not found', 
     'cart_empty' => 'Cart is empty',  
     'pay_at_cashier_requires_pickup' => 'When choosing pay at cashier, you should choose pickup fulfillment type.',
+    'payment_method_online' => 'Online payment',
+    'payment_method_cod' => 'Cash on delivery',
+    'payment_method_pay_at_cashier' => 'Pay at cashier',
 
     // Fast Shipping
     'fast_shipping_unavailable' => 'Fast shipping is not available at this time.',

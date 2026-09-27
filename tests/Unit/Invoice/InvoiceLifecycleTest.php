@@ -35,6 +35,8 @@ class InvoiceLifecycleTest extends TestCase
     private ShipmentService $shipmentService;
     private InvoiceTimelineService $timelineService;
     private Order $order;
+    private User $user;
+    private Transaction $transaction;
 
     protected function setUp(): void
     {
@@ -64,14 +66,17 @@ class InvoiceLifecycleTest extends TestCase
 
     private function createOrder(): void
     {
-        User::create([
+        // Never hardcode user_id/transaction_id: MySQL auto-increment is not
+        // reset by transaction rollback (unlike SQLite rowid reuse), so id 1
+        // is only valid on a pristine table. Always reference created rows.
+        $this->user = User::create([
             'name' => 'Test User',
             'email' => 'test@example.com',
             'password' => bcrypt('password'),
         ]);
 
         $this->order = Order::create([
-            'user_id' => 1,
+            'user_id' => $this->user->id,
             'name' => 'Test Customer',
             'user_phone' => '01000000000',
             'user_email' => 'test@example.com',
@@ -88,9 +93,9 @@ class InvoiceLifecycleTest extends TestCase
             'address' => json_encode(['street' => 'Test St', 'city' => 'Cairo']),
         ]);
 
-        Transaction::create([
+        $this->transaction = Transaction::create([
             'order_id' => $this->order->id,
-            'user_id' => 1,
+            'user_id' => $this->user->id,
             'status' => 'paid',
             'amount' => 100.00,
             'currency' => 'EGP',
@@ -214,8 +219,8 @@ class InvoiceLifecycleTest extends TestCase
         // The real guard: 'pdf_generating' is NOT in the cancelInvoice allowlist.
         $invoice = Invoice::create([
             'order_id' => $this->order->id,
-            'user_id' => 1,
-            'transaction_id' => 1,
+            'user_id' => $this->user->id,
+            'transaction_id' => $this->transaction->id,
             'invoice_number' => 'INV-TEST-001',
             'invoice_series' => 'INV',
             'sequence_number' => 1,
@@ -286,7 +291,7 @@ class InvoiceLifecycleTest extends TestCase
             $invoice,
             25.00,
             'Additional charge',
-            1,
+            $this->user->id,
         );
 
         $this->assertInstanceOf(DebitNote::class, $debitNote);
@@ -322,8 +327,8 @@ class InvoiceLifecycleTest extends TestCase
     {
         $invoice = Invoice::create([
             'order_id' => $this->order->id,
-            'user_id' => 1,
-            'transaction_id' => 1,
+            'user_id' => $this->user->id,
+            'transaction_id' => $this->transaction->id,
             'invoice_number' => 'INV-TEST-002',
             'invoice_series' => 'INV',
             'sequence_number' => 2,

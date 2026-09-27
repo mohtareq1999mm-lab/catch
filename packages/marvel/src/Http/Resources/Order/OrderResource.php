@@ -16,6 +16,18 @@ class OrderResource extends Resource
             'status' => $this->status,
             'payment_status' => $this->payment_status,
             'shipping_method' => $this->shipping_method,
+            // Order Status Flow assignment (additive; null on legacy rows).
+            'shipping_type' => $this->shipping_type ?? null,
+            'flow' => $this->when($this->relationLoaded('flow') && $this->flow, fn () => [
+                'id' => $this->flow->id,
+                'code' => $this->flow->code,
+                'name' => $this->flow->name,
+            ]),
+            'current_status' => $this->when($this->relationLoaded('currentStatus') && $this->currentStatus, fn () => [
+                'id' => $this->currentStatus->id,
+                'code' => $this->currentStatus->code,
+                'name' => $this->currentStatus->name,
+            ]),
             'expected_delivery_at' => $this->expected_delivery_at?->toIso8601String(),
             'customer' => $this->when($this->relationLoaded('user') && $this->user, [
                 'id' => $this->user->id,
@@ -42,7 +54,7 @@ class OrderResource extends Resource
                 ] : null,
                 'order_items' => OrderItemResource::collection($this->whenLoaded('orderItems')),
                 'transactions' => OrderTransactionResource::collection($this->whenLoaded('transactions')),
-                'available_statuses' => OrderService::getAllowedOrderStatusTargets((string) $this->status),
+                'available_statuses' => $this->flowAwareTargets(),
             ]),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
@@ -94,5 +106,20 @@ class OrderResource extends Resource
         }
 
         return round((float) $value, 2);
+    }
+
+    /**
+     * Admin dropdown targets: flow-aware union when the order has a flow,
+     * legacy map otherwise. Never throws from serialization.
+     */
+    private function flowAwareTargets(): array
+    {
+        try {
+            return app(OrderService::class)->getFlowAwareStatusTargets($this->resource);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return OrderService::getAllowedOrderStatusTargets((string) $this->status);
+        }
     }
 }

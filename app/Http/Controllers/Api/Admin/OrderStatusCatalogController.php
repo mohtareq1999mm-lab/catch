@@ -24,7 +24,7 @@ class OrderStatusCatalogController extends Controller
         $query = OrderStatus::query();
 
         if ($request->filled('search')) {
-            $search = $request->get('search');
+            $search = addcslashes((string) $request->get('search'), '%_\\');
             $query->where(function ($q) use ($search) {
                 $q->where('code', 'like', "%{$search}%")
                     ->orWhere('name', 'like', "%{$search}%");
@@ -35,7 +35,7 @@ class OrderStatusCatalogController extends Controller
             $query->where('is_active', filter_var($request->get('is_active'), FILTER_VALIDATE_BOOLEAN));
         }
 
-        $statuses = $query->orderBy('id')->paginate((int) $request->get('per_page', 50));
+        $statuses = $query->orderBy('id')->paginate(max(1, min(200, (int) $request->get('per_page', 50))));
 
         return $this->apiResponse('Order statuses retrieved successfully.', 200, true, [
             'data' => OrderStatusResource::collection($statuses->items()),

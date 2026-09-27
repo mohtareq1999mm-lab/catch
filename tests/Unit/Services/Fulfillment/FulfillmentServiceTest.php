@@ -243,7 +243,8 @@ class FulfillmentServiceTest extends TestCase
     public function it_assigns_fulfillment_to_user()
     {
         $fulfillment = $this->service->createFromOrder($this->order);
-        $userId = 1;
+        // Never hardcode id 1: MySQL auto-increment is not reset by rollback.
+        $userId = $this->user->id;
 
         $fulfillment = $this->service->assignToUser($fulfillment, $userId);
 

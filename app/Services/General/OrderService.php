@@ -690,6 +690,44 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         return self::$allowedOrderTransitions[$currentStatus] ?? [];
     }
 
+    /**
+     * Flow-aware admin targets: legacy targets plus the flow successor and
+     * applicable supervised exits (completed/cancelled/failed_delivery/
+     * returned). Drives the admin status dropdown; the same union the
+     * guard enforces, so offered targets are always accepted.
+     */
+    public function getFlowAwareStatusTargets(Order $order): array
+    {
+        $targets = self::getAllowedOrderStatusTargets($order->status);
+
+        try {
+            $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+
+            if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable() && $order->flow_id) {
+                $flow = \App\Models\OrderFlow\OrderFlow::query()->find($order->flow_id);
+
+                if ($flow) {
+                    $next = $flowService->nextStatus($flow, (string) $order->status);
+                    if ($next && $next->is_active) {
+                        $targets[] = $next->code;
+                    }
+                }
+
+                foreach (['completed', 'cancelled', 'failed_delivery', 'returned'] as $exit) {
+                    if ($flowService->allowsFlowTransition($order, (string) $order->status, $exit)
+                        && !in_array($exit, $targets, true)
+                    ) {
+                        $targets[] = $exit;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return array_values(array_unique($targets));
+    }
+
     private function canTransitionFulfillmentStatus(string $from, string $to): bool
     {
         return in_array($to, self::$allowedFulfillmentTransitions[$from] ?? [], true);

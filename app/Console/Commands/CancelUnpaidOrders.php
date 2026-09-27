@@ -120,20 +120,32 @@ class CancelUnpaidOrders extends Command
                 $oldFulfillmentStatus = $lockedOrder->getOriginal('fulfillment_status');
                 $lockedOrder->update($cancelUpdateData);
 
-                // Record history for system expiry (immutable audit)
+                // Record history for system expiry (immutable audit).
+                // Canonical-path note: this command intentionally acts only on
+                // locked pending orders (re-checked above), for which the
+                // flow guard allows pending -> cancelled; it bypasses
+                // changeOrderStatus() to avoid decrementing promotion usage
+                // for never-paid orders (pre-existing policy, ORD-1).
                 try {
                     if (\Illuminate\Support\Facades\Schema::hasTable('order_status_history')) {
+                        $flowMetadata = [];
+                        try {
+                            $flowMetadata = app(\App\Services\OrderFlow\OrderFlowService::class)
+                                ->flowMetadata($lockedOrder, $previousStatus, $lockedOrder->status);
+                        } catch (\Throwable $e) {
+                            report($e);
+                        }
                         $lockedOrder->recordStatusChange(
                             oldStatus: $previousStatus,
                             newStatus: $lockedOrder->status,
                             changedBy: null,
                             changedByType: 'system',
                             notes: 'Order cancelled due to reservation expiry',
-                            metadata: [
+                            metadata: array_merge([
                                 'reservation_expires_at' => $lockedOrder->reservation_expires_at?->toIso8601String(),
                                 'old_payment_status' => $oldPaymentStatus,
                                 'new_payment_status' => $cancelUpdateData['payment_status'] ?? $lockedOrder->payment_status,
-                            ],
+                            ], $flowMetadata),
                             oldPaymentStatus: $oldPaymentStatus,
                             newPaymentStatus: $cancelUpdateData['payment_status'] ?? $lockedOrder->payment_status,
                             oldFulfillmentStatus: $oldFulfillmentStatus,

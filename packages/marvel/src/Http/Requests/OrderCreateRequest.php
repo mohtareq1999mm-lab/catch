@@ -25,6 +25,15 @@ class OrderCreateRequest extends FormRequest
      *
      * @return array
      */
+    protected function prepareForValidation(): void
+    {
+        // The flow service normalizes case/whitespace; normalize early so
+        // 'LOCAL' / ' local ' pass the allow-list like the service accepts.
+        if ($this->has('shipping_type') && is_string($this->input('shipping_type'))) {
+            $normalized = strtolower(trim($this->input('shipping_type')));
+            $this->merge(['shipping_type' => $normalized === '' ? null : $normalized]);
+        }
+    }
     public function rules()
     {
         $fulfillmentValues = [FulfillmentType::DELIVERY, FulfillmentType::PICKUP];
