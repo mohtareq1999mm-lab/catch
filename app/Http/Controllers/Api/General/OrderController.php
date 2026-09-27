@@ -102,6 +102,8 @@ class OrderController extends Controller
         $paymentMethod = $request->input('payment_method', 'online');
         $gateway = $request->input('gateway', config('payment.default_gateway', 'myfatoorah'));
         $fulfillmentType = $request->input('fulfillment_type', 'delivery');
+        // Flow selector: optional, defaults to local in the service layer.
+        $shippingType = $request->input('shipping_type');
 
         if ($paymentMethod === 'cod' && $fulfillmentType === 'pickup') {
             return $this->apiResponse(COD_NOT_AVAILABLE_FOR_PICKUP, 422, false);
@@ -111,6 +113,7 @@ class OrderController extends Controller
             'fulfillment_type' => $fulfillmentType,
             'payment_method' => $paymentMethod,
             'payment_gateway' => $paymentMethod === 'online' ? $gateway : null,
+            'shipping_type' => $shippingType,
         ]);
 
         try {
@@ -119,6 +122,7 @@ class OrderController extends Controller
             // Concurrent/previous checkout already consumed this cart.
             return $this->apiResponse(CART_NOT_FOUND, 400, false);
         } catch (\InvalidArgumentException $e) {
+            // Includes fail-closed shipping-type unavailability.
             return $this->apiResponse($e->getMessage(), 422, false);
         }
 

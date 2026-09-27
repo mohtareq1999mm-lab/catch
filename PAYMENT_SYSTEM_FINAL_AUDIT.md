@@ -17,7 +17,12 @@ cross-path cap + shared ledger note added with tests. Live MyFatoorah sandbox co
 key acceptance were verified with a read-only probe (no charge created). Stripe/PayPal live
 runs remain credential-blocked. Full payment suite: **149 passed**.
 
-## 2. Repository/Git Forensics
+## 2. Repository/Git Forensics — SUPERSEDED BY CLOSURE AUDIT
+
+The 71 deletions' intent is now KNOWN (see `PAYMENT_CLOSURE_REPORT.md` §4–§5): intentional
+owner cleanup committed in `d3f6e0a`, zero references, accepted with on-demand restore.
+Payment work + payment docs are committed; worktree is clean (phantom `?? nul` only).
+Prior "BLOCKED — INTENT UNKNOWN" is lifted for the deletions specifically.
 
 - Branch `main`, HEAD `70f0bd8`; `git log` shows coupon-work commits on top; payment work is
   uncommitted (worktree + staged index from a `git add -A` by an unknown actor — DO NOT commit

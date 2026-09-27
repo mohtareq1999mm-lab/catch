@@ -73,6 +73,9 @@ class Order extends Model
         'address',
         'notes',
         'shipping_method',
+        'shipping_type',
+        'flow_id',
+        'current_status_id',
         'expected_delivery_at',
         'fast_shipping_fee',
         'fulfillment_type',
@@ -230,6 +233,20 @@ class Order extends Model
     public function fulfillments(): HasMany
     {
         return $this->hasMany(\App\Models\Fulfillment\Fulfillment::class, 'order_id');
+    }
+
+    /**
+     * Configurable Order Status Flow assignment (local default).
+     * orders.status remains the backward-compatible mirror of currentStatus.
+     */
+    public function flow(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\OrderFlow\OrderFlow::class, 'flow_id');
+    }
+
+    public function currentStatus(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\OrderFlow\OrderStatus::class, 'current_status_id');
     }
 
     /**

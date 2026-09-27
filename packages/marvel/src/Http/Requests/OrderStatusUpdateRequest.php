@@ -4,7 +4,6 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use Marvel\Database\Models\Order;
 
 class OrderStatusUpdateRequest extends FormRequest
 {
@@ -25,17 +24,13 @@ class OrderStatusUpdateRequest extends FormRequest
      */
     public function rules()
     {
+        // Legacy 5 plus catalog logistics codes; the service layer enforces
+        // which of these the order's flow actually permits next.
         return [
             'status' => [
                 'required',
                 'string',
-                Rule::in([
-                    Order::ORDER_STATUS_PENDING,
-                    Order::ORDER_STATUS_PROCESSING,
-                    Order::ORDER_STATUS_COMPLETED,
-                    Order::ORDER_STATUS_DELIVERED,
-                    Order::ORDER_STATUS_CANCELLED,
-                ]),
+                Rule::in(\App\Services\OrderFlow\OrderFlowService::ALL_STATUS_CODES),
             ],
         ];
     }

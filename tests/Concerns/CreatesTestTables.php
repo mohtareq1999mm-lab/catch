@@ -573,6 +573,9 @@ Schema::create('categories', function (Blueprint $table) {
             $table->text('pickup_location_address')->nullable();
             $table->string('pickup_location_phone')->nullable();
             $table->string('pickup_location_coordinates')->nullable();
+            $table->string('shipping_type', 30)->default('local');
+            $table->unsignedBigInteger('flow_id')->nullable();
+            $table->unsignedBigInteger('current_status_id')->nullable();
             $table->timestamp('inventory_restored_at')->nullable();
                                     $table->string('inventory_state', 16)->default('none');
             $table->timestamp('inventory_reserved_at')->nullable();
@@ -590,6 +593,43 @@ Schema::create('categories', function (Blueprint $table) {
             // Index creation failed on this engine — log but don't block tests
             \Illuminate\Support\Facades\Log::warning('Could not create pending order unique index in test DB: '.$e->getMessage());
         }
+
+        // Order Status Flow tables (production: 2026_09_28_000001) + seed.
+        // Seeded here so every suite shares the catalog/local/international
+        // flows without running migrations.
+        if (!Schema::hasTable('order_statuses')) {
+            Schema::create('order_statuses', function (Blueprint $table) {
+                $table->id();
+                $table->string('code', 50)->unique();
+                $table->string('name', 100);
+                $table->string('description', 500)->nullable();
+                $table->boolean('is_active')->default(true);
+                $table->timestamps();
+            });
+        }
+        if (!Schema::hasTable('order_flows')) {
+            Schema::create('order_flows', function (Blueprint $table) {
+                $table->id();
+                $table->string('code', 50)->unique();
+                $table->string('name', 100);
+                $table->string('shipping_type', 30)->unique();
+                $table->boolean('is_default')->default(false);
+                $table->boolean('is_active')->default(true);
+                $table->timestamps();
+            });
+        }
+        if (!Schema::hasTable('order_flow_statuses')) {
+            Schema::create('order_flow_statuses', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('flow_id')->constrained('order_flows')->cascadeOnDelete();
+                $table->foreignId('status_id')->constrained('order_statuses')->restrictOnDelete();
+                $table->unsignedInteger('sort_order');
+                $table->timestamps();
+                $table->unique(['flow_id', 'status_id']);
+                $table->unique(['flow_id', 'sort_order']);
+            });
+        }
+        $this->seedOrderStatusFlowTables();
 
         Schema::create('order_products', function (Blueprint $table) {
             $table->id();
@@ -1053,5 +1093,55 @@ Schema::create('categories', function (Blueprint $table) {
             $table->index('mismatch_type');
             $table->index('resolved_at');
         });
+    }
+
+    /**
+     * Seed the Order Status Flow catalog idempotently (safe under
+     * DatabaseTransactions: re-runs per test, firstOrCreate-style).
+     */
+    protected function seedOrderStatusFlowTables(): void
+    {
+        $now = now();
+
+        foreach (\App\Services\OrderFlow\OrderFlowService::catalogSeed() as $status) {
+            \Illuminate\Support\Facades\DB::table('order_statuses')->updateOrInsert(
+                ['code' => $status['code']],
+                [
+                    'name' => $status['name'],
+                    'description' => $status['description'],
+                    'is_active' => $status['is_active'],
+                    'updated_at' => $now,
+                    'created_at' => $now,
+                ]
+            );
+        }
+        // updateOrInsert overwrites created_at on re-runs; restore originals
+        // is unnecessary for tests (only code identity matters).
+
+        $statusIds = \Illuminate\Support\Facades\DB::table('order_statuses')->pluck('id', 'code');
+
+        foreach (\App\Services\OrderFlow\OrderFlowService::flowsSeed() as $flow) {
+            \Illuminate\Support\Facades\DB::table('order_flows')->updateOrInsert(
+                ['code' => $flow['code']],
+                [
+                    'name' => $flow['name'],
+                    'shipping_type' => $flow['shipping_type'],
+                    'is_default' => $flow['is_default'],
+                    'is_active' => $flow['is_active'],
+                    'updated_at' => $now,
+                    'created_at' => $now,
+                ]
+            );
+            $flowId = \Illuminate\Support\Facades\DB::table('order_flows')
+                ->where('code', $flow['code'])->value('id');
+
+            $sort = 1;
+            foreach ($flow['statuses'] as $code) {
+                \Illuminate\Support\Facades\DB::table('order_flow_statuses')->updateOrInsert(
+                    ['flow_id' => $flowId, 'status_id' => $statusIds[$code]],
+                    ['sort_order' => $sort++, 'updated_at' => $now, 'created_at' => $now]
+                );
+            }
+        }
     }
 }

@@ -46,6 +46,18 @@ class OrderResource extends JsonResource
             ],
             'fulfillment_type' => $this->fulfillment_type,
             'payment_method' => $this->payment_method,
+            // Order Status Flow assignment (additive; null on legacy rows).
+            'shipping_type' => $this->shipping_type ?? null,
+            'flow' => $this->when($this->relationLoaded('flow') && $this->flow, fn () => [
+                'id' => $this->flow->id,
+                'code' => $this->flow->code,
+                'name' => $this->flow->name,
+            ]),
+            'current_status' => $this->when($this->relationLoaded('currentStatus') && $this->currentStatus, fn () => [
+                'id' => $this->currentStatus->id,
+                'code' => $this->currentStatus->code,
+                'name' => $this->currentStatus->name,
+            ]),
             'shipping_price' => $this->roundMoney($this->shipping_price),
             'fast_shipping_fee' => $this->roundMoney($this->fast_shipping_fee),
             'pickup_location' => $this->when($this->fulfillment_type === 'pickup', fn() => $this->resolvePickupLocation()),

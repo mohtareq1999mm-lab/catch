@@ -55,6 +55,14 @@ class OrderCreateRequest extends FormRequest
             ],
             'payment_method' => ['nullable', 'string', 'in:online,cod,pay_at_cashier'],
             'gateway' => ['nullable', 'string', 'max:50'],
+            // Order Status Flow selector. Optional: omitted/empty defaults to
+            // local in the service layer so existing clients keep working.
+            // Availability (active flow) is validated fail-closed at creation.
+            'shipping_type' => [
+                'nullable',
+                'string',
+                Rule::in(\App\Services\OrderFlow\OrderFlowService::SUPPORTED_SHIPPING_TYPES),
+            ],
             'governorate_id' => [
                 Rule::requiredIf(fn () => $requiresShipping && $this->input('fulfillment_type') === FulfillmentType::DELIVERY),
                 'integer',

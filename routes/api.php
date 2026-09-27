@@ -250,6 +250,20 @@ Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->name('api.admin.orders.shipment.update-status');
 });
 
+// Order Status catalog + configurable Order Flows (linear, sort_order-driven).
+// Reuses the existing order permissions; no new permission seeded.
+Route::prefix('v1/admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:view-orders|view-order')->name('api.admin.order-statuses.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'show'])->whereNumber('id')->middleware('permission:view-orders|view-order')->name('api.admin.order-statuses.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-status')->name('api.admin.order-statuses.update');
+});
+Route::prefix('v1/admin/order-flows')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'index'])->middleware('permission:view-orders|view-order')->name('api.admin.order-flows.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'store'])->middleware('permission:update-order-status')->name('api.admin.order-flows.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'show'])->whereNumber('id')->middleware('permission:view-orders|view-order')->name('api.admin.order-flows.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-status')->name('api.admin.order-flows.update');
+});
+
 // Admin payment operations (F-1): gateway refund against a paid order.
 // Fail-closed — every validation failure is a 422, never a provider call.
 Route::prefix('v1/admin/payments')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {

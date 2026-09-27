@@ -24,6 +24,7 @@ class CouponIndexRequest extends FormRequest
         foreach ([
             'active', 'inactive', 'is_valid', 'expired',
             'is_public', 'has_assignments', 'has_targeting', 'require_claim',
+            'status', 'is_assigned', 'assignments', 'targeting',
         ] as $key) {
             if (! $this->has($key)) {
                 continue;
@@ -58,6 +59,14 @@ class CouponIndexRequest extends FormRequest
             // Validity (mirrors Coupon::scopeValid/scopeInvalid exactly).
             'is_valid' => ['sometimes', 'boolean'],
 
+            // Enabled/disabled flag (exact match — distinct from the
+            // validity scopes above, which also consider dates/limits).
+            'status' => ['sometimes', 'boolean'],
+
+            // Exact-date matches (Y-m-d). Null column values never match.
+            'start_date' => ['sometimes', 'date_format:Y-m-d'],
+            'end_date' => ['sometimes', 'date_format:Y-m-d'],
+
             // Date ranges (Y-m-d). Null column values never match an
             // explicit field bound; the overlap pair treats nulls as open.
             'start_date_from' => ['sometimes', 'date_format:Y-m-d'],
@@ -69,12 +78,15 @@ class CouponIndexRequest extends FormRequest
 
             // Discount (persisted values only, never translated labels).
             'discount_type' => ['sometimes', Rule::in(['fixed_rate', 'percentage'])],
+            'discount' => ['sometimes', 'numeric', 'min:0'],
             'discount_min' => ['sometimes', 'numeric', 'min:0'],
             'discount_max' => ['sometimes', 'numeric', 'min:0'],
             'max_discount_amount_min' => ['sometimes', 'numeric', 'min:0'],
             'max_discount_amount_max' => ['sometimes', 'numeric', 'min:0'],
 
             // Usage / limits.
+            'limiter' => ['sometimes', 'integer', 'min:0'],
+            'used' => ['sometimes', 'integer', 'min:0'],
             'limiter_min' => ['sometimes', 'integer', 'min:0'],
             'limiter_max' => ['sometimes', 'integer', 'min:0'],
             'used_min' => ['sometimes', 'integer', 'min:0'],
@@ -95,6 +107,11 @@ class CouponIndexRequest extends FormRequest
             'is_public' => ['sometimes', 'boolean'],
             'has_assignments' => ['sometimes', 'boolean'],
             'has_targeting' => ['sometimes', 'boolean'],
+            // Aliases kept for client convenience (same presence semantics
+            // as the canonical flags above; AND-combined like everything).
+            'is_assigned' => ['sometimes', 'boolean'],
+            'assignments' => ['sometimes', 'boolean'],
+            'targeting' => ['sometimes', 'boolean'],
 
             // Targeting (eligibility mode only — never publicity).
             'targeting_mode' => ['sometimes', Rule::in([

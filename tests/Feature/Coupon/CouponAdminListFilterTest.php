@@ -421,4 +421,179 @@ class CouponAdminListFilterTest extends TestCase
             );
         }
     }
+
+    /** @test — exact enabled/disabled flag (narrower than active/inactive) */
+    public function status_flag_exact_filter()
+    {
+        Sanctum::actingAs($this->admin());
+        $on = $this->makeCoupon(['status' => true]);
+        $off = $this->makeCoupon(['status' => false]);
+
+        $enabled = $this->ids('/api/v1/coupons?status=1&limit=50');
+        $this->assertContains($on->id, $enabled);
+        $this->assertNotContains($off->id, $enabled);
+
+        $disabled = $this->ids('/api/v1/coupons?status=0&limit=50');
+        $this->assertContains($off->id, $disabled);
+        $this->assertNotContains($on->id, $disabled);
+
+        // true/false spellings are normalized like the other booleans.
+        $this->assertContains($on->id, $this->ids('/api/v1/coupons?status=true&limit=50'));
+        $this->assertContains($off->id, $this->ids('/api/v1/coupons?status=false&limit=50'));
+
+        $this->getJson('/api/v1/coupons?status=yes')->assertStatus(422);
+    }
+
+    /** @test — exact start_date / end_date matches */
+    public function exact_start_end_date_filters()
+    {
+        Sanctum::actingAs($this->admin());
+        $sept = $this->makeCoupon([
+            'start_date' => '2026-09-01', 'end_date' => '2026-09-30',
+        ]);
+        $oct = $this->makeCoupon([
+            'start_date' => '2026-10-01', 'end_date' => '2026-10-31',
+        ]);
+
+        $byStart = $this->ids('/api/v1/coupons?start_date=2026-09-01&limit=50');
+        $this->assertContains($sept->id, $byStart);
+        $this->assertNotContains($oct->id, $byStart);
+
+        $byEnd = $this->ids('/api/v1/coupons?end_date=2026-10-31&limit=50');
+        $this->assertContains($oct->id, $byEnd);
+        $this->assertNotContains($sept->id, $byEnd);
+
+        // Exact pair AND-combines to the single matching coupon.
+        $this->assertEqualsCanonicalizing(
+            [$sept->id],
+            $this->ids('/api/v1/coupons?start_date=2026-09-01&end_date=2026-09-30&limit=50')
+        );
+
+        $this->getJson('/api/v1/coupons?start_date=09-01-2026')->assertStatus(422);
+        $this->getJson('/api/v1/coupons?end_date=tomorrow')->assertStatus(422);
+    }
+
+    /** @test — exact discount / limiter / used matches */
+    public function exact_discount_limiter_used_filters()
+    {
+        Sanctum::actingAs($this->admin());
+        $cheap = $this->makeCoupon(['discount' => 5, 'limiter' => 100, 'used' => 3]);
+        $rich = $this->makeCoupon(['discount' => 50, 'limiter' => 200, 'used' => 7]);
+        $unlimited = $this->makeCoupon(['discount' => 50, 'limiter' => null, 'used' => 0]);
+
+        $byDiscount = $this->ids('/api/v1/coupons?discount=50&limit=50');
+        $this->assertContains($rich->id, $byDiscount);
+        $this->assertContains($unlimited->id, $byDiscount);
+        $this->assertNotContains($cheap->id, $byDiscount);
+
+        $byLimiter = $this->ids('/api/v1/coupons?limiter=200&limit=50');
+        $this->assertContains($rich->id, $byLimiter);
+        $this->assertNotContains($cheap->id, $byLimiter);
+        $this->assertNotContains($unlimited->id, $byLimiter);
+
+        $byUsed = $this->ids('/api/v1/coupons?used=7&limit=50');
+        $this->assertContains($rich->id, $byUsed);
+        $this->assertNotContains($cheap->id, $byUsed);
+
+        $this->getJson('/api/v1/coupons?discount=lots')->assertStatus(422);
+        $this->getJson('/api/v1/coupons?limiter=-1')->assertStatus(422);
+        $this->getJson('/api/v1/coupons?used=-5')->assertStatus(422);
+    }
+
+    /** @test — is_assigned / assignments / targeting mirror the canonical flags */
+    public function assignment_and_targeting_presence_aliases()
+    {
+        Sanctum::actingAs($this->admin());
+        $user = User::factory()->create();
+        $granted = $this->makeCoupon();
+        $this->grant($granted, $user);
+        $targeted = $this->makeCoupon();
+        $this->target($targeted, 'dynamic');
+        $plain = $this->makeCoupon();
+
+        foreach (['is_assigned', 'assignments'] as $alias) {
+            $with = $this->ids("/api/v1/coupons?{$alias}=true&limit=50");
+            $this->assertContains($granted->id, $with, $alias);
+            $this->assertNotContains($plain->id, $with, $alias);
+            $this->assertNotContains($targeted->id, $with, $alias);
+
+            $without = $this->ids("/api/v1/coupons?{$alias}=false&limit=50");
+            $this->assertContains($plain->id, $without, $alias);
+            $this->assertContains($targeted->id, $without, $alias);
+            $this->assertNotContains($granted->id, $without, $alias);
+
+            // Alias agrees with the canonical flag on the same data.
+            $this->assertEqualsCanonicalizing(
+                $this->ids('/api/v1/coupons?has_assignments=true&limit=50'),
+                $with,
+                "{$alias} mirrors has_assignments"
+            );
+        }
+
+        $withTargeting = $this->ids('/api/v1/coupons?targeting=true&limit=50');
+        $this->assertContains($targeted->id, $withTargeting);
+        $this->assertNotContains($granted->id, $withTargeting);
+        $this->assertNotContains($plain->id, $withTargeting);
+
+        $withoutTargeting = $this->ids('/api/v1/coupons?targeting=false&limit=50');
+        $this->assertContains($granted->id, $withoutTargeting);
+        $this->assertContains($plain->id, $withoutTargeting);
+        $this->assertNotContains($targeted->id, $withoutTargeting);
+
+        $this->assertEqualsCanonicalizing(
+            $this->ids('/api/v1/coupons?has_targeting=true&limit=50'),
+            $withTargeting,
+            'targeting mirrors has_targeting'
+        );
+
+        $this->getJson('/api/v1/coupons?is_assigned=yes')->assertStatus(422);
+        $this->getJson('/api/v1/coupons?assignments=yes')->assertStatus(422);
+        $this->getJson('/api/v1/coupons?targeting=yes')->assertStatus(422);
+    }
+
+    /** @test — list rows carry the Coupon API Business Contract shape */
+    public function list_response_carries_business_contract_shape()
+    {
+        Sanctum::actingAs($this->admin());
+        $user = User::factory()->create();
+        $combo = $this->makeCoupon([
+            'is_public' => true, 'discount_type' => 'percentage',
+            'discount' => 20, 'max_discount_amount' => 50,
+        ]);
+        $this->grant($combo, $user);
+        $this->target($combo, 'dynamic', ['require_claim' => true]);
+
+        $res = $this->getJson('/api/v1/coupons?limit=50')->assertOk();
+        $res->assertJsonStructure(['data' => ['data' => [[
+            'id', 'code', 'name', 'discount', 'discount_type',
+            'max_discount_amount', 'start_date', 'end_date',
+            'limiter', 'used', 'status', 'is_valid',
+            'audience', 'is_assigned', 'audience_type',
+            'targeting_mode', 'targeting', 'assignments', 'created_at',
+        ]]]]);
+
+        $row = collect($res->json('data.data'))->firstWhere('id', $combo->id);
+        $this->assertNotNull($row);
+
+        // Audience block matches the authoritative resolver.
+        $this->assertSame('PUBLIC_AND_ASSIGNED_AND_TARGETED', $row['audience']['type']);
+        $this->assertTrue($row['audience']['is_public']);
+        $this->assertTrue($row['audience']['has_assignments']);
+        $this->assertTrue($row['audience']['has_targeting']);
+        $this->assertTrue($row['is_assigned']);
+        $this->assertSame('PUBLIC_AND_ASSIGNED_AND_TARGETED', $row['audience_type']);
+
+        // Targeting block carries the claim configuration.
+        $this->assertSame('dynamic', $row['targeting_mode']);
+        $this->assertSame('dynamic', $row['targeting']['mode']);
+        $this->assertTrue($row['targeting']['require_claim']);
+
+        // Assignment block carries quotas without PII beyond user_id.
+        $this->assertCount(1, $row['assignments']);
+        $this->assertSame($user->id, $row['assignments'][0]['user_id']);
+        $this->assertArrayHasKey('remaining', $row['assignments'][0]);
+
+        $this->assertIsBool($row['is_valid']);
+        $this->assertIsBool($row['status']);
+    }
 }

@@ -299,8 +299,12 @@ class OrderService
                 }
             } else {
                 // Create new order
+                // Flow/shipping-type assignment happens inside createOrder
+                // (local default, fail-closed on unavailable types). Payment
+                // retry reuses the pending order WITHOUT changing its flow.
                 $order = $this->orderCreationService->createOrder(
                     $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
+                    $request->input('shipping_type'),
                 );
                 if (!$order) {
                     throw new \RuntimeException('Order creation failed.');
@@ -717,9 +721,23 @@ private function canTransitionOrderStatus(string $from, string $to): bool
 
             $previousStatus = $order->status;
 
-            if (!$this->canTransitionOrderStatus($previousStatus, $status)) {
+            // Order Status Flow validation runs BEFORE the legacy business
+            // logic. Union semantics: anything the legacy map allows stays
+            // allowed (payment milestones, no-ops, cancellation exits);
+            // logistics steps additionally require immediate succession in
+            // the order's assigned flow. allowsFlowTransition() is a safe
+            // no-op (false) when the flow tables/columns are absent.
+            $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+            $flowAllows = $flowService->allowsFlowTransition($order, $previousStatus, $status);
+            $legacyAllows = $this->canTransitionOrderStatus($previousStatus, $status);
+
+            if (!($flowAllows || $legacyAllows)) {
+                $messageKey = isset($order->flow_id) && $order->flow_id
+                    ? 'checkout.invalid_flow_transition'
+                    : 'checkout.invalid_order_status_transition';
+
                 throw new \RuntimeException(
-                    __('checkout.invalid_order_status_transition', [
+                    __($messageKey, [
                         'from' => $previousStatus,
                         'to' => $status,
                     ])
@@ -748,6 +766,17 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             }
 
             $updateData = ['status' => $status];
+
+            // Canonical flow sync: current_status_id mirrors orders.status.
+            // Written ONLY here (and at creation) so the two cannot drift.
+            if (Schema::hasColumn('orders', 'current_status_id')
+                && \App\Services\OrderFlow\OrderFlowService::tablesAvailable()
+            ) {
+                $flowStatusId = $flowService->statusIdForCode($status);
+                if ($flowStatusId) {
+                    $updateData['current_status_id'] = $flowStatusId;
+                }
+            }
 
             if ($status === 'completed') {
                 // Business contract: completed => payment succeeded.
@@ -831,6 +860,11 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                             'old_fulfillment_status' => $oldFulfillmentStatus,
                             'new_fulfillment_status' => $updateData['fulfillment_status'] ?? $order->fulfillment_status,
                         ];
+                        // Flow provenance (no-op when the order has no flow).
+                        $historyMetadata = array_merge(
+                            $historyMetadata,
+                            $flowService->flowMetadata($order, $previousStatus, $order->status)
+                        );
                         $historyNotes = "Status changed from {$previousStatus} to {$order->status}";
                         // Manual-audit context (mark-paid reason, transaction,
                         // action): appended without altering the canonical text.

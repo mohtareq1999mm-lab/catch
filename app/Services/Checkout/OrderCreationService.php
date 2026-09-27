@@ -28,7 +28,7 @@ class OrderCreationService
             ->first();
     }
 
-    public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null): ?Order
+    public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?string $shippingType = null): ?Order
     {
         $shippingPrice = $shippingPrice ?? 0;
         // Authoritative formula: net total + taxes + shipping + fast shipping.
@@ -115,6 +115,21 @@ class OrderCreationService
             return null;
         }
 
+        // Order Status Flow assignment (local default). Guarded for rolling
+        // deploy / suites without the flow tables: legacy pending applies.
+        // Throws InvalidArgumentException for unsupported/unavailable types
+        // (fail-closed) BEFORE any further side effects.
+        try {
+            if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+                app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order, $shippingType);
+                $order->refresh();
+            }
+        } catch (\InvalidArgumentException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         // Record initial creation history (immutable audit). Guard for rolling deploy / tests without migration.
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('order_status_history')) {
@@ -129,6 +144,8 @@ class OrderCreationService
                         'total' => $order->total_price,
                         'currency' => $order->currency_code,
                         'governorate_id' => $order->governorate_id,
+                        'shipping_type' => $order->shipping_type ?? null,
+                        'flow_id' => $order->flow_id ?? null,
                     ],
                     oldPaymentStatus: null,
                     newPaymentStatus: $order->payment_status ?? null,

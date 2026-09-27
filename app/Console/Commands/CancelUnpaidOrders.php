@@ -98,6 +98,14 @@ class CancelUnpaidOrders extends Command
                 $this->couponReservationService->release($lockedOrder);
 
                 $cancelUpdateData = ['status' => 'cancelled'];
+                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'current_status_id')
+                    && \App\Services\OrderFlow\OrderFlowService::tablesAvailable()
+                ) {
+                    $cancelledId = \App\Models\OrderFlow\OrderStatus::query()->where('code', 'cancelled')->value('id');
+                    if ($cancelledId) {
+                        $cancelUpdateData['current_status_id'] = $cancelledId;
+                    }
+                }
                 if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'payment_status')) {
                     $cancelUpdateData['payment_status'] = Order::PAYMENT_STATUS_FAILED;
                 }

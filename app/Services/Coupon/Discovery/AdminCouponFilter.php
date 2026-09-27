@@ -50,6 +50,20 @@ class AdminCouponFilter
                 : $query->where(fn ($q) => $q->invalid());
         }
 
+        // Enabled/disabled flag (exact match — narrower than the
+        // validity scopes, which also consider dates and limits).
+        if ($present('status')) {
+            $query->where('coupons.status', $bool('status'));
+        }
+
+        // Exact-date matches (null column values never match).
+        if ($present('start_date')) {
+            $query->whereDate('start_date', $in['start_date']);
+        }
+        if ($present('end_date')) {
+            $query->whereDate('end_date', $in['end_date']);
+        }
+
         // Explicit field ranges (null column values never match a bound).
         foreach ([
             ['start_date_from', 'start_date', '>='], ['start_date_to', 'start_date', '<='],
@@ -67,6 +81,17 @@ class AdminCouponFilter
             if ($present($param)) {
                 $query->where($column, $op, $in[$param]);
             }
+        }
+
+        // Exact scalar matches (null column values never match).
+        if ($present('discount')) {
+            $query->where('discount', $in['discount']);
+        }
+        if ($present('limiter')) {
+            $query->where('limiter', (int) $in['limiter']);
+        }
+        if ($present('used')) {
+            $query->where('used', (int) $in['used']);
         }
 
         // Overlap window (null bounds count as open-ended).
@@ -123,8 +148,22 @@ class AdminCouponFilter
                 ? $query->whereHas('assignments')
                 : $query->whereDoesntHave('assignments');
         }
+        // Aliases for has_assignments (client convenience; same semantics).
+        foreach (['is_assigned', 'assignments'] as $alias) {
+            if ($present($alias)) {
+                $bool($alias)
+                    ? $query->whereHas('assignments')
+                    : $query->whereDoesntHave('assignments');
+            }
+        }
         if ($present('has_targeting')) {
             $bool('has_targeting')
+                ? $query->whereHas('targeting')
+                : $query->whereDoesntHave('targeting');
+        }
+        // Alias for has_targeting (client convenience; same semantics).
+        if ($present('targeting')) {
+            $bool('targeting')
                 ? $query->whereHas('targeting')
                 : $query->whereDoesntHave('targeting');
         }
