@@ -278,6 +278,37 @@ return [
     'create-shipment' => 'Create shipment',
     'update-shipment' => 'Update shipment',
 
+    // 🌊 Order Flows
+    'view-order-flows' => 'View order flows',
+    'create-order-flows' => 'Create order flows',
+    'update-order-flows' => 'Update order flows',
+    'manage-order-flow-inputs' => 'Manage order flow inputs',
+
+    // 🎯 Granular target-status transition permissions (generated per
+    // catalog code; see OrderFlowService::syncTargetStatusPermissions).
+    'change-order-status.pending' => 'Change order status to pending',
+    'change-order-status.processing' => 'Change order status to processing',
+    'change-order-status.packed' => 'Change order status to packed',
+    'change-order-status.shipped' => 'Change order status to shipped',
+    'change-order-status.in_transit' => 'Change order status to in transit',
+    'change-order-status.arrived_at_destination_country' => 'Change order status to arrived at destination country',
+    'change-order-status.customs_clearance' => 'Change order status to customs clearance',
+    'change-order-status.customs_hold' => 'Change order status to customs hold',
+    'change-order-status.customs_cleared' => 'Change order status to customs cleared',
+    'change-order-status.local_carrier' => 'Change order status to local carrier',
+    'change-order-status.out_for_delivery' => 'Change order status to out for delivery',
+    'change-order-status.delivered' => 'Change order status to delivered',
+    'change-order-status.failed_delivery' => 'Change order status to failed delivery',
+    'change-order-status.returned' => 'Change order status to returned',
+    'change-order-status.completed' => 'Change order status to completed',
+    'change-order-status.cancelled' => 'Change order status to cancelled',
+    'change-order-status.confirmed' => 'Change order status to confirmed',
+    'change-order-status.ready_to_ship' => 'Change order status to ready to ship',
+    'change-order-status.ready_for_pickup' => 'Change order status to ready for pickup',
+    'change-order-status.picked_up' => 'Change order status to picked up',
+    'change-order-status.export_processing' => 'Change order status to export processing',
+    'change-order-status.import_processing' => 'Change order status to import processing',
+
     // 📊 Analytics
     'export-analytics' => 'Export analytics',
 

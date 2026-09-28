@@ -88,7 +88,7 @@ class OrderService
     {
         $order = Order::query()
             ->forUser((int) $request->user()->id)
-            ->with($this->orderListRelations())
+            ->with($this->orderDetailRelations())
             ->find($orderId);
 
         if (!$order) {
@@ -124,7 +124,24 @@ class OrderService
             // Powers digital_downloads[] on delivered DIGITAL lines.
             // Powers digital_downloads[] on delivered DIGITAL lines (BD1 Option B).
             'digitalEntitlements.orderItem.product.digitalAssets',
+            // Flow context on lists (no stages: statuses[] stays null unless
+            // flow.statuses is loaded, keeping list queries flat).
+            'flow',
+            'currentStatus',
         ];
+    }
+
+    /**
+     * Detail-view relations: list relations plus the ordered Flow stages
+     * powering the customer progress UI (single order: one extra query).
+     *
+     * @return array<int|string, mixed>
+     */
+    private function orderDetailRelations(): array
+    {
+        return array_merge($this->orderListRelations(), [
+            'flow.statuses',
+        ]);
     }
 
     private function getLimit(Request $request): int
@@ -302,12 +319,33 @@ class OrderService
                 // Flow/shipping-type assignment happens inside createOrder
                 // (local default, fail-closed on unavailable types). Payment
                 // retry reuses the pending order WITHOUT changing its flow.
+                //
+                // Flow Input gate (checkout context): resolve the flow FIRST
+                // so missing/invalid flow_values abort BEFORE any row exists.
+                // Validated values persist after creation (same transaction).
+                $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+                $checkoutFlowValues = $request->input('flow_values', []);
+                if ($checkoutFlowValues === null) {
+                    $checkoutFlowValues = [];
+                }
+                if (!is_array($checkoutFlowValues)) {
+                    throw new \InvalidArgumentException(__('checkout.flow_values_must_be_object'));
+                }
+                $validatedCheckoutValues = [];
+                if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+                    $checkoutFlow = $flowService->resolveFlowForShippingType($request->input('shipping_type'));
+                    $validatedCheckoutValues = $flowService->validateFlowValues($checkoutFlow, $checkoutFlowValues, 'checkout');
+                }
                 $order = $this->orderCreationService->createOrder(
                     $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
                     $request->input('shipping_type'),
                 );
                 if (!$order) {
                     throw new \RuntimeException('Order creation failed.');
+                }
+                if (!empty($validatedCheckoutValues)) {
+                    $flowService->persistValidatedValues($order, $validatedCheckoutValues, 'checkout');
+                    $order->refresh();
                 }
                 if (!$this->orderCreationService->createOrderItems($order, $cart, $checkoutTotals->giftItems, $checkoutTotals)) {
                     throw new \RuntimeException('Order item creation failed.');
@@ -733,9 +771,9 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         return in_array($to, self::$allowedFulfillmentTransitions[$from] ?? [], true);
     }
 
-    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true)
+    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [])
     {
-        return DB::transaction(function () use ($invoiceId, $status, $orderId, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority) {
+        return DB::transaction(function () use ($invoiceId, $status, $orderId, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues) {
             $order = null;
             $transaction = null;
 
@@ -782,6 +820,23 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 );
             }
 
+            // Flow Input gate (transition context): an ADDITIONAL gate AFTER
+            // transition validation, BEFORE business guards and mutation.
+            // Missing/invalid required inputs throw BEFORE any state changes,
+            // so the order status MUST NOT change on validation failure.
+            // Empty values pass unless the flow demands transition inputs.
+            $validatedTransitionValues = [];
+            if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable() && $order->flow_id) {
+                $transitionFlow = \App\Models\OrderFlow\OrderFlow::query()->find($order->flow_id);
+                if ($transitionFlow) {
+                    $validatedTransitionValues = $flowService->validateFlowValues(
+                        $transitionFlow,
+                        $flowValues,
+                        'transition:'.$status
+                    );
+                }
+            }
+
             // F-1: completing an UNPAID order is a financial act. An
             // authenticated actor needs payments.mark_paid; system/gateway
             // paths (callbacks, webhooks, zero-value, reconciliation) run
@@ -804,6 +859,13 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             }
 
             $updateData = ['status' => $status];
+
+            // Persist validated transition input values (business copies +
+            // audit rows) BEFORE the status mutation, same transaction.
+            if (!empty($validatedTransitionValues)) {
+                $flowService->persistValidatedValues($order, $validatedTransitionValues, 'transition:'.$status);
+                $order->refresh();
+            }
 
             // Canonical flow sync: current_status_id mirrors orders.status.
             // Written ONLY here (and at creation) so the two cannot drift.

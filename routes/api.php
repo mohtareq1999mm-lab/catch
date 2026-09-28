@@ -138,6 +138,10 @@ Route::prefix('v1/general')->group(function () {
         //======================== checkout ========================//
         Route::get('checkout/promotions', [OrderController::class, 'eligiblePromotions']);
         Route::post('checkout', [OrderController::class, 'checkout']);
+        //======================== order flow definition (public schema, no values) ========================//
+        // Frontend fetches this BEFORE checkout to render required inputs
+        // dynamically. Definitions only — never runtime order values.
+        Route::get('order-flows/by-shipping-type/{shippingType}', [\App\Http\Controllers\Api\General\FlowDefinitionController::class, 'byShippingType'])->name('api.order-flows.by-shipping-type');
         // F-1 hardening: manual payment confirmation requires the dedicated
         // financial permission, NOT the generic update-order-status.
         Route::post('checkout/cod/{orderId}/mark-paid', [OrderController::class, 'markCodAsPaid'])->middleware(['permission:payments.mark_paid']);
@@ -244,17 +248,27 @@ Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:a
 });
 
 // Order Status catalog + configurable Order Flows (linear, sort_order-driven).
-// Reuses the existing order permissions; no new permission seeded.
+// Granular flow permissions (view/create/update-order-flows, manage
+// inputs) are accepted alongside the legacy order permissions so existing
+// admins keep working without a permission migration flag-day.
 Route::prefix('v1/admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:view-orders|view-order')->name('api.admin.order-statuses.index');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'show'])->whereNumber('id')->middleware('permission:view-orders|view-order')->name('api.admin.order-statuses.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-status')->name('api.admin.order-statuses.update');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-statuses.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'show'])->whereNumber('id')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-statuses.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-flows|update-order-status')->name('api.admin.order-statuses.update');
 });
 Route::prefix('v1/admin/order-flows')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'index'])->middleware('permission:view-orders|view-order')->name('api.admin.order-flows.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'store'])->middleware('permission:update-order-status')->name('api.admin.order-flows.store');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'show'])->whereNumber('id')->middleware('permission:view-orders|view-order')->name('api.admin.order-flows.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-status')->name('api.admin.order-flows.update');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'index'])->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'store'])->middleware('permission:create-order-flows|update-order-status')->name('api.admin.order-flows.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'show'])->whereNumber('id')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-flows|update-order-status')->name('api.admin.order-flows.update');
+    // Flow Input definitions (dynamic inputs). Reads ride on flow viewing;
+    // writes require the dedicated input permission (or legacy status perm).
+    Route::get('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'index'])->whereNumber('flowId')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.inputs.index');
+    Route::post('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'store'])->whereNumber('flowId')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flows.inputs.store');
+});
+Route::prefix('v1/admin/order-flow-inputs')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'update'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.update');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.destroy');
 });
 
 // Admin payment operations (F-1): gateway refund against a paid order.

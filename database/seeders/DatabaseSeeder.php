@@ -91,6 +91,8 @@ class DatabaseSeeder extends Seeder
             ActivityLogSeeder::class,
             PickupLocationSeeder::class,
             OrderFlowSeeder::class,
+            FlowInputSeeder::class,
+            OrderStatusPermissionSeeder::class,
 
         ]);
     }

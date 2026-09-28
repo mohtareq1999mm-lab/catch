@@ -34,6 +34,17 @@ class OrderFlowSeeder extends Seeder
 
         $this->seedStatuses();
         $this->seedFlows();
+
+        // Catalog-expansion hook (§25): any newly added status code
+        // automatically receives its granular transition permission.
+        // Idempotent; skipped silently when the permissions table is absent.
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('permissions')) {
+                app(OrderFlowService::class)->syncTargetStatusPermissions();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     private function seedStatuses(): void
@@ -48,7 +59,7 @@ class OrderFlowSeeder extends Seeder
 
             OrderStatus::query()->create([
                 'code' => $seed['code'],
-                'name' => $seed['name'],
+                'name' => OrderFlowService::bilingualStatusName($seed['code'], $seed['name']),
                 'description' => $seed['description'],
                 'is_active' => $seed['is_active'],
             ]);
@@ -65,7 +76,10 @@ class OrderFlowSeeder extends Seeder
             if (!$flow) {
                 $flow = OrderFlow::query()->create([
                     'code' => $seed['code'],
-                    'name' => $seed['name'],
+                    'name' => [
+                        'en' => $seed['name'],
+                        'ar' => OrderFlowService::arabicFlowNames()[$seed['code']] ?? null,
+                    ],
                     'shipping_type' => $seed['shipping_type'],
                     'is_default' => $seed['is_default'],
                     'is_active' => $seed['is_active'],

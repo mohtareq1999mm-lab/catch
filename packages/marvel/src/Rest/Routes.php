@@ -183,7 +183,13 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
 
     Route::get('orders', [OrderController::class, 'index'])->name('orders.index')->middleware('permission:view-orders|view-order');
     Route::get('orders/{id}', [OrderController::class, 'show'])->name('orders.show')->middleware('permission:view-order|view-orders');
+    // Unified status mutation: ONE endpoint for ONE order ([id]) or MANY
+    // orders ([ids]) through the same orchestrator + business pipeline.
+    Route::patch('orders/status', [\App\Http\Controllers\Api\General\OrderStatusBatchController::class, 'update'])->name('orders.update-status-batch')->middleware('permission:update-order-status');
     Route::patch('orders/{id}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status')->whereNumber('id')->middleware('permission:update-order-status');
+    // Order-specific available transitions (Flow validity × actor granular
+    // permissions). Advisory only: PATCH revalidates everything server-side.
+    Route::get('orders/{id}/statuses', [\App\Http\Controllers\Api\General\OrderStatusOptionsController::class, 'index'])->name('orders.statuses')->whereNumber('id')->middleware(['auth:sanctum']);
 
     //==================================== banner ========================/
     Route::put('banner/change-status', [BannerController::class, 'changeStatus'])->middleware('permission:update-banners');

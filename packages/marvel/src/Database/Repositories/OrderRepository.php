@@ -451,11 +451,13 @@ class OrderRepository extends BaseRepository
         $user = $request->user();
         if (isset($order->shop_id)) {
             if ($this->hasPermission($user, $order->shop_id)) {
+                $this->assertTargetStatusPermission($user, $request->order_status);
                 $result = $this->changeOrderStatus($order, $request->order_status);
                 $this->syncOrderStatusColumn($order, $request->order_status);
                 return $result;
             }
         } else if ($user->hasRole(Role::SUPER_ADMIN)) {
+            $this->assertTargetStatusPermission($user, $request->order_status);
             $result = $this->changeOrderStatus($order, $request->order_status);
             $this->syncOrderStatusColumn($order, $request->order_status);
             return $result;
@@ -465,27 +467,95 @@ class OrderRepository extends BaseRepository
     }
 
     /**
+     * Granular target-status authorization for the legacy path.
+     * Unmapped legacy-only codes (refunded/failed/at_local_facility) carry
+     * no granular concept and keep the general-permission behavior.
+     *
+     * @throws \Illuminate\Auth\Access\AuthorizationException (renders 403)
+     */
+    private function assertTargetStatusPermission($user, string $orderStatus): void
+    {
+        $mapped = self::mapLegacyOrderStatus($orderStatus);
+
+        if ($mapped !== null) {
+            app(\App\Services\OrderFlow\OrderFlowService::class)
+                ->assertUserCanTransitionTo($user, $mapped);
+        }
+    }
+
+    /**
+     * Legacy prefixed enum -> catalog short code. Shared by the granular
+     * permission assert and the status-column sync so both agree.
+     */
+    private static function mapLegacyOrderStatus(string $orderStatus): ?string
+    {
+        return [
+            OrderStatus::PENDING => 'pending',
+            OrderStatus::PROCESSING => 'processing',
+            OrderStatus::COMPLETED => 'completed',
+            OrderStatus::CANCELLED => 'cancelled',
+            OrderStatus::REFUNDED => 'refunded',
+            OrderStatus::FAILED => 'failed',
+            OrderStatus::AT_LOCAL_FACILITY => 'at_local_facility',
+            OrderStatus::OUT_FOR_DELIVERY => 'out_for_delivery',
+            OrderStatus::READY_FOR_PICKUP => 'ready_for_pickup',
+        ][$orderStatus] ?? null;
+    }
+
+    /**
      * Sync the modern `status` column with the legacy `order_status` column.
      * The Marvel trait writes to order_status (prefixed values like 'order-completed')
      * but the app reads `status` (short values like 'completed').
+     *
+     * Flow funnel (Phase 7): when the order carries a flow, the mapped code
+     * must pass the SAME union guard as the canonical path
+     * (OrderService::changeOrderStatus) — legacy callers (admin, GraphQL)
+     * cannot skip transition validation. Unmapped legacy-only codes
+     * (refunded/failed/at_local_facility) stay outside Order Flow by design.
      */
     private function syncOrderStatusColumn(Order $order, string $orderStatus): void
     {
-        $statusMap = [
-            OrderStatus::PENDING           => 'pending',
-            OrderStatus::PROCESSING        => 'processing',
-            OrderStatus::COMPLETED         => 'completed',
-            OrderStatus::CANCELLED         => 'cancelled',
-            OrderStatus::REFUNDED          => 'refunded',
-            OrderStatus::FAILED            => 'failed',
-            OrderStatus::AT_LOCAL_FACILITY => 'at_local_facility',
-            OrderStatus::OUT_FOR_DELIVERY  => 'out_for_delivery',
-            OrderStatus::READY_FOR_PICKUP  => 'ready_for_pickup',
-        ];
+        $mapped = self::mapLegacyOrderStatus($orderStatus);
 
-        if (isset($statusMap[$orderStatus])) {
-            Order::withoutGlobalScopes()->whereKey($order->id)->update(['status' => $statusMap[$orderStatus]]);
+        if ($mapped === null) {
+            return;
         }
+
+        if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable() && $order->flow_id) {
+            $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+            $from = (string) $order->status;
+            $flowAllows = $flowService->allowsFlowTransition($order, $from, $mapped);
+            $legacyAllows = in_array(
+                $mapped,
+                \App\Services\General\OrderService::getAllowedOrderStatusTargets($from),
+                true
+            );
+
+            if (!($flowAllows || $legacyAllows)) {
+                throw new MarvelBadRequestException(
+                    __('checkout.invalid_flow_transition', ['from' => $from, 'to' => $mapped])
+                );
+            }
+        }
+
+        // Mirror invariant: orders.status == current_status_id.code after
+        // every legitimate mutation. Codes without a catalog row
+        // (refunded/failed/at_local_facility) keep the mirror untouched.
+        $mirror = ['status' => $mapped];
+
+        if (\App\Services\OrderFlow\OrderFlowService::tablesAvailable()) {
+            try {
+                $statusId = app(\App\Services\OrderFlow\OrderFlowService::class)->statusIdForCode($mapped);
+
+                if ($statusId) {
+                    $mirror['current_status_id'] = $statusId;
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        Order::withoutGlobalScopes()->whereKey($order->id)->update($mirror);
     }
 
     /**

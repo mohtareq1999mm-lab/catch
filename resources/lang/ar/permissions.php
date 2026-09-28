@@ -282,6 +282,36 @@ return [
     'create-shipment' => 'إنشاء شحنة',
     'update-shipment' => 'تحديث شحنة',
 
+    // مسارات الطلبات
+    'view-order-flows' => 'عرض مسارات الطلبات',
+    'create-order-flows' => 'إنشاء مسارات الطلبات',
+    'update-order-flows' => 'تحديث مسارات الطلبات',
+    'manage-order-flow-inputs' => 'إدارة مدخلات مسارات الطلبات',
+
+    // صلاحيات نقل الحالة التفصيلية
+    'change-order-status.pending' => 'تغيير حالة الطلب إلى قيد الانتظار',
+    'change-order-status.processing' => 'تغيير حالة الطلب إلى قيد التجهيز',
+    'change-order-status.packed' => 'تغيير حالة الطلب إلى تم التغليف',
+    'change-order-status.shipped' => 'تغيير حالة الطلب إلى تم الشحن',
+    'change-order-status.in_transit' => 'تغيير حالة الطلب إلى قيد النقل',
+    'change-order-status.arrived_at_destination_country' => 'تغيير حالة الطلب إلى وصل إلى بلد الوجهة',
+    'change-order-status.customs_clearance' => 'تغيير حالة الطلب إلى التخليص الجمركي',
+    'change-order-status.customs_hold' => 'تغيير حالة الطلب إلى تعليق جمركي',
+    'change-order-status.customs_cleared' => 'تغيير حالة الطلب إلى تم التخليص الجمركي',
+    'change-order-status.local_carrier' => 'تغيير حالة الطلب إلى شركة التوصيل المحلية',
+    'change-order-status.out_for_delivery' => 'تغيير حالة الطلب إلى خارج للتوصيل',
+    'change-order-status.delivered' => 'تغيير حالة الطلب إلى تم التوصيل',
+    'change-order-status.failed_delivery' => 'تغيير حالة الطلب إلى فشل التوصيل',
+    'change-order-status.returned' => 'تغيير حالة الطلب إلى تم الإرجاع',
+    'change-order-status.completed' => 'تغيير حالة الطلب إلى مكتمل',
+    'change-order-status.cancelled' => 'تغيير حالة الطلب إلى ملغي',
+    'change-order-status.confirmed' => 'تغيير حالة الطلب إلى تم التأكيد',
+    'change-order-status.ready_to_ship' => 'تغيير حالة الطلب إلى جاهز للشحن',
+    'change-order-status.ready_for_pickup' => 'تغيير حالة الطلب إلى جاهز للاستلام',
+    'change-order-status.picked_up' => 'تغيير حالة الطلب إلى تم الاستلام',
+    'change-order-status.export_processing' => 'تغيير حالة الطلب إلى تجهيز التصدير',
+    'change-order-status.import_processing' => 'تغيير حالة الطلب إلى تجهيز الاستيراد',
+
     // التحليلات
     'export-analytics' => 'تصدير التحليلات',
 

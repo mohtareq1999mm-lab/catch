@@ -12,7 +12,7 @@ class OrderStatusResource extends JsonResource
         return [
             'id' => $this->id,
             'code' => $this->code,
-            'name' => $this->name,
+            'name' => \App\Support\LocalizedName::for($this->resource, 'name'),
             'description' => $this->description,
             'is_active' => (bool) $this->is_active,
             'created_at' => $this->created_at?->toIso8601String(),

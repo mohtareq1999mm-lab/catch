@@ -72,6 +72,9 @@ class Order extends Model
         'user_email',
         'address',
         'notes',
+        'origin_country_id',
+        'destination_country_id',
+        'customs_reference',
         'shipping_method',
         'shipping_type',
         'flow_id',
@@ -185,6 +188,21 @@ class Order extends Model
     public function governorate(): BelongsTo
     {
         return $this->belongsTo(Governorate::class);
+    }
+
+    public function originCountry(): BelongsTo
+    {
+        return $this->belongsTo(Country::class, 'origin_country_id');
+    }
+
+    public function destinationCountry(): BelongsTo
+    {
+        return $this->belongsTo(Country::class, 'destination_country_id');
+    }
+
+    public function flowValues(): HasMany
+    {
+        return $this->hasMany(\App\Models\OrderFlow\OrderFlowValue::class, 'order_id');
     }
 
     public function orderItems(): HasMany

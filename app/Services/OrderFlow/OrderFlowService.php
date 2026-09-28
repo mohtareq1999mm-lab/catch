@@ -4,7 +4,7 @@ namespace App\Services\OrderFlow;
 
 use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderStatus;
-use Illuminate\Support\Collection;
+use App\Models\OrderFlow\FlowInput;use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Marvel\Database\Models\Order;
 
@@ -28,7 +28,19 @@ class OrderFlowService
 
     public const SHIPPING_INTERNATIONAL = 'international';
 
-    /** Shipping types the checkout accepts (availability still needs an active flow). */
+    /**
+     * Granular target-status permission convention:
+     * change-order-status.<stable-status-code>.
+     *
+     * The Flow determines structural validity; this permission determines
+     * whether the ACTOR may perform that specific transition. Never
+     * confuse the two: both must pass before mutation.
+     */
+    public const TARGET_STATUS_PERMISSION_PREFIX = 'change-order-status.';
+
+    /** Supported business shipping types. Controlled discriminator:
+     * exactly local|international. Availability additionally needs an
+     * ACTIVE flow; unknown types fail closed at resolution. */
     public const SUPPORTED_SHIPPING_TYPES = [
         self::SHIPPING_LOCAL,
         self::SHIPPING_INTERNATIONAL,
@@ -172,7 +184,9 @@ class OrderFlowService
     }
 
     /**
-     * Fail-closed availability: only an ACTIVE flow makes a type available.
+     * Controlled resolution, fail-closed availability: the shipping type
+     * must be a supported business value (local|international) AND have an
+     * ACTIVE flow. Anything else throws.
      *
      * @throws \InvalidArgumentException
      */
@@ -194,6 +208,92 @@ class OrderFlowService
         }
 
         return $flow;
+    }
+
+    /**
+     * Deterministic granular permission for a target status code.
+     */
+    public static function targetStatusPermission(string $code): string
+    {
+        return self::TARGET_STATUS_PERMISSION_PREFIX.$code;
+    }
+
+    /**
+     * Ensure every catalog status code has its granular permission row.
+     * Future catalog codes receive theirs automatically on the next seed —
+     * no code change, no static list to drift.
+     *
+     * @return array<int, string> permission names ensured
+     */
+    public function syncTargetStatusPermissions(): array
+    {
+        $codes = self::ALL_STATUS_CODES;
+
+        try {
+            if (self::tablesAvailable()) {
+                $catalogCodes = OrderStatus::query()->pluck('code')->all();
+                if (!empty($catalogCodes)) {
+                    $codes = array_values(array_unique(array_merge($codes, $catalogCodes)));
+                }
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $names = [];
+        foreach ($codes as $code) {
+            $name = self::targetStatusPermission($code);
+
+            try {
+                \Spatie\Permission\Models\Permission::firstOrCreate([
+                    'name' => $name,
+                    'guard_name' => 'api',
+                ]);
+            } catch (\Throwable $e) {
+                report($e);
+
+                continue;
+            }
+
+            $names[] = $name;
+        }
+
+        return $names;
+    }
+
+    /**
+     * Does the actor hold the granular permission for the target status?
+     * A null actor means system-driven (callbacks, jobs, console): those
+     * paths are authorized by their own context (provider verification,
+     * expiry policy), so they pass here.
+     */
+    public function userCanTransitionTo(mixed $user, string $code): bool
+    {
+        if ($user === null) {
+            return true;
+        }
+
+        try {
+            if (method_exists($user, 'hasPermissionTo')) {
+                return (bool) $user->hasPermissionTo(self::targetStatusPermission($code));
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return false;
+    }
+
+    /**
+     * @throws \Illuminate\Auth\Access\AuthorizationException (renders 403)
+     */
+    public function assertUserCanTransitionTo(mixed $user, string $code): void
+    {
+        if (!$this->userCanTransitionTo($user, $code)) {
+            throw new \Illuminate\Auth\Access\AuthorizationException(
+                __('checkout.status_target_forbidden', ['status' => $code])
+            );
+        }
     }
 
     /** @return Collection<int, OrderStatus> ordered by sort_order */
@@ -354,5 +454,202 @@ class OrderFlowService
             'from_code' => $from,
             'to_code' => $to,
         ];
+    }
+
+    /** @return Collection<int, \App\Models\OrderFlow\FlowInput> active, ordered */
+    public function activeInputs(OrderFlow $flow): Collection
+    {
+        return $flow->inputs()->active()->ordered()->get();
+    }
+
+    /**
+     * Inputs demanded in a context ('checkout' or 'transition:<code>').
+     *
+     * @return Collection<int, \App\Models\OrderFlow\FlowInput>
+     */
+    public function requiredInputsFor(OrderFlow $flow, string $context): Collection
+    {
+        return $this->activeInputs($flow)->filter(
+            fn (\App\Models\OrderFlow\FlowInput $input) => $input->isRequiredInContext($context)
+        )->values();
+    }
+
+    /**
+     * Validate submitted flow_values for a context. Thin delegation so
+     * callers depend on the flow authority, not the validator directly.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, mixed> validated (normalized) values
+     *
+     * @throws \App\Exceptions\FlowInputValidationException
+     */
+    public function validateFlowValues(OrderFlow $flow, array $values, string $context): array
+    {
+        return app(FlowInputValidator::class)->validate($flow, $values, $context);
+    }
+
+    /**
+     * Input key -> orders column for BUSINESS copies.
+     *
+     * Only keys listed here write to the orders row; every validated value
+     * (listed or not) is snapshotted to order_flow_values for audit.
+     * governorate/address/pickup/warehouse intentionally absent: they reuse
+     * their existing checkout columns, never flow_values.
+     */
+    public const FLOW_VALUE_ORDER_COLUMNS = [
+        'from_country' => 'origin_country_id',
+        'to_country' => 'destination_country_id',
+        'customs_reference' => 'customs_reference',
+    ];
+
+    /**
+     * Persist validated flow values: business copies to their owning
+     * columns + immutable audit rows. Call inside the caller's transaction;
+     * no commit here.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    public function persistValidatedValues(Order $order, array $validated, string $context): void
+    {
+        if (empty($validated)) {
+            return;
+        }
+
+        $orderColumns = [];
+        foreach (self::FLOW_VALUE_ORDER_COLUMNS as $key => $column) {
+            if (array_key_exists($key, $validated) && $validated[$key] !== null && $validated[$key] !== '') {
+                $orderColumns[$column] = $validated[$key];
+            }
+        }
+
+        if (!empty($orderColumns) && self::orderFlowColumnsAvailable()) {
+            $order->forceFill($orderColumns)->save();
+        }
+
+        if (!self::tablesAvailable()) {
+            return;
+        }
+
+        try {
+            $flowValuesTable = \Illuminate\Support\Facades\Schema::hasTable('order_flow_values');
+        } catch (\Throwable) {
+            return;
+        }
+
+        if (!$flowValuesTable) {
+            return;
+        }
+
+        foreach ($validated as $key => $value) {
+            \App\Models\OrderFlow\OrderFlowValue::query()->updateOrCreate(
+                [
+                    'order_id' => $order->getKey(),
+                    'input_key' => $key,
+                    'context' => $context,
+                ],
+                [
+                    'flow_id' => $order->flow_id,
+                    'value' => ['value' => $value],
+                    'validated_at' => now(),
+                ],
+            );
+        }
+    }
+    /**
+     * Arabic display names for the global status catalog.
+     * Single source of truth for bilingual seeding and data migration;
+     * admin edits via the catalog API remain the runtime authority.
+     */
+    public static function arabicStatusNames(): array
+    {
+        return [
+            'pending' => 'قيد الانتظار',
+            'processing' => 'قيد التجهيز',
+            'packed' => 'تم التغليف',
+            'shipped' => 'تم الشحن',
+            'in_transit' => 'قيد النقل',
+            'arrived_at_destination_country' => 'وصل إلى بلد الوجهة',
+            'customs_clearance' => 'التخليص الجمركي',
+            'customs_hold' => 'تعليق جمركي',
+            'customs_cleared' => 'تم التخليص الجمركي',
+            'export_processing' => 'تجهيز التصدير',
+            'import_processing' => 'تجهيز الاستيراد',
+            'local_carrier' => 'شركة التوصيل المحلية',
+            'out_for_delivery' => 'خارج للتوصيل',
+            'delivered' => 'تم التوصيل',
+            'failed_delivery' => 'فشل التوصيل',
+            'returned' => 'تم الإرجاع',
+            'completed' => 'مكتمل',
+            'cancelled' => 'ملغي',
+            'confirmed' => 'تم التأكيد',
+            'ready_to_ship' => 'جاهز للشحن',
+            'ready_for_pickup' => 'جاهز للاستلام',
+            'picked_up' => 'تم الاستلام',
+        ];
+    }
+
+    public static function arabicFlowNames(): array
+    {
+        return [
+            'local' => 'المسار المحلي',
+            'international' => 'المسار الدولي',
+        ];
+    }
+
+    /**
+     * Bilingual seed payload for a catalog status row.
+     *
+     * @return array{en: string, ar: ?string}
+     */
+    public static function bilingualStatusName(string $code, string $english): array
+    {
+        return ['en' => $english, 'ar' => self::arabicStatusNames()[$code] ?? null];
+    }
+
+    /**
+     * Validate an admin-supplied input definition payload.
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function validateFlowInputDefinition(array $data): void
+    {
+        $key = (string) ($data['key'] ?? '');
+
+        if (!preg_match('/^[a-z][a-z0-9_]{1,49}$/', $key)) {
+            throw new \InvalidArgumentException(__('checkout.flow_input_key_invalid'));
+        }
+
+        if (!in_array($data['type'] ?? null, \App\Models\OrderFlow\FlowInput::TYPES, true)) {
+            throw new \InvalidArgumentException(__('checkout.flow_input_type_unsupported'));
+        }
+
+        if (isset($data['source']) && $data['source'] !== null
+            && !in_array($data['source'], \App\Models\OrderFlow\FlowInput::SOURCES, true)
+        ) {
+            throw new \InvalidArgumentException(__('checkout.flow_input_source_unsupported'));
+        }
+
+        $requiredAt = (string) ($data['required_at'] ?? FlowInput::REQUIRED_AT_CHECKOUT);
+
+        if ($requiredAt !== FlowInput::REQUIRED_AT_CHECKOUT
+            && !preg_match('/^transition:[a-z_]{1,60}$/', $requiredAt)
+        ) {
+            throw new \InvalidArgumentException(__('checkout.flow_input_required_at_invalid'));
+        }
+
+        if (str_starts_with($requiredAt, 'transition:')) {
+            $code = substr($requiredAt, strlen('transition:'));
+
+            if (!in_array($code, self::ALL_STATUS_CODES, true)) {
+                throw new \InvalidArgumentException(__('checkout.flow_input_required_at_unknown_status'));
+            }
+        }
+
+        $label = $data['label'] ?? null;
+        $labelEn = is_array($label) ? ($label['en'] ?? null) : $label;
+
+        if (!is_string($labelEn) || trim($labelEn) === '') {
+            throw new \InvalidArgumentException(__('checkout.flow_input_label_required'));
+        }
     }
 }

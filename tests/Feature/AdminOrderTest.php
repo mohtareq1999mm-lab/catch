@@ -66,6 +66,11 @@ class AdminOrderTest extends TestCase
             Permission::UPDATE_ORDER_STATUS,
             'payments.mark_paid']);
 
+        // Production parity: holders of the general permission inherit the
+        // granular change-order-status.* set (compat bridge).
+        (new \Database\Seeders\OrderStatusPermissionSeeder)->run();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
         $this->product = Product::create([
             'name' => 'Test Product',
             'slug' => 'test-product-' . Str::random(6),
@@ -612,8 +617,14 @@ class AdminOrderTest extends TestCase
         $response = $this->patchJson(self::PREFIX . '/orders/' . $order->id . '/status', [
             'status' => 'shipped']);
 
+        // pending -> shipped skips processing/packed: business 422
+        // (transition rejected), not a validation 422.
         $response->assertStatus(422);
-        $response->assertJsonValidationErrors(['status']);
+        $this->assertFalse($response->json('success'));
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => 'pending']);
     }
 
     public function test_update_status_returns_422_for_invalid_transition()

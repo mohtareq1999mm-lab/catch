@@ -13,6 +13,14 @@ class OrderFlowUpsertRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        // Legacy string name -> {en} so the model always stores bilingual JSON.
+        if ($this->has('name') && is_string($this->input('name'))) {
+            $this->merge(['name' => ['en' => $this->input('name')]]);
+        }
+    }
+
     public function rules(): array
     {
         $flowId = $this->route('id') ?? $this->route('flow');
@@ -25,14 +33,17 @@ class OrderFlowUpsertRequest extends FormRequest
                 'max:50',
                 Rule::unique('order_flows', 'code')->ignore($flowId),
             ],
-            'name' => ['sometimes', 'required', 'string', 'max:100'],
+            'name' => ['sometimes', 'required'],
+            'name.en' => ['sometimes', 'required', 'string', 'max:100'],
+            'name.ar' => ['nullable', 'string', 'max:100'],
             'shipping_type' => [
                 'sometimes',
                 'required',
                 'string',
                 'max:30',
+                // Controlled business discriminator: exactly local|international.
                 Rule::in(OrderFlowService::SUPPORTED_SHIPPING_TYPES),
-                // One active flow per shipping_type: the type IS the mapping.
+                // One flow row per shipping_type: the type IS the mapping.
                 Rule::unique('order_flows', 'shipping_type')->ignore($flowId),
             ],
             'is_default' => ['sometimes', 'required', 'boolean'],

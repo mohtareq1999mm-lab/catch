@@ -12,7 +12,7 @@ class OrderFlowResource extends JsonResource
         return [
             'id' => $this->id,
             'code' => $this->code,
-            'name' => $this->name,
+            'name' => \App\Support\LocalizedName::for($this->resource, 'name'),
             'shipping_type' => $this->shipping_type,
             'is_default' => (bool) $this->is_default,
             'is_active' => (bool) $this->is_active,
@@ -21,7 +21,7 @@ class OrderFlowResource extends JsonResource
                 fn () => $this->statuses->map(fn ($status) => [
                     'id' => $status->id,
                     'code' => $status->code,
-                    'name' => $status->name,
+                    'name' => \App\Support\LocalizedName::for($status, 'name'),
                     'is_active' => (bool) $status->is_active,
                     'sort_order' => (int) $status->pivot->sort_order,
                 ])->values()->all()

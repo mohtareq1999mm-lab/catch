@@ -21,12 +21,25 @@ class OrderResource extends Resource
             'flow' => $this->when($this->relationLoaded('flow') && $this->flow, fn () => [
                 'id' => $this->flow->id,
                 'code' => $this->flow->code,
-                'name' => $this->flow->name,
+                'name' => \App\Support\LocalizedName::for($this->flow, 'name'),
+                'shipping_type' => $this->flow->shipping_type,
+                'is_active' => (bool) $this->flow->is_active,
+                // Ordered stages of THIS flow only (never the global catalog).
+                // Present only when flow.statuses was eager-loaded (details).
+                'statuses' => $this->flow->relationLoaded('statuses')
+                    ? $this->flow->statuses->map(fn ($status) => [
+                        'id' => $status->id,
+                        'code' => $status->code,
+                        'name' => \App\Support\LocalizedName::for($status, 'name'),
+                        'sort_order' => (int) $status->pivot->sort_order,
+                    ])->values()->all()
+                    : null,
             ]),
             'current_status' => $this->when($this->relationLoaded('currentStatus') && $this->currentStatus, fn () => [
                 'id' => $this->currentStatus->id,
                 'code' => $this->currentStatus->code,
-                'name' => $this->currentStatus->name,
+                'name' => \App\Support\LocalizedName::for($this->currentStatus, 'name'),
+                'sort_order' => $this->resolveCurrentSortOrder(),
             ]),
             'expected_delivery_at' => $this->expected_delivery_at?->toIso8601String(),
             'customer' => $this->when($this->relationLoaded('user') && $this->user, [
@@ -106,6 +119,30 @@ class OrderResource extends Resource
         }
 
         return round((float) $value, 2);
+    }
+
+    /**
+     * Position of the current status inside the assigned flow (null when
+     * the flow membership isn't loaded or the status isn't a member).
+     * Purely presentational; transitions never read sort_order back.
+     */
+    private function resolveCurrentSortOrder(): ?int
+    {
+        try {
+            if ($this->relationLoaded('flow') && $this->flow
+                && $this->flow->relationLoaded('statuses')
+                && $this->relationLoaded('currentStatus')
+                && $this->currentStatus
+            ) {
+                $match = $this->flow->statuses->firstWhere('id', $this->currentStatus->id);
+
+                return $match ? (int) $match->pivot->sort_order : null;
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return null;
     }
 
     /**

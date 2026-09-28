@@ -70,7 +70,7 @@ class OrderController extends CoreController
     {
 
         $order = Order::query()
-            ->with($this->relations())
+            ->with($this->relations(detailed: true))
             ->findOrFail($param);
 
         return $this->apiResponse(
@@ -83,17 +83,34 @@ class OrderController extends CoreController
 
     public function updateStatus(OrderStatusUpdateRequest $request, string $param)
     {
+        // Legacy shape, unified pipeline: this route is a single-order view
+        // over OrderStatusBatchService. No independent mutation logic lives
+        // here — authorization, flow, inputs, payment guards, persistence
+        // and side effects all run inside the shared orchestrator, and this
+        // adapter only translates the single result back to the historical
+        // response contract (messages + HTTP codes unchanged).
+        $outcome = app(\App\Services\General\OrderStatusBatchService::class)->updateStatuses(
+            $request->user(),
+            [(int) $param],
+            (string) $request->status,
+            (array) ($request->input('flow_values') ?? [])
+        );
+        $result = $outcome['results'][0];
+
+        if (!$result['success']) {
+            return match ($result['error']['code']) {
+                'order_not_found' => $this->apiResponse(NOT_FOUND, 404, false),
+                'missing_permission' => $this->apiResponse($result['error']['message'], 403, false),
+                'missing_flow_input', 'unknown_flow_input', 'invalid_flow_input' => $this->apiResponse(
+                    $result['error']['message'], 422, false,
+                    ['errors' => $result['error']['details']['errors'] ?? []]
+                ),
+                // Transition + payment-authority failures keep the legacy 422 contract.
+                default => $this->apiResponse($result['error']['message'], 422, false),
+            };
+        }
+
         $order = Order::query()->find($param);
-
-        if (!$order) {
-            return $this->apiResponse(NOT_FOUND, 404, false);
-        }
-
-        try {
-            $order = $this->orderService->changeOrderStatus(null, $request->status, $order->id);
-        } catch (\RuntimeException $e) {
-            return $this->apiResponse($e->getMessage(), 422, false);
-        }
 
         if (!$order) {
             return $this->apiResponse(NOT_FOUND, 404, false);
@@ -103,13 +120,13 @@ class OrderController extends CoreController
             ORDER_STATUS_UPDATED_SUCCESSFULLY,
             200,
             true,
-            new OrderResource($order->load($this->relations()))
+            new OrderResource($order->load($this->relations(detailed: true)))
         );
     }
 
-    private function relations(): array
+    private function relations(bool $detailed = false): array
     {
-        return [
+        $relations = [
             'user',
             'orderItems.product',
             'orderItems.productVariant.attributeProducts.attributeValue',
@@ -118,6 +135,14 @@ class OrderController extends CoreController
             'flow',
             'currentStatus',
         ];
+
+        // Flow stages are a detail-view concern only: loading up to 11
+        // statuses per row on paginated lists is pure overhead.
+        if ($detailed) {
+            $relations[] = 'flow.statuses';
+        }
+
+        return $relations;
     }
 
     private function getLimit(Request $request): int

@@ -59,13 +59,18 @@ class PermissionSeeder extends Seeder
             'view-invoice',
             'view-invoice-download',
             'regenerate-invoice',
-            'correct-invoice',
             'cancel-invoice',
             'issue-debit-note',
             'view-shipments',
             'view-shipment',
             'create-shipment',
             'update-shipment',
+            // 🌊 Order Flows (definitions + dynamic inputs; transitions stay
+            // on update-order-status; super_admin receives all via sync below)
+            'view-order-flows',
+            'create-order-flows',
+            'update-order-flows',
+            'manage-order-flow-inputs',
             'view-coupon-assignments',
             'create-coupon-assignment',
             'update-coupon-assignment',
@@ -507,8 +512,25 @@ class PermissionSeeder extends Seeder
             'view-settings',
         ];
 
+        // Creation set = union of the master list AND every role array.
+        // Role syncs below pass plain string names (Spatie's syncPermissions
+        // resolves them via findByName and throws PermissionDoesNotExist for
+        // any name without a row — e.g. `correct-invoice`, which is only
+        // referenced by a role array). Building the union here guarantees
+        // every referenced permission exists, no matter which list it came
+        // from. firstOrCreate keeps this idempotent across deploys.
+        $allPermissionNames = array_unique(array_merge(
+            $permissions,
+            $customerPermission ?? [],
+            $staffAndOnwner ?? [],
+            $onwnerPermission ?? [],
+            $editorPermission ?? [],
+            $superAdminPermission ?? [],
+            $viewPermission ?? []
+        ));
+
         $permissionsData = [];
-        foreach (array_unique($permissions) as $permission) {
+        foreach ($allPermissionNames as $permission) {
             $permissionsData[] = Permission::firstOrCreate([
                 'name' => $permission,
                 'guard_name' => 'api',

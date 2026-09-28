@@ -298,6 +298,16 @@ final class Permission extends Enum
     public const CREATE_SHIPMENT = 'create-shipment';
     public const UPDATE_SHIPMENT = 'update-shipment';
 
+    // 🌊 Order Flows (definitions + dynamic inputs)
+    // Transitions themselves stay on UPDATE_ORDER_STATUS (+ payments.mark_paid
+    // for unpaid completions); these guard configuration only. There is
+    // intentionally no delete-order-flows: flows are deactivated
+    // (is_active=false), never deleted, so history stays intact.
+    public const VIEW_ORDER_FLOWS = 'view-order-flows';
+    public const CREATE_ORDER_FLOWS = 'create-order-flows';
+    public const UPDATE_ORDER_FLOWS = 'update-order-flows';
+    public const MANAGE_ORDER_FLOW_INPUTS = 'manage-order-flow-inputs';
+
     // 🏭 Warehouse / WMS (Phase 13 — picker/packer NEVER gain financial perms)
     public const VIEW_WAREHOUSE = 'view-warehouse';
     public const MANAGE_WAREHOUSE = 'manage-warehouse';

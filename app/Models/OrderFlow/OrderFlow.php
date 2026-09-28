@@ -5,9 +5,12 @@ namespace App\Models\OrderFlow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\Translatable\HasTranslations;
 
 class OrderFlow extends Model
 {
+    use HasTranslations;
+
     protected $table = 'order_flows';
 
     protected $fillable = [
@@ -17,6 +20,8 @@ class OrderFlow extends Model
         'is_default',
         'is_active',
     ];
+
+    public array $translatable = ['name'];
 
     protected $casts = [
         'is_default' => 'boolean',
@@ -34,6 +39,11 @@ class OrderFlow extends Model
     public function memberships(): HasMany
     {
         return $this->hasMany(OrderFlowStatus::class, 'flow_id')->orderBy('sort_order');
+    }
+
+    public function inputs(): HasMany
+    {
+        return $this->hasMany(FlowInput::class, 'flow_id')->orderBy('sort_order');
     }
 
     public function orders(): HasMany

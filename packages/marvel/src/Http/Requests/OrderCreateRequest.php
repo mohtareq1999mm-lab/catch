@@ -66,12 +66,17 @@ class OrderCreateRequest extends FormRequest
             'gateway' => ['nullable', 'string', 'max:50'],
             // Order Status Flow selector. Optional: omitted/empty defaults to
             // local in the service layer so existing clients keep working.
-            // Availability (active flow) is validated fail-closed at creation.
+            // Controlled values only (local|international); availability
+            // (active flow) is validated fail-closed at creation.
             'shipping_type' => [
                 'nullable',
                 'string',
                 Rule::in(\App\Services\OrderFlow\OrderFlowService::SUPPORTED_SHIPPING_TYPES),
             ],
+            // Dynamic Flow Inputs (validated against the resolved flow's
+            // checkout-required definitions inside OrderService; unknown
+            // keys and missing required inputs fail closed with 422).
+            'flow_values' => ['nullable', 'array'],
             'governorate_id' => [
                 Rule::requiredIf(fn () => $requiresShipping && $this->input('fulfillment_type') === FulfillmentType::DELIVERY),
                 'integer',

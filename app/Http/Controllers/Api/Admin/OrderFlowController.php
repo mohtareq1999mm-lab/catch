@@ -57,10 +57,12 @@ class OrderFlowController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $flow = OrderFlow::query()->with('statuses')->findOrFail($id);
+        $flow = OrderFlow::query()->with(['statuses', 'inputs' => fn ($q) => $q->ordered()])->findOrFail($id);
 
-        return $this->apiResponse('Order flow retrieved successfully.', 200, true,
-            (new OrderFlowResource($flow))->toArray(request()));
+        $payload = (new OrderFlowResource($flow))->toArray(request());
+        $payload['inputs'] = \App\Http\Resources\FlowInputResource::collection($flow->inputs)->toArray(request());
+
+        return $this->apiResponse('Order flow retrieved successfully.', 200, true, $payload);
     }
 
     public function store(OrderFlowUpsertRequest $request): JsonResponse

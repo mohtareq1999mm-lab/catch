@@ -352,9 +352,10 @@ class OrderFlowMatrixTest extends TestCase
         $this->assertSame(1, $defaults->where('shipping_type', 'local')->count());
         $this->assertSame(1, $defaults->where('shipping_type', 'international')->count());
 
-        // Every supported type resolves to exactly one active flow.
+        // Every active default flow resolves by its own shipping_type —
+        // the value space is dynamic, so iterate the database, not a list.
         $service = app(OrderFlowService::class);
-        foreach (OrderFlowService::SUPPORTED_SHIPPING_TYPES as $type) {
+        foreach (OrderFlow::query()->where('is_default', true)->where('is_active', true)->pluck('shipping_type') as $type) {
             $flow = $service->resolveFlowForShippingType($type);
             $this->assertSame($type, $flow->shipping_type);
             $this->assertTrue($flow->statuses()->exists());

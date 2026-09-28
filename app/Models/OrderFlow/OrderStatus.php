@@ -4,9 +4,12 @@ namespace App\Models\OrderFlow;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Spatie\Translatable\HasTranslations;
 
 class OrderStatus extends Model
 {
+    use HasTranslations;
+
     protected $table = 'order_statuses';
 
     protected $fillable = [
@@ -15,6 +18,8 @@ class OrderStatus extends Model
         'description',
         'is_active',
     ];
+
+    public array $translatable = ['name'];
 
     protected $casts = [
         'is_active' => 'boolean',

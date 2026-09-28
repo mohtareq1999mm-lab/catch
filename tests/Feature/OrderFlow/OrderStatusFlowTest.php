@@ -131,6 +131,9 @@ class OrderStatusFlowTest extends TestCase
                 $perm = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
                 $this->admin->givePermissionTo($perm);
             }
+            // Production parity: holders of the general permission inherit
+            // the granular change-order-status.* set (compat bridge).
+            (new \Database\Seeders\OrderStatusPermissionSeeder)->run();
         }
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -241,7 +244,8 @@ class OrderStatusFlowTest extends TestCase
         $resp = $this->adminPut("/api/v1/admin/order-statuses/{$id}", ['name' => 'Preparing Order']);
 
         $resp->assertOk();
-        $this->assertSame('Preparing Order', $resp->json('data.name'));
+        // Bilingual contract: legacy string sets the `en` translation.
+        $this->assertSame('Preparing Order', $resp->json('data.name.en'));
         $this->assertSame('processing', $resp->json('data.code'));
         $this->assertSame('processing', OrderStatus::query()->find($id)->code);
     }
@@ -409,7 +413,9 @@ class OrderStatusFlowTest extends TestCase
         $this->assertSame('packed', $order->status);
         $this->assertSame('packed', $order->currentStatus->code);
 
-        $history = $order->statusHistory()->orderBy('id')->get();
+        // reorder(): the relation carries a default changed_at DESC order;
+        // last-by-id must ignore it for determinism (second-precision ties).
+        $history = $order->statusHistory()->reorder()->orderBy('id')->get();
         $this->assertTrue($history->count() >= 3);
         $last = $history->last();
         $this->assertSame('processing', $last->old_status);

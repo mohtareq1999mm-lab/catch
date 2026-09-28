@@ -34,6 +34,8 @@ class FastShippingHardenTest extends TestCase
     private User $admin;
     private Product $fastProduct;
     private Product $normalProduct;
+    private Country $country;
+    private int $pickupLocationId;
 
     protected function setUp(): void
     {
@@ -414,9 +416,9 @@ class FastShippingHardenTest extends TestCase
             ],
         ]);
 
-        Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
+        $this->country = Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
 
-        \Illuminate\Support\Facades\DB::table('pickup_locations')->insert([
+        $this->pickupLocationId = (int) \Illuminate\Support\Facades\DB::table('pickup_locations')->insertGetId([
             'store_name' => 'Main Store',
             'address' => '123 Main St',
             'phone' => '01000000000',
@@ -427,7 +429,7 @@ class FastShippingHardenTest extends TestCase
     private function createEnabledGovernorate(): Governorate
     {
         $gov = Governorate::create([
-            'country_id' => 1,
+            'country_id' => $this->country->id,
             'name' => 'Cairo',
             'status' => true,
             'is_fast_shipping_enabled' => true,
@@ -472,7 +474,7 @@ class FastShippingHardenTest extends TestCase
         Sanctum::actingAs($this->user);
 
         $this->createCartWithFastItem();
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
@@ -480,7 +482,7 @@ class FastShippingHardenTest extends TestCase
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
             'notes' => 'Fast order',
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
         ]);
 
@@ -501,7 +503,7 @@ class FastShippingHardenTest extends TestCase
         Sanctum::actingAs($this->user);
 
         $this->createCartWithFastItem();
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
@@ -509,7 +511,7 @@ class FastShippingHardenTest extends TestCase
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
             'notes' => 'Fast order online',
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
         ]);
 
@@ -523,17 +525,17 @@ class FastShippingHardenTest extends TestCase
         Sanctum::actingAs($this->user);
 
         $this->createCartWithFastItem();
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
             'fulfillment_type' => 'pickup',
-            'pickup_location_id' => 1,
+            'pickup_location_id' => $this->pickupLocationId,
         ]);
 
         $response->assertStatus(422);
@@ -549,8 +551,8 @@ class FastShippingHardenTest extends TestCase
 
         $this->createCartWithFastItem();
 
-        Governorate::create([
-            'country_id' => 1,
+        $giza = Governorate::create([
+            'country_id' => $this->country->id,
             'name' => 'Giza',
             'status' => true,
             'is_fast_shipping_enabled' => false,
@@ -561,7 +563,7 @@ class FastShippingHardenTest extends TestCase
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Giza'],
-            'governorate_id' => 1,
+            'governorate_id' => $giza->id,
             'payment_method' => 'cod',
         ]);
 
@@ -576,8 +578,8 @@ class FastShippingHardenTest extends TestCase
 
         $this->createCartWithFastItem();
 
-        Governorate::create([
-            'country_id' => 1,
+        $alex = Governorate::create([
+            'country_id' => $this->country->id,
             'name' => 'Alex',
             'status' => false,
             'is_fast_shipping_enabled' => true,
@@ -588,7 +590,7 @@ class FastShippingHardenTest extends TestCase
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Alex'],
-            'governorate_id' => 2,
+            'governorate_id' => $alex->id,
             'payment_method' => 'cod',
         ]);
 
@@ -620,14 +622,14 @@ class FastShippingHardenTest extends TestCase
             'shipping_method' => ShippingMethod::FAST,
         ]);
 
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
             'user_phone' => '01000000001',
             'user_email' => 'test@example.com',
             'address' => ['street' => '1'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
         ]);
 
@@ -750,14 +752,14 @@ class FastShippingHardenTest extends TestCase
             'shipping_method' => ShippingMethod::SCHEDULED,
         ]);
 
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
         ]);
 
@@ -783,14 +785,14 @@ class FastShippingHardenTest extends TestCase
             'total_price' => 0,
         ]);
 
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
         ]);
 
@@ -818,14 +820,14 @@ class FastShippingHardenTest extends TestCase
             'shipping_method' => ShippingMethod::SCHEDULED,
         ]);
 
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'cod',
         ]);
 
@@ -842,14 +844,14 @@ class FastShippingHardenTest extends TestCase
 
         $this->createCartWithFastItem();
 
-        $this->createEnabledGovernorate();
+        $gov = $this->createEnabledGovernorate();
 
         $response = $this->postJson(self::PREFIX . '/general/fast-shipping/checkout', [
             'name' => 'Test User',
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
             'payment_method' => 'invalid_method',
         ]);
 

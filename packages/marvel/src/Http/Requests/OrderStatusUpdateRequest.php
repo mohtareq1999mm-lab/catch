@@ -32,6 +32,11 @@ class OrderStatusUpdateRequest extends FormRequest
                 'string',
                 Rule::in(\App\Services\OrderFlow\OrderFlowService::ALL_STATUS_CODES),
             ],
+            // Dynamic Flow Inputs for transition-gated inputs
+            // (e.g. customs_reference for transition:customs_clearance).
+            // Validated inside OrderService::changeOrderStatus(); failures
+            // return 422 with the status unchanged.
+            'flow_values' => ['nullable', 'array'],
         ];
     }
 }

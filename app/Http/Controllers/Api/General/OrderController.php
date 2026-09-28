@@ -121,6 +121,9 @@ class OrderController extends Controller
         } catch (\App\Exceptions\CartEmptyException $e) {
             // Concurrent/previous checkout already consumed this cart.
             return $this->apiResponse(CART_NOT_FOUND, 400, false);
+        } catch (\App\Exceptions\FlowInputValidationException $e) {
+            // Dynamic Flow Input failure: fail closed, nothing persisted.
+            return $this->apiResponse($e->getMessage(), 422, false, ['errors' => $e->errors()]);
         } catch (\InvalidArgumentException $e) {
             // Includes fail-closed shipping-type unavailability.
             return $this->apiResponse($e->getMessage(), 422, false);

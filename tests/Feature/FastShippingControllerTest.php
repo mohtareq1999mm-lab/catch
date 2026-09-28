@@ -524,7 +524,10 @@ class FastShippingControllerTest extends TestCase
     /** @test */
     public function status_returns_unavailable_without_settings()
     {
-        Settings::truncate();
+        // NOTE: query()->delete(), NOT truncate(): TRUNCATE is DDL on MySQL
+        // and implicitly commits the DatabaseTransactions transaction,
+        // leaking this test's fixtures into subsequent tests.
+        Settings::query()->delete();
 
         $response = $this->getJson(self::PREFIX . '/general/fast-shipping/status');
 
@@ -720,8 +723,9 @@ class FastShippingControllerTest extends TestCase
         Sanctum::actingAs($this->user);
 
         Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
-        Governorate::create([
-            'country_id' => 1,
+        $country = Country::query()->latest('id')->firstOrFail();
+        $gov = Governorate::create([
+            'country_id' => $country->id,
             'name' => 'Cairo',
             'status' => true,
             'is_fast_shipping_enabled' => true,
@@ -733,7 +737,7 @@ class FastShippingControllerTest extends TestCase
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test St', 'city' => 'Cairo'],
             'notes' => 'Test order',
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
         ]);
 
         $response->assertStatus(400);
@@ -1070,8 +1074,9 @@ class FastShippingControllerTest extends TestCase
         Sanctum::actingAs($this->user);
 
         Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
-        Governorate::create([
-            'country_id' => 1,
+        $country = Country::query()->latest('id')->firstOrFail();
+        $gov = Governorate::create([
+            'country_id' => $country->id,
             'name' => 'Cairo',
             'status' => true,
             'is_fast_shipping_enabled' => true,
@@ -1082,7 +1087,7 @@ class FastShippingControllerTest extends TestCase
             'user_phone' => '01000000000',
             'user_email' => 'test@test.com',
             'address' => ['street' => 'Test'],
-            'governorate_id' => 1,
+            'governorate_id' => $gov->id,
         ]);
 
         $response->assertStatus(400);

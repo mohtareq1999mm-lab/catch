@@ -123,6 +123,17 @@ class FastShippingService
 
             $pendingOrder = $this->orderCreationService->findPendingOrderForUser((int) $user->id);
 
+            // Fast Shipping isolation: a pending INTERNATIONAL order must
+            // never be adopted as the fast order. Fail closed (422) so the
+            // customer completes/cancels it instead of silently crossing
+            // flows. Local pending orders reuse normally (same flow).
+            // NOTE: no DB::rollBack() here — the method's catch block owns
+            // the single rollback; a second one would unwind the caller's
+            // (e.g. test) transaction too.
+            if ($pendingOrder && $pendingOrder->shipping_type !== \App\Services\OrderFlow\OrderFlowService::SHIPPING_LOCAL) {
+                throw new \InvalidArgumentException(__('checkout.fast_pending_order_conflict'));
+            }
+
             $checkoutTotals = $this->orderService->withTaxes(
                 $checkoutTotals,
                 $cart,
@@ -153,6 +164,26 @@ class FastShippingService
                 // Pending-order reuse must still own a live reservation.
                 $this->orderReservationService->reserveForOrder($order);
             } else {
+                // Fast Shipping contract: LOCAL ONLY. The value is derived
+                // server-side (never trusted from the client beyond the
+                // local-only request rule), so fast orders always resolve
+                // the same Local Flow through the same authority.
+                $fastFlowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+                $fastFlowValues = $request->input('flow_values', []);
+                if ($fastFlowValues === null) {
+                    $fastFlowValues = [];
+                }
+                if (!is_array($fastFlowValues)) {
+                    DB::rollBack();
+                    throw new \InvalidArgumentException(__('checkout.flow_values_must_be_object'));
+                }
+                $validatedFastValues = [];
+                if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+                    $fastFlow = $fastFlowService->resolveFlowForShippingType(
+                        \App\Services\OrderFlow\OrderFlowService::SHIPPING_LOCAL
+                    );
+                    $validatedFastValues = $fastFlowService->validateFlowValues($fastFlow, $fastFlowValues, 'checkout');
+                }
                 $order = $this->orderCreationService->createOrder(
                     $orderData,
                     $cart,
@@ -162,11 +193,16 @@ class FastShippingService
                     $fastShippingFee,
                     $shippingPrice,
                     $governorateId,
+                    \App\Services\OrderFlow\OrderFlowService::SHIPPING_LOCAL,
                 );
 
                 if (!$order) {
                     DB::rollBack();
                     throw new Exception('Failed to create order.');
+                }
+                if (!empty($validatedFastValues)) {
+                    $fastFlowService->persistValidatedValues($order, $validatedFastValues, 'checkout');
+                    $order->refresh();
                 }
 
                 if (!$this->orderCreationService->createOrderItems($order, $cart, $checkoutTotals->giftItems, $checkoutTotals)) {

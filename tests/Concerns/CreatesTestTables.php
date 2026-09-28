@@ -576,6 +576,10 @@ Schema::create('categories', function (Blueprint $table) {
             $table->string('shipping_type', 30)->default('local');
             $table->unsignedBigInteger('flow_id')->nullable();
             $table->unsignedBigInteger('current_status_id')->nullable();
+            // Production parity: flow value business copies (2026_09_30_000003).
+            $table->unsignedBigInteger('origin_country_id')->nullable();
+            $table->unsignedBigInteger('destination_country_id')->nullable();
+            $table->string('customs_reference', 100)->nullable();
             $table->timestamp('inventory_restored_at')->nullable();
                                     $table->string('inventory_state', 16)->default('none');
             $table->timestamp('inventory_reserved_at')->nullable();
@@ -627,6 +631,40 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->timestamps();
                 $table->unique(['flow_id', 'status_id']);
                 $table->unique(['flow_id', 'sort_order']);
+            });
+        }
+        // Dynamic Flow Input definitions + audit values (2026_09_30_000001/2).
+        if (!Schema::hasTable('flow_inputs')) {
+            Schema::create('flow_inputs', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('flow_id')->constrained('order_flows')->cascadeOnDelete();
+                $table->string('key', 50);
+                $table->json('label')->nullable();
+                $table->json('placeholder')->nullable();
+                $table->json('help_text')->nullable();
+                $table->string('type', 20);
+                $table->string('source', 30)->nullable();
+                $table->boolean('required')->default(false);
+                $table->string('required_at', 60)->default('checkout');
+                $table->unsignedInteger('sort_order');
+                $table->json('validation')->nullable();
+                $table->boolean('is_active')->default(true);
+                $table->timestamps();
+                $table->unique(['flow_id', 'key']);
+                $table->unique(['flow_id', 'sort_order']);
+            });
+        }
+        if (!Schema::hasTable('order_flow_values')) {
+            Schema::create('order_flow_values', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('order_id')->constrained('orders')->cascadeOnDelete();
+                $table->foreignId('flow_id')->constrained('order_flows')->restrictOnDelete();
+                $table->string('input_key', 50);
+                $table->json('value')->nullable();
+                $table->string('context', 60)->default('checkout');
+                $table->timestamp('validated_at')->nullable();
+                $table->timestamps();
+                $table->unique(['order_id', 'input_key', 'context']);
             });
         }
         $this->seedOrderStatusFlowTables();
@@ -1107,7 +1145,10 @@ Schema::create('categories', function (Blueprint $table) {
             \Illuminate\Support\Facades\DB::table('order_statuses')->updateOrInsert(
                 ['code' => $status['code']],
                 [
-                    'name' => $status['name'],
+                    'name' => json_encode(
+                        \App\Services\OrderFlow\OrderFlowService::bilingualStatusName($status['code'], $status['name']),
+                        JSON_UNESCAPED_UNICODE
+                    ),
                     'description' => $status['description'],
                     'is_active' => $status['is_active'],
                     'updated_at' => $now,
@@ -1124,7 +1165,13 @@ Schema::create('categories', function (Blueprint $table) {
             \Illuminate\Support\Facades\DB::table('order_flows')->updateOrInsert(
                 ['code' => $flow['code']],
                 [
-                    'name' => $flow['name'],
+                    'name' => json_encode(
+                        [
+                            'en' => $flow['name'],
+                            'ar' => \App\Services\OrderFlow\OrderFlowService::arabicFlowNames()[$flow['code']] ?? null,
+                        ],
+                        JSON_UNESCAPED_UNICODE
+                    ),
                     'shipping_type' => $flow['shipping_type'],
                     'is_default' => $flow['is_default'],
                     'is_active' => $flow['is_active'],
