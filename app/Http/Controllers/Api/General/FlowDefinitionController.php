@@ -3,18 +3,23 @@
 namespace App\Http\Controllers\Api\General;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\FlowInputResource;
-use App\Http\Resources\OrderFlowResource;
+use App\Http\Resources\AvailableOrderFlowResource;
+use App\Models\OrderFlow\OrderFlow;
 use App\Services\OrderFlow\OrderFlowService;
 use Illuminate\Http\JsonResponse;
 use Marvel\Traits\ApiResponse;
 
 /**
- * Public Flow Definition endpoint (definitions only, NEVER order values).
+ * Flow Definition endpoints (definitions only, NEVER order values).
  *
- * Any authenticated customer needs this BEFORE checkout to render the
- * flow's required inputs dynamically. Cached; fail-closed 422 when the
- * shipping type is unsupported or has no active flow.
+ * - GET .../order-flows/available: canonical guest-safe discovery. Returns
+ *   every ACTIVE flow (shipping_type selection contract). No auth, no
+ *   internal identifiers, no admin flags.
+ * - GET .../order-flows/by-shipping-type/{type}: auth convenience for one
+ *   flow. Same sanitized contract as available (one serializer).
+ *
+ * The frontend selects shipping_type (local|international); the backend
+ * resolves the Flow. flow_id is never a customer contract.
  */
 class FlowDefinitionController extends Controller
 {
@@ -23,7 +28,22 @@ class FlowDefinitionController extends Controller
     public function __construct(
         private OrderFlowService $flows,
     ) {
-        $this->middleware(['auth:sanctum']);
+        // Canonical discovery is guest-safe; the per-type convenience
+        // keeps its historical auth requirement (backward compatibility).
+        $this->middleware(['auth:sanctum'])->except(['available']);
+    }
+
+    public function available(): JsonResponse
+    {
+        $flows = OrderFlow::query()
+            ->active()
+            ->with(['statuses', 'inputs' => fn ($q) => $q->active()->ordered()])
+            ->orderBy('id')
+            ->get();
+
+        return $this->apiResponse('Order flow definitions retrieved successfully.', 200, true, [
+            'flows' => AvailableOrderFlowResource::collection($flows)->toArray(request()),
+        ]);
     }
 
     public function byShippingType(string $shippingType): JsonResponse
@@ -36,9 +56,7 @@ class FlowDefinitionController extends Controller
 
         $flow->load(['statuses', 'inputs' => fn ($q) => $q->active()->ordered()]);
 
-        $payload = (new OrderFlowResource($flow))->toArray(request());
-        $payload['inputs'] = FlowInputResource::collection($flow->inputs)->toArray(request());
-
-        return $this->apiResponse('Order flow definition retrieved successfully.', 200, true, $payload);
+        return $this->apiResponse('Order flow definition retrieved successfully.', 200, true,
+            (new AvailableOrderFlowResource($flow))->toArray(request()));
     }
 }

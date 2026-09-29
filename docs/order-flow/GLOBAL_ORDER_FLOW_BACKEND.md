@@ -1,4 +1,19 @@
-# Global Order Flow — Backend
+# Global Order Flow — Backend (FINAL)
+
+Final identity decisions (authoritative; code, tests, and API agree):
+
+- `shipping_type` is the business/routing Flow identity. Supported values
+  are CONTROLLED: `local` | `international`
+  (`OrderFlowService::SUPPORTED_SHIPPING_TYPES`, mirrored by
+  `OrderCreateRequest` validation). Shipping types are NOT creatable by
+  admins; there is no dynamic-type mechanism.
+- `code` is a human/admin-readable Flow label (unique for admin
+  identification). Flows are NEVER resolved by `code`.
+- `is_default` is preserved for backward compatibility but is NOT read by
+  resolution and must not become a second selection mechanism.
+- Scope is GLOBAL: no tenant/store/shop/country scoping on flows.
+- Exactly one ACTIVE flow per `shipping_type` (DB unique); resolution
+  never falls back across types and never resolves by `is_default`.
 
 Authority chain (every mutation follows this order):
 
@@ -34,11 +49,11 @@ Events/jobs (OrderStatusChanged, PaymentSucceeded, fulfillment listeners)
 
 1. `POST /api/v1/general/checkout` with optional `shipping_type` and
    optional `flow_values: {key: value}`.
-2. `shipping_type` is DYNAMIC (any `^[a-z][a-z0-9_]{0,29}$` identifier);
-   `local`/`international` are seed data, not limits. Omitted/empty
-   defaults to `local` so existing clients keep working (backward
-   compatibility; the Flow model itself always requires the field).
-   Unknown or inactive types fail closed (422) before anything persists.
+2. `shipping_type` is CONTROLLED (`local` | `international`,
+   `OrderFlowService::SUPPORTED_SHIPPING_TYPES`). Omitted/empty defaults
+   to `local` so existing clients keep working. Unknown types fail closed
+   (422) at request validation; supported types without an ACTIVE flow
+   fail closed (422) at resolution. No silent fallback across types.
 2. `OrderService::addItemsInOrder()` resolves the flow for `shipping_type`
    (default `local`) and validates `flow_values` in context `checkout`
    BEFORE any row exists. Failure → 422, nothing persisted.
@@ -48,7 +63,12 @@ Events/jobs (OrderStatusChanged, PaymentSucceeded, fulfillment listeners)
    (`origin_country_id`, `destination_country_id`, `customs_reference`)
    + immutable rows in `order_flow_values` (context `checkout`).
 5. Payment retry reuses the pending order WITHOUT re-validating or
-   changing its flow.
+   changing its flow — AND the requested `shipping_type` must match the
+   stored one. Same type (or omitted, defaulting to local) reuses;
+   different type fails closed with
+   `checkout.pending_order_shipping_type_conflict` (422). A pending
+   order can never silently switch flow/shipping type. Fast Shipping
+   enforces the same invariant (`fast_pending_order_conflict`).
 
 ## Status transition flow
 

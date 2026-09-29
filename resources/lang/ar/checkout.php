@@ -27,6 +27,9 @@ return [
     'no_pending_cod_transaction' => 'لم يتم العثور على معاملة دفع عند الاستلام معلقة.',
     'no_pending_cashier_transaction' => 'لم يتم العثور على معاملة دفع عند الكاشير معلقة.',
     'fast_pending_order_conflict' => 'طلبك المعلق ليس طلب شحن سريع. أكمله أو ألغه قبل بدء الدفع السريع.',
+    'pending_order_shipping_type_conflict' => 'طلبك المعلق يستخدم نوع شحن مختلف. أكمله أو ألغه قبل إتمام الشراء بنوع شحن جديد.',
+    'flow_deactivate_last_active' => 'لا يمكن إلغاء تنشيط آخر مسار نشط لنوع الشحن هذا.',
+    'flow_status_inflight_block' => 'لا يمكن إلغاء تنشيط الحالة :code أثناء وجود طلبات جارية تستخدمها.',
     'status_batch_updated' => 'تم تحديث حالة الطلب بنجاح.',
     'status_batch_partial' => 'تم تحديث :succeeded من أصل :total طلبات؛ راجع نتائج كل طلب.',
     // Dynamic Flow Inputs
@@ -61,4 +64,6 @@ return [
     'flow_input_label_required' => 'تسمية الإدخال (en) مطلوبة.',
     'flow_input_inflight_block' => 'لا يمكن تغيير المدخل المطلوب :key أثناء وجود طلبات جارية على هذا المسار.',
     'status_target_forbidden' => 'غير مصرح لك بنقل الطلبات إلى الحالة :status.',
+    'order_cancel_not_allowed' => 'لا يمكن إلغاء هذا الطلب بعد الآن. يرجى التواصل مع الدعم.',
+    'order_cancelled_successfully' => 'تم إلغاء الطلب بنجاح.',
 ];

@@ -27,6 +27,9 @@ return [
     'no_pending_cod_transaction' => 'No pending COD transaction found.',
     'no_pending_cashier_transaction' => 'No pending Pay at Cashier transaction found.',
     'fast_pending_order_conflict' => 'Your pending order is not a fast shipping order. Complete or cancel it before starting fast checkout.',
+    'pending_order_shipping_type_conflict' => 'Your pending order uses a different shipping type. Complete or cancel it before checking out with a new shipping type.',
+    'flow_deactivate_last_active' => 'Cannot deactivate the last active flow for this shipping type.',
+    'flow_status_inflight_block' => 'Cannot deactivate status :code while in-flight orders are using it.',
     'status_batch_updated' => 'Order status updated successfully.',
     'status_batch_partial' => ':succeeded of :total orders updated; see per-order results.',
     // Dynamic Flow Inputs
@@ -61,4 +64,6 @@ return [
     'flow_input_label_required' => 'Input label (en) is required.',
     'flow_input_inflight_block' => 'Cannot change required input :key while in-flight orders exist on this flow.',
     'status_target_forbidden' => 'You are not authorized to move orders to :status.',
+    'order_cancel_not_allowed' => 'This order can no longer be cancelled. Please contact support.',
+    'order_cancelled_successfully' => 'Order cancelled successfully.',
 ];

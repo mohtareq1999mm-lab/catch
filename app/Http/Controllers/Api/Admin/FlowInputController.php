@@ -223,7 +223,7 @@ class FlowInputController extends Controller
 
         return \Marvel\Database\Models\Order::query()
             ->where('flow_id', $flowId)
-            ->whereNotIn('status', ['delivered', 'cancelled', 'completed'])
+            ->whereNotIn('status', \App\Services\OrderFlow\OrderFlowService::TERMINAL_STATUSES)
             ->exists();
     }
 }

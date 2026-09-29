@@ -214,6 +214,19 @@ $user ??= auth()->user() ?? auth('sanctum')->user();
 
     public function setBaseCurrency(Currency $currency): void
     {
+        // IDEMPOTENCY (Phase 13): re-setting the already-active base currency
+        // is a deterministic no-op success. It changes no financial meaning,
+        // so it must not be rejected by the financial-orders immutability
+        // guard below (which exists to protect cross-currency reporting).
+        // The current code is read fresh from settings (not the memoized
+        // singleton) so a stale instance can never misroute this branch.
+        // Active/rate validation is intentionally skipped: nothing is written.
+        $currentBase = Settings::query()->first()?->options['base_currency_code']
+            ?? config('shop.default_currency', 'USD');
+        if (strtoupper((string) $currency->code) === strtoupper((string) $currentBase)) {
+            return;
+        }
+
         DB::transaction(function () use ($currency) {
             $settings = Settings::query()->lockForUpdate()->first();
 

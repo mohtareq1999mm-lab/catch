@@ -46,19 +46,25 @@ class OrderResource extends JsonResource
             ],
             'fulfillment_type' => $this->fulfillment_type,
             'payment_method' => $this->payment_method,
+            // Own lifecycle state (customer-meaningful, safe to expose):
+            // payment + fulfillment mirrors owned by the canonical status
+            // pipeline (changeOrderStatus) and payment callbacks.
+            'payment_status' => $this->payment_status ?? null,
+            'fulfillment_status' => $this->fulfillment_status ?? null,
             // Order Status Flow assignment (additive; null on legacy rows).
             'shipping_type' => $this->shipping_type ?? null,
+            // Order Status Flow assignment (customer-safe contract: business
+            // identity only — code/name/shipping_type. Internal ids and
+            // admin flags (id, is_active, is_default) are never exposed to
+            // customers; admins use the flow management endpoints.
             'flow' => $this->when($this->relationLoaded('flow') && $this->flow, fn () => [
-                'id' => $this->flow->id,
                 'code' => $this->flow->code,
                 'name' => \App\Support\LocalizedName::for($this->flow, 'name'),
                 'shipping_type' => $this->flow->shipping_type,
-                'is_active' => (bool) $this->flow->is_active,
                 // Ordered stages of THIS flow only (never the global catalog).
                 // Present only when flow.statuses was eager-loaded (details).
                 'statuses' => $this->flow->relationLoaded('statuses')
                     ? $this->flow->statuses->map(fn ($status) => [
-                        'id' => $status->id,
                         'code' => $status->code,
                         'name' => \App\Support\LocalizedName::for($status, 'name'),
                         'sort_order' => (int) $status->pivot->sort_order,
@@ -66,7 +72,6 @@ class OrderResource extends JsonResource
                     : null,
             ]),
             'current_status' => $this->when($this->relationLoaded('currentStatus') && $this->currentStatus, fn () => [
-                'id' => $this->currentStatus->id,
                 'code' => $this->currentStatus->code,
                 'name' => \App\Support\LocalizedName::for($this->currentStatus, 'name'),
                 'sort_order' => $this->resolveCurrentSortOrder(),

@@ -123,8 +123,33 @@ class OrderFlowController extends Controller
             return $this->apiResponse('shipping_type cannot be changed. Create a new flow instead.', 422, false);
         }
 
+        // Flow deactivation guardrail: never allow deactivating the LAST
+        // active flow for a shipping_type — otherwise new orders for that
+        // type fail closed with no administrative path back except
+        // reactivation. Deactivation never rewrites existing orders (they
+        // stay bound to their stored flow_id and continue), so no
+        // in-flight check applies here: deactivation is non-destructive
+        // by design. Membership/input edits carry their own in-flight
+        // guards (syncStatuses, FlowInputController). Admin-UX guardrail
+        // (not a DB invariant): concurrent admin writers are serialized
+        // below via row locks; see the transaction body.
+        $deactivating = array_key_exists('is_active', $data) && !$data['is_active'] && $flow->is_active;
+
         try {
-            $flow = DB::transaction(function () use ($flow, $data, $statuses) {
+            $flow = DB::transaction(function () use ($flow, $data, $statuses, $deactivating) {
+                if ($deactivating) {
+                    $otherActive = OrderFlow::query()
+                        ->where('shipping_type', $flow->shipping_type)
+                        ->where('id', '!=', $flow->id)
+                        ->where('is_active', true)
+                        ->lockForUpdate()
+                        ->count();
+
+                    if ($otherActive === 0) {
+                        throw new \InvalidArgumentException(__('checkout.flow_deactivate_last_active'));
+                    }
+                }
+
                 $flow->update(array_intersect_key($data, array_flip(['code', 'name', 'is_default', 'is_active'])));
                 if (isset($statuses)) {
                     $this->syncStatuses($flow, $statuses);
@@ -161,7 +186,7 @@ class OrderFlowController extends Controller
             $inFlight = \Marvel\Database\Models\Order::query()
                 ->where('flow_id', $flow->id)
                 ->whereIn('current_status_id', $removed)
-                ->whereNotIn('status', ['delivered', 'cancelled', 'completed'])
+                ->whereNotIn('status', \App\Services\OrderFlow\OrderFlowService::TERMINAL_STATUSES)
                 ->count();
 
             if ($inFlight > 0) {

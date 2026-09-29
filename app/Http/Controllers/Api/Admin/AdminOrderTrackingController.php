@@ -249,6 +249,17 @@ class AdminOrderTrackingController extends Controller
             'total_revenue' => (float) Order::query()->where('payment_status', Order::PAYMENT_STATUS_SUCCESS)
                 ->whereBetween('created_at', [$start, $end])
                 ->sum('total_price'),
+            // FINANCIAL REPORTING CONTRACT: total_revenue adds total_price
+            // values that are each denominated in their own currency_code.
+            // revenue_by_currency is the authoritative per-currency split.
+            'revenue_by_currency' => Order::query()->where('payment_status', Order::PAYMENT_STATUS_SUCCESS)
+                ->whereBetween('created_at', [$start, $end])
+                ->selectRaw("COALESCE(currency_code, 'UNKNOWN') as currency_code, SUM(total_price) as total")
+                ->groupBy('currency_code')
+                ->orderBy('currency_code')
+                ->pluck('total', 'currency_code')
+                ->map(fn ($total) => round((float) $total, 2))
+                ->all(),
         ];
     }
 
@@ -304,12 +315,23 @@ class AdminOrderTrackingController extends Controller
 
         $orders = Order::query()->where('payment_status', Order::PAYMENT_STATUS_SUCCESS)
             ->whereBetween('created_at', [$start, $end])
-            ->get(['total_price']);
+            ->get(['total_price', 'currency_code']);
+
+        $byCurrency = $orders
+            ->groupBy(fn ($order) => $order->currency_code ?? 'UNKNOWN')
+            ->map(fn ($group) => round((float) $group->sum('total_price'), 2))
+            ->sortKeys()
+            ->all();
 
         return [
             'total' => round((float) $orders->sum('total_price'), 2),
             'average' => $orders->count() > 0 ? round((float) $orders->avg('total_price'), 2) : 0,
             'count' => $orders->count(),
+            // FINANCIAL REPORTING CONTRACT: `total`/`average` mix the
+            // currencies listed in `currencies`. by_currency is authoritative.
+            'by_currency' => $byCurrency,
+            'currencies' => array_keys($byCurrency),
+            'mixed_currencies' => count($byCurrency) > 1,
         ];
     }
 

@@ -35,6 +35,11 @@ class CurrencyConversionService
 
         $converted = bcdiv(bcmul($amount, $targetRate, self::SCALE), $sourceRate, self::SCALE);
 
+        // effectiveDate is the REQUEST date (the day the conversion is
+        // performed for), while sourceRate/targetRate are the latest stored
+        // rows <= that date. Order snapshots therefore record the checkout
+        // day in currency_rate_date even when the rate value itself comes
+        // from an earlier row — never reinterpret it as the row's own date.
         return new CurrencyConversionResult(
             amount: (float) $amount,
             convertedAmount: round((float) $converted, 2),

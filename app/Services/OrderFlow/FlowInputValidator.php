@@ -128,7 +128,7 @@ class FlowInputValidator
 
         $rules = $input->validation ?? [];
 
-        if (in_array($input->type, [FlowInput::TYPE_TEXT, FlowInput::TYPE_SELECT], true) && !$input->source) {
+        if (in_array($input->type, [FlowInput::TYPE_TEXT, FlowInput::TYPE_SELECT, FlowInput::TYPE_MULTI_SELECT], true) && !$input->source) {
             if (isset($rules['options']) && is_array($rules['options'])) {
                 $candidates = $input->type === FlowInput::TYPE_MULTI_SELECT ? (array) $value : [$value];
                 foreach ($candidates as $candidate) {

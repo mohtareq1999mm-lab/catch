@@ -197,117 +197,26 @@ is deterministic. `is_default` is an administrative marking; runtime
 resolution keys on the ACTIVE row. Omitted/empty checkout `shipping_type`
 defaults to `local` (backward compatibility).
 
-## 4. Public Flow Definition API
+## 4. Public Flow Definition API (FINAL)
+
+### GET /api/v1/general/order-flows/available (canonical, guest-safe)
+
+ONE call returns every ACTIVE flow in the sanitized customer contract
+(no ids, no `is_active`/`is_default`/`flow_id`). No auth. The frontend
+selects `shipping_type` (`local` | `international`); the backend resolves
+the Flow. `source` fields are pointers to the authoritative catalog
+endpoints (countries, governorates, pickup-locations, warehouses).
+
+Response shape: `{status, message, success, data: {flows: [{shipping_type,
+code, name{en,ar}, statuses[{code, name{en,ar}, sort_order}],
+inputs[{key, label{en,ar}, placeholder{en,ar}, help_text{en,ar}, type,
+source, required, required_at, sort_order, validation}]}]}}`.
 
 ### GET /api/v1/general/order-flows/by-shipping-type/{shippingType}
 
-#### Purpose
-Gives the frontend the active Flow definition for the selected shipping
-type before checkout. Returns ordered statuses plus active input
-definitions for rendering the correct UI.
+Convenience/backward-compatible alias for one flow. SAME sanitized
+contract as `/available`.
 
-#### Authentication
-`auth:sanctum`. Any authenticated user, including customers.
-
-#### Permission
-No additional permission.
-
-#### Path Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| shippingType | string | yes | `local` or `international` |
-
-#### Query Parameters
-
-No query parameters.
-
-#### Request Body
-
-No request body.
-
-#### Validation
-`shippingType` must be `local` | `international` AND an active Flow must
-exist for it. Anything else → 422. Definitions only — never order values,
-customer PII, historical values, or secrets.
-
-#### Business Flow
-
-```text
-request
-→ normalize shipping type
-→ resolve ACTIVE flow (422 when none)
-→ load ordered statuses + active input definitions
-→ response
-```
-
-#### Response 200
-
-```json
-{
-  "status": 200,
-  "message": "Order flow definition retrieved successfully.",
-  "success": true,
-  "data": {
-    "id": 2,
-    "code": "international",
-    "name": {"en": "International Flow", "ar": "المسار الدولي"},
-    "shipping_type": "international",
-    "is_default": true,
-    "is_active": true,
-    "statuses": [
-      {
-        "id": 7,
-        "code": "customs_clearance",
-        "name": {"en": "Customs Clearance", "ar": "التخليص الجمركي"},
-        "is_active": true,
-        "sort_order": 7
-      }
-    ],
-    "inputs": [
-      {
-        "id": 1,
-        "flow_id": 2,
-        "key": "from_country",
-        "label": {"en": "Country of origin", "ar": "بلد المنشأ"},
-        "placeholder": {"en": "Select origin country", "ar": "اختر بلد المنشأ"},
-        "help_text": {"en": "Where the shipment starts.", "ar": "من أين تبدأ الشحنة."},
-        "type": "select",
-        "source": "countries",
-        "required": true,
-        "required_at": "checkout",
-        "sort_order": 1,
-        "validation": null,
-        "is_active": true
-      }
-    ],
-    "created_at": "2026-09-28T00:00:00+00:00",
-    "updated_at": "2026-09-28T00:00:00+00:00"
-  }
-}
-```
-
-#### Error Responses
-
-#### 401
-
-```json
-{"message": "Unauthenticated."}
-```
-
-#### 422
-
-```json
-{
-  "status": 422,
-  "message": "The selected shipping type is not available for this order.",
-  "success": false
-}
-```
-
-#### Frontend Usage
-Fetch after the customer picks a shipping type; render statuses and inputs
-from `data`; keep the definitions for checkout submission.
 
 ## 5. Checkout Integration
 
@@ -754,20 +663,16 @@ without `statuses[]`; details add the ordered `statuses[]`.
   "id": 123,
   "shipping_type": "international",
   "flow": {
-    "id": 2,
     "code": "international",
     "name": {"en": "International Flow", "ar": "المسار الدولي"},
     "shipping_type": "international",
-    "is_active": true,
     "statuses": [
       {
-        "id": 1,
         "code": "pending",
         "name": {"en": "Pending", "ar": "قيد الانتظار"},
         "sort_order": 1
       },
       {
-        "id": 2,
         "code": "processing",
         "name": {"en": "Processing", "ar": "قيد التجهيز"},
         "sort_order": 2
@@ -775,7 +680,6 @@ without `statuses[]`; details add the ordered `statuses[]`.
     ]
   },
   "current_status": {
-    "id": 2,
     "code": "processing",
     "name": {"en": "Processing", "ar": "قيد التجهيز"},
     "sort_order": 2
@@ -1367,6 +1271,21 @@ never translated; display names are always `{en, ar}`.
   (independent per-order transactions, partial success); legacy
   `PATCH /api/v1/orders/{id}/status` delegates to it with its historical
   response shape unchanged. No `/orders/bulk/status` endpoint exists.
+- Frontend discovery (FINAL): canonical guest-safe
+  `GET /api/v1/general/order-flows/available` returns every ACTIVE flow
+  (sanitized: no ids/flags); per-type
+  `GET /api/v1/general/order-flows/by-shipping-type/{type}` (auth) reuses
+  the same contract. Frontend selects `shipping_type`, never `flow_id`.
+- Customer order payloads expose `flow {code, name, shipping_type}` +
+  `current_status {code, name, sort_order}` only (no ids/flags). Lists
+  omit `flow.statuses`; details include ordered stages.
+- Pending retry invariant: requested `shipping_type` must equal the
+  stored one or checkout 422s (`pending_order_shipping_type_conflict`);
+  regular checkout matches Fast Shipping's existing cross-flow guard.
+- Deactivation guardrails: last-active-flow deactivation 422s
+  (`flow_deactivate_last_active`); status deactivation with in-flight
+  holders 422s (`flow_status_inflight_block`). Deactivation never
+  rewrites existing orders.
 
 ## Flow: Payment Callback (online)
 

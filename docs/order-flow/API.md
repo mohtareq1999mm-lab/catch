@@ -4,7 +4,77 @@ Envelope for service responses: `{status, message, success, data?}`.
 Form-request validation failures return `{"message", "errors"}`.
 Bilingual display fields are always `{en, ar}`; machine identifiers
 (`code`, `key`, `shipping_type`, `source`, `type`, permissions) are never
-translated. Supported shipping types: `local` | `international` only.
+translated. Supported shipping types are CONTROLLED: `local` |
+`international` only (`OrderFlowService::SUPPORTED_SHIPPING_TYPES`,
+request-validated; NOT admin-creatable). Scope is global.
+
+> Backward-compatibility note (2026-09-29 finalization): customer-facing
+> `flow` / `current_status` blocks and both definition endpoints no
+> longer expose internal ids (`id`, `flow_id`) or admin flags
+> (`is_active`, `is_default`). Clients must key on `shipping_type`,
+> `code`, and `key` — never numeric ids. Admin endpoints are unchanged.
+
+## GET available flow definitions (canonical frontend discovery)
+
+```text
+METHOD
+GET /api/v1/general/order-flows/available
+```
+
+Purpose: ONE call gives the frontend everything needed to render the
+shipping-type selector and all dynamic inputs. Guest-safe (no auth).
+Returns every ACTIVE flow in the sanitized customer contract — no
+internal ids, no `is_active`/`is_default`/`flow_id`.
+
+Authentication: none. Permission: none.
+
+### Response 200
+
+```json
+{
+  "status": 200,
+  "message": "Order flow definitions retrieved successfully.",
+  "success": true,
+  "data": {
+    "flows": [
+      {
+        "shipping_type": "international",
+        "code": "international",
+        "name": {"en": "International Flow", "ar": "المسار الدولي"},
+        "statuses": [
+          {"code": "pending", "name": {"en": "Pending", "ar": "قيد الانتظار"}, "sort_order": 1}
+        ],
+        "inputs": [
+          {
+            "key": "from_country",
+            "label": {"en": "Country of origin", "ar": "بلد المنشأ"},
+            "placeholder": {"en": "Select origin country", "ar": "اختر بلد المنشأ"},
+            "help_text": {"en": "Where the shipment starts.", "ar": "من أين تبدأ الشحنة."},
+            "type": "select",
+            "source": "countries",
+            "required": true,
+            "required_at": "checkout",
+            "sort_order": 1,
+            "validation": null
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`source` is a pointer: the frontend fetches options from the
+authoritative catalog endpoint (`countries`, `governorates`,
+`pickup-locations`, warehouses); the backend revalidates submitted ids
+(active records only).
+
+Business Flow: fetch once → render selector + inputs → collect
+`flow_values`.
+
+Next: after success, use `POST /api/v1/general/checkout`.
+
+---
 
 ## GET order status options (per-order transitions)
 
@@ -108,8 +178,10 @@ METHOD
 GET /api/v1/general/order-flows/by-shipping-type/{shippingType}
 ```
 
-Purpose: frontend fetches the flow schema BEFORE checkout and renders
-inputs from it. Definitions only — never order values.
+Purpose: frontend fetches ONE flow's schema BEFORE checkout and renders
+inputs from it. Convenience/backward-compatible alias of the canonical
+`GET .../order-flows/available` — SAME sanitized customer contract
+(no ids, no admin flags). Definitions only — never order values.
 
 Authentication: `auth:sanctum` (any authenticated user, incl. customers).
 
@@ -136,25 +208,18 @@ No body.
   "message": "Order flow definition retrieved successfully.",
   "success": true,
   "data": {
-    "id": 2,
+    "shipping_type": "international",
     "code": "international",
     "name": {"en": "International Flow", "ar": "المسار الدولي"},
-    "shipping_type": "international",
-    "is_default": true,
-    "is_active": true,
     "statuses": [
       {
-        "id": 1,
         "code": "pending",
         "name": {"en": "Pending", "ar": "قيد الانتظار"},
-        "is_active": true,
         "sort_order": 1
       }
     ],
     "inputs": [
       {
-        "id": 1,
-        "flow_id": 2,
         "key": "from_country",
         "label": {"en": "Country of origin", "ar": "بلد المنشأ"},
         "placeholder": {"en": "Select origin country", "ar": "اختر بلد المنشأ"},
@@ -164,8 +229,7 @@ No body.
         "required": true,
         "required_at": "checkout",
         "sort_order": 1,
-        "validation": null,
-        "is_active": true
+        "validation": null
       }
     ]
   }
@@ -335,7 +399,9 @@ Flow Input failures (service envelope, status unchanged, NO order row):
 ```
 
 Business rule: validation runs inside `OrderService` transaction BEFORE
-creation; payment retry reuses the pending order without changing flow.
+creation; payment retry reuses the pending order without changing flow —
+and rejects a retry whose `shipping_type` differs from the stored one
+(`pending_order_shipping_type_conflict`, 422, order unchanged).
 
 Next: after success, use `GET /api/v1/general/orders/{id}` or the payment
 endpoints; on 422 fix the indicated fields and retry.
@@ -470,6 +536,35 @@ F-1/business checks → persist + mutate → side effects.
 
 Next: after success, use order details / shipment / fulfillment endpoints;
 on 403 request access; on 422 fix the indicated problem.
+
+---
+
+## POST customer order cancellation (self-service)
+
+```text
+METHOD
+POST /api/v1/general/orders/{id}/cancel
+```
+
+Purpose: owner-only cancellation without staff permissions. Allowed only
+while the order is `pending`/`processing` AND unpaid (same rule as
+tracking `can_cancel`). Delegates to the canonical
+`OrderService::changeOrderStatus()` — inventory release, coupon release,
+history, and notifications behave exactly like staff cancellation.
+
+Authentication: `auth:sanctum` (owner only; foreign orders → 404).
+
+Path parameters: `id` (integer, required) — order ID. No body.
+
+Response 200: envelope with the cancelled order resource (now carrying
+`payment_status` / `fulfillment_status`). 401 unauthenticated; 404
+foreign/missing; 422 paid/completed/delivered/already-cancelled (nothing
+mutated).
+
+> Customer order payloads now include `payment_status` and
+> `fulfillment_status` (own lifecycle state) on list and detail.
+> Shipment-object detail stays on staff shipment endpoints; customers
+> track via the tracking timeline.
 
 > The route above is a single-order view over the unified orchestrator
 > below (`OrderStatusBatchService`): same pipeline, same rules, legacy
@@ -679,6 +774,18 @@ Response 200: flow resource plus ordered `inputs[]` (input resources).
 
 Next: edit via PUT, manage inputs via the inputs endpoints.
 
+### Activation semantics (FINAL)
+
+| Object | `is_active = true` | `is_active = false` | Existing orders |
+|---|---|---|---|
+| Flow | Available for NEW orders | Cannot be selected for new orders (type 422s) | Stay bound to stored `flow_id`, continue normally |
+| Status | Enterable; eligible for flow membership | Cannot be entered; cannot join flows | May exit from it under existing rules; never rewritten |
+| Flow Input | Validated/demanded per `required_at` | Retired: submitted values ignored, never demanded | Never invalidated retroactively |
+
+Deactivation never mutates existing orders. Guards: last-active-flow
+deactivation → 422; status deactivation while in-flight orders hold it
+→ 422; membership/input edits with in-flight orders → 422 (existing).
+
 ### PUT /api/v1/admin/order-flows/{id}
 
 Permission: `update-order-flows|update-order-status`.
@@ -688,7 +795,9 @@ optional; `status_ids` replaces the ordering (neighbors re-link).
 `shipping_type` change is rejected (422) — identity is immutable.
 
 Response 200: updated flow resource. Removing statuses that hold
-in-flight non-terminal orders → 422. 401/403/404 as above.
+in-flight non-terminal orders → 422. Deactivating the LAST active flow
+for a shipping_type → 422 (`flow_deactivate_last_active`). 401/403/404
+as above.
 
 > Contract note: `name` on flows, statuses, and order `flow` /
 > `current_status` snapshots is `{en, ar}` (Spatie Translatable
@@ -745,7 +854,9 @@ Request fields:
 
 Business rule: `code` never changes once referenced; only
 name/description/activation are editable. No POST/DELETE — catalog codes
-are program-level vocabulary.
+are program-level vocabulary. Deactivating a status currently held by
+in-flight (non-terminal) orders → 422
+(`flow_status_inflight_block`); move those orders first.
 
 Response 200: updated status resource. 401/403/404 as above; 422 invalid
 payload.
@@ -898,13 +1009,13 @@ the order unchanged and no partial persistence.
 ## Frontend flow
 
 ```text
-1. Select shipping type: local OR international
-2. GET /general/order-flows/by-shipping-type/{shippingType}
-3. Receive flow + statuses + inputs; render by type/source/label/required
-4. POST /general/checkout with shipping_type + flow_values when required
-5. GET /orders/{id}/statuses → show allowed candidates, collect
+1. GET /general/order-flows/available (guest-safe, canonical)
+2. Receive active flows + ordered statuses + inputs; render selector,
+   then inputs by type/source/label/required
+3. POST /general/checkout with shipping_type + flow_values when required
+4. GET /orders/{id}/statuses → show allowed candidates, collect
    requires_inputs
-6. PATCH /orders/status with order_ids ([one] or [many]) → per-order
+5. PATCH /orders/status with order_ids ([one] or [many]) → per-order
    results; backend revalidates everything (legacy PATCH
    /orders/{id}/status delegates to the same pipeline)
 ```

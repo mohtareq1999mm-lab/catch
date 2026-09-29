@@ -47,6 +47,26 @@ class OrderFlowService
     ];
 
     /**
+     * Terminal order statuses: an order sitting here has no forward
+     * lifecycle path (absorbing or functionally terminal). Single source
+     * of truth for every in-flight guard (flow membership edits, input
+     * edits, catalog deactivation): "in-flight" =
+     * NOT in this set. failed_delivery is deliberately absent — a failed
+     * attempt can still re-drive to out_for_delivery/returned.
+     */
+    public const TERMINAL_STATUSES = [
+        'delivered',
+        'cancelled',
+        'completed',
+        'returned',
+    ];
+
+    public static function isTerminalStatus(string $code): bool
+    {
+        return in_array($code, self::TERMINAL_STATUSES, true);
+    }
+
+    /**
      * All codes orders.status may hold. MUST stay in sync with the widened
      * orders.status ENUM (see 2026_09_28_000002 + 2026_09_29_000001): every
      * code mirrorable into orders.status must exist in the ENUM.

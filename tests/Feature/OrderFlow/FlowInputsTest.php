@@ -293,9 +293,11 @@ class FlowInputsTest extends TestCase
         Sanctum::actingAs($this->user);
         $body = $this->getJson('/api/v1/general/order-flows/by-shipping-type/international')->json();
 
-        $this->assertStringNotContainsString((string) $order->id, json_encode($body));
+        // Definitions only: no runtime order values, order collections, or
+        // internal identifiers leak into the customer-facing schema.
         $this->assertArrayNotHasKey('flow_values', $body['data']);
         $this->assertArrayNotHasKey('orders', $body['data']);
+        $this->assertStringNotContainsString('"flow_id"', json_encode($body));
     }
 
     // -----------------------------------------------------------------

@@ -62,7 +62,39 @@ class OrderStatusCatalogController extends Controller
     public function update(OrderStatusCatalogUpdateRequest $request, int $id): JsonResponse
     {
         $status = OrderStatus::query()->findOrFail($id);
-        $status->update($request->validated());
+        $data = $request->validated();
+
+        // Status deactivation guardrail: a status currently held by
+        // in-flight (non-terminal) orders cannot be deactivated — those
+        // orders would lose their enterable forward-path presentation
+        // (options would report inactive_status) with no automatic
+        // migration. Supervised exits (completed/cancelled) stay available,
+        // so nothing is hard-stranded; still, move the orders first, then
+        // deactivate. Covers legacy rows whose mirror was never backfilled
+        // (current_status_id NULL + legacy status string).
+        if (array_key_exists('is_active', $data) && !$data['is_active'] && $status->is_active
+            && \Illuminate\Support\Facades\Schema::hasColumn('orders', 'current_status_id')
+        ) {
+            $holders = \Marvel\Database\Models\Order::query()
+                ->whereNotIn('status', \App\Services\OrderFlow\OrderFlowService::TERMINAL_STATUSES)
+                ->where(function ($q) use ($status) {
+                    $q->where('current_status_id', $status->id)
+                        ->orWhere(function ($q) use ($status) {
+                            $q->whereNull('current_status_id')->where('status', $status->code);
+                        });
+                })
+                ->count();
+
+            if ($holders > 0) {
+                return $this->apiResponse(
+                    __('checkout.flow_status_inflight_block', ['code' => $status->code]),
+                    422,
+                    false
+                );
+            }
+        }
+
+        $status->update($data);
 
         return $this->apiResponse('Order status updated successfully.', 200, true,
             (new OrderStatusResource($status->fresh()))->toArray(request()));

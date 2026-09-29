@@ -19,7 +19,7 @@ There is intentionally NO `delete-order-flows`: flows deactivate
 must stay intact. Publish/archive = `is_active` + `is_default`
 transitions under `update-order-flows`.
 
-## Transition permissions (granular, per target status)
+## Transition permissions (granular, per target status) — IMPLEMENTED
 
 Flow validity and actor authorization are separate gates that must BOTH
 pass. The flow answers "can this order move there"; the granular
@@ -65,22 +65,40 @@ ensures `change-order-status.<new-code>` rows; it runs in
   warehouse (`manage-warehouse`), payments (`payments.*`) — all unchanged
   and separate.
 
-## Status-specific permissions (decision)
+## Status-specific permissions (decision — implemented as granular targets)
 
-NOT implemented as dozens of `change_order_status_to_*` permissions.
-Sufficient control already exists via:
+Per-target permissions ARE implemented:
+`change-order-status.<catalog-code>` (one per catalog status, ensured by
+`OrderFlowService::syncTargetStatusPermissions()` via
+`OrderStatusPermissionSeeder`). A transition requires BOTH the general
+`update-order-status` (route middleware) AND the matching
+`change-order-status.<target>` (server-side assert, 403 otherwise).
+General alone → 403. Target alone (no general) → 403 at the middleware.
 
 ```text
-role permission (update-order-status)
+role permission (update-order-status + change-order-status.<target>)
   + flow transition (immediate-successor / supervised exits)
   + business authorization (F-1, owner scope, inventory/payment guards)
 ```
 
-Scalable hook if ever required: extend `FlowInputValidator`-style —
-a `transition:<status>` allow-list per role checked inside
-`OrderService::changeOrderStatus()` before the union guard, seeded like
-other permissions. Revisit trigger: a concrete requirement to let a role
-move orders to step N but not N+1 within the SAME flow.
+## Compatibility OR on flow-management routes (intentional, kept)
+
+Admin flow/catalog/input routes accept the dedicated permission OR the
+legacy order permission (e.g.
+`permission:create-order-flows|update-order-status`). This is a deliberate
+backward-compatibility bridge: existing administrators keep working
+without a permission-migration flag-day, and `OrderStatusPermissionSeeder`
+additively grants granular targets to general holders.
+
+It is knowingly over-permissive (a staff holder of `update-order-status`
+can reach flow management). Tightening to dedicated-only was evaluated
+and DEFERRED: staff role definitions do not yet carry the dedicated
+config permissions, and production role assignments cannot be verified
+from the repository — removing the OR could lock legitimate
+administrators out (see STOP analysis). Revisit trigger: a verified
+production role audit + seeder migration granting
+`create/update-order-flows` + `manage-order-flow-inputs` to the
+intended admin roles first.
 
 ## Role → permission → flow → status → operation
 

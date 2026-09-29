@@ -9,7 +9,7 @@ use App\Services\FrontendWebhookService;
 use App\ValueObjects\WebhookSignature;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Builder;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -78,7 +78,11 @@ class AppServiceProvider extends ServiceProvider
     {
         ini_set('serialize_precision', '-1');
 
-        Schema::defaultStringLength(191);
+        // NOTE: use Builder directly (not Schema facade). Schema::defaultStringLength()
+        // resolves 'db.schema' which requires the default DB connection, so any
+        // environment with an unconfigured/missing DB (e.g. composer
+        // package:discover with DB_CONNECTION=sqlite) would fatal here.
+        Builder::defaultStringLength(191);
         if (!\App::environment('local')) {
             $this->app['request']->server->set('HTTPS', true);
         }

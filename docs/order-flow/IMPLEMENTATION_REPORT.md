@@ -1,5 +1,33 @@
 # Order Flow — Implementation Report
 
+## Final alignment (2026-09-29) — controlled identity + hardened contracts
+
+Authoritative corrections to earlier sections of this file:
+
+- `shipping_type` is CONTROLLED (`local` | `international`,
+  `OrderFlowService::SUPPORTED_SHIPPING_TYPES` + request allow-list),
+  NOT dynamically admin-creatable. Any earlier "dynamic shipping type"
+  wording in this repo is superseded.
+- `code` is an admin/human label, never the routing key. `is_default`
+  is preserved but NOT read by resolution.
+- Per-target `change-order-status.<code>` permissions ARE implemented
+  (seeder + dual asserts); the older "not implemented" note is
+  superseded.
+- Pending retry across `shipping_type` now fails closed
+  (`pending_order_shipping_type_conflict`, 422) in regular checkout,
+  matching Fast Shipping's existing guard.
+- New: guest-safe `GET /api/v1/general/order-flows/available`
+  (canonical discovery); per-type endpoint reuses the same sanitized
+  contract (no ids/flags). Customer order payloads no longer expose
+  `flow.id`/`flow.is_active`.
+- New guards: last-active-flow deactivation → 422; status deactivation
+  with in-flight holders → 422.
+- Fixed: `validation.options` now enforced for `multi_select`.
+- Kept intentionally: legacy-union transition fallback (parity tests
+  lock it in; removal needs proven equivalence), OR-legacy permission
+  bridge on flow-management routes (tightening deferred pending a
+  production role audit), live-definition flows (no versioning).
+
 ## What already existed (reused, not duplicated)
 
 - `order_statuses` / `order_flows` / `order_flow_statuses` + 3 migrations,
@@ -50,12 +78,13 @@
   (`originCountry`, `destinationCountry`, `flowValues`);
   `OrderRepository::syncOrderStatusColumn()` now enforces the union guard
   for flow-carrying orders (legacy + GraphQL funnel);
-- Dynamic `shipping_type`: removed the `SUPPORTED_SHIPPING_TYPES`
-  allow-list (`OrderFlowService`, both Flow/checkout requests now validate
-  stable-identifier format only); resolution is DB-driven and fail-closed,
-  so new types need no code or schema changes. Checkout keeps its
-  local-default; Flow creation keeps `shipping_type` required + unique +
-  immutable. No migration: both columns were already dynamic strings.
+- Controlled `shipping_type`: the `SUPPORTED_SHIPPING_TYPES`
+  allow-list (`OrderFlowService`, checkout request validation) is the
+  intentional business discriminator (`local` | `international`);
+  resolution is fail-closed on top (active flow required). Checkout keeps
+  its local-default; Flow creation keeps `shipping_type` required +
+  unique + immutable. No migration: both columns were already
+  controlled strings.
   `OrderFlow::inputs()`; `OrderFlowService` gained input helpers (no
   existing method altered); admin flow `show` adds `inputs[]`; routes added
   (none removed); seeder + lang additions only.

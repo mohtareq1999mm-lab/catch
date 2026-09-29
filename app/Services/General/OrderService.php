@@ -298,6 +298,21 @@ class OrderService
             // Check for existing pending order (Rules 4-5: Payment retry reuses pending order)
 
             if ($pendingOrder) {
+                // Pending-retry invariant: a pending order is already bound
+                // to its shipping_type/flow_id. A retry requesting a
+                // DIFFERENT shipping type fails closed (422) instead of
+                // silently keeping the old flow. Same type (or omitted,
+                // which defaults to local) reuses normally.
+                $requestedShippingType = \App\Services\OrderFlow\OrderFlowService::normalizeShippingType(
+                    $request->input('shipping_type')
+                );
+                $storedShippingType = \App\Services\OrderFlow\OrderFlowService::normalizeShippingType(
+                    $pendingOrder->shipping_type
+                );
+                if ($requestedShippingType !== $storedShippingType) {
+                    throw new \InvalidArgumentException(__('checkout.pending_order_shipping_type_conflict'));
+                }
+
                 // Reuse existing pending order: update with new cart data
                 $order = $this->orderCreationService->updateOrder(
                     $pendingOrder, $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,

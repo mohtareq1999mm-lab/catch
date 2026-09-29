@@ -78,6 +78,54 @@ class OrderController extends Controller
         );
     }
 
+    /**
+     * Customer self-cancellation (owner only).
+     *
+     * Narrower than staff status mutation: allowed only while the order is
+     * pending/processing AND unpaid (same rule as tracking `can_cancel`).
+     * Delegates to the canonical pipeline
+     * (OrderService::changeOrderStatus) so inventory release, coupon
+     * release, history, and notifications behave exactly like any other
+     * cancellation — no parallel logic. Paid/completed/delivered orders
+     * use support/refund paths instead (422 here, nothing mutated).
+     */
+    public function cancel(Request $request, int $orderId): JsonResponse
+    {
+        $order = $this->orderService->getOrderForUser($request, $orderId);
+
+        if (!$order) {
+            return $this->apiResponse(NOT_FOUND, 404, false);
+        }
+
+        $cancellable = in_array($order->status, [Order::ORDER_STATUS_PENDING, Order::ORDER_STATUS_PROCESSING], true)
+            && $order->payment_status !== Order::PAYMENT_STATUS_SUCCESS;
+
+        if (!$cancellable) {
+            return $this->apiResponse(__('checkout.order_cancel_not_allowed'), 422, false);
+        }
+
+        try {
+            $cancelled = $this->orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
+
+        if (!$cancelled) {
+            return $this->apiResponse(ERROR_ADDING_ITEMS_TO_ORDER, 500, false);
+        }
+
+        $fresh = $this->orderService->getOrderForUser($request, $orderId);
+
+        return $this->apiResponse(
+            __('checkout.order_cancelled_successfully'),
+            200,
+            true,
+            OrderResource::make($fresh ?? $cancelled)
+        );
+    }
+
     public function eligiblePromotions(): JsonResponse
     {
         $payload = $this->orderService->eligiblePromotionsForUser();
@@ -359,11 +407,11 @@ class OrderController extends Controller
                 ]);
             }
 
-            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(array_filter([
                 'status' => 'failed',
                 'message' => $errorMessage,
-                'payment_id' => $paymentId,
-            ]));
+                'order_id' => $order?->id,
+            ], fn ($v) => $v !== null)));
         }
 
         // B4: gateway-verified but locally unknown payment. Fail SAFE — never
@@ -385,7 +433,6 @@ class OrderController extends Controller
             return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
                 'status' => 'failed',
                 'message' => $unknownMessage,
-                'payment_id' => $paymentId,
             ]));
         }
 
@@ -508,11 +555,11 @@ class OrderController extends Controller
                 ]);
             }
 
-            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(array_filter([
                 'status' => 'failed',
                 'message' => $blockedMessage,
-                'payment_id' => $paymentId,
-            ]));
+                'order_id' => $order?->id,
+            ], fn ($v) => $v !== null)));
         }
 
         if ($mismatchHandled) {
@@ -530,11 +577,11 @@ class OrderController extends Controller
                     'payment_id' => $paymentId,
                 ]);
             }
-            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+            return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(array_filter([
                 'status' => 'failed',
                 'message' => $errorMessage,
-                'payment_id' => $paymentId,
-            ]));
+                'order_id' => $order?->id,
+            ], fn ($v) => $v !== null)));
         }
 
         if ($processed) {
@@ -563,7 +610,6 @@ class OrderController extends Controller
         return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/success?' . http_build_query([
             'status' => 'success',
             'message' => __(PAYMENT_SUCCESSFUL),
-            'payment_id' => $paymentId,
             'order_id' => $order->id,
         ]));
 
@@ -702,7 +748,7 @@ class OrderController extends Controller
                     return $this->apiResponse(PAYMENT_FAILED, 400, false, ['status' => 'failed', 'message' => $blockedMessage, 'payment_id' => $paymentId]);
                 }
 
-                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(['status' => 'failed', 'message' => $blockedMessage, 'payment_id' => $paymentId]));
+                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(array_filter(['status' => 'failed', 'message' => $blockedMessage, 'order_id' => $order?->id], fn ($v) => $v !== null)));
             }
             if ($mismatchInError) {
                 $sanitized = \Illuminate\Support\Str::limit(strip_tags((string) ($result->errorMessage ?? 'Amount or currency mismatch')), 500, '');
@@ -710,7 +756,7 @@ class OrderController extends Controller
                 if ($errorCallbackType === 'mobile') {
                     return $this->apiResponse(PAYMENT_FAILED, 400, false, ['status'=>'failed','message'=>$sanitized,'payment_id'=>$paymentId]);
                 }
-                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(['status'=>'failed','message'=>$sanitized,'payment_id'=>$paymentId]));
+                return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(array_filter(['status' => 'failed', 'message' => $sanitized, 'order_id' => $order?->id], fn ($v) => $v !== null)));
             }
             if ($processedErrorSuccess) {
                 // F-14: PaymentSucceeded contract never receives null. Only dispatch
@@ -742,7 +788,6 @@ class OrderController extends Controller
                 return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
                     'status' => 'failed',
                     'message' => $unknownMessage,
-                    'payment_id' => $paymentId,
                 ]));
             }
             if ($errorCallbackType === 'mobile') {
@@ -755,7 +800,7 @@ class OrderController extends Controller
             return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/success?' . http_build_query([
                 'status' => 'success',
                 'message' => __(PAYMENT_SUCCESSFUL),
-                'payment_id' => $paymentId,
+                'order_id' => $order->id,
             ]));
         }
 
@@ -812,11 +857,11 @@ class OrderController extends Controller
             ]);
         }
 
-        return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query([
+        return redirect(config('app.app_url_frontend') . '/' . app()->getLocale() . '/payment/failed?' . http_build_query(array_filter([
             'status' => 'failed',
             'error' => $errorMessage,
-            'payment_id' => $paymentId,
-        ]));
+            'order_id' => $order?->id,
+        ], fn ($v) => $v !== null)));
     }
 
     /**

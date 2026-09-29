@@ -117,6 +117,13 @@ Route::prefix('v1/general')->group(function () {
         Route::post('currencies/select', [CurrencyController::class, 'select']);
         //======================== payment options (public availability snapshot) ========================/
         Route::get('payment-gateways', [PaymentGatewayController::class, 'index'])->name('api.general.payment-gateways.index');
+        //======================== order flow definitions (guest-safe discovery) ========================//
+        // Canonical frontend discovery: every ACTIVE flow, sanitized
+        // contract (no internal ids, no admin flags). The frontend selects
+        // shipping_type; the backend resolves the Flow. Source pointers
+        // (countries, governorates, ...) resolve via their own catalog
+        // endpoints below.
+        Route::get('order-flows/available', [\App\Http\Controllers\Api\General\FlowDefinitionController::class, 'available'])->name('api.order-flows.available');
         //======================== payment callbacks (gateway redirect, public) ========================/
         Route::match(['get', 'post'], 'checkout/callback', [OrderController::class, 'checkoutCallback'])->middleware('throttle:payment-callback')->name('api.checkout.callback');
         Route::match(['get', 'post'], 'checkout/error-callback', [OrderController::class, 'checkoutErrorCallback'])->middleware('throttle:payment-callback')->name('api.checkout.errorCallback');
@@ -152,6 +159,10 @@ Route::prefix('v1/general')->group(function () {
         Route::get('orders', [OrderController::class, 'index']);
         Route::get('orders/{orderId}/invoice', [OrderController::class, 'invoiceByOrderId'])->whereNumber('orderId');
         Route::get('orders/{id}', [OrderController::class, 'show'])->whereNumber('id');
+        // Customer self-cancellation (owner-only, pending/processing + unpaid).
+        // Delegates to the canonical status pipeline; staff cancellations
+        // continue through PATCH /api/v1/orders/status.
+        Route::post('orders/{id}/cancel', [OrderController::class, 'cancel'])->whereNumber('id');
         //======================== order tracking (authenticated) ========================//
         Route::get('my-orders', [OrderTrackingController::class, 'listUserOrders'])->name('api.tracking.my-orders');
         Route::get('orders/{orderId}/track', [OrderTrackingController::class, 'trackAuthenticatedOrder'])->name('api.tracking.order');
@@ -243,8 +254,12 @@ Route::prefix('v1/admin/payment-gateways')->middleware(['api', 'auth:sanctum', '
 });
 
 Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->name('api.admin.orders.shipment.show');
-    Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->name('api.admin.orders.shipment.update-status');
+    // Order shipment fields are admin-operated: reads ride on shipment /
+    // order viewing, writes require shipment management. Never leave these
+    // without permission middleware (SEC-1: any authenticated caller could
+    // otherwise read/mutate any order's shipment state).
+    Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->middleware('permission:view-shipment|view-shipments|view-orders|view-order')->name('api.admin.orders.shipment.show');
+    Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->middleware('permission:update-shipment|create-shipment')->name('api.admin.orders.shipment.update-status');
 });
 
 // Order Status catalog + configurable Order Flows (linear, sort_order-driven).

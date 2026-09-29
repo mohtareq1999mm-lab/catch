@@ -105,6 +105,11 @@ class OrderAnalyticsService
             'total_paid_orders' => $totalOrders,
             'avg_order_value' => $totalOrders > 0 ? round($totalRevenue / $totalOrders, 2) : 0,
             'by_currency' => $byCurrency,
+            // FINANCIAL REPORTING CONTRACT: total_revenue adds per-currency
+            // bucket totals without conversion. It is a single-currency total
+            // only when mixed_currencies is false; otherwise consume
+            // by_currency (GROUP BY currency_code) instead.
+            'mixed_currencies' => count($byCurrency) > 1,
         ];
     }
 
@@ -244,14 +249,39 @@ class OrderAnalyticsService
     {
         $formatExpr = "DATE_FORMAT(created_at, '{$dateFormat}')";
 
-        return DB::table('orders')
+        // FINANCIAL REPORTING CONTRACT: total_price is denominated in each
+        // order's own currency_code. Points aggregate per (date, currency) and
+        // expose the contributing currencies so a mixed-currency `value` is
+        // never mistaken for a single-currency total.
+        $rows = DB::table('orders')
             ->where('created_at', '>=', $dateFrom)
             ->where('payment_status', 'payment-success')
-            ->selectRaw("{$formatExpr} as date, SUM(total_price) as value")
-            ->groupBy('date')
+            ->selectRaw("{$formatExpr} as date, currency_code, SUM(total_price) as value")
+            ->groupBy('date', 'currency_code')
             ->orderBy('date')
-            ->get()
-            ->map(fn($row) => ['date' => $row->date, 'value' => round($row->value ?? 0, 2)])
+            ->get();
+
+        return $rows
+            ->groupBy('date')
+            ->map(function ($group, $date) {
+                // NULL currency (pre-snapshot legacy) is its own 'UNKNOWN'
+                // bucket so it is never silently merged into a real currency
+                // and always trips mixed_currencies when combined with one.
+                $currencies = $group->pluck('currency_code')
+                    ->map(fn ($code) => $code ?? 'UNKNOWN')
+                    ->unique()
+                    ->sort()
+                    ->values()
+                    ->all();
+
+                return [
+                    'date' => $date,
+                    'value' => round((float) $group->sum('value'), 2),
+                    'currencies' => $currencies,
+                    'mixed_currencies' => count($currencies) > 1,
+                ];
+            })
+            ->values()
             ->toArray();
     }
 

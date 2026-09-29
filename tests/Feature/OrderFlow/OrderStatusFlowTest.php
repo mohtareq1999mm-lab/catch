@@ -384,15 +384,31 @@ class OrderStatusFlowTest extends TestCase
         $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => 'international']))->assertStatus(200);
         $first = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
-        // Retry reuses the pending order; the flow must remain stable even if
-        // the retry omits (or changes) the shipping type.
+        // Retry with the SAME shipping type reuses the pending order; the
+        // flow assignment remains stable.
         $this->freshCartWithProduct($this->user);
-        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+        $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => 'international']))->assertStatus(200);
         $second = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
         $this->assertSame($first->id, $second->id);
         $this->assertSame('international', $second->fresh()->shipping_type);
         $this->assertSame($first->flow_id, $second->fresh()->flow_id);
+    }
+
+    public function test_payment_retry_rejects_shipping_type_change(): void
+    {
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => 'international']))->assertStatus(200);
+        $first = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+
+        // Retry requesting a DIFFERENT shipping type fails closed: a
+        // pending order can never silently switch flow/shipping type.
+        $this->freshCartWithProduct($this->user);
+        $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(422);
+
+        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+        $this->assertSame('international', $first->fresh()->shipping_type);
+        $this->assertSame($first->flow_id, $first->fresh()->flow_id);
     }
 
     // -----------------------------------------------------------------

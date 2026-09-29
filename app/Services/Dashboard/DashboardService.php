@@ -45,7 +45,7 @@ class DashboardService
                 ->value('agg');
 
             $totalRefunds = (float) DB::table('refunds')
-                ->whereDate('created_at', '<', Carbon::now())
+                ->whereDate('refunds.created_at', '<', Carbon::now())
                 ->sum('amount');
 
             $totalOrders = Order::whereDate('created_at', '<=', Carbon::now())->count();
@@ -65,7 +65,11 @@ class DashboardService
                 'total_products'    => $totalProducts,
                 'total_customers'   => $totalCustomers,
                 'new_customers'     => $newCustomers,
-            ];
+            ] + $this->revenueCurrencyContext(
+                Order::where('status', 'completed')
+            ) + $this->refundCurrencyContext(
+                DB::table('refunds')->whereDate('refunds.created_at', '<', Carbon::now())
+            );
         });
     }
 
@@ -109,7 +113,9 @@ class DashboardService
                 'revenue_by_currency' => $this->revenueByCurrency(
                     Order::where('status', 'completed')->whereYear('created_at', Carbon::now()->year)
                 ),
-            ];
+            ] + $this->revenueCurrencyContext(
+                Order::where('status', 'completed')->whereYear('created_at', Carbon::now()->year)
+            );
         });
     }
 
@@ -326,7 +332,9 @@ class DashboardService
                 'average_order_value' => $aov,
                 'revenue_by_payment_method' => $revenueByPaymentMethod,
                 'revenue_by_fulfillment_type' => $revenueByFulfillmentType,
-            ];
+            ] + $this->revenueCurrencyContext(
+                Order::where('status', 'completed')
+            );
         });
     }
 
@@ -784,8 +792,16 @@ class DashboardService
                 ->selectRaw('SUM(' . self::BASE_REVENUE_RAW . ') as agg')
                 ->value('agg');
 
+            // REFUND CURRENCY: see refundByCurrency()/refundCurrencyContext().
+            // The scalar below is kept for backward compatibility; the
+            // authoritative split is `refund_by_currency` (+ flag) in this
+            // response. Gateway (online) refunds are NOT aggregated here —
+            // they live per-transaction in the payment ledger and are always
+            // authorized in the original transaction currency
+            // (see PaymentRefundService). Do not subtract this scalar from a
+            // base-denominated gross when multiple currencies are in play.
             $refundAmount = (float) DB::table('refunds')
-                ->where('status', 'approved')
+                ->where('refunds.status', 'approved')
                 ->sum('amount');
 
             $couponDiscount = (float) Order::whereNotNull('coupon_discount')
@@ -800,6 +816,28 @@ class DashboardService
                 ->selectRaw('COALESCE(SUM(shipping_price * COALESCE(currency_rate, 1)), 0) + COALESCE(SUM(fast_shipping_fee * COALESCE(currency_rate, 1)), 0) as total')
                 ->value('total');
 
+            // Per-currency discount split (order/transaction currency): the
+            // total_discount scalar adds coupon + promotion discounts that are
+            // each denominated in their order's currency_code.
+            $discountByCurrency = Order::where('status', 'completed')
+                ->selectRaw("COALESCE(currency_code, 'UNKNOWN') as currency, SUM(COALESCE(coupon_discount, 0) + COALESCE(promotion_discount, 0)) as total")
+                ->groupBy('currency')
+                ->orderBy('currency')
+                ->pluck('total', 'currency')
+                ->map(fn ($total) => round((float) $total, 2))
+                ->all();
+
+            // Per-base-era shipping split: each row is converted with its own
+            // STORED currency_rate (never today's rate); buckets keep eras
+            // separate so the scalar is not mistaken for single-unit truth.
+            $shippingByBase = Order::where('status', 'completed')
+                ->selectRaw("COALESCE(base_currency_code, 'UNKNOWN') as base_currency_code, COALESCE(SUM((COALESCE(shipping_price, 0) + COALESCE(fast_shipping_fee, 0)) * COALESCE(currency_rate, 1)), 0) as total")
+                ->groupBy('base_currency_code')
+                ->orderBy('base_currency_code')
+                ->pluck('total', 'base_currency_code')
+                ->map(fn ($total) => round((float) $total, 2))
+                ->all();
+
             return [
                 'gross_revenue'    => round($grossRevenue, 2),
                 'net_revenue'      => round(max($netRevenue, 0), 2),
@@ -811,7 +849,22 @@ class DashboardService
                 'gross_by_currency' => $this->revenueByCurrency(
                     Order::where('status', 'completed')
                 ),
-            ];
+                // NET REVENUE POLICY (unresolved business rule): net_revenue
+                // = base-denominated gross minus order-currency refunds, with
+                // NO conversion policy when units differ. Authoritative splits
+                // are discount_by_currency / shipping_by_base_currency /
+                // refund_by_currency; see FINAL report §11.
+                'discount_by_currency' => $discountByCurrency,
+                'mixed_discount_currencies' => count(array_keys(array_filter(
+                    $discountByCurrency,
+                    fn ($total) => (float) $total != 0.0
+                ))) > 1,
+                'shipping_by_base_currency' => $shippingByBase,
+            ] + $this->revenueCurrencyContext(
+                Order::where('status', 'completed')
+            ) + $this->refundCurrencyContext(
+                DB::table('refunds')->where('refunds.status', 'approved')
+            );
         });
     }
 
@@ -870,10 +923,66 @@ class DashboardService
     }
 
     /**
+     * Per-currency refund buckets: currency => total.
+     *
+     * REFUND CURRENCY CONTRACT (Model A + C): the marketplace `refunds` table
+     * carries no currency column, but creation requires `order_id`
+     * (RefundController OpenAPI: title/description/order_id/amount) and
+     * execution/partial-full comparison are denominated in the order's
+     * currency (`$gateway->refund($refund->order, $refund->amount)`,
+     * `$refund->amount >= $order->total`). Refund currency is therefore
+     * provably `orders.currency_code` via the order join. Refunds with no
+     * linked order fall into 'UNKNOWN' and must never merge into a real
+     * currency bucket. Gateway (online) refunds are NOT in this table — they
+     * live per-transaction in the payment ledger in txn currency.
+     *
+     * Scope matches the paired scalar exactly so buckets reconcile with it.
+     * Trashed orders remain joined BY DESIGN: DB::table applies no
+     * SoftDeletes scope, so a refund on a soft-deleted order keeps its
+     * currency (the refund itself is still real money). Revenue buckets use
+     * Eloquent Order and therefore exclude trashed rows — the two paths
+     * intentionally differ here.
+     *
+     * Payload-shape note: responses are cached up to 300s across deploys, so
+     * API clients must null-tolerate the additive bucket keys.
+     */
+    private function refundByCurrency($refundQuery): array
+    {
+        return (clone $refundQuery)
+            ->leftJoin('orders', 'orders.id', '=', 'refunds.order_id')
+            ->selectRaw("COALESCE(orders.currency_code, 'UNKNOWN') as currency, SUM(refunds.amount) as total")
+            ->groupBy('currency')
+            ->orderBy('currency')
+            ->pluck('total', 'currency')
+            ->map(fn ($total) => round((float) $total, 2))
+            ->all();
+    }
+
+    private function refundCurrencyContext($refundQuery): array
+    {
+        $buckets = $this->refundByCurrency($refundQuery);
+        $active = array_keys(array_filter(
+            $buckets,
+            fn ($total) => (float) $total != 0.0
+        ));
+
+        return [
+            'refund_by_currency' => $buckets,
+            'mixed_refund_currencies' => count($active) > 1,
+        ];
+    }
+
+    /**
      * Base-currency-safe revenue expression helper (see BASE_REVENUE_RAW).
      * Orders created after the currency feature carry converted_total_price
      * (base-denominated at purchase-time rate); legacy orders are already
      * base-denominated in total_price.
+     *
+     * FINANCIAL REPORTING CONTRACT: a raw SUM of converted_total_price is only
+     * meaningful when every summed row shares one base_currency_code. These
+     * bucket helpers expose the per-era split so no consumer ever mistakes a
+     * mixed-era scalar for a single-currency total. Scalars are preserved for
+     * backward compatibility; buckets are the authoritative breakdown.
      */
     private function revenueByCurrency($orderQuery): array
     {
@@ -884,6 +993,65 @@ class DashboardService
             ->pluck('total', 'currency_code')
             ->map(fn ($total) => round((float) $total, 2))
             ->all();
+    }
+
+    /**
+     * Per-base-era revenue buckets: base_currency_code => total, where each
+     * total is a SUM of converted_total_price rows that all share that base
+     * code. Rows with a NULL base (pre-snapshot legacy) fall into 'UNKNOWN'
+     * and must never be merged into a base-denominated bucket.
+     */
+    private function revenueByBaseCurrency($orderQuery): array
+    {
+        return (clone $orderQuery)
+            ->selectRaw("COALESCE(base_currency_code, 'UNKNOWN') as base_currency_code, SUM(" . self::BASE_REVENUE_RAW . ') as total')
+            ->groupBy('base_currency_code')
+            ->orderBy('base_currency_code')
+            ->pluck('total', 'base_currency_code')
+            ->map(fn ($total) => round((float) $total, 2))
+            ->all();
+    }
+
+    /**
+     * Currency context for every base-denominated scalar in this service.
+     *
+     * - revenue_currency: the CURRENT global base code (unit of new rows).
+     * - revenue_by_base_currency: per-era buckets (authoritative split).
+     * - mixed_base_eras: true when completed rows span >1 base code, in which
+     *   case any ungrouped scalar mixes units and must not be presented as a
+     *   single-currency total.
+     */
+    private function revenueCurrencyContext($orderQuery): array
+    {
+        try {
+            $buckets = $this->revenueByBaseCurrency($orderQuery);
+        } catch (\Throwable $e) {
+            // Partial/legacy schema without the snapshot columns: the legacy
+            // scalars above already assume those columns, so only the additive
+            // buckets degrade (never the endpoint itself).
+            report($e);
+            $buckets = [];
+        }
+
+        // Every nonzero bucket — including 'UNKNOWN' legacy rows resolved via
+        // the COALESCE fallback — contributes a distinct unit to any ungrouped
+        // scalar, so more than one means the scalar mixes units.
+        $activeCodes = array_keys(array_filter(
+            $buckets,
+            fn ($total) => (float) $total != 0.0
+        ));
+
+        try {
+            $currentBase = strtoupper((string) app(\App\Services\Currency\CurrencyService::class)->getBaseCode());
+        } catch (\Throwable $e) {
+            $currentBase = strtoupper((string) config('shop.default_currency', 'USD'));
+        }
+
+        return [
+            'revenue_currency' => $currentBase,
+            'revenue_by_base_currency' => $buckets,
+            'mixed_base_eras' => count($activeCodes) > 1,
+        ];
     }
 
     /**
