@@ -76,6 +76,15 @@ class CouponDiscoveryPolicy
         // Guests browse only: no claim/apply affordance without identity.
         $action = $user !== null ? $state['action'] : null;
 
+        // Code exposure (approved discovery contract):
+        //   public + eligible + (no claim required OR active claim held)
+        //   → the canonical coupon code is exposed.
+        // Every other combination hides the code — claim-required coupons
+        // with no active claim, ineligible users, guests, assignment-only
+        // grants, and all targeted claim-required rows (owner-safe shells;
+        // /mine exposes those). Claim/active-claim allowance is gated on
+        // $state (CouponAction's single active-claim derivation), never
+        // re-derived here.
         return [
             'visibility' => $visibility,
             'requires_claim' => $requiresClaim,
@@ -84,7 +93,8 @@ class CouponDiscoveryPolicy
             'action' => $action,
             'can_expose_code' => $user !== null && $eligible
                 && $visibility !== 'assignment-only'
-                && ($visibility === 'public' || ! $requiresClaim),
+                && (! $requiresClaim
+                    || ($visibility === 'public' && $state['claim_status'] === 'claimed')),
         ];
     }
 }
