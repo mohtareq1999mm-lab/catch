@@ -227,6 +227,10 @@ class PackingServiceTest extends TestCase
         $task = $this->service->startPacking($task);
         $task = $this->service->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
 
+        // D6-3: all 5 picked units must be packaged before verification.
+        $package = $this->service->createPackage($this->fulfillment);
+        $this->service->addItemToPackage($package, $this->fulfillment->items()->firstOrFail()->id, 5);
+
         $task = $this->service->verifyPacking($task, 'Quality check passed');
 
         $this->assertEquals('verified', $task->status);
@@ -242,6 +246,9 @@ class PackingServiceTest extends TestCase
         $task = $this->service->assignToStation($task, $this->station->id, $this->user->id);
         $task = $this->service->startPacking($task);
         $task = $this->service->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
+        // D6-3: all 5 picked units must be packaged before verification.
+        $package = $this->service->createPackage($this->fulfillment);
+        $this->service->addItemToPackage($package, $this->fulfillment->items()->firstOrFail()->id, 5);
         $task = $this->service->verifyPacking($task);
 
         $shipmentData = [

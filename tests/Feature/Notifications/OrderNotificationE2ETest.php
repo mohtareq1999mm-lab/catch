@@ -10,7 +10,7 @@ use App\Events\PaymentFailed;
 use App\Events\PaymentSucceeded;
 use App\Events\RefundApproved;
 use Illuminate\Notifications\Events\BroadcastNotificationCreated;
-use Marvel\Events\OrderDelivered;
+use App\Events\OrderDelivered;
 
 /**
  * Real pipeline: OrderCreated / PaymentSucceeded / PaymentFailed /

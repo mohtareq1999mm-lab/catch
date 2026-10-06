@@ -21,7 +21,7 @@ class CartUpdateRequest extends FormRequest
         return [
             'item' => ['required', 'array', 'min:1'],
             'item.product_id' => ['required_with:item', 'integer', 'exists:products,id'],
-            'item.quantity' => ['required_with:item', 'integer', 'min:1'],
+            'item.quantity' => ['required_with:item', 'integer', 'min:1', 'max:' . max(1, (int) config('cart.max_item_quantity', 100))],
             'item.product_variant_id' => ['sometimes', 'nullable', 'integer', 'exists:product_variants,id'],
             'item.attributes' => ['sometimes', 'array'],
             'item.shipping_method' => ['sometimes', 'string', Rule::in([ShippingMethod::SCHEDULED, ShippingMethod::FAST, 'scheduled', 'fast'])],

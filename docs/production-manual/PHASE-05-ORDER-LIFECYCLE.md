@@ -1,17 +1,9 @@
 # Phase 5: Order Lifecycle
-
 ## Executive Summary
-
-The Order lifecycle manages three state machines — order status, payment status, and fulfillment status — with synchronized transitions driven by `changeOrderStatus()`, `markCodAsPaid()`, and `markCashierPaid()`. Inventory, promotion usage, and coupon consumption are finalized on payment success and partially reversed on cancellation. The order lifecycle is the central coordination point for all downstream effects.
-
+The Order lifecycle manages three state machines — order status, payment status, and fulfillment status — with synchronized transitions driven by the SOLE lifecycle writer `OrderService::changeOrderStatus()`, gated at runtime ONLY by `OrderFlowService::allowsFlowTransition()` (the legacy `$allowedOrderTransitions` map is deprecated, display-only, never consulted). `markCodAsPaid()` / `markCashierPaid()` are thin delegates, not separate writers. Inventory, promotion usage, and coupon consumption are finalized on payment success; cancellation runs an atomic cascade (restore-or-release, conditional promotion decrement, coupon release, fulfillment cascade). Self-transitions (`A → A`) are successful TRUE no-ops: acknowledged with success, zero events, zero history, zero side effects. `completed → cancelled` is FORBIDDEN — post-completion remediation belongs to the Refund/Compensation domain, never to the lifecycle writer.
 ---
-
 ## State Machines
-
 ### 1. Order Status
-
-**States:**
-
 ```
                     ┌─────────┐
                     │ PENDING │
@@ -29,38 +21,36 @@ The Order lifecycle manages three state machines — order status, payment statu
                │ (term)  │
                └────────┘
 ```
+**Runtime authority:** `OrderFlowService::allowsFlowTransition($order, $from, $to)` — fail-closed without flow; self (`$from === $to`) allowed; terminal (`delivered`/`cancelled` as source) locked; `cancelled ← anything but completed`; `completed ← anything` (financial gate separate); `delivered ← completed` (terminal absorption) or linear succession; `failed_delivery ← out_for_delivery`; `returned ← failed_delivery/out_for_delivery`. (The legacy `$allowedOrderTransitions` map below is retained for display/migration reference only and MUST NOT authorize transitions.)
 
-**Allowed transitions** (from `OrderService::$allowedOrderTransitions`):
-
+Legacy reference (deprecated, NOT runtime authority):
 | From \ To | pending | processing | completed | delivered | cancelled |
-|---|---|---|---|---|---|
-| **pending** | ✓ | ✓ | ✓ | | ✓ |
-| **processing** | | ✓ | ✓ | | ✓ |
-| **completed** | | | ✓ | ✓ | |
 | **delivered** | | | | ✓ (term) | |
 | **cancelled** | | | | | ✓ (term) |
-
 **Constants on Order model:**
-
 | Constant | Value |
-|---|---|
 | `ORDER_STATUS_PENDING` | `pending` |
 | `ORDER_STATUS_PROCESSING` | `processing` |
 | `ORDER_STATUS_COMPLETED` | `completed` |
 | `ORDER_STATUS_CANCELLED` | `cancelled` |
 | `ORDER_STATUS_DELIVERED` | `delivered` |
 
+**Terminal states (verified, pinned by tests):**
+```text
+cancelled → anything   = REJECTED (cancelled → cancelled = successful no-op)
+delivered → anything   = REJECTED (delivered → delivered = successful no-op)
+completed → cancelled  = REJECTED (FORBIDDEN — see below)
+```
+The generic `completed ← anything` milestone rule cannot override terminal protection: the guard checks terminal SOURCES first.
+
+**completed → cancelled is FORBIDDEN.** There is no transition, admin override, or flow path from a completed order to cancelled. Post-completion remediation (fraud, duplicate, void) belongs to the Refund/Compensation domain, which operates payment-marker-only and never mutates lifecycle state.
 ### 2. Payment Status
-
 **Dual system:** Payment status is both a stored column and a computed accessor.
-
 **Stored column** (conditionally set via `Schema::hasColumn`):
 - Set to `payment-pending` on order creation (`OrderCreationService:69`)
 - Set to `payment-success` on completion (`changeOrderStatus`, `markCodAsPaid`, `markCashierPaid`)
-- Not automatically set to `payment-failed` on cancel
-
+- Set to `payment-failed` on cancel ONLY via explicit opt-in `markPaymentFailed` (reaper `orders:cancel-unpaid` for never-paid expiry); ordinary cancellations intentionally leave the marker untouched.
 **Accessor** (`Order::getPaymentStatusAttribute()`):
-
 ```php
 public function getPaymentStatusAttribute(): ?string
 {
@@ -93,11 +83,8 @@ public function getPaymentStatusAttribute(): ?string
     };
 }
 ```
-
 **Inconsistency:** The accessor returns values with the `payment-` prefix (e.g. `payment-pending`). The column, when set, also uses the same prefix. However, the Order model's constants like `PAYMENT_STATUS_PENDING = 'payment-pending'` use the same prefix. The raw order status `pending` (without prefix) is the order status, not the payment status. When the frontend checks `payment_status`, it receives `payment-pending`, `payment-success`, etc.
-
 **Payment Status Enum** (separate from Order model constants):
-
 ```php
 final class PaymentStatus extends Enum
 {
@@ -159,29 +146,46 @@ final class PaymentStatus extends Enum
 ## Order Status Change Flow (changeOrderStatus)
 
 ```
-changeOrderStatus($invoiceId, $status, $orderId)
+changeOrderStatus($invoiceId, $status, $orderId, ... 12-param contract)
   └─ DB::transaction
        ├─ Transaction::where('invoice_id', $invoiceId)->first()
        │    └─ transaction->order()->lockForUpdate()
        ├─ OR Order::whereKey($orderId)->lockForUpdate()
-       ├─ canTransitionOrderStatus($previousStatus, $status) → throws if invalid
+       ├─ OrderFlowService::allowsFlowTransition($previous, $status) → throws invalid_flow_transition if rejected
+       │    (legacy map NEVER consulted)
+       ├─ D2: IF $previousStatus === $status → return successful no-op
+       │    (no markers, no history, no invoice, no cascade, no events)
+       ├─ Flow Input gate (transition:<status> validated pre-mutation)
+       ├─ F-1 payment-authority gate (unpaid → completed needs payments.mark_paid)
+       ├─ D8-5 delivered invariant (paid + every fulfillment delivered, or audited force-deliver)
        ├─ Prepare $updateData = ['status' => $status]
-       │    ├─ If completed: payment_status=payment-success, completed_at=now()
-       │    ├─ If cancelled: cancelled_at=now()
-       │    └─ Fulfillment status mapping (see above)
-       ├─ $order->update($updateData)
+       │    ├─ If completed: payment_status=payment-success, completed_at=now(), paid_at kept/set
+       │    ├─ If cancelled (first time): cancelled_at=now()
+       │    ├─ Reaper opt-in markPaymentFailed: pending/null payment → payment-failed (never clobbers paid)
+       │    └─ Fulfillment status mapping (see above) + legacy order_status mirror sync + current_status_id mirror
+       ├─ $order->update($updateData) + immutable order_status_history row (flow provenance + sanitized audit context)
+       ├─ Invoice exactly once on FIRST transition away from pending (failure-swallowed)
        ├─ IF status === 'completed':
-       │    └─ recordCouponUsage($order)           ← coupon quota consumed
-       ├─ IF transaction exists && completed:
-       │    └─ transaction->update(status='paid', paid_at=now())
-       ├─ IF transaction exists && cancelled:
-       │    └─ transaction->update(status='failed')
-       ├─ IF status === 'cancelled' && not already cancelled:
-       │    └─ promotionService->decrementUsage(...)  ← promotion is REVERSED
-       ├─ event(new OrderStatusChanged($order))
-       └─ IF status === 'cancelled' && not already cancelled:
-            └─ event(new OrderCancelled($order))
+       │    ├─ recordCouponUsage($order)           ← coupon quota consumed (idempotent)
+       │    ├─ finalizePromotionUsageAfterPayment  ← promotion consumed once (promotion_consumed guard)
+       │    ├─ orderReservationService->commit()   ← idempotent active→committed claim
+       │    └─ metrics rebuild deferred to afterCommit
+       ├─ IF transaction exists && completed → transaction paid; && cancelled → transaction failed
+       ├─ IF status === 'cancelled' && not already cancelled (atomic cascade):
+       │    ├─ inventory_state COMMITTED → InventoryRestoreService::restore() (exactly-once state claim)
+       │    │  else → orderReservationService->release() (active→released; no-op otherwise)
+       │    ├─ promotion decrement ONLY if unpaid and not skipPromotionDecrement (Rule 17 / ORD-1)
+       │    ├─ coupon reservation release (structurally idempotent; never returned)
+       │    └─ cancelOpenFulfillmentsForOrder cascade (same transaction)
+       ├─ event(new OrderStatusChanged($order))            ← real transitions ONLY (never on no-op)
+       ├─ IF first-time cancelled → event(new OrderCancelled($order))
+       ├─ IF first-time delivered → event(new OrderDelivered($order))
+       └─ IF completed && $emitPaymentSuccess → event(new PaymentSucceeded($order))
 ```
+
+**Self-transition = successful no-op (D2):** the writer short-circuits AFTER flow validation (flow-less orders still fail closed; route-level permissions still run in controllers first) and BEFORE any gate with side effects. Every producer — customer cancel, admin PATCH, Marvel adapter, reaper, payment callbacks, shipment completion, batch, mark-paid — gets identical no-op semantics. A batch mixing real/self/invalid transitions preserves per-order behavior.
+
+**Customer cancel failure mapping (F-05):** a `false` return (order-resolution miss) from the writer maps to the cancel-specific `ERROR_CANCELLING_ORDER` 500 — never the unrelated `ERROR_ADDING_ITEMS_TO_ORDER`.
 
 ---
 
@@ -191,25 +195,18 @@ changeOrderStatus($invoiceId, $status, $orderId)
 
 | Listener | Queue | Description |
 |---|---|---|
-| `SendOrderStatusChangedNotification` | `medium` | Logs activity via `LogActivityJob` |
+| status notification fan-out (admin/user/sms/email/push) + timeline recorders | varies | Dispatched per transition |
 
-Fired on **every** status change (including self-transitions like `pending → pending`).
+Fired on **every REAL status change only**. Self-transitions (`A → A`) emit NOTHING — no event, no fan-out, no timeline entry (D2).
 
 ### OrderCancelled (`App\Events\OrderCancelled`)
 
 | Listener | Queue | Description |
 |---|---|---|
-| `RestoreProductInventory` | `medium` | Restores stock via `inventory_restored_at` guard |
+| `RestoreProductInventory` | `medium` | Delegates to the exactly-once `InventoryRestoreService::restore()` state claim (shared with the synchronous cancel path — parallel execution safe by construction) |
 | `SendOrderCancelledNotification` | `medium` | Logs activity via `LogActivityJob` |
 
-### Marvel\Events\OrderCancelled
-
-| Listener | Queue | Description |
-|---|---|---|
-| `RestoreProductInventory` | `medium` | **Same listener registered a second time** |
-| `SendOrderCancelledNotification` (Marvel) | — | Sends notification (separate from App listener) |
-
-**BUG:** `RestoreProductInventory` is registered for **both** `App\Events\OrderCancelled` AND `Marvel\Events\OrderCancelled`. The `changeOrderStatus` method only fires `App\Events\OrderCancelled`. However, the dual registration means inventory restoration happens once (correctly) but the event system is confusing. See BUG-10.
+Fired on first-time cancellation only. The app provider registers NO `Marvel\Events` listeners (P5-C1 retired); the legacy dual registration is gone.
 
 ### OrderCreated (`App\Events\OrderCreated`)
 
@@ -226,43 +223,26 @@ Fired via `OrderCreationService::finalizeOrder()`.
 | `SendPaymentSucceededNotification` | `medium` | Logs activity |
 | `GenerateInvoiceListener` | `high` (afterCommit, 5 tries) | Generates invoice via `InvoiceService` |
 
+Emission control via `$emitPaymentSuccess`: gateway callbacks own the dispatch and pass false; the writer emits otherwise — exactly once per REAL completion (self-completions emit nothing).
+
 ### PaymentFailed (`App\Events\PaymentFailed`)
 
 | Listener | Queue | Description |
 |---|---|---|
 | `SendPaymentFailedNotification` | `medium` | Logs activity |
 
+Fired by the reaper after canonical expiry-cancel (payment-domain finalization the writer doesn't own).
+
 ---
 
 ## Inventory Effect on Cancel
 
-`RestoreProductInventory` (for `App\Events\OrderCancelled`):
+Cancellation restores-or-releases based on INVENTORY STATE (not payment):
 
-```php
-public function handle($event)
-{
-    DB::transaction(function () use ($event) {
-        $order = $event->order;
-        $updated = Order::whereKey($order->id)
-            ->whereNull('inventory_restored_at')
-            ->lockForUpdate()
-            ->update(['inventory_restored_at' => now()]);
+- `inventory_state === COMMITTED` (paid, or COD/cashier committed at creation) → `InventoryRestoreService::restore()` claims committed→restored exactly once; `inventory_restored_at` is stamped as an observability marker only, never a guard. The queued `RestoreProductInventory` listener shares the same state claim, so listener + synchronous path cannot restore twice.
+- otherwise → `orderReservationService->release()` claims active→released (no-op unless active — never double-release).
 
-        if ($updated === 0) { return; }  // already restored
-        if (!$order->paid_at) { return; }  // only restore if paid
-
-        foreach ($order->orderItems as $item) {
-            if ($item->is_gift) { continue; }
-            // Restore stock_quantity, reduce sold_quantity
-            // Lock product/variant row
-        }
-    });
-}
-```
-
-**Guard:** `inventory_restored_at` — once set, inventory is never restored again, even if the event fires multiple times.
-
-**Constraint:** Only restores if `$order->paid_at` is set. If the order was cancelled before payment, inventory is not restored (it was never deducted from sellable stock — it was only reserved, and cart expiry releases the reservation).
+The two claims are mutually exclusive by state; duplicate cancels converge. All inside the same cancel transaction.
 
 ---
 
@@ -270,8 +250,8 @@ public function handle($event)
 
 | Discount Type | Reversed on Cancel? | Mechanism |
 |---|---|---|
-| **Coupon** | **NEVER** | `recordCouponUsage()` is not called on cancel. The `coupon_consumed` flag stays true. No decrement logic exists. |
-| **Promotion** | **YES** | `promotionService->decrementUsage()` is called. The `promotion_consumed` flag is NOT reset (but the usage counter is decremented). |
+| **Coupon** | **NEVER** | Reservation released (structurally idempotent); quota never returned. Re-ordering with the same coupon stays consumed. |
+| **Promotion** | **CONDITIONAL (Rule 17 / ORD-1)** | Unpaid cancel → `decrementUsage()` (floored at 0); paid cancel → usage kept (benefit delivered); never-paid expiry cancel (`orders:cancel-unpaid`, `skipPromotionDecrement`) → untouched. `promotion_consumed` flag never reset. |
 
 **Policy:** Coupon quota is intentionally not returned. This prevents a user from using the same coupon repeatedly by cancelling and re-ordering.
 
@@ -279,58 +259,50 @@ public function handle($event)
 
 ## Problems
 
-### P5-C1: Dual event system for OrderCancelled and RestoreProductInventory
+### P5-C1: Dual event system for OrderCancelled and RestoreProductInventory — RETIRED
 
-`RestoreProductInventory` is registered for both `App\Events\OrderCancelled` and `Marvel\Events\OrderCancelled`. Only `App\Events\OrderCancelled` is fired from `changeOrderStatus`. The Marvel registration is dead code that adds confusion. If another code path fires `Marvel\Events\OrderCancelled`, inventory restoration would fire from the same listener twice.
+The app provider registers no `Marvel\Events` at all. `RestoreProductInventory` listens only to `App\Events\OrderCancelled` and delegates to the exactly-once state claim.
 
-**Location:** `App\Providers\EventServiceProvider:72-78`
+### P5-C2: Payment status dual system inconsistency — FIXED
 
-### P5-C2: Payment status dual system inconsistency
+The accessor falls through on null column values (null-column fallthrough fixed); transaction-matched and status-matched derivations preserved.
 
-The `payment_status` accessor checks the column first, then falls back to computation. The column is conditionally set via `Schema::hasColumn`. If the column exists but is `null` (e.g., old orders created before the column migration), the accessor returns `null` rather than computing a value. The `array_key_exists` check at line 161 returns `true` because the key exists in `$this->attributes`, but the value is `null`.
+### P5-C3: Self-transitions — RESOLVED as D2 successful no-ops
 
-**Location:** `Order::getPaymentStatusAttribute():159-162`
+Self-transitions remain VALID flow transitions (the flow definition is unchanged) but the canonical writer short-circuits them: success, zero events, zero history, zero side effects (`OrderLifecycleNoopTest` pins pending→pending, completed→completed, cancelled→cancelled). R5-3's "prevent self-transitions" recommendation is explicitly DECLINED — the API contract keeps them idempotent-friendly.
 
-### P5-C3: Self-transition allowed (pending→pending, etc.)
+### P5-C4: Missing payment_status update on cancel — ADDRESSED BY DESIGN
 
-The state machine allows self-transitions. `changeOrderStatus` fires `OrderStatusChanged` on self-transitions, which triggers `SendOrderStatusChangedNotification` even when nothing changed. This is an unnecessary queue job.
+Ordinary cancels intentionally leave the payment marker untouched. The reaper opts in via `markPaymentFailed` (pending/null → `payment-failed`, never clobbers paid). This distinction is intentional: never-paid expiry vs ordinary cancel.
 
-**Location:** `OrderService:474-479`
+### P5-C5: Fulfillment status column changes are schema-guarded but not atomic — RETAINED POSTURE
 
-### P5-C4: Missing payment_status update on cancel
-
-When an order is cancelled, `payment_status` is not updated to `payment-failed` in the column. The accessor derives `payment-failed` from the order status, but the column remains at whatever value it had before (e.g., `payment-pending`). If downstream code checks only the column (not the accessor), it will not see the failed status.
-
-**Location:** `changeOrderStatus()` does not set `payment_status` on cancel.
-
-### P5-C5: Fulfillment status column changes are schema-guarded but not atomic
-
-All three manual `Schema::hasColumn` checks in `changeOrderStatus`, `markCodAsPaid`, and `markCashierPaid` are individually guarded. If a deployment adds one column but not another, partial updates occur silently.
+The `Schema::hasColumn` guards remain as rolling-deploy safety. No partial-update incident; guards stay.
 
 ---
 
 ## Production Recommendations
 
-### R5-1: Consolidate to single OrderCancelled event
+### R5-1: Consolidate to single OrderCancelled event — DONE
 
-Remove `\Marvel\Events\OrderCancelled::class` from the listener registration. Only `App\Events\OrderCancelled` should be used. Keep the listener registered only once.
+No `Marvel\Events` registration app-side; single listener via the state claim.
 
-### R5-2: Standardize payment_status
+### R5-2: Standardize payment_status — PARTIALLY DONE
 
-Make the `payment_status` column required (NOT NULL, with a default). Remove the conditional `Schema::hasColumn` guards. Either fully use the column or fully use the accessor — not both. If using the accessor, drop the column.
+Null-column fallthrough fixed. Conditional guards retained as rolling-deploy safety, not removed.
 
-### R5-3: Prevent self-transitions
+### R5-3: Prevent self-transitions — DECLINED (D2)
 
-Modify `canTransitionOrderStatus` to return `false` when `$from === $to`. This eliminates unnecessary event dispatches and job dispatches.
+Self-transitions are successful no-ops by approved business decision, not errors. Flow gate still validates them; the writer skips all side effects.
 
-### R5-4: Set payment_status on cancel
+### R5-4: Set payment_status on cancel — EVALUATED, OPT-IN ADOPTED
 
-In `changeOrderStatus`, when status transitions to `cancelled`, always update `payment_status` to `payment-failed` (if the column exists). This makes the column consistent with the accessor.
+Blanket marking declined; reaper-only `markPaymentFailed` adopted (see P5-C4).
 
-### R5-5: Add migration to make schema-guarded columns required
+### R5-5: Add migration to make schema-guarded columns required — DEFERRED POSTURE
 
-Add a migration that ensures `payment_status`, `fulfillment_status`, `completed_at`, `cancelled_at`, `coupon_consumed`, and `promotion_consumed` are all present on the `orders` table with appropriate defaults. Remove all `Schema::hasColumn` conditionals.
+Backfill-then-guarantee posture for flow columns (NOT NULL after backfill migration `2026_10_04_000001`); rolling guards retained elsewhere.
 
-### R5-6: Add regression test for promotion decrement on cancel
+### R5-6: Add regression test for promotion decrement on cancel — COVERED
 
-Write a test that verifies `promotionService->decrementUsage()` is called exactly once when an order transitions from `pending` to `cancelled`.
+Cancel-branch tests plus `ReaperAuthorityTest` (unpaid decrement + expiry skip) and paid-cancel retention tests pin the conditional behavior.

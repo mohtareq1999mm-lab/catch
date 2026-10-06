@@ -116,7 +116,7 @@ class OrderFlowService
             ['code' => 'customs_clearance', 'name' => 'Customs Clearance', 'description' => 'Shipment under customs inspection', 'is_active' => true],
             ['code' => 'customs_hold', 'name' => 'Customs Hold', 'description' => 'Customs held the shipment for additional review (custom flows only)', 'is_active' => true],
             ['code' => 'customs_cleared', 'name' => 'Customs Cleared', 'description' => 'Customs released the shipment', 'is_active' => true],
-            ['code' => 'export_processing', 'name' => 'Export Processing', 'description' => 'Shipment prepared for export (custom flows only)', 'is_active' => true],
+            ['code' => 'export_processing', 'name' => 'Export Processing', 'description' => 'Shipment prepared for export', 'is_active' => true],
             ['code' => 'import_processing', 'name' => 'Import Processing', 'description' => 'Shipment processed on import (custom flows only)', 'is_active' => true],
             ['code' => 'local_carrier', 'name' => 'Local Carrier', 'description' => 'Handed to the local last-mile carrier', 'is_active' => true],
             ['code' => 'out_for_delivery', 'name' => 'Out for Delivery', 'description' => 'Courier is delivering the order', 'is_active' => true],
@@ -160,6 +160,7 @@ class OrderFlowService
                     'pending',
                     'processing',
                     'packed',
+                    'export_processing',
                     'shipped',
                     'in_transit',
                     'arrived_at_destination_country',
@@ -351,8 +352,37 @@ class OrderFlowService
     }
 
     /**
-     * Assign shipping type + flow + first status to a new order.
-     * The ONLY place that writes the three flow columns on creation.
+     * Flow columns for a creation INSERT (decision D2): resolved flow +
+     * a stage mirror consistent with the requested starting status.
+     * Event-independent (pure computation) so creation doors can merge the
+     * columns into the INSERT itself — safe under faked/suppressed model
+     * events where the model-level backstop cannot run. Fail-closed:
+     * unavailable flow or unknown status throws BEFORE any row is written.
+     *
+     * @return array{shipping_type: string, flow_id: int, current_status_id: int}
+     */
+    public function columnsForNewOrder(?string $shippingType, ?string $statusCode): array
+    {
+        $flow = $this->resolveFlowForShippingType($shippingType);
+
+        $statusId = $this->statusIdForCode($statusCode ?: 'pending');
+
+        if ($statusId === null) {
+            throw new \RuntimeException(__('checkout.flow_statuses_unknown'));
+        }
+
+        return [
+            'shipping_type' => $flow->shipping_type,
+            'flow_id' => $flow->id,
+            'current_status_id' => $statusId,
+        ];
+    }
+
+    /**
+     * Assign shipping type + flow + first status to an existing order row.
+     * Applies columnsForNewOrder() ('pending'-flavoured first stage) and
+     * persists; creation doors that can merge columns into the INSERT
+     * prefer the helper directly so the guarantee holds event-independently.
      */
     public function assignFlowToOrder(Order $order, ?string $shippingType): Order
     {
@@ -404,6 +434,15 @@ class OrderFlowService
 
         if ($to === 'completed') {
             return true;
+        }
+
+        if ($to === 'delivered') {
+            // Terminal absorption: a completed (paid) order reaches delivered
+            // via shipment confirmation (maybeCompleteOrder) without walking
+            // every logistics stage. All other paths use linear succession.
+            if ($from === 'completed') {
+                return true;
+            }
         }
 
         if ($to === 'failed_delivery') {

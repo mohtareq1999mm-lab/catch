@@ -221,13 +221,18 @@ class UserNotificationTest extends TestCase
 
     private function createOrder(User $user): Order
     {
-        return Order::withoutEvents(fn () => Order::create([
+        // NOT NULL guarantee: withoutEvents suppresses the creation backstop,
+        // so the flow columns ride the INSERT itself (event-independent).
+        $flowColumns = \App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()
+            ? app(\App\Services\OrderFlow\OrderFlowService::class)->columnsForNewOrder(null, 'pending')
+            : [];
+        return Order::withoutEvents(fn () => Order::create(array_merge($flowColumns, [
             'user_id' => $user->id,
             'order_number' => 'ORD-' . rand(10000000, 99999999),
             'status' => 'pending',
             'total_price' => 100.00,
             'payment_status' => 'pending',
-        ]));
+        ])));
     }
 
     private function createCoupon(array $attributes = []): Coupon

@@ -188,9 +188,17 @@ class ProductProductionHardenTest extends TestCase
 
     private function createOrderWithProduct(User $user, Product $product, string $orderStatus): Order
     {
+        // Modern `status` holds catalog codes (ENUM on the migrated schema);
+        // the legacy `order_status` column under test keeps its prefixed code.
+        $modernStatus = [
+            'order-completed' => 'completed',
+            'order-cancelled' => 'cancelled',
+            // Non-completed legacy row; the exact legacy code is kept below.
+            'order-refunded' => 'cancelled',
+        ][$orderStatus] ?? 'pending';
         $order = Order::create([
             'user_id' => $user->id,
-            'status' => $orderStatus,
+            'status' => $modernStatus,
             'price' => $product->price,
             'total_price' => $product->price]);
         // order_status is not in fillable, set it directly

@@ -28,6 +28,7 @@ use Marvel\Database\Models\Settings;
 use Marvel\Database\Models\ShippingPrice;
 use Marvel\Database\Models\Transaction;
 use Marvel\Enums\ShippingMethod;
+use Marvel\Enums\OrderStatus as MarvelOrderStatus;
 use App\Events\OrderCancelled;
 use App\Events\OrderStatusChanged;
 use App\Services\Coupon\CouponCalculator;
@@ -313,23 +314,53 @@ class OrderService
                     throw new \InvalidArgumentException(__('checkout.pending_order_shipping_type_conflict'));
                 }
 
-                // Reuse existing pending order: update with new cart data
-                $order = $this->orderCreationService->updateOrder(
-                    $pendingOrder, $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
-                );
-
-                // Release old reservation before creating new one
-                $this->orderReservationService->release($order);
-
-                // CRITICAL FIX: Release old coupon reservation if coupon changed
-                // This prevents orphaned reservations when user changes coupon between retries
-                $this->couponReservationService->release($order);
-
-                // Sync order items with current cart
-                if (!$this->orderCreationService->syncOrderItems($order, $cart, $checkoutTotals->giftItems, $checkoutTotals)) {
-                    throw new \RuntimeException('Order item sync failed.');
+                // Phase 3 addendum: a pending order whose inventory is
+                // already COMMITTED (COD/cashier committed at creation) can
+                // no longer be re-reserved — the authority has no
+                // committed→active transition, so release()/reserveForOrder()
+                // below would silently no-op on stale lines. Supersede it
+                // through the canonical cancel (committed→restored via the
+                // state claim, fulfillment cascade, coupon release) and fall
+                // through to a fresh creation below. All stock movement stays
+                // inside canonical authorities; never a second commit path.
+                if ($pendingOrder->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
+                    $this->changeOrderStatus(
+                        null,
+                        'cancelled',
+                        $pendingOrder->id,
+                        auditReason: 'Superseded by re-checkout: committed pending order replaced by a fresh order',
+                        auditContext: [
+                            'trigger' => 'checkout-retry-supersede',
+                            'superseded_order_id' => $pendingOrder->id,
+                        ],
+                        skipPromotionDecrement: true,
+                    );
+                    $pendingOrder = null;
                 }
-            } else {
+
+                // Reuse existing pending order: update with new cart data.
+                // ($pendingOrder is guaranteed non-committed here: a
+                // committed pending order was superseded above.)
+                if ($pendingOrder) {
+                    $order = $this->orderCreationService->updateOrder(
+                        $pendingOrder, $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
+                    );
+
+                    // Release old reservation before creating new one
+                    $this->orderReservationService->release($order);
+
+                    // CRITICAL FIX: Release old coupon reservation if coupon changed
+                    // This prevents orphaned reservations when user changes coupon between retries
+                    $this->couponReservationService->release($order);
+
+                    // Sync order items with current cart
+                    if (!$this->orderCreationService->syncOrderItems($order, $cart, $checkoutTotals->giftItems, $checkoutTotals)) {
+                        throw new \RuntimeException('Order item sync failed.');
+                    }
+                }
+            }
+
+            if (!isset($order)) {
                 // Create new order
                 // Flow/shipping-type assignment happens inside createOrder
                 // (local default, fail-closed on unavailable types). Payment
@@ -370,7 +401,34 @@ class OrderService
             // The ORDER now owns the inventory reservation. Any failure here
             // (insufficient stock) aborts the whole transaction: no Order, no
             // reservation, and the CartItems survive untouched for retry.
-            $this->orderReservationService->reserveForOrder($order);
+            //
+            // F-04: the atomic reservation may fail on the selected
+            // promotional gift (stock lost between the apply-time snapshot
+            // and this order-time claim). A genuinely short gift surfaces as
+            // the gift-specific 422; any other shortage rethrows the
+            // original generic stock error untouched.
+            try {
+                $this->orderReservationService->reserveForOrder($order);
+            } catch (\App\Exceptions\InsufficientStockException $e) {
+                $this->promotionService->throwIfGiftUnavailable($checkoutTotals->giftItems ?? []);
+                throw $e;
+            }
+
+            // Phase 3 addendum: COD/cashier secure their inventory AT CREATION,
+            // exactly as a paid online order does — manual payment must not
+            // leave ordered quantities sellable to other orders. The canonical
+            // commit() (active→committed claim; stock decrement + sold
+            // increment) runs in this same transaction, so commit-failure
+            // cannot strand a half-created order. Later completion
+            // (mark-paid → completed) re-commits as an idempotent no-op —
+            // never a second deduction. Digital-only orders keep today's
+            // ACTIVE state (no physical counters exist for them).
+            if (
+                in_array($order->payment_method ?? null, ['cod', 'pay_at_cashier'], true)
+                && $this->orderReservationService->hasPhysicalLines($order)
+            ) {
+                $this->orderReservationService->commit($order);
+            }
 
             // Reservation succeeded — the ordered slice leaves the cart.
             // The cart row itself always survives as a reusable container.
@@ -402,7 +460,22 @@ class OrderService
 
         $promotionId = $order->promotion_id ? (int) $order->promotion_id : null;
         if ($promotionId) {
-            $this->promotionService->incrementUsage($promotionId);
+            $counted = $this->promotionService->incrementUsage($promotionId);
+
+            if (!$counted) {
+                // F-06: the limiter filled between apply and completion, so
+                // the guarded increment matched no row. The approved
+                // customer-favoring contract holds — the order keeps its
+                // discount, promotion_consumed still sets below — but the
+                // uncounted grant must be observable, not silent.
+                $snapshot = Promotion::query()->whereKey($promotionId)->first(['id', 'usage', 'limiter']);
+                \Illuminate\Support\Facades\Log::warning('promotion.usage.limiter_blocked', [
+                    'promotion_id' => $promotionId,
+                    'order_id' => $order->getKey(),
+                    'usage' => $snapshot?->usage,
+                    'limiter' => $snapshot?->limiter,
+                ]);
+            }
         }
 
         if (Schema::hasColumn('orders', 'promotion_consumed')) {
@@ -571,6 +644,24 @@ class OrderService
         $cart->load(['items' => fn($q) => $q->where('shipping_method', ShippingMethod::SCHEDULED), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant']);
     }
 
+    /**
+     * F-03 — APPROVED DISCOUNT STACKING PRECEDENCE (explicit contract).
+     *
+     * Discounts compose deterministically in exactly this order:
+     *
+     *   Flash Sale → Promotion → Coupon
+     *
+     * - Flash-sale pricing is embedded in the cart line prices BEFORE this
+     *   method runs (refreshCartItemPrices); the post-flash price is the base.
+     * - Promotion is applied next via PromotionService on that base.
+     * - Coupon is applied LAST on the remainder (priceAfterPromotion).
+     * - Gift promotions carry discount 0 plus an order-line descriptor, so
+     *   they never shrink the coupon base; the free gift rides alongside.
+     *
+     * This precedence emerges from the call order below ON PURPOSE. Future
+     * discount types must not silently reorder it — change this contract
+     * explicitly (code + manual + pinning test) or not at all.
+     */
     public function calculateCheckoutTotals(Cart $cart, ?int $selectedPromotionId, ?int $selectedGiftProductId = null, ?string $shippingMethod = null): CheckoutTotals
     {
         $promotionTotals = $this->promotionService->applySelectedPromotion($cart, $selectedPromotionId, $selectedGiftProductId, $shippingMethod);
@@ -716,6 +807,13 @@ class OrderService
     }
 
 
+    /**
+     * @deprecated Legacy transition map. The assigned Order Flow is the SOLE
+     * runtime lifecycle authority (see OrderFlowService::allowsFlowTransition).
+     * Retained for migration reference/audit only — MUST NOT be consulted to
+     * authorize a transition. Will be removed after the flow-less migration
+     * window closes.
+     */
     private static array $allowedOrderTransitions = [
         'pending' => ['pending', 'processing', 'completed', 'cancelled'],
         'processing' => ['processing', 'completed', 'cancelled'],
@@ -733,25 +831,33 @@ class OrderService
         'cancelled' => ['cancelled'],
     ];
 
-private function canTransitionOrderStatus(string $from, string $to): bool
+    /**
+     * @deprecated See $allowedOrderTransitions. Not consulted by the guard.
+     */
+    private function canTransitionOrderStatus(string $from, string $to): bool
     {
         return in_array($to, self::$allowedOrderTransitions[$from] ?? [], true);
     }
 
+    /**
+     * @deprecated Legacy advisory only (flow-less migration window). New code
+     * must use getFlowAwareStatusTargets(), which is flow-only for flowed orders.
+     */
     public static function getAllowedOrderStatusTargets(?string $currentStatus): array
     {
         return self::$allowedOrderTransitions[$currentStatus] ?? [];
     }
 
     /**
-     * Flow-aware admin targets: legacy targets plus the flow successor and
-     * applicable supervised exits (completed/cancelled/failed_delivery/
-     * returned). Drives the admin status dropdown; the same union the
-     * guard enforces, so offered targets are always accepted.
+     * Flow-authority admin targets: the flow successor plus applicable
+     * supervised exits (completed/cancelled/failed_delivery/returned/
+     * delivered-from-completed). Drives the admin status dropdown; exactly
+     * what the guard enforces, so offered targets are always accepted.
+     * Flow-less rows (migration window only) fall back to the legacy map.
      */
     public function getFlowAwareStatusTargets(Order $order): array
     {
-        $targets = self::getAllowedOrderStatusTargets($order->status);
+        $targets = [];
 
         try {
             $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
@@ -766,13 +872,18 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                     }
                 }
 
-                foreach (['completed', 'cancelled', 'failed_delivery', 'returned'] as $exit) {
+                foreach (['completed', 'cancelled', 'failed_delivery', 'returned', 'delivered'] as $exit) {
                     if ($flowService->allowsFlowTransition($order, (string) $order->status, $exit)
                         && !in_array($exit, $targets, true)
                     ) {
                         $targets[] = $exit;
                     }
                 }
+            } else {
+                // Migration window only: flow-less rows (Marvel-created) offer
+                // legacy targets until P2 assigns every order a flow. Advisory
+                // only — the guard itself is flow-only.
+                $targets = self::getAllowedOrderStatusTargets($order->status);
             }
         } catch (\Throwable $e) {
             report($e);
@@ -786,9 +897,26 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         return in_array($to, self::$allowedFulfillmentTransitions[$from] ?? [], true);
     }
 
-    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [])
+    /**
+     * D4: modern catalog code -> legacy prefixed `order_status` counterpart.
+     * Only codes the legacy Marvel vocabulary understands are mirrored;
+     * modern-only stages return null and leave the legacy column untouched.
+     */
+    private static function mapToLegacyOrderStatus(string $code): ?string
     {
-        return DB::transaction(function () use ($invoiceId, $status, $orderId, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues) {
+        return [
+            'pending' => MarvelOrderStatus::PENDING,
+            'processing' => MarvelOrderStatus::PROCESSING,
+            'completed' => MarvelOrderStatus::COMPLETED,
+            'cancelled' => MarvelOrderStatus::CANCELLED,
+            'out_for_delivery' => MarvelOrderStatus::OUT_FOR_DELIVERY,
+            'ready_for_pickup' => MarvelOrderStatus::READY_FOR_PICKUP,
+        ][$code] ?? null;
+    }
+
+    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [], bool $skipPromotionDecrement = false, bool $markPaymentFailed = false, bool $forceDelivered = false)
+    {
+        return DB::transaction(function () use ($invoiceId, $status, $orderId, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered) {
             $order = null;
             $transaction = null;
 
@@ -812,27 +940,33 @@ private function canTransitionOrderStatus(string $from, string $to): bool
 
             $previousStatus = $order->status;
 
-            // Order Status Flow validation runs BEFORE the legacy business
-            // logic. Union semantics: anything the legacy map allows stays
-            // allowed (payment milestones, no-ops, cancellation exits);
-            // logistics steps additionally require immediate succession in
-            // the order's assigned flow. allowsFlowTransition() is a safe
-            // no-op (false) when the flow tables/columns are absent.
+            // Order Flow is the SOLE lifecycle authority. The assigned flow
+            // decides every transition: linear successor plus supervised
+            // exits (completed/cancelled/failed_delivery/returned/
+            // delivered-from-completed). The legacy map is deprecated and is
+            // NEVER consulted here. allowsFlowTransition() returns false when
+            // the flow tables/columns are absent or the order has no flow —
+            // fail-closed: such transitions are rejected, never legacy-allowed.
             $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
-            $flowAllows = $flowService->allowsFlowTransition($order, $previousStatus, $status);
-            $legacyAllows = $this->canTransitionOrderStatus($previousStatus, $status);
 
-            if (!($flowAllows || $legacyAllows)) {
-                $messageKey = isset($order->flow_id) && $order->flow_id
-                    ? 'checkout.invalid_flow_transition'
-                    : 'checkout.invalid_order_status_transition';
-
+            if (!$flowService->allowsFlowTransition($order, $previousStatus, $status)) {
                 throw new \RuntimeException(
-                    __($messageKey, [
+                    __('checkout.invalid_flow_transition', [
                         'from' => $previousStatus,
                         'to' => $status,
                     ])
                 );
+            }
+
+            // D2: self-transitions are successful no-ops. The flow gate above
+            // stays the authority (flow-less orders still fail closed there;
+            // route-level permissions still run in controllers before this
+            // writer is ever reached), and every producer calling this writer
+            // gets identical semantics. From here: no markers, no history,
+            // no invoice, no cascade, no events — "already in the requested
+            // state; acknowledge success without changing anything."
+            if ($previousStatus === $status) {
+                return $order->fresh() ?? $order;
             }
 
             // Flow Input gate (transition context): an ADDITIONAL gate AFTER
@@ -873,6 +1007,45 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 );
             }
 
+            // Phase 8 (D8-5): the normal `delivered` transition requires the
+            // shipment completion invariant (paid + every fulfillment
+            // delivered + at least one fulfillment) so it cannot bypass the
+            // rule maybeCompleteOrder enforces. Same-state re-sets stay
+            // idempotent. The explicit force path (audited escape hatch for
+            // digital/service-recovery cases) needs its own intent flag,
+            // the update-order-status permission, a reason and an actor —
+            // and is recorded in history metadata below via $auditContext.
+            // Order Flow validation above stays the lifecycle authority; this
+            // is an additional business guard, never a second writer.
+            if ($status === 'delivered' && $previousStatus !== 'delivered') {
+                if ($forceDelivered) {
+                    if (!auth()->check() || !$this->actorCanForceDeliver()) {
+                        throw new \RuntimeException(
+                            __('message.ERROR.PERMISSION_MISSING_PERMISSIONS')
+                        );
+                    }
+                    if ($auditReason === null || trim($auditReason) === '') {
+                        throw new \RuntimeException(
+                            'A reason is required to force-deliver an order'
+                        );
+                    }
+                    $auditContext = array_merge($auditContext ?? [], [
+                        'force_delivered' => true,
+                        'force_delivered_by' => auth()->id(),
+                    ]);
+                    \Illuminate\Support\Facades\Log::warning('Order force-delivered (completion invariant bypassed)', [
+                        'order_id' => $order->id,
+                        'actor_id' => auth()->id(),
+                        'previous_status' => $previousStatus,
+                        'reason' => trim($auditReason),
+                    ]);
+                } elseif (!$this->orderSatisfiesDeliveryCompletion($order)) {
+                    throw new \RuntimeException(
+                        'Order cannot transition to delivered: payment must be successful and every fulfillment delivered'
+                    );
+                }
+            }
+
             $updateData = ['status' => $status];
 
             // Persist validated transition input values (business copies +
@@ -910,6 +1083,17 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 $updateData['cancelled_at'] = now();
             }
 
+            // Reaper outcome parity: the system expiry command (orders:cancel-unpaid)
+            // marks never-paid orders payment-failed. Explicit opt-in only —
+            // ordinary cancellations never touch the payment marker. A paid
+            // marker is never clobbered: only pending/null rows move.
+            if ($status === 'cancelled' && $markPaymentFailed && Schema::hasColumn('orders', 'payment_status')) {
+                $currentPayment = $order->getRawOriginal('payment_status');
+                if ($currentPayment === null || $currentPayment === Order::PAYMENT_STATUS_PENDING) {
+                    $updateData['payment_status'] = Order::PAYMENT_STATUS_FAILED;
+                }
+            }
+
             $fulfillmentStatusMap = [
                 'processing' => Order::FULFILLMENT_STATUS_PROCESSING,
                 'completed' => null,
@@ -930,6 +1114,17 @@ private function canTransitionOrderStatus(string $from, string $to): bool
 
             if (!$order->update($updateData)) {
                 return false;
+            }
+
+            // D4: legacy Marvel readers (tracking timeline, admin views)
+            // consume the prefixed `order_status` column — keep it synced on
+            // every canonical transition so the two can never drift.
+            // Modern-only stages (packed/shipped/delivered/...) have no
+            // legacy counterpart and leave the column untouched.
+            $legacyOrderStatus = self::mapToLegacyOrderStatus($status);
+            if ($legacyOrderStatus !== null && Schema::hasColumn('orders', 'order_status')) {
+                Order::withoutGlobalScopes()->whereKey($order->id)->update(['order_status' => $legacyOrderStatus]);
+                $order->setAttribute('order_status', $legacyOrderStatus);
             }
 
             $actorId = null;
@@ -1091,20 +1286,37 @@ private function canTransitionOrderStatus(string $from, string $to): bool
             }
 
             if ($status === 'cancelled' && $previousStatus !== 'cancelled') {
-                // Check if order was paid (committed inventory)
-                if ($order->payment_status === Order::PAYMENT_STATUS_SUCCESS
-                    && $order->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
-                    // Paid order cancellation: restore inventory to stock
-                    $this->inventoryRestoreService->restore($order);
+                // Phase 3 addendum: the restore-vs-release decision is keyed
+                // on INVENTORY STATE, not payment. COD/cashier commit at
+                // creation while still unpaid — a committed-but-unpaid cancel
+                // must restore (committed→restored claim) or its stock leaks:
+                // release() only claims active→released and would no-op.
+                // release() and restore() claims are mutually exclusive by
+                // state, so exactly one fires and duplicate cancels converge.
+                if ($order->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
+                    // Committed order cancellation: restore inventory to stock.
+                    // P7-2: the state claim inside restore() is the single
+                    // exactly-once authority; the legacy column below is
+                    // stamped as an observability marker only, never a guard.
+                    $restored = $this->inventoryRestoreService->restore($order);
+                    if ($restored) {
+                        Order::whereKey($order->getKey())
+                            ->whereNull('inventory_restored_at')
+                            ->update(['inventory_restored_at' => now()]);
+                    }
                 } else {
-                    // Unpaid order cancellation: release the active reservation
+                    // Uncommitted cancellation: release the active reservation
+                    // (no-op unless currently active — never double-release).
                     $this->orderReservationService->release($order);
                 }
 
                 // Only decrement promotion usage for unpaid cancellations (Rule 17).
                 // Paid orders that are cancelled must NOT decrement promotion usage
                 // as the promotion benefit was already delivered and consumed.
-                if ($order->payment_status !== Order::PAYMENT_STATUS_SUCCESS) {
+                // D3: the system expiry command (orders:cancel-unpaid) passes
+                // $skipPromotionDecrement for never-paid expiry cancels (ORD-1) —
+                // promotion usage must not move for orders that were never paid.
+                if (!$skipPromotionDecrement && $order->payment_status !== Order::PAYMENT_STATUS_SUCCESS) {
                     $this->promotionService->decrementUsage($order->promotion_id ? (int) $order->promotion_id : null);
                 }
 
@@ -1112,6 +1324,11 @@ private function canTransitionOrderStatus(string $from, string $to): bool
                 // the coupon reservation exactly once. Delete-by-order is
                 // structurally idempotent (post-payment cancels find no row).
                 $this->couponReservationService->release($order);
+
+                // P7-1: order cancellation cascades to cancellable
+                // fulfillments through the fulfillment authority (same
+                // transaction — atomic with the order cancel above).
+                $this->cancelOpenFulfillmentsForOrder($order, $auditReason, $actorType ?? 'system');
             }
 
             event(new OrderStatusChanged($order, $previousStatus, $order->status, $actorId ?? null, $actorType ?? 'system'));
@@ -1139,6 +1356,78 @@ private function canTransitionOrderStatus(string $from, string $to): bool
 
             return $order;
         });
+    }
+
+    /**
+     * P7-1 (D7-1): cascade an order cancellation to every cancellable
+     * fulfillment (pending/picking/picked/packing/ready_to_ship) through
+     * FulfillmentService::cancelFulfillment() — the logic is never
+     * duplicated here. Runs inside the caller's order-cancel transaction,
+     * so order + fulfillment cancellation are atomic.
+     *
+     * Lazy service resolution: constructor injection would close a cycle
+     * (OrderService → FulfillmentService → PackingService →
+     * ShipmentService → OrderService).
+     *
+     * Lock order is preserved (Order already locked by the caller →
+     * Fulfillment → Batch → tasks → packages); cancelFulfillment never
+     * locks back toward orders.
+     *
+     * Shipped/delivered/terminal fulfillments are never force-cancelled —
+     * they are surfaced explicitly (log) instead of silently claimed.
+     * Guard refusals from the fulfillment authority (sealed custody,
+     * packed work, live shipment) propagate so the whole cancellation
+     * rolls back atomically instead of orphaning warehouse work.
+     */
+    private function cancelOpenFulfillmentsForOrder(Order $order, ?string $auditReason, string $actorType): void
+    {
+        $cancellable = ['pending', 'picking', 'picked', 'packing', 'ready_to_ship'];
+
+        $ids = \App\Models\Fulfillment\Fulfillment::where('order_id', $order->getKey())
+            ->whereIn('status', $cancellable)
+            ->pluck('id');
+
+        if ($ids->isNotEmpty()) {
+            $fulfillments = app(\App\Services\Fulfillment\FulfillmentService::class);
+            $reason = trim((string) $auditReason) !== ''
+                ? trim((string) $auditReason)
+                : "Order #{$order->getKey()} cancelled";
+            $cancelledBy = auth()->check() ? auth()->id() : null;
+
+            foreach ($ids as $fulfillmentId) {
+                $fulfillment = \App\Models\Fulfillment\Fulfillment::whereKey($fulfillmentId)->first();
+                if ($fulfillment === null) {
+                    continue;
+                }
+                $fulfillments->cancelFulfillment($fulfillment, 'Order cancelled: ' . $reason, [
+                    'cancel_source' => 'order_cancel',
+                    'cancelled_by' => $cancelledBy,
+                    'actor_type' => $actorType,
+                ]);
+            }
+        }
+
+        $skipped = \App\Models\Fulfillment\Fulfillment::where('order_id', $order->getKey())
+            ->whereNotIn('status', array_merge($cancellable, ['cancelled']))
+            ->pluck('status', 'id');
+
+        if ($skipped->isNotEmpty()) {
+            // Phase 8 (F8-5): a shipped fulfillment is never auto-cancelled
+            // and its live shipments are never silently orphaned — surface
+            // them explicitly (ids + states) so operations can void the
+            // labels through ShipmentService::cancelShipment. Read-only
+            // surface: no shipment mutation, no lock-order change, the order
+            // cancel above still commits (Phase-7 rule preserved).
+            $liveShipments = \App\Models\Shipment::whereIn('fulfillment_id', $skipped->keys()->all())
+                ->whereNotIn('status', \App\Models\Shipment::TERMINAL_STATUSES)
+                ->pluck('status', 'id')
+                ->toArray();
+            \Illuminate\Support\Facades\Log::warning('Order cancelled with non-cancellable fulfillments left open', [
+                'order_id' => $order->getKey(),
+                'skipped_fulfillments' => $skipped->toArray(),
+                'live_shipments_requiring_manual_follow_up' => $liveShipments,
+            ]);
+        }
     }
 
     /**
@@ -1173,6 +1462,47 @@ private function canTransitionOrderStatus(string $from, string $to): bool
         } catch (\Throwable $e) {
             return false;
         }
+    }
+
+    /**
+     * Phase 8 (D8-5): explicit permission for the force-delivered escape
+     * hatch. Reuses the existing update-order-status permission — Phase 8
+     * seeds no new permissions (Phase 9 owns RBAC).
+     */
+    private function actorCanForceDeliver(): bool
+    {
+        try {
+            $user = auth()->user();
+
+            if (!$user || !method_exists($user, 'hasAnyPermission')) {
+                return false;
+            }
+
+            return (bool) $user->hasAnyPermission(['update-order-status']);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Phase 8 (D8-5): the delivery completion invariant shared by the manual
+     * `delivered` guard above and ShipmentService::maybeCompleteOrder —
+     * payment successful, at least one fulfillment, every fulfillment
+     * delivered. Read-only; the caller holds the order lock.
+     */
+    private function orderSatisfiesDeliveryCompletion(Order $order): bool
+    {
+        if (!$this->orderHasSuccessfulPayment($order)) {
+            return false;
+        }
+
+        $fulfillmentQuery = \App\Models\Fulfillment\Fulfillment::where('order_id', $order->getKey());
+
+        if (!(clone $fulfillmentQuery)->exists()) {
+            return false;
+        }
+
+        return !(clone $fulfillmentQuery)->where('status', '!=', 'delivered')->exists();
     }
 
     public function markCodAsPaid(Order $order, ?string $reason = null): void

@@ -29,6 +29,17 @@ use Marvel\Enums\ItemType;
 class OrderReservationService
 {
     /**
+     * Phase 3: read-only predicate — does the order hold any physical line
+     * (D1 digital filter applied)? Used by automatic fulfillment triggers so
+     * digital-only orders stay on the entitlements path and never produce
+     * physical Fulfillment rows. No state read or written beyond the lines.
+     */
+    public function hasPhysicalLines(Order $order): bool
+    {
+        return !$this->aggregatePhysicalLines($order)->isEmpty();
+    }
+
+    /**
      * Reserve inventory for the order's physical lines.
      * Valid from state `none` (re-reserving an `active` order is a safe no-op).
      * Throws when available stock is insufficient — the caller's transaction

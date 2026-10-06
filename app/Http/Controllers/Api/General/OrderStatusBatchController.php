@@ -30,7 +30,8 @@ class OrderStatusBatchController extends Controller
             $request->user(),
             $request->validated()['order_ids'],
             (string) $request->validated()['status'],
-            (array) ($request->validated()['flow_values'] ?? [])
+            (array) ($request->validated()['flow_values'] ?? []),
+            (array) ($request->validated()['flow_values_by_order'] ?? [])
         );
 
         $failed = $outcome['summary']['failed'];

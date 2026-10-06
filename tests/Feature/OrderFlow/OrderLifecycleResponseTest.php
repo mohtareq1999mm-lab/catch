@@ -264,7 +264,8 @@ class OrderLifecycleResponseTest extends TestCase
 
     public function test_fast_checkout_reuses_local_pending_order(): void
     {
-        // Existing LOCAL pending order: reuse stays allowed (same flow).
+        // Existing LOCAL pending order: same-flow retry supersedes the
+        // committed pending (cancel + fresh) instead of reusing it.
         $this->freshCart(ShippingMethod::FAST);
         Sanctum::actingAs($this->user);
         $this->postJson('/api/v1/general/fast-shipping/checkout', $this->basePayload())
@@ -275,8 +276,11 @@ class OrderLifecycleResponseTest extends TestCase
         $this->postJson('/api/v1/general/fast-shipping/checkout', $this->basePayload())
             ->assertStatus(200);
 
-        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
-        $this->assertSame($first->id, Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail()->id);
+        $orders = Order::query()->where('user_id', $this->user->id)->orderBy('id')->get();
+        $this->assertSame(2, $orders->count());
+        $this->assertSame('cancelled', $orders[0]->status);
+        $this->assertSame('pending', $orders[1]->status);
+        $this->assertSame($first->flow_id, $orders[1]->flow_id, 'Replacement keeps the local flow');
     }
 
     // -----------------------------------------------------------------
@@ -356,7 +360,7 @@ class OrderLifecycleResponseTest extends TestCase
 
         Sanctum::actingAs($this->admin);
         $expectedSort = 1;
-        foreach (['processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'] as $code) {
+        foreach (['processing', 'packed', 'shipped', 'out_for_delivery'] as $code) {
             $expectedSort++;
             $this->patchJson("/api/v1/orders/{$order->id}/status", ['status' => $code])
                 ->assertOk()
@@ -366,6 +370,12 @@ class OrderLifecycleResponseTest extends TestCase
             $this->assertSame($code, $order->status);
             $this->assertSame($code, $order->currentStatus->code);
         }
+
+        // Phase 8 (D8-5): the normal delivered step requires the shipment
+        // completion invariant — refused (legacy 422 transition contract).
+        $this->patchJson("/api/v1/orders/{$order->id}/status", ['status' => 'delivered'])
+            ->assertStatus(422);
+        $this->assertSame('out_for_delivery', $order->fresh()->status);
 
         $this->assertSame('local', $order->fresh()->shipping_type);
     }

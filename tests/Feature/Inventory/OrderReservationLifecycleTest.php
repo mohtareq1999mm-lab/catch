@@ -48,6 +48,17 @@ class OrderReservationLifecycleTest extends TestCase
         config(['payment.order_timeout_hours' => 24]);
 
         $this->createAllTestTables();
+
+        // Production parity: a default warehouse exists, so COD/cashier
+        // checkouts exercise the real automatic fulfillment release instead
+        // of throwing teardown noise from warehouse resolution.
+        if (\Illuminate\Support\Facades\Schema::hasTable('warehouses')
+            && \App\Models\Fulfillment\Warehouse::where('is_default', true)->count() === 0) {
+            \App\Models\Fulfillment\Warehouse::create([
+                'code' => 'DEF-' . Str::random(6), 'name' => 'Default',
+                'status' => 'active', 'is_default' => true,
+            ]);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -398,7 +409,9 @@ class OrderReservationLifecycleTest extends TestCase
         $this->assertEquals(200.0, (float) $item->product_total_price);
 
         // Reservation ownership + metadata (allow 1s drift due to now() vs created_at microsecond)
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state);
+        // Phase 3 addendum: COD checkout commits AT CREATION (secured stock,
+        // not a held reservation).
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
         $this->assertNotNull($order->inventory_reserved_at);
         $expectedHours = \App\Services\Inventory\OrderReservationService::timeoutHoursFor($order);
         $expectedExpiry = $order->created_at->copy()->addHours($expectedHours);
@@ -407,11 +420,11 @@ class OrderReservationLifecycleTest extends TestCase
             'reservation_expires_at should be created_at +'.$expectedHours.'h within 1s tolerance, got '.$order->reservation_expires_at.' expected '.$expectedExpiry
         );
 
-        // Inventory arithmetic
+        // Inventory arithmetic (committed at creation: deducted, nothing held)
         $variantless->refresh();
-        $this->assertEquals(2, $variantless->reserved_quantity);
-        $this->assertEquals(6, $variantless->stock_quantity);
-        $this->assertEquals(0, $variantless->sold_quantity);
+        $this->assertEquals(0, $variantless->reserved_quantity);
+        $this->assertEquals(4, $variantless->stock_quantity);
+        $this->assertEquals(2, $variantless->sold_quantity);
 
         // Cart emptied, row kept
         $this->assertSame($cart->id, Cart::where('user_id', $user->id)->value('id'), 'Same cart row survives');
@@ -581,7 +594,8 @@ class OrderReservationLifecycleTest extends TestCase
         // Request B arrives after A committed: cart empty ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ clean rejection.
         $this->checkout($user)->assertStatus(400);
         $this->assertEquals(1, Order::where('user_id', $user->id)->count(), 'No duplicate order');
-        $this->assertEquals(1, $product->refresh()->reserved_quantity, 'Single reservation');
+        $this->assertEquals(0, $product->refresh()->reserved_quantity, 'Nothing held after commit');
+        $this->assertEquals(1, $product->refresh()->sold_quantity, 'Single commit');
     }
 
     public function test_last_unit_two_users_exactly_one_wins(): void
@@ -598,9 +612,12 @@ class OrderReservationLifecycleTest extends TestCase
 
         $this->assertEquals(1, Order::count(), 'Exactly one order');
         $scarce->refresh();
-        $this->assertEquals(1, $scarce->reserved_quantity);
-        $this->assertEquals(1, $scarce->stock_quantity);
-        $this->assertTrue($scarce->reserved_quantity <= $scarce->stock_quantity, 'Never over capacity');
+        // Phase 3 addendum: the winner's stock is COMMITTED at checkout
+        // (deducted, nothing held) — never oversold, never merely held.
+        $this->assertEquals(0, $scarce->reserved_quantity);
+        $this->assertEquals(0, $scarce->stock_quantity);
+        $this->assertEquals(1, $scarce->sold_quantity);
+        $this->assertTrue($scarce->reserved_quantity <= $scarce->stock_quantity + $scarce->sold_quantity, 'Never over capacity');
     }
 
     public function test_payment_vs_reaper_payment_wins_serialization(): void
@@ -673,6 +690,13 @@ class OrderReservationLifecycleTest extends TestCase
 
     public function test_reaper_boundary_seconds(): void
     {
+        // Freeze wall-clock: fixture setup + artisan reaper boot take ~25s on
+        // this hardware, which otherwise lapses the +1s future margin and
+        // turns a deterministic boundary proof into a timing flake. Frozen
+        // now keeps setup-time and reaper-time on the same second so the
+        // -1s/=now/+1s branches assert the reaper's <= semantics exactly.
+        \Carbon\Carbon::setTestNow($frozenNow = \Carbon\Carbon::now());
+        try {
         $expired = $this->makeActiveReservation($this->makeSimpleProduct(stock: 2), qty: 1);
         $expired->update(['reservation_expires_at' => now()->subSecond()]);
 
@@ -694,6 +718,9 @@ class OrderReservationLifecycleTest extends TestCase
         $this->assertEquals('cancelled', $edgeNow->refresh()->status, '=now ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ cancelled (<=)');
         $this->assertEquals('pending', $future->refresh()->status, '+1s ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ active');
         $this->assertEquals('pending', $almostDay->refresh()->status, '23h59m ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ active');
+        } finally {
+            \Carbon\Carbon::setTestNow();
+        }
     }
 
     public function test_cod_order_expires_and_releases_without_gateway_check(): void
@@ -782,10 +809,15 @@ class OrderReservationLifecycleTest extends TestCase
 
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);
-        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state, 'Release is a no-op for committed orders');
+        // Phase 3 addendum: the canonical sync cancel path restores committed
+        // orders immediately (state-keyed, not payment-keyed); the listener
+        // below converges as a backstop no-op. Exactly-once via the claim.
+        $this->assertEquals(Order::INVENTORY_STATE_RESTORED, $order->inventory_state);
 
         // Emulate the async queue worker running the real listener exactly once.
-        (new RestoreProductInventory())->handle(new OrderCancelled($order));
+        // Phase 7 (P7-2): resolved via the container for its canonical
+        // InventoryRestoreService dependency.
+        app(RestoreProductInventory::class)->handle(new OrderCancelled($order));
 
         $product->refresh();
         $this->assertEquals($stockAfterSale + 2, $product->stock_quantity, 'Paid-order restoration ran once');
@@ -793,7 +825,7 @@ class OrderReservationLifecycleTest extends TestCase
         $this->assertNotNull($order->refresh()->inventory_restored_at);
 
         // Idempotency: second worker run restores nothing more.
-        (new RestoreProductInventory())->handle(new OrderCancelled($order));
+        app(RestoreProductInventory::class)->handle(new OrderCancelled($order));
         $this->assertEquals($stockAfterSale + 2, $product->refresh()->stock_quantity);
         $this->assertNotNull($order->refresh()->inventory_restored_at);
     }

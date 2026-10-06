@@ -15,20 +15,24 @@ enum ShipmentStatus: string
     case DELAYED = 'delayed';
     case CANCELLED = 'cancelled';
 
+    /**
+     * Phase 8 (P8-2 / F8-9): the enum no longer owns a competing DAG — it
+     * projects the single authoritative Shipment::allowedTransitions() map.
+     * Unknown values yield no transitions (fail-closed).
+     */
     public function allowedTransitions(): array
     {
-        return match ($this) {
-            self::PENDING => [self::LABEL_CREATED, self::CANCELLED],
-            self::LABEL_CREATED => [self::PICKED_UP, self::CANCELLED],
-            self::PICKED_UP => [self::IN_TRANSIT, self::CANCELLED],
-            self::IN_TRANSIT => [self::OUT_FOR_DELIVERY, self::DELAYED],
-            self::OUT_FOR_DELIVERY => [self::DELIVERED, self::FAILED_DELIVERY],
-            self::DELIVERED => [],
-            self::FAILED_DELIVERY => [self::OUT_FOR_DELIVERY, self::RETURNED],
-            self::RETURNED => [],
-            self::DELAYED => [self::IN_TRANSIT, self::OUT_FOR_DELIVERY],
-            self::CANCELLED => [],
-        };
+        $targets = \App\Models\Shipment::allowedTransitions($this->value);
+
+        $mapped = [];
+        foreach ($targets as $target) {
+            $case = self::tryFrom($target);
+            if ($case !== null) {
+                $mapped[] = $case;
+            }
+        }
+
+        return $mapped;
     }
 
     public function canTransitionTo(self $target): bool

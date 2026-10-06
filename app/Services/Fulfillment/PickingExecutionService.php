@@ -4,7 +4,9 @@ namespace App\Services\Fulfillment;
 
 use App\Exceptions\PickingValidationException;
 use App\Models\Fulfillment\FulfillmentItem;
+use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\PickingTask;
+use App\Models\Fulfillment\ProductLocation;
 use App\Services\Warehouse\BarcodeResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +25,7 @@ class PickingExecutionService
 {
     public function __construct(
         private BarcodeResolver $barcodes,
+        private ProductLocationService $placements,
     ) {}
 
     /**
@@ -30,10 +33,23 @@ class PickingExecutionService
      *
      * @throws \RuntimeException (409 semantics) when already claimed by another worker.
      */
-    public function claim(PickingTask $task, int $userId, int $leaseMinutes = 15, bool $override = false): PickingTask
+    public function claim(PickingTask $task, int $userId, ?int $leaseMinutes = null, bool $override = false): PickingTask
     {
+        $leaseMinutes = max(1, (int) ($leaseMinutes ?? config('fulfillment.claim_lease_minutes', 15)));
+
         return DB::transaction(function () use ($task, $userId, $leaseMinutes, $override) {
             $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
+
+            // P4-8: override may bypass another worker's active claim, but it
+            // must never reopen a terminal task. Claiming applies to open
+            // tasks only — this guard covers the override path AND the
+            // same-worker re-claim below (refreshing a lease on completed
+            // work is not a valid operation).
+            if (in_array($locked->status, ['picked', 'skipped', 'cancelled'], true)) {
+                throw new \RuntimeException(
+                    "Picking task #{$locked->id} is terminal (status: {$locked->status}): claim refused"
+                );
+            }
 
             if ($locked->claimed_by !== null && (int) $locked->claimed_by === $userId) {
                 // Same worker re-claims: refresh the lease (idempotent).
@@ -136,6 +152,12 @@ class PickingExecutionService
             $product = $this->barcodes->resolve((string) ($scan['product'] ?? ''));
             $this->assertScannedProduct($locked, $item, $product, $scan, $userId);
 
+            // P4-7: execution-time placement revalidation. The location may
+            // have been deactivated (or the placement drifted) after task
+            // creation — reject through the standard channel; the operator
+            // reallocates via reallocateTask. Nothing is mutated here.
+            $this->assertPlacementStillValid($locked, $item, $scan, $userId);
+
             // Validate HOW MUCH.
             $quantity = (float) ($scan['quantity'] ?? 0);
             $remaining = (float) $locked->quantity_to_pick - (float) $locked->quantity_picked;
@@ -173,26 +195,175 @@ class PickingExecutionService
     }
 
     /**
-     * Release claims whose lease expired (sweeper calls this; P12 schedules it).
+     * Relocate a task to another placement hint in the SAME warehouse
+     * (§32: location deactivated mid-pick → recommend another, never fail
+     * the fulfillment, never cross warehouses).
+     *
+     * @throws \RuntimeException on terminal task, wrong product, cross-warehouse,
+     *   inactive / non-placeable target, or placement/location warehouse drift.
      */
-    public function sweepExpiredClaims(int $limit = 100): int
+    public function reallocateTask(PickingTask $task, int $newProductLocationId): PickingTask
     {
-        $expired = PickingTask::where('status', 'assigned')
+        return DB::transaction(function () use ($task, $newProductLocationId) {
+            $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
+
+            if (in_array($locked->status, ['picked', 'skipped', 'cancelled'], true)) {
+                throw new \RuntimeException("Cannot reallocate task #{$locked->id} in status {$locked->status}");
+            }
+
+            $item = $locked->fulfillmentItem()->firstOrFail();
+            $fulfillment = $item->fulfillment()->firstOrFail();
+
+            $target = \App\Models\Fulfillment\ProductLocation::whereKey($newProductLocationId)->firstOrFail();
+            $location = $target->location()->firstOrFail();
+
+            if ((int) $target->product_id !== (int) $item->product_id) {
+                throw new \RuntimeException('Reallocation target holds a different product');
+            }
+            if ((int) $target->warehouse_id !== (int) $fulfillment->warehouse_id) {
+                throw new \RuntimeException('Reallocation must stay in the same warehouse');
+            }
+            // Mirror scopePlaceable: active + (null or placeable type).
+            $placeable = $location->status === \App\Models\Fulfillment\Location::STATUS_ACTIVE
+                && ($location->type === null || in_array($location->type, \App\Models\Fulfillment\Location::PLACEABLE_TYPES, true));
+            if (!$placeable) {
+                throw new \RuntimeException("Target location #{$location->id} is not active/placeable");
+            }
+            if ((int) $target->warehouse_id !== (int) $location->warehouse_id) {
+                throw new \RuntimeException('Product placement warehouse does not match its location warehouse');
+            }
+
+            $locked->update(['product_location_id' => $target->id]);
+
+            Log::info('Picking task reallocated', [
+                'task_id' => $locked->id,
+                'from_product_location' => $task->product_location_id,
+                'to_product_location' => $target->id,
+            ]);
+
+            return $locked->fresh();
+        });
+    }
+
+    /**
+     * Release claims whose lease expired (sweeper calls this; P12 schedules it).
+     * Covers both `assigned` and `picking`: confirm() keeps the lease while
+     * work is in progress, so an expired lease must recycle either way
+     * (picked progress is preserved for resume).
+     *
+     * P4-5: the select-then-release is split across transactions, so a task
+     * can complete (or its claim refresh) between selection and release.
+     * The final release decision therefore happens under row lock inside
+     * releaseIfStillExpired(): stale selections release nothing and are not
+     * counted. Never regresses picked/skipped/cancelled, never clears a
+     * refreshed lease or another worker's newer claim.
+     */
+    public function sweepExpiredClaims(?int $limit = null): int
+    {
+        $limit = max(1, (int) ($limit ?? config('fulfillment.sweep_limit', 100)));
+        $expired = PickingTask::whereIn('status', ['assigned', 'picking'])
             ->whereNotNull('claim_expires_at')
             ->where('claim_expires_at', '<', now())
+            ->orderBy('claim_expires_at')
             ->limit($limit)
-            ->pluck('id');
+            ->get(['id', 'claimed_by', 'claim_expires_at']);
 
         $count = 0;
-        foreach ($expired as $id) {
-            $task = PickingTask::find($id);
-            if ($task) {
-                $this->releaseClaim($task, (int) $task->claimed_by, true);
+        foreach ($expired as $snapshot) {
+            if ($this->releaseIfStillExpired($snapshot)) {
                 $count++;
             }
         }
 
         return $count;
+    }
+
+    /**
+     * P4-5: release one selected task only if, under row lock, it is still
+     * in an open claimable state AND its lease is still expired AND the
+     * claim identity (owner + expiry) is unchanged since selection.
+     * Otherwise do nothing and report false (not counted).
+     */
+    private function releaseIfStillExpired(PickingTask $snapshot): bool
+    {
+        return DB::transaction(function () use ($snapshot) {
+            $locked = PickingTask::whereKey($snapshot->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return false;
+            }
+            if (!in_array($locked->status, ['assigned', 'picking'], true)) {
+                return false;
+            }
+            if ($locked->claim_expires_at === null || !now()->greaterThan($locked->claim_expires_at)) {
+                return false;
+            }
+            if ((string) $locked->claimed_by !== (string) $snapshot->claimed_by) {
+                return false;
+            }
+            if ((string) $locked->claim_expires_at !== (string) $snapshot->claim_expires_at) {
+                return false;
+            }
+
+            $locked->update([
+                'status' => 'pending',
+                'claimed_by' => null,
+                'claimed_at' => null,
+                'claim_expires_at' => null,
+            ]);
+
+            return true;
+        });
+    }
+
+    /**
+     * P4-7: revalidate the task's pinned placement at execution time —
+     * product match, location activeness/placeability, warehouse agreement
+     * (fulfillment-pinned warehouse, never a fresh default), and
+     * placement/location consistency via the existing domain helper.
+     * Rejects through the standard validation channel (no mutation).
+     */
+    private function assertPlacementStillValid(PickingTask $task, FulfillmentItem $item, array $scan, int $userId): void
+    {
+        $placement = ProductLocation::whereKey($task->product_location_id)->first();
+        if ($placement === null) {
+            $this->reject($task, $scan, $userId, 'stale_placement', [
+                'product_location_id' => $task->product_location_id,
+            ]);
+        }
+        if ((int) $placement->product_id !== (int) $item->product_id) {
+            $this->reject($task, $scan, $userId, 'stale_placement', [
+                'expected_product_id' => $item->product_id,
+                'placement_product_id' => $placement->product_id,
+            ]);
+        }
+
+        $location = Location::whereKey($placement->location_id)->first();
+        // Mirror scopePlaceable: active + (null or placeable type).
+        $placeable = $location !== null
+            && $location->status === Location::STATUS_ACTIVE
+            && ($location->type === null || in_array($location->type, Location::PLACEABLE_TYPES, true));
+        if (!$placeable) {
+            $this->reject($task, $scan, $userId, 'stale_placement', [
+                'location_id' => $placement->location_id,
+                'location_status' => $location?->status,
+            ]);
+        }
+
+        $fulfillment = $item->fulfillment()->firstOrFail();
+        if ((int) $placement->warehouse_id !== (int) $fulfillment->warehouse_id) {
+            $this->reject($task, $scan, $userId, 'stale_placement', [
+                'placement_warehouse_id' => $placement->warehouse_id,
+                'fulfillment_warehouse_id' => $fulfillment->warehouse_id,
+            ]);
+        }
+
+        try {
+            $this->placements->assertConsistent($placement);
+        } catch (\RuntimeException $e) {
+            $this->reject($task, $scan, $userId, 'stale_placement', [
+                'detail' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function locationIdOf(PickingTask $task): int

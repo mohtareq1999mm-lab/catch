@@ -204,6 +204,8 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
     public function test_checkout_reserves_inventory_without_deducting_stock(): void
     {
+        // Phase 3 addendum: COD checkout COMMITS (deducts + records the sale).
+        // The name is kept for traceability; the contract is commit-at-checkout.
         $this->auth();
         $this->addItemToCart(2);
 
@@ -213,12 +215,12 @@ class CheckoutPendingOrderRedesignTest extends TestCase
         $this->checkout();
 
         $product = $this->product->refresh();
-        $this->assertEquals($stockBefore, $product->stock_quantity, 'Stock must NOT be deducted at checkout');
-        $this->assertEquals($soldBefore, $product->sold_quantity, 'Sold quantity must NOT change at checkout');
-        $this->assertEquals(2, $product->reserved_quantity, 'Checkout must reserve inventory for the ORDER');
+        $this->assertEquals($stockBefore - 2, $product->stock_quantity, 'Stock IS deducted at COD checkout');
+        $this->assertEquals($soldBefore + 2, $product->sold_quantity, 'Sold quantity IS recorded at COD checkout');
+        $this->assertEquals(0, $product->reserved_quantity, 'Nothing held after commit');
 
         $order = Order::where('user_id', $this->user->id)->first();
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state);
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
         $this->assertNotNull($order->inventory_reserved_at);
         $this->assertNotNull($order->reservation_expires_at);
     }
@@ -283,14 +285,17 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
         $this->checkout();
 
-        // RULE 4-5: Should reuse the pending order, NOT create a duplicate
+        // RULE 4-5 (Phase 3 addendum): the committed COD pending cannot be
+        // re-reserved, so it is SUPERSEDED (canonical cancel + fresh order),
+        // never reused and never duplicated as a second live pending.
         $orders = Order::where('user_id', $this->user->id)->where('status', 'pending')->get();
-        $this->assertCount(1, $orders, 'Refilled cart must REUSE the pending order (Rule 4-5)');
+        $this->assertCount(1, $orders, 'Exactly one live pending order after refill checkout');
+        $this->assertNotEquals($firstOrderId, $orders->first()->id, 'Committed pending superseded by fresh order');
+        $this->assertEquals('cancelled', Order::find($firstOrderId)->status);
 
-        // The reused order should be updated with new quantity
-        $reusedOrder = $orders->first();
-        $this->assertEquals($firstOrderId, $reusedOrder->id, 'Must reuse the same order ID');
-        $this->assertEquals(3, $reusedOrder->orderItems()->sum('product_quantity'), 'Order items synced with new cart');
+        // The replacement carries the new cart content.
+        $replacement = $orders->first();
+        $this->assertEquals(3, $replacement->orderItems()->sum('product_quantity'), 'New order carries new cart');
     }
 
     public function test_cart_is_reusable_with_same_row_after_checkout(): void
@@ -302,8 +307,10 @@ class CheckoutPendingOrderRedesignTest extends TestCase
         $this->checkout();
 
         // Add again → SAME cart id, brand-new item row.
+        // Phase 3 addendum: the pending COD order committed at checkout
+        // (reserved 0, sold 1) — cart operations still add no reservations.
         $reservedFromPendingOrder = $this->product->refresh()->reserved_quantity;
-        $this->assertEquals(1, $reservedFromPendingOrder, 'Pending order holds its own reservation');
+        $this->assertEquals(0, $reservedFromPendingOrder, 'Committed order holds nothing');
 
         $cartAfter = app(CartInventoryService::class)->incrementItem(
             Cart::findOrFail($cartId), $this->product->fresh(), null, 1
@@ -479,8 +486,11 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);
-        $this->assertEquals(Order::INVENTORY_STATE_RELEASED, $order->inventory_state);
-        $this->assertEquals(0, $this->product->refresh()->reserved_quantity, 'Exact reservation released');
+        // Phase 3 addendum: expiry of a committed COD RESTORES the deduction
+        // (stock back, sale reversed) instead of releasing a reservation.
+        $this->assertEquals(Order::INVENTORY_STATE_RESTORED, $order->inventory_state);
+        $this->assertEquals(0, $this->product->refresh()->reserved_quantity, 'Nothing held');
+        $this->assertEquals(0, $this->product->refresh()->sold_quantity, 'Committed sale reversed');
 
         // Cart is NEVER touched by the reaper (already empty from checkout).
         $this->assertEquals(0, \Marvel\Database\Models\CartItem::where('cart_id', $cartId)->count());
@@ -497,7 +507,8 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
         $order = Order::where('user_id', $this->user->id)->first();
         $this->assertEquals('pending', $order->status);
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->refresh()->inventory_state);
+        // Phase 3 addendum: unexpired COD stays pending AND committed.
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->refresh()->inventory_state);
     }
 
     // =========================================================================

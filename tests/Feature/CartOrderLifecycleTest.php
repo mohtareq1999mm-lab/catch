@@ -158,6 +158,8 @@ class CartOrderLifecycleTest extends TestCase
             $permView2 = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'view-order', 'guard_name' => 'api']);
             $this->admin->givePermissionTo([$permView, $permView2]);
         }
+        // Production parity: general holders inherit granular targets.
+        (new \Database\Seeders\OrderStatusPermissionSeeder)->run();
         // Clear permission cache after role/permission setup
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -668,10 +670,12 @@ class CartOrderLifecycleTest extends TestCase
         $this->assertEquals('pay_at_cashier', $order->payment_method);
         $this->assertDatabaseHas('carts', ['id' => $cart->id]);
         $this->assertEquals(0, CartItem::where('cart_id', $cart->id)->count());
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state);
+        // Phase 3 addendum: cashier commits inventory AT CREATION.
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
         $this->product->refresh();
-        $this->assertEquals(2, $this->product->reserved_quantity, 'Inventory reserved');
-        $this->assertEquals($productBefore, $this->product->stock_quantity, 'Stock not deducted yet');
+        $this->assertEquals(0, $this->product->reserved_quantity, 'Nothing held after commit');
+        $this->assertEquals($productBefore - 2, $this->product->stock_quantity, 'Stock deducted at creation');
+        $this->assertEquals(2, $this->product->sold_quantity, 'Sold recorded at creation');
         $this->assertDatabaseHas('transactions', ['order_id' => $order->id, 'payment_method' => 'pay_at_cashier', 'status' => 'pending']);
     }
 
@@ -724,8 +728,9 @@ class CartOrderLifecycleTest extends TestCase
         $order->refresh();
         $this->assertEquals('processing', $order->status);
         $this->assertEquals(0, CartItem::where('cart_id', $cartId)->count(), 'Cart items remain 0 after admin transition');
-        // Inventory should still be reserved (not committed until completed)
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state);
+        // Inventory was committed at creation (not at completion); the
+        // processing transition changes no counters.
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
 
         // Now complete
         $resp2 = $this->patchJson('/api/v1/orders/'.$order->id.'/status', ['status' => 'completed']);
@@ -765,23 +770,25 @@ class CartOrderLifecycleTest extends TestCase
 
         $order = Order::where('user_id', $this->user->id)->latest()->first();
         $cartId = Cart::where('user_id', $this->user->id)->value('id');
-        $initialReserved = $this->product->fresh()->reserved_quantity;
-        $this->assertEquals(1, $initialReserved);
+        // Phase 3 addendum: committed at creation — reserved is 0, sold is 1.
+        $this->assertEquals(0, $this->product->fresh()->reserved_quantity);
+        $this->assertEquals(1, $this->product->fresh()->sold_quantity);
 
         // 23:59:59 -> still pending
         Carbon::setTestNow(Carbon::parse($order->reservation_expires_at)->subSecond());
         $this->runReaper();
         $order->refresh();
         $this->assertEquals('pending', $order->status, 'Cashier must remain pending before 24h');
-        $this->assertEquals(1, $this->product->fresh()->reserved_quantity);
+        $this->assertEquals(0, $this->product->fresh()->reserved_quantity);
 
-        // 24h+ -> cancelled, released
+        // 24h+ -> cancelled, committed stock RESTORED (not released)
         Carbon::setTestNow(Carbon::parse($order->reservation_expires_at)->addSecond());
         $this->runReaper();
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);
-        $this->assertEquals(Order::INVENTORY_STATE_RELEASED, $order->inventory_state);
-        $this->assertEquals(0, $this->product->fresh()->reserved_quantity, 'Inventory released');
+        $this->assertEquals(Order::INVENTORY_STATE_RESTORED, $order->inventory_state);
+        $this->assertEquals(0, $this->product->fresh()->reserved_quantity, 'Nothing held');
+        $this->assertEquals(0, $this->product->fresh()->sold_quantity, 'Committed sale reversed');
         $this->assertEquals(0, CouponReservation::where('order_id', $order->id)->count(), 'Coupon reservation released');
         $this->assertDatabaseHas('carts', ['id' => $cartId]);
         $this->assertEquals(0, CartItem::where('cart_id', $cartId)->count());
@@ -826,7 +833,8 @@ class CartOrderLifecycleTest extends TestCase
         $this->assertEquals('cod', $order->payment_method);
         $this->assertEquals(0, CartItem::where('cart_id', $cart->id)->count());
         $this->assertDatabaseHas('carts', ['id' => $cart->id]);
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state);
+        // Phase 3 addendum: COD commits inventory AT CREATION.
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
     }
 
     // =================================================================
@@ -845,8 +853,9 @@ class CartOrderLifecycleTest extends TestCase
         $this->runReaper();
         $order->refresh();
         $this->assertEquals('pending', $order->status, 'COD must NOT expire after 24h');
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state, 'Reservation must remain');
-        $this->assertEquals(1, $this->product->fresh()->reserved_quantity);
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state, 'Committed stock stays secured');
+        $this->assertEquals(0, $this->product->fresh()->reserved_quantity);
+        $this->assertEquals(1, $this->product->fresh()->sold_quantity);
         $this->assertEquals(0, CartItem::where('cart_id', $cartId)->count());
 
         Carbon::setTestNow();
@@ -901,8 +910,11 @@ class CartOrderLifecycleTest extends TestCase
         $this->runReaper();
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);
-        $this->assertEquals(Order::INVENTORY_STATE_RELEASED, $order->inventory_state);
+        // Phase 3 addendum: expiry of a committed COD RESTORES (stock back,
+        // sale reversed) instead of releasing a reservation.
+        $this->assertEquals(Order::INVENTORY_STATE_RESTORED, $order->inventory_state);
         $this->assertEquals(0, $this->product->fresh()->reserved_quantity);
+        $this->assertEquals(0, $this->product->fresh()->sold_quantity, 'Committed sale reversed by expiry');
         $this->assertEquals(0, CouponReservation::where('order_id', $order->id)->count());
         $this->assertDatabaseHas('carts', ['id' => $cartId]);
         $this->assertEquals(0, CartItem::where('cart_id', $cartId)->count());
@@ -925,6 +937,10 @@ class CartOrderLifecycleTest extends TestCase
             'price' => 100,
             'total_price' => 100,
             'status' => 'pending']);
+
+        // Single-source-of-truth: every order carries its assigned flow,
+        // mirroring production creation (OrderCreationService).
+        app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order->refresh(), 'local');
 
         // authentication required — no user acting
         // Ensure no authenticated user lingering
@@ -1056,7 +1072,9 @@ class CartOrderLifecycleTest extends TestCase
         $this->assertEquals($invoiceCountBefore, \App\Models\Invoice::where('order_id', $order2->id)->count(), 'No duplicate invoice on same-status');
         $this->assertEquals($couponUsedBefore, $coupon->fresh()->used, 'Coupon not consumed again');
         $this->assertEquals($reservedBefore, $this->product2->fresh()->reserved_quantity, 'Inventory not committed again');
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order2->fresh()->inventory_state);
+        // Phase 3 addendum: COD creation already committed; same-status
+        // re-set changes nothing.
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order2->fresh()->inventory_state);
     }
 
     // =================================================================
@@ -1072,8 +1090,12 @@ class CartOrderLifecycleTest extends TestCase
         $this->checkout($this->user, $this->baseCheckoutPayload(['payment_method' => 'cod']))->assertStatus(200);
 
         $product->refresh();
-        $this->assertEquals(3, $product->reserved_quantity, 'Reservation happens once');
-        $this->assertEquals(10, $product->stock_quantity);
+        // Phase 3 addendum: creation commits exactly once — stock deducted,
+        // nothing held, sale recorded.
+        $this->assertEquals(0, $product->reserved_quantity, 'Nothing held after commit');
+        $this->assertEquals(7, $product->stock_quantity, 'Stock deducted once at creation');
+        $this->assertEquals(3, $product->sold_quantity, 'Sale recorded once at creation');
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, Order::where('user_id', $this->user->id)->latest()->first()->inventory_state);
     }
 
     // =================================================================
@@ -1088,7 +1110,8 @@ class CartOrderLifecycleTest extends TestCase
         $this->createCartWithItems($this->user, [['product' => $product, 'quantity' => 2]]);
         $this->checkout($this->user, $this->baseCheckoutPayload(['payment_method' => 'cod']))->assertStatus(200);
         $reservedAfterFirst = $product->fresh()->reserved_quantity;
-        $this->assertEquals(2, $reservedAfterFirst);
+        $this->assertEquals(0, $reservedAfterFirst);
+        $this->assertEquals(2, $product->fresh()->sold_quantity);
 
         // Second checkout with empty cart should fail, not duplicate reservation
         $resp2 = $this->checkout($this->user, $this->baseCheckoutPayload(['payment_method' => 'cod']));
@@ -1096,7 +1119,8 @@ class CartOrderLifecycleTest extends TestCase
         $this->assertContains($resp2->status(), [400, 422]);
 
         $product->refresh();
-        $this->assertEquals(2, $product->reserved_quantity, 'No duplicate reservation');
+        $this->assertEquals(0, $product->reserved_quantity, 'No duplicate reservation');
+        $this->assertEquals(2, $product->sold_quantity, 'No duplicate commit');
         $this->assertEquals(1, Order::where('user_id', $this->user->id)->count(), 'No duplicate order');
     }
 
@@ -1141,16 +1165,17 @@ class CartOrderLifecycleTest extends TestCase
         $this->createCartWithItems($this->user, [['product' => $product, 'quantity' => 3]]);
         $this->checkout($this->user, $this->baseCheckoutPayload(['payment_method' => 'cod']))->assertStatus(200);
         $order = Order::where('user_id', $this->user->id)->latest()->first();
-        $this->assertEquals(3, $product->fresh()->reserved_quantity);
+        $this->assertEquals(0, $product->fresh()->reserved_quantity, 'Committed at creation: nothing held');
 
         Carbon::setTestNow(Carbon::parse($order->reservation_expires_at)->addSecond());
         $this->runReaper();
         $this->runReaper(); // second run should be no-op
 
         $product->refresh();
-        $this->assertEquals(0, $product->reserved_quantity, 'Released exactly once');
-        $this->assertEquals(10, $product->stock_quantity, 'Stock not increased beyond original');
-        $this->assertEquals(Order::INVENTORY_STATE_RELEASED, $order->fresh()->inventory_state);
+        $this->assertEquals(0, $product->reserved_quantity, 'Nothing held');
+        $this->assertEquals(0, $product->sold_quantity, 'Committed sale restored exactly once');
+        $this->assertEquals(10, $product->stock_quantity, 'Stock restored to original');
+        $this->assertEquals(Order::INVENTORY_STATE_RESTORED, $order->fresh()->inventory_state);
 
         // Run again, still same
         $this->runReaper();
@@ -1359,10 +1384,13 @@ class CartOrderLifecycleTest extends TestCase
         $cart2 = Cart::where('user_id', $this->user->id)->first();
         $cart2->update(['coupon' => $couponB->code]);
 
-        // Next checkout should reuse same order, release A, reserve B
+        // Next checkout supersedes the committed pending (canonical cancel +
+        // fresh order): coupon A released with the old order, B reserved on
+        // the new one — never orphaned, never shared.
         $this->checkout($this->user, $this->baseCheckoutPayload(['payment_method' => 'cod']))->assertStatus(200);
         $order2 = Order::where('user_id', $this->user->id)->latest()->first();
-        $this->assertEquals($firstOrderId, $order2->id, 'Same order reused');
+        $this->assertNotEquals($firstOrderId, $order2->id, 'Committed pending is superseded, not reused');
+        $this->assertEquals('cancelled', Order::find($firstOrderId)->status);
 
         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order2->id, 'coupon_id' => $couponA->id]);
         $this->assertDatabaseHas('coupon_reservations', ['order_id' => $order2->id, 'coupon_id' => $couponB->id]);
@@ -1462,12 +1490,13 @@ class CartOrderLifecycleTest extends TestCase
         $firstCount = Order::where('user_id', $this->user->id)->where('status','pending')->count();
         $this->assertEquals(1, $firstCount);
 
-        // Simulate second concurrent checkout: refill cart then checkout again quickly
-        // Should reuse same pending order, not create second
+        // Simulate second concurrent checkout: refill cart then checkout again quickly.
+        // The committed pending cannot be re-reserved, so it is superseded
+        // (cancelled) and replaced — never two live pending orders.
         $this->createCartWithItems($this->user, [['product' => $this->product2, 'quantity' => 1]]);
         $this->checkout($this->user, $this->baseCheckoutPayload(['payment_method' => 'cod']))->assertStatus(200);
-        $secondCount = Order::where('user_id', $this->user->id)->count();
-        $this->assertEquals(1, $secondCount, 'Concurrent checkouts must not create duplicate pending orders');
+        $this->assertEquals(1, Order::where('user_id', $this->user->id)->where('status','pending')->count(), 'Never two live pending orders');
+        $this->assertEquals(2, Order::where('user_id', $this->user->id)->count(), 'Superseded order retained as cancelled');
 
         // Also verify atomic locking: trying to create 2 orders concurrently via service would lock
         DB::transaction(function () {
@@ -1617,7 +1646,9 @@ class CartOrderLifecycleTest extends TestCase
         $this->runReaper();
         $order->refresh();
         $this->assertEquals('processing', $order->status, 'Reaper must not cancel non-pending');
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $order->inventory_state);
+        // Phase 3 addendum: cashier committed at creation; processing
+        // changes no counters.
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
 
         // Opposite: expire first, then admin try to process cancelled -> should fail
         // Create a fresh pending cashier order directly to avoid checkout reuse complexities

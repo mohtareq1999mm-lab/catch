@@ -284,7 +284,7 @@ class OrderStatusFlowTest extends TestCase
         $resp->assertOk();
         $codes = collect($resp->json('data.statuses'))->pluck('code')->all();
         $this->assertSame(
-            ['pending', 'processing', 'packed', 'shipped', 'in_transit', 'arrived_at_destination_country',
+            ['pending', 'processing', 'packed', 'export_processing', 'shipped', 'in_transit', 'arrived_at_destination_country',
                 'customs_clearance', 'customs_cleared', 'local_carrier', 'out_for_delivery', 'delivered'],
             $codes
         );
@@ -384,13 +384,14 @@ class OrderStatusFlowTest extends TestCase
         $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => 'international']))->assertStatus(200);
         $first = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
-        // Retry with the SAME shipping type reuses the pending order; the
-        // flow assignment remains stable.
+        // Retry with the SAME shipping type supersedes the committed pending
+        // (cancel + fresh); the flow assignment remains stable on the new order.
         $this->freshCartWithProduct($this->user);
         $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => 'international']))->assertStatus(200);
         $second = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
-        $this->assertSame($first->id, $second->id);
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertSame('cancelled', $first->fresh()->status);
         $this->assertSame('international', $second->fresh()->shipping_type);
         $this->assertSame($first->flow_id, $second->fresh()->flow_id);
     }

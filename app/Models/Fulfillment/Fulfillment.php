@@ -29,6 +29,8 @@ class Fulfillment extends Model
         'shipped_at',
         'delivered_at',
         'cancelled_at',
+        'cancelled_by',
+        'cancel_source',
         'notes',
         'metadata',
     ];
@@ -45,6 +47,18 @@ class Fulfillment extends Model
         'metadata' => 'array',
     ];
 
+    protected static function booted(): void
+    {
+        // Write-once warehouse snapshot: history must survive renames.
+        static::updating(function (Fulfillment $fulfillment) {
+            foreach (['warehouse_code', 'warehouse_name'] as $snapshot) {
+                if ($fulfillment->isDirty($snapshot) && $fulfillment->getOriginal($snapshot) !== null) {
+                    $fulfillment->{$snapshot} = $fulfillment->getOriginal($snapshot);
+                }
+            }
+        });
+    }
+
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
@@ -58,6 +72,15 @@ class Fulfillment extends Model
     public function assignedUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    /**
+     * Phase 7 (D7-2): actor that cancelled the fulfillment. Nullable by
+     * design — internal/system cancellations carry no user; never fabricate.
+     */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function items(): HasMany

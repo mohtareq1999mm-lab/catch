@@ -51,6 +51,25 @@ class Location extends Model
         'metadata' => 'array',
     ];
 
+    protected static function booted(): void
+    {
+        // D-LOC-MOVE (Phase 2): a Location belongs permanently to exactly one
+        // Warehouse — warehouse_id is immutable after creation, for EVERY
+        // location (empty or placed, active or inactive). Model-level guard so
+        // no present or future caller can silently re-home a location through
+        // the Eloquent persistence path. Creation is unaffected (updating
+        // fires only on existing rows); normal updates of other fields pass.
+        static::updating(function (Location $location) {
+            if ($location->isDirty('warehouse_id')) {
+                throw new \RuntimeException(
+                    "Location #{$location->getKey()} warehouse_id is immutable: " .
+                    "location {$location->getOriginal('warehouse_id')} cannot move " .
+                    "to warehouse {$location->warehouse_id}"
+                );
+            }
+        });
+    }
+
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);

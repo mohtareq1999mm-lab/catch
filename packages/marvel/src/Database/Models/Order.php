@@ -172,6 +172,43 @@ class Order extends Model
             $builder->orderBy('created_at', 'desc');
         });
 
+        // P2 creation backstop (C2/D2): every new order row carries its
+        // assigned flow, no matter which creation path (checkout service,
+        // Marvel repository, seeder, fixture, future code) wrote it. The
+        // authority stays OrderFlowService — this hook only delegates to
+        // its resolution. Paths that already set flow_id (explicit flow,
+        // repository-merged columns) are untouched; the creating `status`
+        // is never overwritten, only mirrored. Fail-closed: without an
+        // active flow for the requested shipping type, creation aborts
+        // instead of persisting a flow-less row. Pre-flow-migration
+        // databases (no flow columns/tables) keep legacy behavior.
+        static::creating(function (self $order) {
+            if ($order->flow_id) {
+                return;
+            }
+
+            if (!\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+                return;
+            }
+
+            $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+            $flow = $flowService->resolveFlowForShippingType($order->shipping_type);
+
+            $statusId = $flowService->statusIdForCode($order->status ?: 'pending');
+
+            if ($statusId === null) {
+                throw new \RuntimeException(
+                    __('checkout.flow_statuses_unknown')
+                );
+            }
+
+            $order->forceFill([
+                'shipping_type' => $flow->shipping_type,
+                'flow_id' => $flow->id,
+                'current_status_id' => $statusId,
+            ]);
+        });
+
         static::created(function (self $order) {
             if (empty($order->order_number)) {
                 $order->order_number = 'ORD-' . str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);

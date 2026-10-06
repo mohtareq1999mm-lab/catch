@@ -5,6 +5,7 @@ namespace Marvel\Database\Repositories;
 use App\Services\General\CartInventoryService;
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
@@ -92,10 +93,30 @@ $affected = $cart->items()
             ->first();
             
             if (!$cart) {
-                $cart = Cart::create([
-                    'user_id' => $userId,
-                    'status' => 'active',
-                ]);
+                // F-04: the one-cart-per-user invariant is backed by
+                // UNIQUE(carts.user_id). Two app instances racing first-cart
+                // creation can both pass the SELECT above; the loser hits a
+                // duplicate-key error here and must resolve the winner's row
+                // instead of surfacing a generic 500/400.
+                try {
+                    $cart = Cart::create([
+                        'user_id' => $userId,
+                        'status' => 'active',
+                    ]);
+                } catch (QueryException $e) {
+                    if (!self::isDuplicateKeyError($e)) {
+                        throw $e;
+                    }
+
+                    $cart = Cart::query()
+                        ->where('user_id', $userId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$cart) {
+                        throw $e;
+                    }
+                }
             }
             
             $cart->update(['status' => 'active']);
@@ -120,6 +141,19 @@ $affected = $cart->items()
             DB::rollBack();
             throw new HttpException(400, $e->getMessage());
         }
+    }
+
+    /**
+     * F-04: true only for unique-constraint violations (MySQL 1062 /
+     * SQLSTATE 23000). Any other database error must keep propagating.
+     */
+    private static function isDuplicateKeyError(QueryException $e): bool
+    {
+        $errorInfo = $e->errorInfo ?? [];
+
+        return ($errorInfo[1] ?? null) === 1062
+            || $e->getCode() === '23000'
+            || (string) $e->getCode() === '1062';
     }
 
     private function syncItems(Cart $cart, array $item, string $mode): bool

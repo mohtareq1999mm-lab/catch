@@ -33,7 +33,7 @@ class BatchPickingServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->service = new BatchPickingService(new FulfillmentTransition());
+        $this->service = new BatchPickingService(new FulfillmentTransition(), new \App\Services\Warehouse\WarehouseService());
 
         // Create test user
         $this->user = \App\Models\User::create([
@@ -225,8 +225,10 @@ class BatchPickingServiceTest extends TestCase
         $fulfillment = $this->createFulfillment($this->product1, 5);
         $batch = $this->service->createBatchFromFulfillments(collect([$fulfillment]));
         $task = $batch->pickingTasks->first();
+        // P4-6: recordPick requires an open (claimed) task + claimant.
+        $task->update(['status' => 'assigned', 'claimed_by' => $this->user->id]);
 
-        $task = $this->service->recordPick($task, 5);
+        $task = $this->service->recordPick($task, 5, null, $this->user->id);
 
         $this->assertEquals(5, $task->quantity_picked);
         $this->assertEquals('picked', $task->status);
@@ -242,8 +244,9 @@ class BatchPickingServiceTest extends TestCase
         $fulfillment = $this->createFulfillment($this->product1, 5);
         $batch = $this->service->createBatchFromFulfillments(collect([$fulfillment]));
         $task = $batch->pickingTasks->first();
+        $task->update(['status' => 'assigned', 'claimed_by' => $this->user->id]);
 
-        $this->service->recordPick($task, 5);
+        $this->service->recordPick($task, 5, null, $this->user->id);
 
         $batch->refresh();
         $this->assertEquals('completed', $batch->status);
@@ -257,11 +260,12 @@ class BatchPickingServiceTest extends TestCase
         $fulfillment = $this->createFulfillment($this->product1, 5);
         $batch = $this->service->createBatchFromFulfillments(collect([$fulfillment]));
         $task = $batch->pickingTasks->first();
+        $task->update(['status' => 'assigned', 'claimed_by' => $this->user->id]);
 
         $this->expectException(\Exception::class);
         $this->expectExceptionMessage('exceeds remaining quantity');
 
-        $this->service->recordPick($task, 10);
+        $this->service->recordPick($task, 10, null, $this->user->id);
     }
 
     /** @test */
@@ -319,9 +323,10 @@ class BatchPickingServiceTest extends TestCase
 
         $this->assertEquals(0, $batch->progressPercentage());
 
-        // Pick first task
+        // Pick first task (P4-6: recordPick requires an open claimed task).
         $task1 = $batch->pickingTasks->first();
-        $this->service->recordPick($task1, 5);
+        $task1->update(['status' => 'assigned', 'claimed_by' => $this->user->id]);
+        $this->service->recordPick($task1, 5, null, $this->user->id);
 
         $batch->refresh();
         $this->assertEquals(50.0, $batch->progressPercentage());

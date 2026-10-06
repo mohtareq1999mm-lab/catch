@@ -409,7 +409,7 @@ class UnifiedOrderStatusTest extends TestCase
         // Walk the international order to arrived_at_destination_country.
         $intl = $this->makeOrder('international');
         Sanctum::actingAs($this->admin);
-        foreach (['processing', 'packed', 'shipped', 'in_transit', 'arrived_at_destination_country'] as $step) {
+        foreach (['processing', 'packed', 'export_processing', 'shipped', 'in_transit', 'arrived_at_destination_country'] as $step) {
             $this->patchJson(self::URL, ['order_ids' => [$intl->id], 'status' => $step])->assertOk();
         }
 
@@ -456,7 +456,7 @@ class UnifiedOrderStatusTest extends TestCase
     {
         $intl = $this->makeOrder('international');
         Sanctum::actingAs($this->admin);
-        foreach (['processing', 'packed', 'shipped', 'in_transit', 'arrived_at_destination_country'] as $step) {
+        foreach (['processing', 'packed', 'export_processing', 'shipped', 'in_transit', 'arrived_at_destination_country'] as $step) {
             $this->patchJson(self::URL, ['order_ids' => [$intl->id], 'status' => $step])->assertOk();
         }
 
@@ -499,6 +499,68 @@ class UnifiedOrderStatusTest extends TestCase
         ])->assertOk();
         $this->assertTrue($resp->json('data.results.0.success'));
         $this->assertSame('customs_clearance', $intl->fresh()->status);
+    }
+
+    public function test_per_order_flow_values_partial_success(): void
+    {
+        $this->seedCustomsInput();
+        $a = $this->arrivedIntlOrder();
+        $b = $this->arrivedIntlOrder();
+
+        // Only A carries its own customs_reference; the common values stay
+        // empty. B must fail alone (missing required input) while A moves.
+        $resp = $this->batchAs($this->admin, [
+            'order_ids' => [$a->id, $b->id],
+            'status' => 'customs_clearance',
+            'flow_values_by_order' => [$a->id => ['customs_reference' => 'CUS-PER-ORDER-1']],
+        ])->assertOk();
+
+        $resp->assertJsonPath('data.summary', ['total' => 2, 'succeeded' => 1, 'failed' => 1]);
+
+        $byId = collect($resp->json('data.results'))->keyBy('order_id')->all();
+        $this->assertTrue($byId[$a->id]['success']);
+        $this->assertSame('customs_clearance', $a->fresh()->status);
+        $this->assertFalse($byId[$b->id]['success']);
+        $this->assertSame('missing_flow_input', $byId[$b->id]['error']['code']);
+        $this->assertSame('arrived_at_destination_country', $b->fresh()->status);
+    }
+
+    public function test_per_order_values_merge_over_common_values(): void
+    {
+        $this->seedCustomsInput();
+        $a = $this->arrivedIntlOrder();
+        $b = $this->arrivedIntlOrder();
+
+        // Common base is invalid for both; A's own value overrides it into
+        // validity while B keeps the failing common one.
+        $resp = $this->batchAs($this->admin, [
+            'order_ids' => [$a->id, $b->id],
+            'status' => 'customs_clearance',
+            'flow_values' => ['customs_reference' => 'ab'],
+            'flow_values_by_order' => [$a->id => ['customs_reference' => 'CUS-PER-ORDER-2']],
+        ])->assertOk();
+
+        $resp->assertJsonPath('data.summary', ['total' => 2, 'succeeded' => 1, 'failed' => 1]);
+
+        $byId = collect($resp->json('data.results'))->keyBy('order_id')->all();
+        $this->assertTrue($byId[$a->id]['success']);
+        $this->assertSame('customs_clearance', $a->fresh()->status);
+        $this->assertFalse($byId[$b->id]['success']);
+        $this->assertSame('invalid_flow_input', $byId[$b->id]['error']['code']);
+    }
+
+    public function test_per_order_values_reject_unknown_order(): void
+    {
+        $a = $this->makeOrder();
+
+        // Key names an order outside this batch: request-shape 422, nothing runs.
+        $this->batchAs($this->admin, [
+            'order_ids' => [$a->id],
+            'status' => 'processing',
+            'flow_values_by_order' => [$a->id + 999999 => ['customs_reference' => 'CUS-X']],
+        ])->assertStatus(422);
+
+        $this->assertSame('pending', $a->fresh()->status);
     }
 
     // -----------------------------------------------------------------

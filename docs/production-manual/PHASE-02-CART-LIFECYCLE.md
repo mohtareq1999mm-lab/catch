@@ -2,113 +2,83 @@
 
 ## Executive Summary
 
-The Cart is the temporary holding area for items a customer intends to purchase. It has a well-defined lifecycle: created empty, items added with inventory reservation, promotion/coupon applied, checked out (converted to order), then finalized or expired. This document traces every stage from creation to archive.
+The Cart is the customer's **current shopping selection** — a pure selection container. It is created on first add, holds item lines with price snapshots, survives checkout as a reusable row, and never owns inventory. Stock is validated and reserved **atomically at checkout against the Order** (`OrderReservationService`); the cart performs no reservation, no stock mutation, and no expiry. There is no cart reaper: nothing ever deletes cart items or releases stock based on time.
 
-**Source Files:** `CartInventoryService.php`, `Cart.php` (Marvel model), `CartItem.php` (Marvel model), `OrderService.php`
+> Historical note: before the redesign, the cart owned inventory reservations (`reserveItem`, 3-day TTL, `expireCarts`, terminal `checked_out`/`expired` statuses). That architecture is **retired**. All reservation/TTL/expiry language below refers to the current model unless a section is explicitly marked historical.
+
+**Source Files:** `app/Services/General/CartInventoryService.php`, `packages/marvel/src/Database/Models/Cart.php`, `packages/marvel/src/Database/Models/CartItem.php`, `packages/marvel/src/Database/Repositories/CartRepository.php`, `packages/marvel/src/Http/Controllers/CartController.php`, `app/Console/Commands/NotifyAbandonedCarts.php`
 
 ---
 
 ## 1. Cart Stages
 
 ```
-CREATED → ACTIVE (with items) → CHECKOUT_STARTED → PENDING_ORDER → FINALIZED / EXPIRED
-                                                                     ↓
-                                                              CHECKED_OUT (archived)
+CREATED (active, empty) → ITEMS ADDED (active) ⇄ CHECKOUT (slice read by Order)
+        → CHECKOUT DONE (row reused: slice removed, survivors kept)
+        → CLEARED BY USER (active, empty) → (reminder: abandoned-cart notice only)
 ```
 
 ### Stage 1: Cart Created
-- **Trigger:** Customer's first add-to-cart (no existing cart)
-- **How:** `CartItem` is created; if no cart exists, `Cart::create()` is called implicitly via the relationship
-- **Status:** `active`
-- **Can customer edit?** Yes
-- **Can remove items?** Yes
-- **Can add items?** Yes
-- **Can retry payment?** N/A
-- **Should reservation exist?** No (reservation created on item add)
-- **Should coupon stay?** N/A
-- **Should promotion stay?** N/A
-- **Should prices refresh?** No (refreshed at checkout)
-- **Should cart survive?** Yes
-- **Should new cart be created?** No
+- **Trigger:** Customer's first add-to-cart (no existing cart for the user)
+- **How:** `CartRepository::persistCart` — find own cart under `lockForUpdate`, create (`user_id`, `status=active`) if missing
+- **Invariant:** one cart per user, backed by `UNIQUE(carts.user_id)`; a duplicate-key race resolves to the winner's row instead of erroring
+- **Status:** `active` (the only status the application writes)
+- **Can customer edit?** Yes — add / change quantity / remove / clear
+- **Should reservation exist?** No — carts never reserve inventory
+- **Should coupon stay?** N/A (no lines yet)
+- **Should prices refresh?** No — prices are snapshotted at add time, refreshed authoritatively at checkout
+- **Should cart survive?** Yes — the row is never deleted by checkout or clearing
 
 ### Stage 2: Items Added (Active Cart)
-- **Trigger:** `reserveItem()` in CartInventoryService
-- **How:** `lockForUpdate()` on cart → find or create CartItem → `lockInventoryRow` (product/variant) → `reserveStock()` → set `reserved_quantity = quantity`
+- **Trigger:** `POST /cart` (add), `PUT /cart/update-item` (set/inc/dec), `POST /cart/bulk-items` (bulk merge)
+- **How:** `persistCart` (cart lock) → `syncItems` (product must be `active()`; FAST lines require FAST-eligible product; variable products require a variant) → `CartInventoryService::incrementItem/decrementItem` (cart lock → item lock → merge duplicates by product+variant+method → `upsertItem`: price snapshot, promotion marks reset, activity touched)
+- **Quantity bounds:** each line's *resulting* quantity must satisfy `1 <= qty <= cart.max_item_quantity` (default 100, `config/cart.php`, override `CART_MAX_ITEM_QUANTITY`); violations fail at the HTTP boundary (422) or the service choke point (400)
 - **Database writes:**
-  - `cart_items`: new row or updated (price, total_price, reserved_quantity, quantity)
-  - `cart`: `status=active`, `reserved_at=now()`, `expires_at=now()+3days`
-  - `products` or `product_variants`: `reserved_quantity += delta`, `in_stock` recalculated
-- **Can customer edit?** Yes (add/remove/change quantity)
-- **Can remove items?** Yes (via `releaseItem()` — releases stock, optionally deletes item)
-- **Can add items?** Yes
-- **Can retry payment?** N/A
-- **Coupon?** Can be applied/removed
-- **Promotion?** Can be changed
-- **Prices?** NOT refreshed until checkout (stale prices possible)
+  - `cart_items`: new row or updated (quantity, price snapshot, total_price; promotion preview columns cleared)
+  - `cart`: `status=active`, `total_price` re-summed, `reserved_at=now()`, `expires_at=now()+3days` (activity window — NOT a reservation TTL)
+  - `products` / `product_variants`: **never written** (no `reserved_quantity`, no stock counters)
+- **Coupon?** Can be applied/removed (coupon quota is NOT reserved at apply time)
+- **Promotion?** Marks are preview-only; any cart edit strips stale marks and revalidates
+- **Prices?** Snapshotted at add time; NOT live
 
 ### Stage 3: Coupon Applied
-- **Trigger:** `POST /coupons/apply`
+- **Trigger:** coupon apply endpoint (Phase 03)
 - **How:** Coupon validation → `cart->update(['coupon' => $code])`
 - **Database write:** `cart.coupon` set to coupon code
-- **Coupon reservation?** No — coupon quota is NOT reserved at apply time
-- **Can change?** Yes, new coupon replaces old one
+- **Coupon reservation?** No — quota consumed only via the order lifecycle
+- **Clearing:** removing the last line clears the coupon automatically; clearing a coupon-bearing cart requires explicit `confirm`
 
 ### Stage 4: Promotion Considered
 - **Trigger:** Frontend calls `eligiblePromotions`, user selects one
-- **How:** `PromotionService::applySelectedPromotion()` — applied to cart items (discount_amount, promotion_id) at checkout time
-- **Database writes:** `cart_items.promotion_id`, `cart_items.discount_amount`, `cart_items.total_price` recalculated
+- **How:** promotion preview marks (`promotion_id`, `discount_amount`) on cart lines
 - **Promotion reservation?** No — usage incremented only after payment
+- **Staleness:** any cart mutation strips stale marks (`upsertItem` reset + `revalidatePromotion`); totals recomputed at checkout
 
-### Stage 5: Checkout Started (ensureCartReservation)
-- **Trigger:** Customer clicks Checkout button
-- **How:** `ensureCartReservation()` — re-syncs all item quantities with inventory
-- **Database writes:** `cart_items.reserved_quantity` updated if needed; `product.reserved_quantity` adjusted
-- **Can customer edit?** No (checkout in progress)
-- **Stock guaranteed?** Yes (throws if insufficient)
+### Stage 5: Checkout Reads a Slice
+- **Trigger:** Customer checks out (Phase 01)
+- **How:** checkout reads the SCHEDULED or FAST slice via `getActiveCartForUser` (read-only) → **the Order validates stock and reserves atomically** via `OrderReservationService`
+- **Can customer edit?** Concurrent edits serialize on the cart lock; post-checkout adds land on the reused row cleanly
+- **Stock guaranteed?** By the order, not the cart — insufficient stock fails the checkout, never the cart
 
-### Stage 6: Pending Order Created
-- **Trigger:** `addItemsInOrder()` succeeds; order created in `pending` status
-- **How:** Order created, cart items copied to order_products
-- **Cart status:** Still `active` (not yet finalized)
-- **Cart items:** Still exist (not deleted)
-- **Can customer edit?** No (locked from UI)
-- **Can retry payment?** Not yet; depends on payment method
-- **Can cancel?** Not from cart — must go through order cancellation
+### Stage 6: Post-Checkout Slice Cleanup (Cart Survives)
+- **Trigger:** Order created for a slice
+- **How:** `clearCheckedOutSlice` (inside the checkout transaction): deletes the ordered shipping-method slice (+ legacy gift artifacts); if lines remain, re-totals and extends the activity window; if empty, resets totals/coupon and parks the activity window
+- **Cart status:** `active` in all cases — there is no `checked_out` terminal state
+- **Cart items:** only the ordered slice is deleted; surviving lines stay shoppable
+- **New cart?** Never — future adds reuse the same row
 
-### Stage 7: Payment Success — Cart Finalization
-- **Trigger:** Callback or markPaid
-- **How:** `finalizeItemsByShippingMethod()` or `deductStockForOrder()`
-- **finalizeItemsByShippingMethod:**
-  - `lockForUpdate()` on cart
-  - For SCHEDULED items: `finalizeStock()` (deducts reserved from physical, increases sold)
-  - For ALL OTHER items: `releaseStock()` instead
-  - Delete all cart items
-  - `cart.update(status='checked_out', expires_at=null, reserved_at=null, total_price=0)`
-- **Cart status:** `checked_out` (terminal)
-- **Can customer edit?** No
-- **Cart items:** All deleted
-- **Coupon?** Consumed (quota used)
-- **Promotion?** Usage incremented
-- **New cart?** Future add-to-cart creates a new cart
+### Stage 7: Customer Clears the Cart
+- **Trigger:** `DELETE /cart/delete-items` (or single line via `DELETE /cart/delete-item/{id}`)
+- **How:** `releaseCart` deletes lines (when requested), resets to `active`, clears coupon/totals; last-line removal clears the coupon
+- **Cart status:** `active` (not terminal — the row is reused)
+- **Inventory:** untouched (nothing was ever reserved)
+- **Coupon?** Removed when the cart becomes empty
 
-### Stage 8: Cart Expiration
-- **Trigger:** `expireCarts()` via scheduled command (if implemented)
-- **How:** Finds all active carts where `expires_at <= now()`:
-  - `lockForUpdate()` on cart
-  - Release all reserved stock
-  - Delete all items
-  - `cart.update(status='expired')`
-- **Cart status:** `expired` (terminal)
-- **Inventory:** Released back to available pool
-- **Coupon:** NOT consumed (was never reserved)
-- **Promotion:** NOT consumed
-
-### Stage 9: Cart Cancelled (via releaseCart)
-- **Trigger:** `CartInventoryService::releaseCart()`
-- **How:** Releases all reserved stock, optionally deletes items, resets cart to active with no expiration
-- **Cart status:** `active` (not terminal — cart can be reused)
-- **Inventory:** Released
-- **Coupon?** Removed from cart if items empty
+### Stage 8: Abandonment Reminder (Notification Only)
+- **Trigger:** `cart:notify-abandoned`, hourly (`withoutOverlapping` + `onOneServer`)
+- **Eligibility (all required):** `status=active` AND `reserved_at` older than 24h AND `expires_at` in the future AND `reminder_sent_at IS NULL` AND customer (`type=user`) account
+- **How:** per-cart atomic claim (`reminder_sent_at` NULL → timestamp in a single UPDATE; exactly one worker wins) → notify → counted. No transaction is held open across the notification; delivery durability comes from the notification queue once claimed
+- **Effect:** notification only. No status change, no item deletion, no stock movement — there is deliberately **no expiry reaper**
 
 ---
 
@@ -116,28 +86,24 @@ CREATED → ACTIVE (with items) → CHECKOUT_STARTED → PENDING_ORDER → FINAL
 
 ```
 TIME →
-├─[t=0]── Cart created (empty, active)
-├─[t=1]── Item added → stock reserved for 3 days
-├─[t=2]── Coupon applied (not consumed)
-├─[t=3]── Promotion selected (not consumed)
-├─[t=4]── Checkout clicked → ensureCartReservation (re-sync stock)
-├─[t=5]── Order created (pending)
-├─[t=6]── Payment processed (online redirect / COD / cashier)
+├─[t=0]── Cart created on first add (active, one per user)
+├─[t=1]── Items added/updated/removed (price snapshots; NO stock movement)
+├─[t=2]── Coupon applied (not consumed; cleared if cart emptied)
+├─[t=3]── Promotion preview marks (not consumed; stripped on any edit)
+├─[t=4]── Checkout clicked → ORDER validates stock + reserves atomically
+├─[t=5]── Order created → ordered slice deleted, SAME cart row reused
 │
 ├─ IF PAYMENT SUCCEEDS:
-│   ├─[t=7]── Inventory finalized (stock deducted, cart checked_out)
-│   └─[t=8]── New cart can be created on next add-to-cart
+│   └─ Order lifecycle proceeds (Phase 01); cart row stays active
 │
 ├─ IF PAYMENT FAILS:
-│   ├─[t=7]── Order stays pending (no cart changes)
-│   └─[t=8]── Cart can still be used (not finalized)
+│   └─ Order stays pending (no cart changes); cart remains fully usable
 │
-├─ IF CUSTOMER ABANDONS:
-│   ├─[t=7]── Cart expires after 3 days
-│   └─[t=8]── Stock released, cart status=expired
+├─ IF CUSTOMER ABANDONS (24h inactive):
+│   └─ At most one reminder notification; cart untouched, no expiry
 │
 └─ IF CUSTOMER REMOVES ALL ITEMS:
-    └─[t=7]── Coupon removed, cart empty, no expiration
+    └─ Coupon removed, cart empty + active, no expiration
 ```
 
 ## 3. State Machine
@@ -146,76 +112,75 @@ TIME →
                     ┌─────────────────┐
                     │     CREATED     │
                     │ (status=active) │
-                    │ items=0, no     │
-                    │ reservation     │
+                    │    items = 0    │
                     └────────┬────────┘
-                             │
-                    add item / reserveItem()
-                             │
+                             │ add item (persistCart: find-or-create under lock,
+                             │ UNIQUE(user_id) + duplicate-race resolve)
                              ▼
                     ┌─────────────────┐
-                    │  ITEMS ADDED    │
-                    │ (status=active) │
-                    │ items>0, stock  │
-                    │ reserved 3 days │
+                    │  ITEMS ADDED    │◄──────────────┐
+                    │ (status=active) │               │ add / set / remove /
+                    │ items > 0, no   │───────────────┘ clear (locked merges,
+                    │ stock movement  │  quantity 1..max, promo revalidated)
                     └────────┬────────┘
-                             │
-                    checkout started
-                             │
+                             │ checkout reads a slice;
+                             │ ORDER reserves stock atomically
                              ▼
                     ┌─────────────────┐
-                    │  IN CHECKOUT    │
-                    │ (still active)  │
-                    │ order= pending  │
-                    └────────┬────────┘
-                             │
-                ┌────────────┼────────────┐
-                │            │            │
-        payment success  payment fail  expire/abandon
-                │            │            │
-                ▼            ▼            ▼
-        ┌───────────┐  ┌───────────┐  ┌───────────┐
-        │CHECKED_OUT│  │  ACTIVE   │  │ EXPIRED   │
-        │ terminal  │  │ (retry)   │  │ terminal  │
-        └───────────┘  └───────────┘  └───────────┘
+                    │ SLICE REMOVED,  │
+                    │ ROW REUSED      │
+                    │ (status=active) │── survivors stay shoppable;
+                    └─────────────────┘   empty cart parked (no reminder)
 ```
+
+There are no other cart states. `checked_out` / `expired` appear only as legacy
+schema-enum vestiges and dashboard-analytics labels — the application never writes them.
 
 ## 4. Data Model
 
 ### Cart
 ```sql
-carts: id, user_id, coupon (nullable), total_price, status (active|checked_out|expired), reserved_at, expires_at, timestamps
+carts: id, user_id UNIQUE, coupon (nullable), total_price (cached sum),
+       status (always 'active' as written), reserved_at, expires_at
+       (abandoned-cart ACTIVITY window, not a reservation TTL),
+       reminder_sent_at (nullable; set once by the atomic claim),
+       timestamps
 ```
 
 ### CartItem
 ```sql
-cart_items: id, cart_id, product_id, product_variant_id, quantity, reserved_quantity, price, total_price, 
-            attributes (json), discount_amount, shipping_method (SCHEDULED|FAST), is_gift (bool), 
-            promotion_id (nullable), timestamps
+cart_items: id, cart_id, product_id, product_variant_id, quantity (1..max),
+            reserved_quantity (legacy column; cart no longer writes it),
+            price (snapshot), total_price,
+            attributes (json), discount_amount, shipping_method (SCHEDULED|FAST),
+            is_gift (bool), promotion_id (nullable, preview only), timestamps
 ```
 
 ## 5. Key Design Decisions
 
-1. **Cart is single per user** — one active cart at a time. No multi-cart support.
-2. **Reservation has 3-day TTL** — `Carbon::now()->addDays(self::CART_TTL_DAYS)` at each touch
-3. **Prices are NOT live** — cart item prices are set at add-to-cart time; refreshed only at checkout
-4. **Coupon is NOT reserved** — applied to cart but quota consumed only at payment
-5. **Promotion is NOT reserved** — usage incremented only at payment
-6. **Inventory IS reserved** — stock deducted from available pool on add-to-cart; released on expiration or explicit release
-7. **Cart checked_out is terminal** — items deleted, status = checked_out, new cart needed
+1. **Cart is single per user** — one cart at a time, enforced by `UNIQUE(carts.user_id)` plus duplicate-race-safe creation. No multi-cart support.
+2. **Cart NEVER touches inventory** — no reservation, no counters, no commit, no release. Stock is validated/reserved atomically at checkout against the Order.
+3. **Prices are NOT live** — cart item prices are set at add-to-cart time; refreshed only at checkout (preserved decision).
+4. **Coupon is NOT reserved** — applied to cart but quota consumed only via the order lifecycle (preserved decision).
+5. **Promotion is NOT reserved** — preview marks only, stripped on any edit; usage incremented only at payment (preserved decision).
+6. **Per-line maximum quantity** — `cart.max_item_quantity` (default 100): absurd quantities are rejected at the cart boundary; legitimate availability remains a checkout concern.
+7. **Cart row is immortal** — checkout removes only the ordered slice; clearing empties but never deletes; no terminal statuses, no reaper.
+8. **3-day value is an activity/reminder window** — `reserved_at`/`expires_at` drive the 24h-inactivity abandoned-cart reminder only. They are NOT an inventory reservation TTL.
+9. **Reminder is at-most-once** — scheduler single-server execution plus a per-cart atomic claim; concurrent workers cannot double-notify.
+10. **Cart IDs are not enumerable** — `GET /cart/{id}` scopes to the caller's own carts first; foreign and nonexistent IDs both return 404.
 
-## 6. Problems Found
+## 6. Retired Problems (Closed by Redesign — Do Not Reopen)
 
-| Problem | Severity | Description |
-|---------|----------|-------------|
-| No cart cleanup command | MEDIUM | `expireCarts()` exists but no scheduled command registered in Kernel |
-| Prices can be stale | LOW | Cart price set at add-time, not refreshed until checkout |
-| No cart locking on concurrent add | MEDIUM | Multiple simultaneous add-to-cart for same product could oversell (reserveStock checks available at operation time) |
+| Historical problem | Resolution |
+|--------------------|------------|
+| No cart cleanup command (`expireCarts` unregistered) | Moot — nothing to clean; no reaper exists or is needed |
+| No concurrent-add locking / oversell on add | Moot — cart+item `lockForUpdate` merges exist AND oversell at add is structurally impossible (no reservation at add) |
+| Stale prices | Accepted by design (decision 3); checkout refreshes authoritatively |
+| Cart-owned reservation TTL / stock release from cart | Retired — inventory authority moved to the Order |
 
 ## 7. Production Recommendations
 
-1. Register `CartInventoryService::expireCarts()` as a scheduled task (every 5 minutes)
-2. Add price staleness indicator on cart items (show "prices may have changed" banner)
-3. Add max quantity per product validation
-4. Consider reducing TTL from 3 days to 1 day for better inventory turnover
-5. Add cart item count and total to cart model for quick display without joins
+1. Keep `CART_MAX_ITEM_QUANTITY` at the default unless analytics show legitimate bulk-buy lines hitting it; raise deliberately, never remove the bound.
+2. Run schedulers on a centralized cache (Redis/Memcached) so `onOneServer` constrains multi-server schedulers; the per-cart atomic claim already protects shared-database workers regardless of cache driver.
+3. Treat `status` values other than `active` in `carts` as data anomalies (no writer produces them); the legacy enum vestige is harmless and needs no migration.
+4. Do NOT reintroduce cart-level reservation, expiry, or terminal statuses — checkout, Order Flow, fulfillment, coupon, promotion, and payment behavior all assume the selection-container contract.

@@ -217,6 +217,7 @@ return [
 
     // Cart inventory
     'cart.inventory.quantity_minimum' => 'Quantity must be at least 1.',
+    'cart.inventory.quantity_maximum' => 'Quantity must not exceed :max per cart line.',
     'cart.inventory.gift_variant_not_available' => 'The selected gift variant is not available.',
     'cart.inventory.gift_variant_no_stock' => 'No stock available for the gift variant.',
     'cart.inventory.quantity_exceeds_stock' => 'Quantity exceeds available stock.',
@@ -483,6 +484,7 @@ return [
     // Checkout & Payments
     'ERROR.ERROR_CREATING_INVOICE' => 'Error creating invoice',
     'ERROR.ERROR_ADDING_ITEMS_TO_ORDER' => 'Error adding items to order',
+    'ERROR.ERROR_CANCELLING_ORDER' => 'Error cancelling order',
     'ERROR.ERROR_CREATING_TRANSACTION' => 'Error creating transaction',
     'MESSAGE.CHECKOUT_SUCCESSFUL' => 'Checkout successful',
     'ERROR.MISSING_PAYMENT_ID' => 'Missing payment ID',

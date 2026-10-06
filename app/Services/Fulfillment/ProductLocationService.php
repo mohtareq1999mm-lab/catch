@@ -70,8 +70,10 @@ class ProductLocationService
             $query->where('product_locations.warehouse_id', $warehouseId);
         }
 
-        // Order by location priority, then quantity
+        // Order by location priority, then quantity. Eager-load locations:
+        // the loop reads location code/warehouse per row (no N+1).
         $locations = $query
+            ->with('location')
             ->join('locations', 'product_locations.location_id', '=', 'locations.id')
             ->orderBy('locations.priority', 'desc')
             ->orderBy('product_locations.quantity', 'desc')
@@ -85,6 +87,9 @@ class ProductLocationService
             if ($remaining <= 0) {
                 break;
             }
+
+            // Denorm guard (§34): placement warehouse must match its location.
+            $this->assertConsistent($productLocation);
 
             $available = $productLocation->availableQuantity();
             $toAllocate = min($available, $remaining);
@@ -111,6 +116,31 @@ class ProductLocationService
         }
 
         return $allocations;
+    }
+
+    /**
+     * Suggest placement hints for a warehouse (§14 system suggestion).
+     * Thin alias so pickers/retry paths read through one entry point.
+     */
+    public function suggestForWarehouse(int $productId, float $requiredQuantity, int $warehouseId): array
+    {
+        return $this->allocateFromLocations($productId, $requiredQuantity, $warehouseId);
+    }
+
+    /**
+     * @throws \RuntimeException when product_locations.warehouse_id disagrees
+     *   with locations.warehouse_id (denormalized for perf — never trusted).
+     */
+    public function assertConsistent(ProductLocation $productLocation): void
+    {
+        $locationWarehouse = $productLocation->location?->warehouse_id
+            ?? Location::whereKey($productLocation->location_id)->value('warehouse_id');
+
+        if ($locationWarehouse !== null && (int) $locationWarehouse !== (int) $productLocation->warehouse_id) {
+            throw new \RuntimeException(
+                "PLACEMENT_MISMATCH: product placement #{$productLocation->id} warehouse {$productLocation->warehouse_id} != location warehouse {$locationWarehouse}"
+            );
+        }
     }
 
     /**

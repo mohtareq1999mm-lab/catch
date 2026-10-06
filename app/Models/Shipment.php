@@ -32,6 +32,10 @@ class Shipment extends Model
         'shipped_at',
         'estimated_delivery_at',
         'delivered_at',
+        'cancelled_by',
+        'cancel_source',
+        'cancelled_at',
+        'cancel_reason',
         'notes',
         'metadata',
     ];
@@ -44,6 +48,7 @@ class Shipment extends Model
         'shipped_at' => 'datetime',
         'estimated_delivery_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'cancelled_at' => 'datetime',
         'shipping_cost' => 'float',
         'total_weight' => 'float',
     ];
@@ -74,11 +79,41 @@ class Shipment extends Model
         return $this->belongsTo(\App\Models\Fulfillment\PackingTask::class);
     }
 
+    /**
+     * Phase 8 (D8-10): actor that cancelled the shipment. Nullable by
+     * design — system/internal cancellations carry no user; never fabricate.
+     * Mirrors the Phase-7 fulfillment cancelledBy() convention.
+     */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'cancelled_by');
+    }
+
+    /**
+     * Phase 8 (D8-1): terminal states whose rows are retained as history and
+     * no longer count as the fulfillment's active shipment. Mirrors the
+     * active_fulfillment_id generated-column definition in migration
+     * 2026_10_08_000001 — the two lists MUST stay identical.
+     */
+    public const TERMINAL_STATUSES = ['cancelled', 'delivered', 'returned'];
+
+    public function isActive(): bool
+    {
+        return !in_array($this->status, self::TERMINAL_STATUSES, true);
+    }
+
     public function canTransitionTo(string $target): bool
     {
         return in_array($target, self::allowedTransitions($this->status), true);
     }
 
+    /**
+     * Phase 8 (P8-2 / F8-9): SINGLE authoritative shipment DAG. The
+     * ShipmentStatus enum delegates here; validation and the transition
+     * authority can never diverge again. Unknown statuses transition
+     * nowhere — the old `default => ['cancelled']` silently blessed
+     * unknown states into cancellation and is removed.
+     */
     public static function allowedTransitions(string $from): array
     {
         return match ($from) {
@@ -92,7 +127,7 @@ class Shipment extends Model
             'returned' => [],
             'delayed' => ['in_transit', 'out_for_delivery'],
             'cancelled' => [],
-            default => ['cancelled'],
+            default => [],
         };
     }
 }

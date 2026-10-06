@@ -17,6 +17,7 @@ class NotifyAbandonedCarts extends Command
         $threshold = now()->subHours(24);
 
         $query = Cart::query()
+            ->with('user')
             ->where('status', 'active')
             ->whereNotNull('reserved_at')
             ->where('reserved_at', '<', $threshold)
@@ -32,10 +33,21 @@ class NotifyAbandonedCarts extends Command
                     continue;
                 }
 
-                $user->notify(new UserAbandonedCartNotification($cart));
+                // F-05: atomic multi-server claim. Exactly one worker wins
+                // the NULL -> timestamp flip; losers skip without notifying.
+                // The claim is a single UPDATE (no open transaction across
+                // the notification), and the notification dispatch carries
+                // the queue's own durability/retries once claimed.
+                $claimed = Cart::query()
+                    ->whereKey($cart->id)
+                    ->whereNull('reminder_sent_at')
+                    ->update(['reminder_sent_at' => now()]);
 
-                $cart->reminder_sent_at = now();
-                $cart->save();
+                if (!$claimed) {
+                    continue;
+                }
+
+                $user->notify(new UserAbandonedCartNotification($cart->refresh()));
 
                 $notified++;
             }

@@ -664,7 +664,8 @@ class DashboardService
             $categoryGrowth = $revenueByCategory->map(function ($cat) use ($currentMonthRevenue, $prevMonthRevenue) {
                 $current = (float) ($currentMonthRevenue[$cat['category_id']] ?? 0);
                 $previous = (float) ($prevMonthRevenue[$cat['category_id']] ?? 0);
-                return [
+
+            return [
                     'category_id'   => $cat['category_id'],
                     'category_name' => $cat['category_name'],
                     'current_month' => round($current, 2),
@@ -808,6 +809,11 @@ class DashboardService
                 ->sum('coupon_discount');
             $promotionDiscount = (float) Order::where('promotion_discount', '>', 0)
                 ->sum('promotion_discount');
+            // SCOPE NOTE (S2): the two scalars above span ALL order statuses
+            // (legacy behavior, preserved), while discount_by_currency below
+            // covers completed orders only — matching gross_by_currency and
+            // the realized-revenue semantics of this endpoint. Buckets
+            // therefore reconcile with each other, not with total_discount.
             $totalDiscount = $couponDiscount + $promotionDiscount;
 
             $netRevenue = $grossRevenue - $refundAmount;
@@ -838,6 +844,52 @@ class DashboardService
                 ->map(fn ($total) => round((float) $total, 2))
                 ->all();
 
+            // Per-order-currency NET (§9 business rule): net is computed WITHIN
+            // each transaction currency — completed gross minus marketplace
+            // refunds (completed-scope join) minus gateway-ledger refunds —
+            // so no two different units are ever added or subtracted. Gross here
+            // is SUM(total_price) in order currency (NOT the base-denominated
+            // gross_revenue scalar). The refund side is scoped to refunds on
+            // COMPLETED, non-trashed orders — the same population gross
+            // covers (orphan/pending/trashed refunds stay visible ONLY in
+            // refund_by_currency and are never netted). NULL currency →
+            // UNKNOWN on both sides; UNKNOWN buckets are never authoritative.
+            $grossByTxn = Order::where('status', 'completed')
+                ->selectRaw("COALESCE(currency_code, 'UNKNOWN') as currency, SUM(total_price) as total")
+                ->groupBy('currency')
+                ->orderBy('currency')
+                ->pluck('total', 'currency')
+                ->map(fn ($total) => round((float) $total, 2))
+                ->all();
+
+            $netRefundBuckets = DB::table('refunds')
+                ->join('orders as refund_orders', 'refund_orders.id', '=', 'refunds.order_id')
+                ->where('refunds.status', 'approved')
+                ->where('refund_orders.status', 'completed')
+                ->whereNull('refund_orders.deleted_at')
+                ->selectRaw("COALESCE(refund_orders.currency_code, 'UNKNOWN') as currency, SUM(refunds.amount) as total")
+                ->groupBy('currency')
+                ->orderBy('currency')
+                ->pluck('total', 'currency')
+                ->map(fn ($total) => round((float) $total, 2))
+                ->all();
+
+            $netByCurrency = [];
+            // Net within one unit: completed gross minus marketplace refunds
+            // (completed-scope join) minus gateway-ledger refunds (txn
+            // currency). All three maps share the order/transaction currency
+            // key space, so per-key subtraction never mixes units.
+            $gatewayBuckets = $this->gatewayRefundByCurrency();
+            foreach (array_unique(array_merge(array_keys($grossByTxn), array_keys($netRefundBuckets), array_keys($gatewayBuckets))) as $code) {
+                $netByCurrency[$code] = round(
+                    (float) ($grossByTxn[$code] ?? 0)
+                    - (float) ($netRefundBuckets[$code] ?? 0)
+                    - (float) ($gatewayBuckets[$code] ?? 0),
+                    2
+                );
+            }
+            ksort($netByCurrency);
+
             return [
                 'gross_revenue'    => round($grossRevenue, 2),
                 'net_revenue'      => round(max($netRevenue, 0), 2),
@@ -860,6 +912,13 @@ class DashboardService
                     fn ($total) => (float) $total != 0.0
                 ))) > 1,
                 'shipping_by_base_currency' => $shippingByBase,
+                // Within-currency net (same-unit subtraction only); the legacy
+                // net_revenue scalar is kept for backward compatibility.
+                'net_revenue_by_currency' => $netByCurrency,
+                'mixed_net_currencies' => count(array_keys(array_filter(
+                    $netByCurrency,
+                    fn ($total) => (float) $total != 0.0
+                ))) > 1,
             ] + $this->revenueCurrencyContext(
                 Order::where('status', 'completed')
             ) + $this->refundCurrencyContext(
@@ -961,15 +1020,67 @@ class DashboardService
     private function refundCurrencyContext($refundQuery): array
     {
         $buckets = $this->refundByCurrency($refundQuery);
+        $gatewayBuckets = $this->gatewayRefundByCurrency();
         $active = array_keys(array_filter(
-            $buckets,
+            array_merge($buckets, $gatewayBuckets),
             fn ($total) => (float) $total != 0.0
         ));
 
         return [
+            // Marketplace approval-workflow refunds (scalar parity).
             'refund_by_currency' => $buckets,
+            // Provider-executed (online) refunds from each transaction's
+            // own _refunds ledger, keyed by that transaction's currency.
+            // These never touch the marketplace table by design.
+            'gateway_refund_by_currency' => $gatewayBuckets,
+            // SEMANTICS (widened): true when EITHER refund system spans
+            // currencies. Previously marketplace-only; gateway refunds were
+            // invisible to this flag (false negatives). Documented change.
             'mixed_refund_currencies' => count($active) > 1,
         ];
+    }
+
+    /**
+     * Gateway (online) refund buckets from transaction ledgers.
+     *
+     * Every entry in a transaction's gateway_response._refunds ledger is
+     * denominated in that transaction's own currency (enforced by
+     * PaymentRefundService: request, provider result and ledger math must
+     * all match $txn->currency). Grouping ledger amounts by txn currency
+     * is therefore unit-safe with no join and no conversion.
+     * Scope (completed orders) matches the gross side of net math.
+     */
+    private function gatewayRefundByCurrency(): array
+    {
+        $buckets = [];
+
+        Transaction::query()
+            ->join('orders', 'orders.id', '=', 'transactions.order_id')
+            ->where('orders.status', 'completed')
+            ->whereNull('orders.deleted_at')
+            ->whereNotNull('transactions.gateway_response')
+            ->select('transactions.currency', 'transactions.gateway_response')
+            ->orderBy('transactions.id')
+            ->chunk(500, function ($txns) use (&$buckets) {
+                foreach ($txns as $txn) {
+                    $response = $txn->gateway_response;
+                    $ledger = is_array($response) ? ($response['_refunds'] ?? null) : null;
+                    if (!is_array($ledger)) {
+                        continue;
+                    }
+                    $code = strtoupper(trim((string) $txn->currency)) ?: 'UNKNOWN';
+                    foreach ($ledger as $entry) {
+                        if (!is_array($entry)) {
+                            continue;
+                        }
+                        $buckets[$code] = round(($buckets[$code] ?? 0) + (float) ($entry['amount'] ?? 0), 2);
+                    }
+                }
+            });
+
+        ksort($buckets);
+
+        return $buckets;
     }
 
     /**
@@ -987,6 +1098,9 @@ class DashboardService
     private function revenueByCurrency($orderQuery): array
     {
         return (clone $orderQuery)
+            // LEGACY LABEL (compat): NULL txn currency lands in 'BASE' here.
+            // All newer maps use 'UNKNOWN'; this key is preserved unchanged
+            // so existing consumers of revenue_by_currency keep working.
             ->selectRaw("COALESCE(currency_code, 'BASE') as currency_code, SUM(total_price) as total")
             ->groupBy('currency_code')
             ->orderBy('currency_code')

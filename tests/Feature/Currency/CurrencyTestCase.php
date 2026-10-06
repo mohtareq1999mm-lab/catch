@@ -212,6 +212,14 @@ abstract class CurrencyTestCase extends TestCase
 
         $user->assignRole($role);
 
+        // Production parity: general update-order-status holders inherit the
+        // granular change-order-status.<code> targets (OrderStatusPermissionSeeder
+        // bridge). Without this, status-endpoint tests 403 on the per-order gate.
+        if (in_array('update-order-status', $permissions, true)) {
+            (new \Database\Seeders\OrderStatusPermissionSeeder)->run();
+        }
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
         return $user;
     }
 

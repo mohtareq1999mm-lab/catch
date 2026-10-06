@@ -998,6 +998,13 @@ class ProductionReadinessAuditTest extends TestCase
 
         $orderService = app(OrderService::class);
 
+        // F-1 world: completing an UNPAID order is a financial act requiring
+        // payments.mark_paid. Grant it hermetically (mirrors a cashier/admin
+        // with payment authority); the transition rule itself is unchanged.
+        \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'payments.mark_paid', 'guard_name' => 'api']);
+        $this->user->givePermissionTo('payments.mark_paid');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
         // pending → completed (allowed)
         $result = $orderService->changeOrderStatus(null, 'completed', $order->id);
         $this->assertNotFalse($result);

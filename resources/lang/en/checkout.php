@@ -16,6 +16,7 @@ return [
     'fast_shipping_items_ineligible' => 'One or more items in your cart are not eligible for fast shipping.',
     'invalid_order_status_transition' => 'Cannot change order status from :from to :to.',
     'invalid_flow_transition' => 'Cannot change order status from :from to :to in its flow.',
+    'legacy_status_frozen' => 'Legacy-only status :code cannot start or advance an order outside its flow.',
     'shipping_type_unsupported' => 'The selected shipping type is not supported.',
     'shipping_type_invalid' => 'The selected shipping type is invalid.',
     'shipping_type_unavailable' => 'The selected shipping type is not available for this order.',
@@ -34,6 +35,7 @@ return [
     'status_batch_partial' => ':succeeded of :total orders updated; see per-order results.',
     // Dynamic Flow Inputs
     'flow_values_must_be_object' => 'Flow values must be an object keyed by input key.',
+    'flow_values_unknown_order' => 'Per-order flow values reference order :id, which is not in this batch.',
     'flow_input_invalid' => 'One or more flow inputs are invalid.',
     'flow_input_unknown' => 'Unknown flow input: :key.',
     'flow_input_required' => 'Flow input :key is required.',

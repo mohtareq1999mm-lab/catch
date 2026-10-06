@@ -61,7 +61,16 @@ class MarvelRefundInterplayTest extends CurrencyTestCase
 
         $this->customer = $this->createCustomer();
 
-        $this->order = Order::create([
+        // Single-source-of-truth: the bare Event::fake() above swallows the
+        // model-level creation backstop, so the flow columns ride the
+        // creation INSERT itself (event-independent service computation)
+        // with a consistent stage mirror for the completed start.
+        $flowColumns = \App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()
+            ? app(\App\Services\OrderFlow\OrderFlowService::class)
+                ->columnsForNewOrder('local', Order::ORDER_STATUS_COMPLETED)
+            : [];
+
+        $this->order = Order::create(array_merge([
             'user_id' => $this->customer->id,
             'name' => 'Refund Customer',
             'user_phone' => '+201234567890',
@@ -77,7 +86,7 @@ class MarvelRefundInterplayTest extends CurrencyTestCase
             'catalog_currency_code' => 'KWD',
             'base_currency_code' => 'EGP',
             'shipping_method' => 'SCHEDULED',
-        ]);
+        ], $flowColumns));
 
         $this->order->transactions()->create([
             'user_id' => $this->customer->id,

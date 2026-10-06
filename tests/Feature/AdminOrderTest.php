@@ -674,8 +674,11 @@ class AdminOrderTest extends TestCase
             'status' => 'processing']);
 
         $response->assertStatus(200);
+        // Flow authority (P1): a processing order on the local flow offers
+        // the next stage (packed) plus the flow-linked exits (completed,
+        // cancelled) — the legacy self-loop ('processing') is gone.
         $this->assertEqualsCanonicalizing(
-            ['processing', 'completed', 'cancelled'],
+            ['packed', 'completed', 'cancelled'],
             $response->json('data.available_statuses')
         );
     }

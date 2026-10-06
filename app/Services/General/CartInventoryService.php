@@ -31,6 +31,18 @@ class CartInventoryService
     private const CART_ACTIVITY_TTL_DAYS = 3;
 
     /**
+     * Maximum resulting quantity per cart line (F-03). Centralized here so
+     * every mutation path (add/set/bulk/internal) shares one bound; the
+     * FormRequest layer mirrors it for early 422s. Stock availability is
+     * still validated atomically at checkout — this only rejects obviously
+     * unreasonable quantities early.
+     */
+    public static function maxItemQuantity(): int
+    {
+        return max(1, (int) config('cart.max_item_quantity', 100));
+    }
+
+    /**
      * Add quantity to a cart line (merging duplicates by product+variant+method).
      * Stock availability is intentionally NOT checked here — it is validated
      * and reserved atomically at checkout against the created Order.
@@ -203,6 +215,11 @@ class CartInventoryService
 
             if ($desiredQuantity < 1) {
                 throw new Exception(__(QUANTITY_MINIMUM));
+            }
+
+            $maxQuantity = self::maxItemQuantity();
+            if ($desiredQuantity > $maxQuantity) {
+                throw new Exception(__(QUANTITY_MAXIMUM, ['max' => $maxQuantity]));
             }
 
             $price = $variant

@@ -29,10 +29,17 @@ class ReturnRecoveryTest extends TestCase
     private Location $location;
     private Product $product;
     private Order $order;
+    private User $approver;
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Hermetic actor: the approval helpers historically passed a
+        // hardcoded actor id of 1, which only exists when a seeded admin
+        // happens to survive outside the test transaction. A real
+        // in-transaction approver keeps the suite order-independent.
+        $this->approver = User::factory()->create(['type' => 'admin']);
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-1', 'name' => 'Main', 'status' => 'active', 'is_default' => true,
@@ -96,9 +103,9 @@ class ReturnRecoveryTest extends TestCase
             'fulfillment_item_id' => $fulfillment->items()->first()->id,
             'quantity' => $qty,
         ]], 'changed_mind');
-        $request = $service->approveReturnRequest($request, [$request->returnItems()->first()->id => $qty], 1);
-        $request = $service->markAsReceived($request, 1);
-        $request = $service->startInspection($request, 1);
+        $request = $service->approveReturnRequest($request, [$request->returnItems()->first()->id => $qty], $this->approver->id);
+        $request = $service->markAsReceived($request, $this->approver->id);
+        $request = $service->startInspection($request, $this->approver->id);
         $item = $request->returnItems()->firstOrFail();
         $service->inspectReturnItem($item, 'good');
 

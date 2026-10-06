@@ -117,9 +117,9 @@ class OrderStatusOptionsController extends Controller
                 ];
             }
 
-            // Supervised exits outside the linear path (same union the
-            // guard enforces: completed/cancelled/failed_delivery/returned).
-            foreach (['completed', 'cancelled', 'failed_delivery', 'returned'] as $exit) {
+            // Supervised exits outside the linear path (exactly what the
+            // flow-only guard enforces).
+            foreach (['completed', 'cancelled', 'failed_delivery', 'returned', 'delivered'] as $exit) {
                 if ($exit !== $from && !isset($rows[$exit])) {
                     $rows[$exit] = ['model' => null, 'sort_order' => null];
                 }
@@ -145,11 +145,11 @@ class OrderStatusOptionsController extends Controller
             if (!$isActive) {
                 $reason = 'inactive_status';
             } else {
-                $flowAllows = $flow
+                // Advisory mirror of the flow-only guard. Flow-less rows
+                // (migration window) fall back to the legacy map for display.
+                $transitionAllowed = $flow
                     ? $this->flows->allowsFlowTransition($order, $from, $code)
-                    : false;
-                $legacyAllows = in_array($code, OrderService::getAllowedOrderStatusTargets($from), true);
-                $transitionAllowed = $flowAllows || $legacyAllows;
+                    : in_array($code, OrderService::getAllowedOrderStatusTargets($from), true);
 
                 if (!$transitionAllowed) {
                     $reason = 'forbidden_transition';

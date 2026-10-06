@@ -202,7 +202,13 @@ class CouponBusinessDelayTest extends TestCase
             'coupon_id' => $coupon->id, 'user_id' => $user->id, 'max_uses' => 1, 'used' => 0,
         ]);
 
-        $order = Order::withoutEvents(fn () => Order::create([
+        // NOT NULL guarantee: withoutEvents suppresses the creation backstop,
+        // so the flow columns ride the INSERT itself (event-independent).
+        $flowColumns = \App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()
+            ? app(\App\Services\OrderFlow\OrderFlowService::class)->columnsForNewOrder(null, 'pending')
+            : [];
+
+        $order = Order::withoutEvents(fn () => Order::create(array_merge($flowColumns, [
             'user_id' => $user->id,
             'name' => 'Queue User',
             'user_phone' => '01000000000',
@@ -212,7 +218,7 @@ class CouponBusinessDelayTest extends TestCase
             'payment_status' => 'pending',
             'total_price' => 100.00,
             'price' => 100.00,
-        ]));
+        ])));
 
         event(new AssignedCouponConsumed($coupon, $assignment, $user, $order, 0, now()));
 

@@ -208,10 +208,24 @@ class OrderFlowMatrixTest extends TestCase
     {
         $order = $this->checkoutOrder();
 
-        foreach (['processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'] as $step) {
+        foreach (['processing', 'packed', 'shipped', 'out_for_delivery'] as $step) {
             $this->change($order, $step);
             $this->assertInvariants($order);
         }
+
+        // Phase 8 (D8-5): the normal delivered step now requires the
+        // shipment completion invariant (paid + all fulfillments delivered),
+        // which a bare checkout order does not satisfy.
+        try {
+            $this->change($order, 'delivered');
+            $this->fail('Normal delivered without the completion invariant must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
+        }
+        $this->assertSame('out_for_delivery', $order->fresh()->status);
+
+        // The audited force path preserves the flow tail.
+        $this->forceDeliver($order);
 
         $this->assertSame('delivered', $order->fresh()->status);
         $this->assertSame('local', $order->fresh()->shipping_type);
@@ -221,16 +235,38 @@ class OrderFlowMatrixTest extends TestCase
     {
         $order = $this->checkoutOrder('international');
 
-        foreach (['processing', 'packed', 'shipped', 'in_transit', 'arrived_at_destination_country',
-            'customs_clearance', 'customs_cleared', 'local_carrier', 'out_for_delivery', 'delivered'] as $step) {
+        foreach (['processing', 'packed', 'export_processing', 'shipped', 'in_transit', 'arrived_at_destination_country',
+            'customs_clearance', 'customs_cleared', 'local_carrier', 'out_for_delivery'] as $step) {
             $this->change($order, $step);
             $this->assertInvariants($order);
         }
+
+        // Phase 8 (D8-5): see local walk — normal delivered refused.
+        try {
+            $this->change($order, 'delivered');
+            $this->fail('Normal delivered without the completion invariant must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
+        }
+
+        $this->forceDeliver($order);
 
         $fresh = $order->fresh();
         $this->assertSame('delivered', $fresh->status);
         $this->assertSame('international', $fresh->shipping_type);
         $this->assertSame('international', $fresh->flow->code);
+    }
+
+    /**
+     * Phase 8 (D8-5): audited force-delivered escape hatch for flow tests.
+     * The admin carries update-order-status; the reason is recorded.
+     */
+    private function forceDeliver(Order $order): void
+    {
+        Sanctum::actingAs($this->admin);
+        app(\App\Services\General\OrderService::class)->changeOrderStatus(
+            null, 'delivered', $order->id, true, 'flow walk tail', null, true, [], false, false, true
+        );
     }
 
     public function test_invalid_skips_and_backward_moves_fail(): void
@@ -264,10 +300,17 @@ class OrderFlowMatrixTest extends TestCase
         $order = $this->checkoutOrder();
         $service = app(\App\Services\General\OrderService::class);
         Sanctum::actingAs($this->admin);
-        // completed is a milestone, not terminal: the legacy path still
-        // completes the lifecycle via completed -> delivered.
+        // completed is a milestone, not terminal. Phase 8 (D8-5): the
+        // normal completed -> delivered tail requires the completion
+        // invariant; the audited force path covers the remainder.
         $service->changeOrderStatus(null, 'completed', $order->id);
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        try {
+            $service->changeOrderStatus(null, 'delivered', $order->id);
+            $this->fail('Normal delivered without the completion invariant must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
+        }
+        $this->forceDeliver($order);
         $this->assertSame('delivered', $order->fresh()->status);
 
         foreach (['pending', 'processing', 'packed', 'completed', 'cancelled'] as $bad) {
@@ -378,10 +421,15 @@ class OrderFlowMatrixTest extends TestCase
             $this->assertContains($code, $catalogCodes, "Flow code {$code} missing from catalog seed.");
         }
 
-        // Custom-flows-only vocabulary is present but NOT in seeded flows.
-        foreach (['confirmed', 'ready_to_ship', 'export_processing'] as $code) {
+        // Custom-flows-only vocabulary is present but NOT in seeded flows
+        // (export_processing graduated to the seeded international flow, §18).
+        foreach (['confirmed', 'ready_to_ship'] as $code) {
             $this->assertContains($code, $catalogCodes);
             $this->assertNotContains($code, $flowCodes);
         }
+
+        // §18: export_processing is catalogued AND seeded in international.
+        $this->assertContains('export_processing', $catalogCodes);
+        $this->assertContains('export_processing', $flowCodes);
     }
 }

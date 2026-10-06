@@ -45,6 +45,8 @@ use App\Listeners\Shipment\RecordShipmentStatusInTimeline;
 use App\Listeners\SendUserPromotionAvailableNotification;
 use App\Listeners\SendUserDigitalProductsAvailableNotification;
 use App\Listeners\FulfillDigitalProducts;
+use App\Listeners\ReleaseFulfillmentOnCodPlacement;
+use App\Listeners\ReleaseFulfillmentOnPayment;
 use App\Listeners\DispatchFrontendCacheInvalidation;
 use App\Listeners\LogInvoiceCreated;
 use App\Listeners\LogUserRolesUpdated;
@@ -153,6 +155,7 @@ class EventServiceProvider extends ServiceProvider
         OrderCreated::class => [
             SendNewOrderNotification::class,
             SendUserOrderCreatedNotification::class,
+            ReleaseFulfillmentOnCodPlacement::class,
             \App\Listeners\RecordOrderCreatedInTimeline::class,
         ],
         OrderStatusChanged::class => [
@@ -172,6 +175,7 @@ class EventServiceProvider extends ServiceProvider
             GenerateInvoiceListener::class,
             SendUserPaymentSucceededNotification::class,
             FulfillDigitalProducts::class,
+            ReleaseFulfillmentOnPayment::class,
             MarkCouponClaimRedeemed::class,
             \App\Listeners\RecordPaymentSuccessInTimeline::class,
         ],
@@ -180,6 +184,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         RefundApproved::class => [
             \App\Listeners\RecordRefundApprovedInTimeline::class,
+            \App\Listeners\RestoreInventoryOnRefund::class,
         ],
         RefundProcessed::class => [
             \App\Listeners\Refund\RecordRefundInTimeline::class,

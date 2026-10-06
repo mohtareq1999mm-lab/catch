@@ -82,12 +82,14 @@ class CheckoutApiTest extends TestCase
             'quantity' => 1,
             'price' => 100.00,
             'total_price' => 100.00,
-            'reserved_quantity' => 1,
+            // Phase 2 contract: cart lines hold no reservation (legacy
+            // cart-era holds removed from the fixture).
+            'reserved_quantity' => 0,
             'shipping_method' => 'SCHEDULED',
         ]);
 
         $this->product->refresh();
-        $this->product->update(['reserved_quantity' => 1]);
+        $this->product->update(['reserved_quantity' => 0]);
     }
 
     private function auth(): void
@@ -141,6 +143,9 @@ class CheckoutApiTest extends TestCase
 
     public function test_checkout_does_not_finalize_inventory()
     {
+        // Phase 3 addendum: COD commits inventory AT CHECKOUT (secured stock,
+        // not a held reservation). The name is kept for traceability; the
+        // contract is now finalize-at-checkout for manual methods.
         $this->auth();
         $this->createCartWithItem();
 
@@ -155,8 +160,9 @@ class CheckoutApiTest extends TestCase
         ]);
 
         $this->product->refresh();
-        $this->assertEquals(50, $this->product->stock_quantity, 'Stock should NOT be deducted at checkout');
-        $this->assertEquals(0, $this->product->sold_quantity, 'Sold quantity should NOT change at checkout');
+        $this->assertEquals(49, $this->product->stock_quantity, 'Stock IS deducted at COD checkout');
+        $this->assertEquals(1, $this->product->sold_quantity, 'Sold quantity IS recorded at COD checkout');
+        $this->assertEquals(0, $this->product->reserved_quantity, 'Nothing held after commit');
     }
 
     public function test_mark_cod_as_paid_finalizes_inventory()

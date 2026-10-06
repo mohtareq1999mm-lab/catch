@@ -270,9 +270,13 @@ class FlowInputsTest extends TestCase
         $this->assertEquals(['en' => 'Country of origin', 'ar' => 'بلد المنشأ'], $response->json('data.inputs.0.label'));
     }
 
-    public function test_definition_requires_authentication(): void
+    public function test_definition_is_guest_accessible(): void
     {
-        $this->getJson('/api/v1/general/order-flows/by-shipping-type/local')->assertStatus(401);
+        // D8b: flow definitions are guest-safe discovery (no auth required).
+        $this->getJson('/api/v1/general/order-flows/by-shipping-type/local')
+            ->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shipping_type', 'local');
     }
 
     public function test_definition_rejects_unknown_shipping_type(): void
@@ -392,7 +396,7 @@ class FlowInputsTest extends TestCase
             'to_country' => $this->countryB->id,
         ]);
 
-        $this->walkTo($order, ['processing', 'packed', 'shipped', 'in_transit', 'arrived_at_destination_country']);
+        $this->walkTo($order, ['processing', 'packed', 'export_processing', 'shipped', 'in_transit', 'arrived_at_destination_country']);
 
         $this->adminPatchStatus($order, 'customs_clearance')->assertStatus(422);
         $this->assertEquals('arrived_at_destination_country', $order->fresh()->status);

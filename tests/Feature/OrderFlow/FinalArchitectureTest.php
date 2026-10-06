@@ -257,9 +257,15 @@ class FinalArchitectureTest extends TestCase
         $this->freshCartWithProduct($this->user);
         $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => 'local']))->assertStatus(200);
 
-        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
-        $this->assertSame($first->flow_id, $first->fresh()->flow_id);
-        $this->assertSame('local', $first->fresh()->shipping_type);
+        // Phase 3 addendum: COD commits at creation, so the committed pending
+        // is superseded (cancelled) and replaced — never two live pendings.
+        // Flow assignment stays stable on the replacement order.
+        $orders = Order::query()->where('user_id', $this->user->id)->orderBy('id')->get();
+        $this->assertSame(2, $orders->count());
+        $this->assertSame('cancelled', $orders[0]->status);
+        $this->assertSame('pending', $orders[1]->status);
+        $this->assertSame($first->flow_id, $orders[1]->flow_id);
+        $this->assertSame('local', $orders[1]->shipping_type);
     }
 
     public function test_pending_reuse_defaults_to_local_when_omitted(): void
@@ -270,7 +276,9 @@ class FinalArchitectureTest extends TestCase
         $this->freshCartWithProduct($this->user);
         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
 
-        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+        // Supersede contract: one cancelled predecessor + one live pending.
+        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->where('status', 'pending')->count());
+        $this->assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
     }
 
     public function test_pending_reuse_case_and_whitespace_variants_reuse(): void
@@ -282,7 +290,10 @@ class FinalArchitectureTest extends TestCase
         $this->freshCartWithProduct($this->user);
         $this->checkout($this->user, $this->baseCheckoutPayload(['shipping_type' => ' Local ']))->assertStatus(200);
 
-        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+        // Supersede contract: normalization still matches (no 422 above),
+        // and the replacement keeps the normalized local type.
+        $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->where('status', 'pending')->count());
+        $this->assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
     }
 
     public function test_pending_reuse_different_shipping_type_rejected(): void
@@ -450,8 +461,14 @@ class FinalArchitectureTest extends TestCase
         $this->assertNotNull($next);
         $this->assertSame('delivered', $next->code);
 
+        // Phase 8 (D8-5): flow reorder coherence is intact (delivered is
+        // still the linear successor), but the normal transition now
+        // requires the shipment completion invariant — refused at item
+        // level for a bare order.
         $body = $this->batchAs($this->admin, ['order_ids' => [$order->id], 'status' => 'delivered'])->assertOk()->json();
-        $this->assertSame(1, $body['data']['summary']['succeeded']);
+        $this->assertSame(0, $body['data']['summary']['succeeded']);
+        $this->assertSame(1, $body['data']['summary']['failed']);
+        $this->assertSame('pending', $order->fresh()->status);
     }
 
     // -----------------------------------------------------------------
@@ -569,6 +586,27 @@ class FinalArchitectureTest extends TestCase
         $this->assertArrayHasKey('inputs', $body);
     }
 
+    public function test_per_type_endpoint_is_guest_accessible_with_available_parity(): void
+    {
+        // D8b: no authentication required — the frontend discovers flows
+        // before checkout. forgetGuards() guarantees no lingering actor.
+        $this->app['auth']->forgetGuards();
+
+        $single = $this->getJson('/api/v1/general/order-flows/by-shipping-type/local')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->json('data');
+
+        $flows = $this->getJson(self::AVAILABLE_URL)->assertOk()->json('data.flows');
+        $local = collect($flows)->firstWhere('shipping_type', 'local');
+
+        $this->assertNotNull($local, 'Available must still list the local flow.');
+        $this->assertEquals($local, $single);
+
+        // Unknown shipping type stays a 422, guest or not.
+        $this->getJson('/api/v1/general/order-flows/by-shipping-type/night-express')->assertStatus(422);
+    }
+
     // -----------------------------------------------------------------
     // H. Order resource contract (no admin metadata)
     // -----------------------------------------------------------------
@@ -669,8 +707,14 @@ class FinalArchitectureTest extends TestCase
         $order = $this->makeOrder('local', 'pending', $this->user);
         $this->batchAs($this->admin, ['order_ids' => [$order->id], 'status' => 'completed'])->assertOk();
 
-        $this->batchAs($this->admin, ['order_ids' => [$order->id], 'status' => 'delivered'])->assertOk();
-        $this->assertSame('delivered', $order->fresh()->status);
+        // Phase 8 (D8-5): the flow tail still exists, but the normal batch
+        // delivered step now requires the shipment completion invariant —
+        // a bare order is refused at item level (HTTP stays 200).
+        $body = $this->batchAs($this->admin, ['order_ids' => [$order->id], 'status' => 'delivered'])
+            ->assertOk()->json();
+        $this->assertSame(0, $body['data']['summary']['succeeded']);
+        $this->assertSame(1, $body['data']['summary']['failed']);
+        $this->assertSame('completed', $order->fresh()->status);
     }
 
     public function test_cancelled_is_absorbing(): void

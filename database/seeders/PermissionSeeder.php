@@ -537,54 +537,56 @@ class PermissionSeeder extends Seeder
             ]);
         }
 
-        $roleSuperAdmin = Role::firstOrCreate([
-            'name' => 'super_admin',
-            'display_name' => [
-                'en' => 'Super Admin',
-                'ar' => 'مدير_النظام',
-            ],
-            'guard_name' => 'api',
-        ]);
-        $roleOwner = Role::firstOrCreate([
-            'name' => 'owner',
-            'display_name' => [
-                'en' => 'Owner',
-                'ar' => 'مالك',
-            ],
-            'guard_name' => 'api',
-        ]);
-        $roleStaff = Role::firstOrCreate([
-            'name' => 'staff',
-            'display_name' => [
-                'en' => 'Staff',
-                'ar' => 'موظف',
-            ],
-            'guard_name' => 'api',
-        ]);
-        $roleCustomer = Role::firstOrCreate([
-            'name' => 'customer',
-            'display_name' => [
-                'en' => 'Customer',
-                'ar' => 'عميل',
-            ],
-            'guard_name' => 'api',
-        ]);
-        $roleEditor = Role::firstOrCreate([
-            'name' => 'editor',
-            'display_name' => [
-                'en' => 'Editor',
-                'ar' => 'محرر',
-            ],
-            'guard_name' => 'api',
-        ]);
+        // P9-7a root cause: lookups MUST be name+guard only. display_name is
+        // translatable JSON whose encoding (escaped vs raw UTF-8) differs
+        // across runtimes, so including it in the lookup silently misses and
+        // duplicates roles on reseed. (WMS roles below already use this safe
+        // pattern, which is why they never drifted.)
+        $roleSuperAdmin = Role::firstOrCreate(
+            ['name' => 'super_admin', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Super Admin', 'ar' => 'مدير_النظام']],
+        );
+        // D9-3: the seeded runtime role is `owner`. The Marvel
+        // `Role::STORE_OWNER` ('store_owner') constant is legacy vocabulary
+        // (GraphQL abilities, older docs/tests) and is intentionally NOT
+        // renamed or aliased here: no `store_owner` role is seeded and no
+        // runtime code references it. Renaming either side would break the
+        // other without a migration + client audit.
+        $roleOwner = Role::firstOrCreate(
+            ['name' => 'owner', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Owner', 'ar' => 'مالك']],
+        );
+        $roleStaff = Role::firstOrCreate(
+            ['name' => 'staff', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Staff', 'ar' => 'موظف']],
+        );
+        $roleCustomer = Role::firstOrCreate(
+            ['name' => 'customer', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Customer', 'ar' => 'عميل']],
+        );
+        $roleEditor = Role::firstOrCreate(
+            ['name' => 'editor', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Editor', 'ar' => 'محرر']],
+        );
 
-        $roleSuperAdmin->syncPermissions($permissionsData);
+        // D9-14: super_admin is synced AFTER seedWarehouseRoles() so the
+        // fresh-seed grant includes the WMS permissions. Single sync (not
+        // one before + one after) keeps reseed deterministic. Like every
+        // other role sync in this seeder, syncPermissions REPLACES the
+        // role's grant set: custom grants outside the seeded set are revoked
+        // on reseed by design — custom grants belong on custom roles.
+        $wmsPermissionNames = $this->seedWarehouseRoles();
+        $roleSuperAdmin->syncPermissions(array_merge(
+            $permissionsData,
+            Permission::whereIn('name', $wmsPermissionNames)
+                ->where('guard_name', 'api')
+                ->get()
+                ->all()
+        ));
         $roleOwner->syncPermissions($onwnerPermission);
         $roleStaff->syncPermissions($staffAndOnwner);
         $roleCustomer->syncPermissions($customerPermission);
         $roleEditor->syncPermissions($editorPermission);
-
-        $this->seedWarehouseRoles();
     }
 
     /**
@@ -592,7 +594,7 @@ class PermissionSeeder extends Seeder
      * permissions ONLY — never financial permissions (update-order-status,
      * refunds, payment administration). Supervisor holds override.
      */
-    private function seedWarehouseRoles(): void
+    private function seedWarehouseRoles(): array
     {
         $wmsPermissions = [
             'view-warehouse', 'manage-warehouse',
@@ -600,6 +602,12 @@ class PermissionSeeder extends Seeder
             'view-fulfillment', 'manage-fulfillment',
             'picking-execute', 'packing-execute',
             'fulfillment-override', 'inventory-adjust',
+            // Granular operational permissions (§28 — additive, assignable).
+            'fulfillment.create', 'fulfillment.cancel',
+            'picking.claim', 'picking.complete',
+            'packing.complete',
+            'batch.manage', 'batch.operate',
+            'order.cancel-during-fulfillment',
         ];
         foreach ($wmsPermissions as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
@@ -609,7 +617,7 @@ class PermissionSeeder extends Seeder
             ['name' => 'picker', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Picker', 'ar' => 'عامل التقاط']]
         );
-        $picker->syncPermissions(['view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute']);
+        $picker->syncPermissions(['view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute', 'picking.claim']);
 
         $packer = Role::firstOrCreate(
             ['name' => 'packer', 'guard_name' => 'api'],
@@ -624,6 +632,11 @@ class PermissionSeeder extends Seeder
         $supervisor->syncPermissions([
             'view-warehouse', 'view-location', 'view-fulfillment', 'manage-fulfillment',
             'picking-execute', 'packing-execute', 'fulfillment-override',
+            'fulfillment.create', 'fulfillment.cancel',
+            'picking.claim', 'picking.complete',
+            'packing.complete',
+            'batch.manage', 'batch.operate',
+            'order.cancel-during-fulfillment',
         ]);
 
         $manager = Role::firstOrCreate(
@@ -631,5 +644,7 @@ class PermissionSeeder extends Seeder
             ['display_name' => ['en' => 'Warehouse Manager', 'ar' => 'مدير مستودع']]
         );
         $manager->syncPermissions($wmsPermissions);
+
+        return $wmsPermissions;
     }
 }

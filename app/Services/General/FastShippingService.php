@@ -147,6 +147,26 @@ class FastShippingService
             $orderData['user_id'] = $user->id;
 
             if ($pendingOrder) {
+                // Phase 3 addendum: a COMMITTED pending order (COD/cashier
+                // committed at creation) cannot be re-reserved — supersede it
+                // through the canonical cancel and create fresh below.
+                if ($pendingOrder->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
+                    $this->orderService->changeOrderStatus(
+                        null,
+                        'cancelled',
+                        $pendingOrder->id,
+                        auditReason: 'Superseded by fast re-checkout: committed pending order replaced by a fresh order',
+                        auditContext: [
+                            'trigger' => 'checkout-retry-supersede',
+                            'superseded_order_id' => $pendingOrder->id,
+                        ],
+                        skipPromotionDecrement: true,
+                    );
+                    $pendingOrder = null;
+                }
+            }
+
+            if ($pendingOrder) {
                 $order = $this->orderCreationService->updateOrder(
                     $pendingOrder,
                     $orderData,
@@ -162,8 +182,18 @@ class FastShippingService
                 $this->orderCreationService->updateTransactionAmount($order);
 
                 // Pending-order reuse must still own a live reservation.
-                $this->orderReservationService->reserveForOrder($order);
-            } else {
+                // ($pendingOrder is guaranteed non-committed here.)
+                // F-04: gift-short reservation failures surface as the
+                // gift-specific 422; other shortages rethrow generically.
+                try {
+                    $this->orderReservationService->reserveForOrder($order);
+                } catch (\App\Exceptions\InsufficientStockException $e) {
+                    $this->promotionService->throwIfGiftUnavailable($checkoutTotals->giftItems ?? []);
+                    throw $e;
+                }
+            }
+
+            if (!isset($order)) {
                 // Fast Shipping contract: LOCAL ONLY. The value is derived
                 // server-side (never trusted from the client beyond the
                 // local-only request rule), so fast orders always resolve
@@ -210,7 +240,25 @@ class FastShippingService
                     throw new Exception('Failed to add items to order.');
                 }
 
-                $this->orderReservationService->reserveForOrder($order);
+                // F-04: same gift-specific mapping as the pending-reuse path —
+                // a gift lost between snapshot and claim fails with the gift
+                // 422, never silently and never as a generic stock error.
+                try {
+                    $this->orderReservationService->reserveForOrder($order);
+                } catch (\App\Exceptions\InsufficientStockException $e) {
+                    $this->promotionService->throwIfGiftUnavailable($checkoutTotals->giftItems ?? []);
+                    throw $e;
+                }
+
+                // Phase 3 addendum: COD/cashier secure inventory AT CREATION
+                // (same rule as addItemsInOrder). Later completion re-commits
+                // as an idempotent no-op. Digital-only orders stay ACTIVE.
+                if (
+                    in_array($order->payment_method ?? null, ['cod', 'pay_at_cashier'], true)
+                    && $this->orderReservationService->hasPhysicalLines($order)
+                ) {
+                    $this->orderReservationService->commit($order);
+                }
             }
 
             // The ordered FAST slice leaves the cart; the cart row survives.

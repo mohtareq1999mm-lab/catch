@@ -155,13 +155,20 @@ class CartApiTest extends TestCase
 
     public function test_add_item_rejects_excessive_quantity()
     {
-        // NEW CONTRACT: quantity validation moves to checkout; any qty >= 1 is accepted.
+        // F-03: the per-line maximum is enforced at the cart boundary;
+        // checkout-time stock validation is unchanged for allowed quantities.
+        $max = \App\Services\General\CartInventoryService::maxItemQuantity();
         $this->auth();
+
+        $this->postJson(self::PREFIX . '/cart', [
+            'item' => ['product_id' => $this->product->id, 'quantity' => $max, 'shipping_method' => 'scheduled'],
+        ])->assertStatus(201);
+
         $response = $this->postJson(self::PREFIX . '/cart', [
             'item' => ['product_id' => $this->product->id, 'quantity' => 999, 'shipping_method' => 'scheduled'],
         ]);
 
-        $response->assertStatus(201);
+        $response->assertStatus(422);
         $this->product->refresh();
         $this->assertEquals(0, $this->product->reserved_quantity);
     }
@@ -238,13 +245,17 @@ class CartApiTest extends TestCase
 
     public function test_update_item_accepts_any_quantity_stock_checked_at_checkout()
     {
+        // F-03: quantities up to the configured per-line maximum are still
+        // accepted without a stock check (stock is validated at checkout);
+        // quantities above the maximum are rejected (see CartPhase02FixesTest).
+        $max = \App\Services\General\CartInventoryService::maxItemQuantity();
         $this->auth();
         $this->postJson(self::PREFIX . '/cart', [
             'item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'],
         ]);
 
         $response = $this->putJson(self::PREFIX . '/cart/update-item', [
-            'item' => ['product_id' => $this->product->id, 'quantity' => 999, 'operation' => 'increment', 'shipping_method' => 'SCHEDULED'],
+            'item' => ['product_id' => $this->product->id, 'quantity' => $max - 1, 'operation' => 'increment', 'shipping_method' => 'SCHEDULED'],
         ]);
 
         $response->assertStatus(200);
@@ -517,6 +528,7 @@ $response = $this->postJson(self::PREFIX . '/general/coupons/apply', [
 
     public function test_cart_show_rejects_other_user_cart()
     {
+        // F-06: foreign cart IDs are indistinguishable from nonexistent ones.
         $this->auth();
         $this->postJson(self::PREFIX . '/cart', [
             'item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'],
@@ -535,7 +547,7 @@ $response = $this->postJson(self::PREFIX . '/general/coupons/apply', [
         Sanctum::actingAs($otherUser);
 
         $response = $this->getJson(self::PREFIX . "/cart/{$cart->id}");
-        $response->assertStatus(403);
+        $response->assertStatus(404);
     }
 
     // =========================================================================
@@ -1581,15 +1593,16 @@ $response = $this->postJson(self::PREFIX . '/general/coupons/apply', [
     /** @test */
     public function delta_new_item_rejected_when_exceeds_stock(): void
     {
+        // F-03: quantities above the per-line maximum are rejected at the
+        // cart boundary (422); stock availability remains a checkout concern.
         $this->auth();
 
         $response = $this->putJson(self::PREFIX . '/cart/update-item', [
             'item' => ['product_id' => $this->product->id, 'quantity' => 999, 'operation' => 'increment', 'shipping_method' => 'SCHEDULED'],
         ]);
 
-        $response->assertStatus(200);
-        $cart = Cart::where('user_id', $this->user->id)->first();
-        $this->assertEquals(999, $cart->items->sum('quantity'));
+        $response->assertStatus(422);
+        $this->assertNull(Cart::where('user_id', $this->user->id)->first());
         $this->assertEquals(0, $this->product->refresh()->reserved_quantity);
     }
 

@@ -109,6 +109,21 @@ class OrderCreationService
             $orderDataForCreate['fulfillment_status'] = Order::FULFILLMENT_STATUS_PENDING;
         }
 
+        // P2 creation guarantee (C2/D2), event-independent: the flow columns
+        // ride the creation INSERT itself (resolved by the flow authority),
+        // so this door never yields a flow-less row even when model events
+        // are faked or suppressed. Fail-closed: an unavailable flow or an
+        // unknown starting status aborts BEFORE the INSERT.
+        if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+            $orderDataForCreate = array_merge(
+                $orderDataForCreate,
+                app(\App\Services\OrderFlow\OrderFlowService::class)->columnsForNewOrder(
+                    $shippingType,
+                    $orderDataForCreate['status'] ?? null
+                )
+            );
+        }
+
         $order = Order::create($orderDataForCreate);
 
         if (!$order) {

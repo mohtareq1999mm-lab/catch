@@ -28,15 +28,17 @@ class WarehouseSeeder extends Seeder
             ],
         ]);
 
-        // Create sample locations with different priorities
+        // Create sample locations with different priorities. Types MUST be
+        // placeable (Location::PLACEABLE_TYPES) or allocation will ignore
+        // them via scopePlaceable.
         $locations = [
-            ['code' => 'A-01', 'name' => 'Aisle A - Shelf 01', 'type' => 'shelf', 'priority' => 10],
-            ['code' => 'A-02', 'name' => 'Aisle A - Shelf 02', 'type' => 'shelf', 'priority' => 9],
-            ['code' => 'A-03', 'name' => 'Aisle A - Shelf 03', 'type' => 'shelf', 'priority' => 8],
-            ['code' => 'B-01', 'name' => 'Aisle B - Shelf 01', 'type' => 'shelf', 'priority' => 7],
-            ['code' => 'B-02', 'name' => 'Aisle B - Shelf 02', 'type' => 'shelf', 'priority' => 6],
-            ['code' => 'BULK-01', 'name' => 'Bulk Storage Zone 01', 'type' => 'zone', 'priority' => 5],
-            ['code' => 'PICK-01', 'name' => 'Fast Pick Zone 01', 'type' => 'bin', 'priority' => 15],
+            ['code' => 'A-01', 'name' => 'Aisle A - Shelf 01', 'type' => 'storage', 'priority' => 10],
+            ['code' => 'A-02', 'name' => 'Aisle A - Shelf 02', 'type' => 'storage', 'priority' => 9],
+            ['code' => 'A-03', 'name' => 'Aisle A - Shelf 03', 'type' => 'storage', 'priority' => 8],
+            ['code' => 'B-01', 'name' => 'Aisle B - Shelf 01', 'type' => 'storage', 'priority' => 7],
+            ['code' => 'B-02', 'name' => 'Aisle B - Shelf 02', 'type' => 'storage', 'priority' => 6],
+            ['code' => 'BULK-01', 'name' => 'Bulk Storage Zone 01', 'type' => 'storage', 'priority' => 5],
+            ['code' => 'PICK-01', 'name' => 'Fast Pick Zone 01', 'type' => 'picking', 'priority' => 15],
         ];
 
         foreach ($locations as $locationData) {

@@ -473,6 +473,56 @@ class FinancialReportingCurrencyTest extends CurrencyTestCase
     }
 
     /** @test */
+    public function net_revenue_is_computed_within_each_order_currency(): void
+    {
+        $this->seedCurrencyData();
+
+        // 375 SAR order, 50 SAR discount embedded in total, 100 SAR refund.
+        app(CurrencyService::class)->setCatalogCurrency(
+            \App\Models\Currency::query()->where('code', 'SAR')->firstOrFail()
+        );
+        $sarOrder = $this->completeOrder($this->createOrder(375.0));
+        \Marvel\Database\Models\Refund::create([
+            'title' => 'SAR partial', 'amount' => 100.0,
+            'status' => 'approved', 'order_id' => $sarOrder->id,
+        ]);
+
+        // 100 USD order, 20 USD refund.
+        app(CurrencyService::class)->setCatalogCurrency(
+            \App\Models\Currency::query()->where('code', 'USD')->firstOrFail()
+        );
+        $usdOrder = $this->completeOrder($this->createOrder(100.0));
+        \Marvel\Database\Models\Refund::create([
+            'title' => 'USD partial', 'amount' => 20.0,
+            'status' => 'approved', 'order_id' => $usdOrder->id,
+        ]);
+
+        $finance = app(DashboardService::class)->getFinanceAnalytics(new Request());
+
+        // 375-100=275 SAR and 100-20=80 USD: never 275+80=355 as money.
+        $this->assertEquals(['SAR' => 275.0, 'USD' => 80.0], $finance['net_revenue_by_currency']);
+        $this->assertTrue($finance['mixed_net_currencies']);
+
+        // Refunds outside the completed population are reported but never
+        // netted: pending-order (USD catalog at this point) refund + orphan.
+        $pendingUsd = $this->createOrder(50.0);
+        \Marvel\Database\Models\Refund::create([
+            'title' => 'USD pending-order', 'amount' => 9.0,
+            'status' => 'approved', 'order_id' => $pendingUsd->id,
+        ]);
+        \Marvel\Database\Models\Refund::create([
+            'title' => 'Orphan', 'amount' => 7.0, 'status' => 'approved',
+        ]);
+        \Illuminate\Support\Facades\Cache::forget('dashboard_finance_analytics');
+        $finance = app(DashboardService::class)->getFinanceAnalytics(new Request());
+
+        $this->assertEquals(['SAR' => 275.0, 'USD' => 80.0], $finance['net_revenue_by_currency']);
+        $this->assertEqualsWithDelta(29.0, (float) $finance['refund_by_currency']['USD'], 0.01);
+        $this->assertEqualsWithDelta(100.0, (float) $finance['refund_by_currency']['SAR'], 0.01);
+        $this->assertEqualsWithDelta(7.0, (float) $finance['refund_by_currency']['UNKNOWN'], 0.01);
+    }
+
+    /** @test */
     public function unresolved_legacy_orders_are_excluded_from_coupon_spend(): void
     {
         $this->seedCurrencyData();

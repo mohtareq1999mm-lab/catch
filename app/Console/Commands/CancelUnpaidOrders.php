@@ -6,12 +6,9 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Transaction;
-use App\Events\OrderCancelled;
-use App\Events\OrderStatusChanged;
 use App\Events\PaymentFailed;
-use App\Services\Inventory\OrderReservationService;
+use App\Services\General\OrderService;
 use App\Services\Payment\PaymentGatewayFactory;
-use App\Services\Coupon\CouponReservationService;
 
 /**
  * Unpaid/unactioned-order reaper.
@@ -31,28 +28,27 @@ class CancelUnpaidOrders extends Command
     protected $signature = 'orders:cancel-unpaid';
     protected $description = 'Cancel pending orders whose inventory reservation expired (24h Online/Cashier, 7d COD/Delivery) and release it';
 
-    private OrderReservationService $orderReservationService;
     private PaymentGatewayFactory $paymentGatewayFactory;
-    private CouponReservationService $couponReservationService;
 
     public function __construct(
-        OrderReservationService $orderReservationService,
         PaymentGatewayFactory $paymentGatewayFactory,
-        CouponReservationService $couponReservationService,
     ) {
         parent::__construct();
-        $this->orderReservationService = $orderReservationService;
         $this->paymentGatewayFactory = $paymentGatewayFactory;
-        $this->couponReservationService = $couponReservationService;
     }
 
     public function handle(): int
     {
         $now = now();
 
+        // Phase 3 addendum: COD/cashier commit at creation while still
+        // unpaid, so expiry must cover COMMITTED pendings too — otherwise
+        // their stock strands forever (the old ACTIVE-only filter would
+        // never select them). The canonical writer restores committed rows
+        // and releases active ones; paid rows stay excluded below.
         $query = Order::query()
             ->where('status', 'pending')
-            ->where('inventory_state', Order::INVENTORY_STATE_ACTIVE)
+            ->whereIn('inventory_state', [Order::INVENTORY_STATE_ACTIVE, Order::INVENTORY_STATE_COMMITTED])
             ->whereNotNull('reservation_expires_at')
             ->where('reservation_expires_at', '<=', $now);
 
@@ -76,7 +72,7 @@ class CancelUnpaidOrders extends Command
                 if (
                     !$lockedOrder
                     || $lockedOrder->status !== 'pending'
-                    || $lockedOrder->inventory_state !== Order::INVENTORY_STATE_ACTIVE
+                    || !in_array($lockedOrder->inventory_state, [Order::INVENTORY_STATE_ACTIVE, Order::INVENTORY_STATE_COMMITTED], true)
                 ) {
                     return;
                 }
@@ -91,88 +87,45 @@ class CancelUnpaidOrders extends Command
                     return;
                 }
 
-                // Release THIS order's exact reservation first (active -> released).
-                $this->orderReservationService->release($lockedOrder);
-
-                // Release coupon reservation (Rule 14)
-                $this->couponReservationService->release($lockedOrder);
-
-                $cancelUpdateData = ['status' => 'cancelled'];
-                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'current_status_id')
-                    && \App\Services\OrderFlow\OrderFlowService::tablesAvailable()
-                ) {
-                    $cancelledId = \App\Models\OrderFlow\OrderStatus::query()->where('code', 'cancelled')->value('id');
-                    if ($cancelledId) {
-                        $cancelUpdateData['current_status_id'] = $cancelledId;
-                    }
-                }
-                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'payment_status')) {
-                    $cancelUpdateData['payment_status'] = Order::PAYMENT_STATUS_FAILED;
-                }
-                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'fulfillment_status')) {
-                    $cancelUpdateData['fulfillment_status'] = Order::FULFILLMENT_STATUS_CANCELLED;
-                }
-                if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'cancelled_at')) {
-                    $cancelUpdateData['cancelled_at'] = now();
-                }
-                $previousStatus = $lockedOrder->status;
-                $oldPaymentStatus = $lockedOrder->getOriginal('payment_status');
-                $oldFulfillmentStatus = $lockedOrder->getOriginal('fulfillment_status');
-                $lockedOrder->update($cancelUpdateData);
-
-                // Record history for system expiry (immutable audit).
-                // Canonical-path note: this command intentionally acts only on
-                // locked pending orders (re-checked above), for which the
-                // flow guard allows pending -> cancelled; it bypasses
-                // changeOrderStatus() to avoid decrementing promotion usage
-                // for never-paid orders (pre-existing policy, ORD-1).
+                // P3-1 (D3): the ONLY lifecycle mutation is the canonical writer.
+                // ORD-1 preserved via skipPromotionDecrement (never-paid expiry
+                // cancels never decrement promotion usage); the never-paid
+                // payment marker is preserved via markPaymentFailed; the
+                // canonical writer owns reservation/coupon release, history,
+                // invoice and lifecycle events. Payment-domain finalization
+                // (pending transactions, PaymentFailed) stays here.
                 try {
-                    if (\Illuminate\Support\Facades\Schema::hasTable('order_status_history')) {
-                        $flowMetadata = [];
-                        try {
-                            $flowMetadata = app(\App\Services\OrderFlow\OrderFlowService::class)
-                                ->flowMetadata($lockedOrder, $previousStatus, $lockedOrder->status);
-                        } catch (\Throwable $e) {
-                            report($e);
-                        }
-                        $lockedOrder->recordStatusChange(
-                            oldStatus: $previousStatus,
-                            newStatus: $lockedOrder->status,
-                            changedBy: null,
-                            changedByType: 'system',
-                            notes: 'Order cancelled due to reservation expiry',
-                            metadata: array_merge([
-                                'reservation_expires_at' => $lockedOrder->reservation_expires_at?->toIso8601String(),
-                                'old_payment_status' => $oldPaymentStatus,
-                                'new_payment_status' => $cancelUpdateData['payment_status'] ?? $lockedOrder->payment_status,
-                            ], $flowMetadata),
-                            oldPaymentStatus: $oldPaymentStatus,
-                            newPaymentStatus: $cancelUpdateData['payment_status'] ?? $lockedOrder->payment_status,
-                            oldFulfillmentStatus: $oldFulfillmentStatus,
-                            newFulfillmentStatus: $cancelUpdateData['fulfillment_status'] ?? $lockedOrder->fulfillment_status
-                        );
-                    }
+                    $mutated = app(OrderService::class)->changeOrderStatus(
+                        null,
+                        'cancelled',
+                        $lockedOrder->id,
+                        auditReason: 'Order cancelled due to reservation expiry',
+                        auditContext: [
+                            'reservation_expires_at' => $lockedOrder->reservation_expires_at?->toIso8601String(),
+                            'trigger' => 'orders:cancel-unpaid',
+                        ],
+                        skipPromotionDecrement: true,
+                        markPaymentFailed: true,
+                    );
                 } catch (\Throwable $e) {
+                    // A poison order must never abort the whole reaper run.
                     report($e);
+
+                    return;
                 }
 
-                // System-initiated pre-payment cancellation: the order was never
-                // paid, so promotion usage must NOT be decremented. We bypass
-                // changeOrderStatus() here but keep the audit events.
-                event(new OrderStatusChanged($lockedOrder));
+                if (!$mutated) {
+                    return;
+                }
 
+                // Payment-domain finalization the canonical writer doesn't own:
+                // fail every lingering pending transaction, then notify.
                 $lockedOrder->transactions()
                     ->where('status', 'pending')
                     ->update(['status' => 'failed']);
 
                 try {
-                    event(new OrderCancelled($lockedOrder));
-                } catch (\Throwable $e) {
-                    report($e);
-                }
-
-                try {
-                    event(new PaymentFailed($lockedOrder));
+                    event(new PaymentFailed($lockedOrder->refresh()));
                 } catch (\Throwable $e) {
                     report($e);
                 }

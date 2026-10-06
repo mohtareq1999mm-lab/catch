@@ -16,6 +16,7 @@ return [
     'fast_shipping_items_ineligible' => 'واحد أو أكثر من العناصر في سلتك غير مؤهلة للشحن السريع.',
     'invalid_order_status_transition' => 'لا يمكن تغيير حالة الطلب من :from إلى :to.',
     'invalid_flow_transition' => 'لا يمكن تغيير حالة الطلب من :from إلى :to في مسار الشحن.',
+    'legacy_status_frozen' => 'الحالة القديمة :code لا يمكن أن تبدأ أو تنقل الطلب خارج مساره.',
     'shipping_type_unsupported' => 'نوع الشحن المحدد غير مدعوم.',
     'shipping_type_invalid' => 'نوع الشحن المحدد غير صالح.',
     'shipping_type_unavailable' => 'نوع الشحن المحدد غير متاح لهذا الطلب.',
@@ -34,6 +35,7 @@ return [
     'status_batch_partial' => 'تم تحديث :succeeded من أصل :total طلبات؛ راجع نتائج كل طلب.',
     // Dynamic Flow Inputs
     'flow_values_must_be_object' => 'يجب أن تكون قيم المسار كائنًا مرتبًا حسب مفتاح الإدخال.',
+    'flow_values_unknown_order' => 'قيم المسار الخاصة بالطلب تشير إلى الطلب :id، وهو غير موجود في هذه الدفعة.',
     'flow_input_invalid' => 'واحد أو أكثر من مدخلات المسار غير صالحة.',
     'flow_input_unknown' => 'مدخل مسار غير معروف: :key.',
     'flow_input_required' => 'مدخل المسار :key مطلوب.',

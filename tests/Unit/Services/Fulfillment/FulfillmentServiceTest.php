@@ -31,7 +31,7 @@ class FulfillmentServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->service = new FulfillmentService(new ProductLocationService(), new FulfillmentTransition());
+        $this->service = app(FulfillmentService::class);
 
         // Create test user
         $this->user = \App\Models\User::create([

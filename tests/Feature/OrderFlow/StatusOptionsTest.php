@@ -465,11 +465,20 @@ class StatusOptionsTest extends TestCase
             $this->assertSame($step, $order->fresh()->status);
         }
 
-        // Terminal delivery via its granular permission.
-        $this->patchAs($op, $order, ['status' => 'delivered'])->assertStatus(200);
+        // Terminal delivery via its granular permission: the permission
+        // gate passes, but Phase 8 (D8-5) still requires the shipment
+        // completion invariant — refused (legacy 422 transition contract).
+        $this->patchAs($op, $order, ['status' => 'delivered'])->assertStatus(422);
+        $this->assertSame('out_for_delivery', $order->fresh()->status);
+
+        // Reach the terminal source through the audited force path, then
+        // verify it rejects everything afterwards.
+        \Laravel\Sanctum\Sanctum::actingAs($op);
+        app(\App\Services\General\OrderService::class)->changeOrderStatus(
+            null, 'delivered', $order->id, true, 'granular perm walk', null, true, [], false, false, true
+        );
         $this->assertSame('delivered', $order->fresh()->status);
 
-        // Terminal source rejects everything afterwards.
         $this->patchAs($op, $order, ['status' => 'cancelled'])->assertStatus(422);
         $this->assertSame('delivered', $order->fresh()->status);
     }

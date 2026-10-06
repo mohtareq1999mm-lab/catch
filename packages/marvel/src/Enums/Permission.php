@@ -320,6 +320,17 @@ final class Permission extends Enum
     public const FULFILLMENT_OVERRIDE = 'fulfillment-override';
     public const INVENTORY_ADJUST = 'inventory-adjust';
 
+    // 🏭 Fulfillment operational granularity (§28 — independently assignable,
+    // enforced by the WMS HTTP layer when built; services stay caller-enforced).
+    public const FULFILLMENT_CREATE = 'fulfillment.create';
+    public const FULFILLMENT_CANCEL = 'fulfillment.cancel';
+    public const PICKING_CLAIM = 'picking.claim';
+    public const PICKING_COMPLETE = 'picking.complete';
+    public const PACKING_COMPLETE = 'packing.complete';
+    public const BATCH_MANAGE = 'batch.manage';
+    public const BATCH_OPERATE = 'batch.operate';
+    public const ORDER_CANCEL_DURING_FULFILLMENT = 'order.cancel-during-fulfillment';
+
     // 🔑 Digital licenses (Workstream 5, decision A4)
     public const MANAGE_DIGITAL_LICENSES = 'manage-digital-licenses';
 

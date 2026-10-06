@@ -38,6 +38,20 @@ class OrderLifecycleTest extends TestCase
         \Illuminate\Support\Facades\DB::table('orders')->where('id', $order->id)
             ->update(['order_number' => 'ORD-' . str_pad((string) $order->id, 8, '0', STR_PAD_LEFT)]);
 
+        // Single-source-of-truth: every order carries its assigned flow,
+        // mirroring production creation (OrderCreationService). Requested
+        // non-pending starting states are arranged directly (fixture setup,
+        // not a lifecycle transition) with a consistent stage mirror.
+        $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+        $flowService->assignFlowToOrder($order->refresh(), 'local');
+
+        if ($status !== 'pending') {
+            \Illuminate\Support\Facades\DB::table('orders')->where('id', $order->id)->update([
+                'status' => $status,
+                'current_status_id' => $flowService->statusIdForCode($status),
+            ]);
+        }
+
         return $order->refresh();
     }
 

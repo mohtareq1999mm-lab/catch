@@ -6,59 +6,50 @@ use Exception;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
-use Marvel\Database\Models\Product;
-use Marvel\Database\Models\ProductVariant;
 
 class RestoreProductInventory implements ShouldQueue
 {
+    public function __construct(
+        private \App\Services\Inventory\InventoryRestoreService $inventoryRestore,
+    ) {}
+
     public function viaQueue($event = null): string
     {
         return \App\Enums\QueueName::high();
     }
 
     public $afterCommit = true;
+
+    /**
+     * Phase 7 (P7-2): exactly-once inventory restore.
+     *
+     * The ONLY restoration authority is InventoryRestoreService::restore()
+     * (canonical COMMITTED → RESTORED state claim, shared with the
+     * synchronous cancel path and the refund paths). This listener performs
+     * no stock math of its own — re-running it, or running it alongside the
+     * synchronous path in any order, restores exactly once; losers no-op.
+     *
+     * The legacy inventory_restored_at column is stamped as an
+     * observability marker only — it is NOT an idempotency guard.
+     */
     public function handle($event)
     {
         try {
-            DB::transaction(function () use ($event) {
-                $order = $event->order;
+            $order = $event->order;
 
-                $updated = Order::whereKey($order->id)
-                    ->whereNull('inventory_restored_at')
-                    ->lockForUpdate()
-                    ->update(['inventory_restored_at' => now()]);
-                if ($updated === 0) {
-                    return;
-                }
+            if (!$order || !$order->paid_at) {
+                return;
+            }
 
-                if (!$order->paid_at) {
-                    return;
-                }
+            $restored = $this->inventoryRestore->restore($order);
 
-                $orderItems = $order->orderItems;
-
-                foreach ($orderItems as $item) {
-                    if ($item->is_gift) {
-                        continue;
-                    }
-
-                    if ($item->product_variant_id) {
-                        $variant = ProductVariant::lockForUpdate()->find($item->product_variant_id);
-                        if ($variant) {
-                            $variant->stock_quantity = max(0, (int) $variant->stock_quantity + (int) $item->product_quantity);
-                            $variant->sold_quantity = max(0, (int) $variant->sold_quantity - (int) $item->product_quantity);
-                            $variant->save();
-                        }
-                    } else {
-                        $product = Product::lockForUpdate()->find($item->product_id);
-                        if ($product && !$product->is_rental) {
-                            $product->stock_quantity = max(0, (int) $product->stock_quantity + (int) $item->product_quantity);
-                            $product->sold_quantity = max(0, (int) $product->sold_quantity - (int) $item->product_quantity);
-                            $product->save();
-                        }
-                    }
-                }
-            });
+            if ($restored) {
+                DB::transaction(function () use ($order) {
+                    Order::whereKey($order->id)
+                        ->whereNull('inventory_restored_at')
+                        ->update(['inventory_restored_at' => now()]);
+                });
+            }
         } catch (Exception $th) {
             \Log::error('Error restoring product inventory: ' . $th->getMessage());
             throw $th;

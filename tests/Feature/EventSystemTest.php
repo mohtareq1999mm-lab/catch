@@ -467,6 +467,12 @@ class EventSystemTest extends TestCase
     public function restore_product_inventory_restores_stock()
     {
         $order = $this->createOrderWithItems();
+        // Phase 7 (P7-2): the canonical claim restores COMMITTED orders —
+        // a genuinely-paid order is committed (real-world precondition).
+        $order->forceFill([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ])->save();
 
         event(new OrderCancelled($order));
 
@@ -559,6 +565,13 @@ class EventSystemTest extends TestCase
     public function restore_inventory_on_refund_restores_stock()
     {
         $order = $this->createOrderWithItems();
+        // Phase 7 (P7-7): refunds restore COMMITTED inventory through the
+        // canonical claim (a refunded order was genuinely paid + committed).
+        $order->forceFill([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ])->save();
+
         $refund = Refund::withoutEvents(function () use ($order) {
             return Refund::create([
                 'order_id' => $order->id,
@@ -569,7 +582,11 @@ class EventSystemTest extends TestCase
             ]);
         });
 
-        event(new RefundApproved($refund));
+        // Phase 7 (P7-7): the App listener is invoked directly — a global
+        // event() dispatch also fires legacy Marvel RefundApproved listeners
+        // (reviews-schema mismatch is pre-existing out-of-scope debt). Same
+        // precedent as the RestoreProductInventory direct-handle tests below.
+        app(RestoreInventoryOnRefund::class)->handle(new RefundApproved($refund));
 
         $this->assertDatabaseHas('products', [
             'id' => $this->product->id,
@@ -582,6 +599,12 @@ class EventSystemTest extends TestCase
     public function restore_inventory_on_refund_skips_when_order_already_cancelled()
     {
         $order = $this->createOrderWithItems();
+        // COMMITTED proves the skip comes from the cancelled rule (P7-7),
+        // not from a state-claim no-op.
+        $order->forceFill([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ])->save();
         $order->update(['status' => 'cancelled']);
 
         $refund = Refund::withoutEvents(function () use ($order) {
@@ -594,7 +617,7 @@ class EventSystemTest extends TestCase
             ]);
         });
 
-        event(new RefundApproved($refund));
+        app(RestoreInventoryOnRefund::class)->handle(new RefundApproved($refund));
 
         $this->assertDatabaseHas('products', [
             'id' => $this->product->id,
@@ -616,7 +639,7 @@ class EventSystemTest extends TestCase
             ]);
         });
 
-        event(new RefundApproved($refund));
+        app(RestoreInventoryOnRefund::class)->handle(new RefundApproved($refund));
 
         $this->assertTrue(true);
     }
@@ -630,6 +653,12 @@ class EventSystemTest extends TestCase
             'total_price' => 100.00,
             'status' => 'completed',
         ]);
+        // COMMITTED proves the skip comes from the gift-only rule (P7-7),
+        // not from a state-claim no-op.
+        $order->forceFill([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ])->save();
 
         OrderProduct::create([
             'order_id' => $order->id,
@@ -650,7 +679,7 @@ class EventSystemTest extends TestCase
             ]);
         });
 
-        event(new RefundApproved($refund));
+        app(RestoreInventoryOnRefund::class)->handle(new RefundApproved($refund));
 
         $this->assertDatabaseHas('products', [
             'id' => $this->product->id,
@@ -978,7 +1007,14 @@ class EventSystemTest extends TestCase
         Config::set('payment.order_timeout_hours', 1);
 
         $order = $this->createOrderWithPendingTransaction('cod');
-        DB::table('orders')->where('id', $order->id)->update(['created_at' => now()->subHours(2)]);
+        // Reservation-expiry authority: the reaper selects on
+        // inventory_state=active + reservation_expires_at<=now (not on
+        // created_at/config timeouts), so arm the reservation as expired.
+        DB::table('orders')->where('id', $order->id)->update([
+            'created_at' => now()->subHours(2),
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->subMinute(),
+        ]);
 
         $this->artisan('orders:cancel-unpaid');
 
@@ -1152,6 +1188,11 @@ class EventSystemTest extends TestCase
     public function restore_product_inventory_handles_marvel_event()
     {
         $order = $this->createOrderWithItems();
+        // Phase 7 (P7-2): canonical claim restores COMMITTED orders.
+        $order->forceFill([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ])->save();
         $event = new \Marvel\Events\OrderCancelled($order);
 
         $listener = app(RestoreProductInventory::class);
@@ -1170,6 +1211,11 @@ class EventSystemTest extends TestCase
     public function restore_product_inventory_via_marvel_event_is_idempotent()
     {
         $order = $this->createOrderWithItems();
+        // Phase 7 (P7-2): canonical claim restores COMMITTED orders.
+        $order->forceFill([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ])->save();
         $event = new \Marvel\Events\OrderCancelled($order);
 
         $listener = app(RestoreProductInventory::class);

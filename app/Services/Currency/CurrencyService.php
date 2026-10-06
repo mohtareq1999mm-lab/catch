@@ -12,7 +12,6 @@ use App\Exceptions\CurrencyRateNotFoundException;
 use App\Models\Currency;
 use App\Models\CurrencyRate;
 use App\Traits\HasCache;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use App\Jobs\LogActivityJob;
@@ -479,7 +478,14 @@ $user ??= auth()->user() ?? auth('sanctum')->user();
             $tags[] = FrontendResource::SETTINGS->value;
         }
 
-        Cache::tags(array_values(array_unique($tags)))->flush();
+        // Route through the HasCache safe flush: on tag-capable stores this
+        // flushes each tag; on file/array stores (no tagging) it degrades
+        // gracefully instead of throwing AFTER the DB work already committed
+        // (proven live: currency:sync-rates reported FAILURE post-commit on a
+        // file-cache console environment despite rows being written).
+        foreach (array_values(array_unique($tags)) as $tag) {
+            $this->flushTag($tag);
+        }
 
         \App\Services\General\HomeService::clearCache();
         $this->forgetRateCache();

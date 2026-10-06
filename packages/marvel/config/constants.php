@@ -813,6 +813,9 @@ if (!defined('ERROR_CREATING_INVOICE')) {
 if (!defined('ERROR_ADDING_ITEMS_TO_ORDER')) {
     define('ERROR_ADDING_ITEMS_TO_ORDER', 'ERROR.ERROR_ADDING_ITEMS_TO_ORDER');
 }
+if (!defined('ERROR_CANCELLING_ORDER')) {
+    define('ERROR_CANCELLING_ORDER', 'ERROR.ERROR_CANCELLING_ORDER');
+}
 if (!defined('ERROR_CREATING_TRANSACTION')) {
     define('ERROR_CREATING_TRANSACTION', 'ERROR.ERROR_CREATING_TRANSACTION');
 }
@@ -917,6 +920,12 @@ if (!defined('CANNOT_DELETE_ASSIGNMENT_WITH_USAGE')) {
 }
 if (!defined('QUANTITY_MINIMUM')) {
     define('QUANTITY_MINIMUM', 'cart.inventory.quantity_minimum');
+}
+if (!defined('QUANTITY_MAXIMUM')) {
+    // NOTE: unlike QUANTITY_MINIMUM (a bare 'cart.inventory.*' key that the
+    // translator cannot resolve to a lang file), this carries the 'message.'
+    // group so __() renders the en/ar text from resources/lang/*/message.php.
+    define('QUANTITY_MAXIMUM', 'message.cart.inventory.quantity_maximum');
 }
 if (!defined('GIFT_VARIANT_NOT_AVAILABLE')) {
     define('GIFT_VARIANT_NOT_AVAILABLE', 'cart.inventory.gift_variant_not_available');

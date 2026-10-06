@@ -20,6 +20,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\NotifyAbandonedCarts::class,
         \App\Console\Commands\NotifyPromotionsEndingSoon::class,
         \App\Console\Commands\NotifyFlashSalesEndingSoon::class,
+        \App\Console\Commands\ReleaseReadyFulfillments::class,
         \App\Console\Commands\SyncCurrencyRates::class,
         \App\Console\Commands\SweepExpiredPickingClaims::class,
     ];
@@ -36,7 +37,18 @@ class Kernel extends ConsoleKernel
         // Report-only, never repairs; exit 1 on issues for monitoring/alerting.
         // withoutOverlapping + onOneServer prevents duplicate executions.
         $schedule->command('coupons:reconcile')->hourly()->withoutOverlapping()->onOneServer();
-        $schedule->command('cart:notify-abandoned')->hourly()->withoutOverlapping();
+        // Phase 3: fulfillment-release recovery backstop. Event listeners
+        // are the primary sub-minute path; this hourly sweep releases
+        // releasable orders the event path missed (exhausted retries,
+        // queue downtime, warehouse-added-later, legacy-created orders).
+        // Idempotent via the automatic release key; withoutOverlapping +
+        // onOneServer prevents duplicate sweeps.
+        $schedule->command('fulfillment:release-ready')->hourly()->withoutOverlapping()->onOneServer();
+        // F-05: withoutOverlapping + onOneServer prevents duplicate
+        // scheduler executions; the command additionally performs an atomic
+        // per-cart claim (reminder_sent_at NULL -> timestamp) so concurrent
+        // workers sharing one database can never double-notify.
+        $schedule->command('cart:notify-abandoned')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('promotions:notify-ending-soon')->daily()->withoutOverlapping();
         $schedule->command('flash-sales:notify-ending-soon')->daily()->withoutOverlapping();
         // Permanently remove products soft-deleted more than 30 days ago.

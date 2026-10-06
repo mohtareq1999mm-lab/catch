@@ -85,7 +85,7 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
      * The REAL business action: create an order for the authenticated user and
      * run the REAL finalizeOrder() path which dispatches App\Events\OrderCreated.
      */
-    private function triggerRealOrderCreated(User $user): void
+    private function triggerRealOrderCreated(User $user): \Marvel\Database\Models\Order
     {
         $order = $this->createOrder($user);
 
@@ -98,6 +98,8 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
                 finalTotal: 100.0,
             )
         );
+
+        return $order->refresh();
     }
 
     // ==================== STEP 1 — REAL LOGIN ====================
@@ -149,10 +151,12 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
 
         // Enable the query log BEFORE the trigger so the INSERT is captured.
         DB::enableQueryLog();
-        $this->triggerRealOrderCreated($user);
+        $triggeredOrder = $this->triggerRealOrderCreated($user);
 
-        // The via() contract of the real notification class.
-        $notification = new UserOrderCreatedNotification($this->createOrder($user));
+        // The via() contract of the real notification class. Reuse the
+        // triggered order: one pending order per user (unique index), so a
+        // second createOrder() for the same user would violate it.
+        $notification = new UserOrderCreatedNotification($triggeredOrder);
         $channels = $notification->via($user);
         $this->assertContains('database', $channels);
         $this->assertContains('broadcast', $channels);
@@ -165,7 +169,7 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
             ->first();
         $this->assertNotNull($notificationRow, 'DatabaseChannel must have INSERTed a notifications row.');
 
-        $inserts = collect(DB::getQueryLog())->filter(fn ($q) => str_contains(strtolower($q['query']), 'insert into "notifications"'));
+        $inserts = collect(DB::getQueryLog())->filter(fn ($q) => str_contains(strtolower($q['query']), 'insert into') && str_contains(strtolower($q['query']), 'notifications'));
         $this->assertGreaterThan(0, $inserts->count(), 'No INSERT INTO notifications found in the query log.');
         DB::disableQueryLog();
 
@@ -184,7 +188,7 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         $user = $this->seedPrimaryUser();
         $this->login(self::TEST_EMAIL);
 
-        $this->triggerRealOrderCreated($user);
+        $triggeredOrder = $this->triggerRealOrderCreated($user);
 
         $row = DB::table('notifications')
             ->where('notifiable_type', User::class)
@@ -223,8 +227,9 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         $this->assertNotEmpty($data['message']['en']);
         $this->assertNotEmpty($data['message']['ar']);
 
-        // databaseType() == broadcastType() == stable id.
-        $n = new UserOrderCreatedNotification($this->createOrder($user));
+        // databaseType() == broadcastType() == stable id. Reuse the triggered
+        // order (one pending order per user).
+        $n = new UserOrderCreatedNotification($triggeredOrder);
         $this->assertEquals('order.created', $n->databaseType($user));
         $this->assertEquals('order.created', $n->broadcastType());
     }
@@ -317,6 +322,10 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         $other = $this->createUser('user');
         $otherToken = $this->login($other->email);
 
+        // Same in-process memoization hazard as the sibling RealE2E suite:
+        // drop cached guards so the second user's requests resolve as them.
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+
         $this->withToken($otherToken)
             ->getJson(self::API_PREFIX . '/notifications')
             ->assertStatus(200)
@@ -396,6 +405,8 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         // Simulate production where the notifications table was never created.
         Schema::dropIfExists('notifications');
 
+        try {
+
         $this->resetBroadcastRecordings();
 
         // Capture the JobFailed events — the same events a real queue:work
@@ -444,6 +455,26 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         // so the notifications table holds NO row for this user.
         $this->assertNotEmpty($failedJobs, 'The database channel job must have failed.');
         $this->assertFalse(Schema::hasTable('notifications'));
+        } finally {
+        // DDL commits in MySQL: always restore pass or fail so later suites
+        // are not sabotaged by the simulated missing table. Also remove this
+        // test's DDL-committed rows (the drop above froze them past rollback)
+        // so the fixed-email seeds of later tests don't collide.
+        if (!Schema::hasTable('notifications')) {
+            Schema::create('notifications', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->string('type');
+                $table->morphs('notifiable');
+                $table->text('data');
+                $table->timestamp('read_at')->nullable();
+                $table->timestamps();
+            });
+        }
+        DB::table('jobs')->delete();
+        DB::table('orders')->where('user_id', $user->id)->delete();
+        DB::table('carts')->where('user_id', $user->id)->delete();
+        DB::table('users')->where('id', $user->id)->delete();
+        }
     }
 
     /**
@@ -474,11 +505,18 @@ class RealUserNotificationDatabasePersistenceE2ETest extends NotificationE2ETest
         \Illuminate\Support\Facades\Queue::setDefaultDriver('database');
 
         $order = $this->createOrder($user);
+
+        // Scope to jobs created by THIS notify: the jobs table is global and
+        // earlier tests (or leaked queue config) may have left rows behind.
+        $jobsBefore = (int) (DB::table('jobs')->max('id') ?? 0);
         $user->notify(new UserOrderCreatedNotification($order));
 
-        // Two independent SendQueuedNotifications jobs for the two channels.
-        $jobs = DB::table('jobs')->get();
-        $this->assertCount(2, $jobs);
+        // Independent SendQueuedNotifications jobs — one per channel of the
+        // notification's own via() contract (database+fcm+broadcast today;
+        // derived, not hardcoded, so channel additions don't stale this).
+        $expectedChannels = (new UserOrderCreatedNotification($order))->via($user);
+        $jobs = DB::table('jobs')->where('id', '>', $jobsBefore)->orderBy('id')->get();
+        $this->assertCount(count($expectedChannels), $jobs);
 
         $serialized = $jobs->map(fn ($job) => json_decode($job->payload, true)['data']['command'])->all();
         foreach ($serialized as $command) {

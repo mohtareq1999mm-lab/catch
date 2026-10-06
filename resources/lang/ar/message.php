@@ -261,6 +261,7 @@ return [
     'ERROR.CART_NOT_FOUND' => 'السلة غير موجودة',
     'ERROR.ERROR_CREATING_INVOICE' => 'خطأ في إنشاء الفاتورة',
     'ERROR.ERROR_ADDING_ITEMS_TO_ORDER' => 'خطأ في إضافة العناصر إلى الطلب',
+    'ERROR.ERROR_CANCELLING_ORDER' => 'خطأ في إلغاء الطلب',
     'ERROR.ERROR_CREATING_TRANSACTION' => 'خطأ في إنشاء المعاملة',
     'MESSAGE.CHECKOUT_SUCCESSFUL' => 'تم الدفع بنجاح',
     'ERROR.MISSING_PAYMENT_ID' => 'معرّف الدفع مفقود',
@@ -406,6 +407,7 @@ return [
     'MESSAGE.PICKUP_LOCATION_DELETED_SUCCESSFULLY' => 'تم حذف موقع الاستلام بنجاح',
 
     'cart.inventory.quantity_minimum' => 'يجب أن تكون الكمية 1 على الأقل.',
+    'cart.inventory.quantity_maximum' => 'يجب ألا تتجاوز الكمية :max لكل سطر في السلة.',
     'cart.inventory.gift_variant_not_available' => 'النوع المختار للهدية غير متوفر.',
     'cart.inventory.gift_variant_no_stock' => 'لا يوجد مخزون متاح للنوع للهدية.',
     'cart.inventory.quantity_exceeds_stock' => 'الكمية تتجاوز المخزون المتاح.',

@@ -113,7 +113,9 @@ class OrderController extends Controller
         }
 
         if (!$cancelled) {
-            return $this->apiResponse(ERROR_ADDING_ITEMS_TO_ORDER, 500, false);
+            // F-05: resolution-miss failure is a cancel failure, never an
+            // add-items failure. Narrow cancel-specific error constant.
+            return $this->apiResponse(ERROR_CANCELLING_ORDER, 500, false);
         }
 
         $fresh = $this->orderService->getOrderForUser($request, $orderId);

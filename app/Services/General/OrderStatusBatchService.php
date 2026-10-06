@@ -43,16 +43,19 @@ class OrderStatusBatchService
      * @param  mixed        $actor      Authenticated actor (null = system context).
      * @param  array<int>   $orderIds   One id or many — same pipeline either way.
      * @param  array<string,mixed> $flowValues Common transition inputs, applied per order.
+     * @param  array<int|string,array<string,mixed>> $flowValuesByOrder Per-order
+     *         transition inputs (D8a): merged OVER the common values for that
+     *         order only, then validated against that order's own flow.
      *
      * @return array{summary: array{total:int,succeeded:int,failed:int}, results: array<int, array<string,mixed>>}
      */
-    public function updateStatuses(mixed $actor, array $orderIds, string $status, array $flowValues = []): array
+    public function updateStatuses(mixed $actor, array $orderIds, string $status, array $flowValues = [], array $flowValuesByOrder = []): array
     {
         $results = [];
         $succeeded = 0;
 
         foreach (array_values($orderIds) as $orderId) {
-            $result = $this->updateSingle($actor, (int) $orderId, $status, $flowValues);
+            $result = $this->updateSingle($actor, (int) $orderId, $status, $this->effectiveFlowValues((int) $orderId, $flowValues, $flowValuesByOrder));
             $results[] = $result;
 
             if ($result['success']) {
@@ -70,6 +73,21 @@ class OrderStatusBatchService
             ],
             'results' => $results,
         ];
+    }
+
+    /**
+     * Effective transition inputs for one order: the common batch values
+     * with that order's own values merged over them.
+     *
+     * @param  array<string,mixed> $flowValues
+     * @param  array<int|string,array<string,mixed>> $flowValuesByOrder
+     * @return array<string,mixed>
+     */
+    private function effectiveFlowValues(int $orderId, array $flowValues, array $flowValuesByOrder): array
+    {
+        $perOrder = $flowValuesByOrder[$orderId] ?? $flowValuesByOrder[(string) $orderId] ?? [];
+
+        return array_merge($flowValues, is_array($perOrder) ? $perOrder : []);
     }
 
     /**

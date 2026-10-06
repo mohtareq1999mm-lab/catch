@@ -301,7 +301,9 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
         $this->assertNull($row->read_at);
 
         // Query-log proof of the real INSERT INTO notifications.
-        $inserts = collect(DB::getQueryLog())->filter(fn ($q) => str_contains(strtolower($q['query']), 'insert into "notifications"'));
+        // Dialect-agnostic: Postgres logs insert into "notifications",
+        // MySQL logs insert into `notifications`.
+        $inserts = collect(DB::getQueryLog())->filter(fn ($q) => str_contains(strtolower($q['query']), 'insert into') && str_contains(strtolower($q['query']), 'notifications'));
         $this->assertGreaterThan(0, $inserts->count(), 'No INSERT INTO notifications in the query log.');
         DB::disableQueryLog();
 
@@ -454,6 +456,7 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
         // commented out in render.yaml.
         Schema::dropIfExists('notifications');
 
+        try {
         $failedJobs = [];
         \Illuminate\Support\Facades\Event::listen(
             \Illuminate\Queue\Events\JobFailed::class,
@@ -499,6 +502,27 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
         $this->assertFalse(Schema::hasTable('notifications'));
 
         fwrite(STDERR, "\n[REPORT M] DIVERGENCE PROVEN — real order + async: Pusher OK, DB channel job failed, notifications table absent\n");
+        } finally {
+        // DDL commits in MySQL: the drop above would otherwise persist past
+        // this test — pass or fail — and sabotage every later suite
+        // (including tests N/O below). Always restore the migration schema
+        // and remove this test's rows so the file — and the shared DB —
+        // stay usable after the proof.
+        if (!Schema::hasTable('notifications')) {
+            Schema::create('notifications', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->string('type');
+                $table->morphs('notifiable');
+                $table->text('data');
+                $table->timestamp('read_at')->nullable();
+                $table->timestamps();
+            });
+        }
+        DB::table('jobs')->delete();
+        DB::table('orders')->where('user_id', $user->id)->delete();
+        DB::table('carts')->where('user_id', $user->id)->delete();
+        DB::table('users')->where('id', $user->id)->delete();
+        }
     }
 
     // ==================== N — OWNERSHIP ====================
@@ -518,6 +542,12 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
 
         $other = $this->createUser('user');
         $otherToken = $this->realLogin($other->email);
+
+        // In-process HTTP tests share one app instance per test, and the
+        // sanctum RequestGuard memoizes the first-resolved user — every
+        // earlier request in this test ran as the owner, so drop the cached
+        // guards or the "other" requests would keep resolving as the owner.
+        \Illuminate\Support\Facades\Auth::forgetGuards();
 
         $this->withToken($otherToken)
             ->getJson(self::API_PREFIX . '/notifications')
@@ -556,12 +586,17 @@ class UserOrderNotificationRealE2ETest extends NotificationE2ETestCase
 
     private function makeOrderStub(User $user): \Marvel\Database\Models\Order
     {
-        return \Marvel\Database\Models\Order::withoutEvents(fn () => \Marvel\Database\Models\Order::create([
+        // NOT NULL guarantee: withoutEvents suppresses the creation backstop,
+        // so the flow columns ride the INSERT itself (event-independent).
+        $flowColumns = \App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()
+            ? app(\App\Services\OrderFlow\OrderFlowService::class)->columnsForNewOrder(null, 'pending')
+            : [];
+        return \Marvel\Database\Models\Order::withoutEvents(fn () => \Marvel\Database\Models\Order::create(array_merge($flowColumns, [
             'user_id' => $user->id,
             'status' => 'pending',
             'payment_status' => 'pending',
             'total_price' => 100.00,
             'price' => 100.00,
-        ]));
+        ])));
     }
 }

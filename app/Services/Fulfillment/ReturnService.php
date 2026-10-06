@@ -5,6 +5,7 @@ namespace App\Services\Fulfillment;
 use App\Models\Fulfillment\ReturnRequest;
 use App\Models\Fulfillment\ReturnItem;
 use App\Models\Fulfillment\Fulfillment;
+use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
 use Marvel\Database\Models\Order;
 use Illuminate\Support\Collection;
@@ -239,6 +240,20 @@ class ReturnService
         }
 
         return DB::transaction(function () use ($returnItem, $locationId, $quantity) {
+            // P2-1: cross-warehouse restock integrity — BEFORE any write
+            // (central restore included). The target location must belong to
+            // the return request's warehouse; otherwise no ProductLocation
+            // may be created/updated and no stock may move.
+            $requestWarehouseId = (int) $returnItem->returnRequest->warehouse_id;
+            $location = Location::whereKey($locationId)->lockForUpdate()->firstOrFail();
+            if ((int) $location->warehouse_id !== $requestWarehouseId) {
+                throw new \RuntimeException(
+                    "Cannot restock return item #{$returnItem->id} at location #{$location->id} " .
+                    "(warehouse {$location->warehouse_id}): return request #{$returnItem->return_request_id} " .
+                    "belongs to warehouse {$requestWarehouseId}"
+                );
+            }
+
             // Phase 12: central restore FIRST, placement hint second — the
             // authority moves before its projection, so the drift monitor
             // never observes an inconsistent intermediate state.

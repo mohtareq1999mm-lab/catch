@@ -83,24 +83,34 @@ class PackingTest extends TestCase
         return app(PackingService::class);
     }
 
-    public function test_multi_package_split_respects_picked_invariant(): void
+    /**
+     * D6-1 SUPERSEDES the old multi-package split: exactly ONE active package
+     * per fulfillment. A second package is refused; the single package still
+     * enforces SUM(package_items.quantity) <= quantity_picked.
+     */
+    public function test_one_package_per_fulfillment_with_picked_invariant(): void
     {
         $item = $this->fulfillment->items()->firstOrFail();
 
-        $packageA = $this->service()->createPackage($this->fulfillment);
-        $this->service()->addItemToPackage($packageA, $item->id, 4);
-        $packageB = $this->service()->createPackage($this->fulfillment);
-        $this->service()->addItemToPackage($packageB, $item->id, 6);
+        $package = $this->service()->createPackage($this->fulfillment);
+        $this->service()->addItemToPackage($package, $item->id, 10);
 
-        $this->assertEquals(4, (float) $packageA->items()->first()->quantity);
-        $this->assertEquals(6, (float) $packageB->items()->first()->quantity);
+        $this->assertEquals(10, (float) $package->items()->first()->quantity);
         // Traceability: fulfillment + order links.
-        $this->assertEquals($this->fulfillment->id, (int) $packageA->fulfillment_id);
-        $this->assertEquals($this->fulfillment->order_id, (int) $packageA->order_id);
+        $this->assertEquals($this->fulfillment->id, (int) $package->fulfillment_id);
+        $this->assertEquals($this->fulfillment->order_id, (int) $package->order_id);
 
-        // 4 + 6 = 10 picked → one more unit over-packs.
+        // Second package refused (D6-1).
         try {
-            $this->service()->addItemToPackage($packageB, $item->id, 1);
+            $this->service()->createPackage($this->fulfillment);
+            $this->fail('second package must be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('one package per fulfillment', $e->getMessage());
+        }
+
+        // 10 packed = 10 picked → one more unit over-packs.
+        try {
+            $this->service()->addItemToPackage($package, $item->id, 1);
             $this->fail('over-pack must reject');
         } catch (\Exception $e) {
             $this->assertStringContainsString('Over-pack', $e->getMessage());
@@ -126,7 +136,9 @@ class PackingTest extends TestCase
             'fulfillment_number' => 'FUL-FOREIGN', 'status' => 'packing',
         ]);
         $foreignItem = $other->items()->create([
-            'order_item_id' => 1, 'product_id' => $this->product->id,
+            // Use the real order item id: hardcoded ids break under MySQL
+            // FK strictness when auto-increment has advanced past 1.
+            'order_item_id' => $item->order_item_id, 'product_id' => $this->product->id,
             'quantity' => 1, 'quantity_picked' => 1, 'status' => 'picked',
         ]);
         try {

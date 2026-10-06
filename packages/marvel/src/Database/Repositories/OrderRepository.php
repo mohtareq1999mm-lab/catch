@@ -450,20 +450,47 @@ class OrderRepository extends BaseRepository
         $order = Order::findOrFail($request->id);
         $user = $request->user();
         if (isset($order->shop_id)) {
-            if ($this->hasPermission($user, $order->shop_id)) {
-                $this->assertTargetStatusPermission($user, $request->order_status);
-                $result = $this->changeOrderStatus($order, $request->order_status);
-                $this->syncOrderStatusColumn($order, $request->order_status);
-                return $result;
+            if (!$this->hasPermission($user, $order->shop_id)) {
+                throw new AuthorizationException(NOT_AUTHORIZED);
             }
-        } else if ($user->hasRole(Role::SUPER_ADMIN)) {
-            $this->assertTargetStatusPermission($user, $request->order_status);
-            $result = $this->changeOrderStatus($order, $request->order_status);
-            $this->syncOrderStatusColumn($order, $request->order_status);
-            return $result;
-        } else {
+        } elseif (!$user->hasRole(Role::SUPER_ADMIN)) {
             throw new AuthorizationException(NOT_AUTHORIZED);
         }
+
+        // P3-2 (D4/D5): thin adapter over the canonical writer. The legacy
+        // prefixed code is mapped to the catalog code and delegated to
+        // OrderService::changeOrderStatus — the flow authority (transition
+        // validation, granular permission, inputs, payment guards,
+        // history, side effects) — which also re-syncs the legacy
+        // order_status column. No independent guard logic lives here.
+        // Legacy-only codes with no catalog/flow meaning (refunded/
+        // failed/at_local_facility/...) and unknown strings are frozen (D5).
+        $legacyCode = (string) $request->order_status;
+        $mapped = self::mapLegacyOrderStatus($legacyCode);
+
+        $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+
+        if ($mapped === null
+            || !\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()
+            || $flowService->statusIdForCode($mapped) === null
+        ) {
+            throw new MarvelBadRequestException(
+                __('checkout.legacy_status_frozen', ['code' => $legacyCode])
+            );
+        }
+
+        $this->assertTargetStatusPermission($user, $legacyCode);
+
+        return app(\App\Services\General\OrderService::class)->changeOrderStatus(
+            null,
+            $mapped,
+            $order->id,
+            true,
+            null,
+            null,
+            true,
+            (array) ($request->input('flow_values') ?? [])
+        );
     }
 
     /**
@@ -500,62 +527,6 @@ class OrderRepository extends BaseRepository
             OrderStatus::OUT_FOR_DELIVERY => 'out_for_delivery',
             OrderStatus::READY_FOR_PICKUP => 'ready_for_pickup',
         ][$orderStatus] ?? null;
-    }
-
-    /**
-     * Sync the modern `status` column with the legacy `order_status` column.
-     * The Marvel trait writes to order_status (prefixed values like 'order-completed')
-     * but the app reads `status` (short values like 'completed').
-     *
-     * Flow funnel (Phase 7): when the order carries a flow, the mapped code
-     * must pass the SAME union guard as the canonical path
-     * (OrderService::changeOrderStatus) — legacy callers (admin, GraphQL)
-     * cannot skip transition validation. Unmapped legacy-only codes
-     * (refunded/failed/at_local_facility) stay outside Order Flow by design.
-     */
-    private function syncOrderStatusColumn(Order $order, string $orderStatus): void
-    {
-        $mapped = self::mapLegacyOrderStatus($orderStatus);
-
-        if ($mapped === null) {
-            return;
-        }
-
-        if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable() && $order->flow_id) {
-            $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
-            $from = (string) $order->status;
-            $flowAllows = $flowService->allowsFlowTransition($order, $from, $mapped);
-            $legacyAllows = in_array(
-                $mapped,
-                \App\Services\General\OrderService::getAllowedOrderStatusTargets($from),
-                true
-            );
-
-            if (!($flowAllows || $legacyAllows)) {
-                throw new MarvelBadRequestException(
-                    __('checkout.invalid_flow_transition', ['from' => $from, 'to' => $mapped])
-                );
-            }
-        }
-
-        // Mirror invariant: orders.status == current_status_id.code after
-        // every legitimate mutation. Codes without a catalog row
-        // (refunded/failed/at_local_facility) keep the mirror untouched.
-        $mirror = ['status' => $mapped];
-
-        if (\App\Services\OrderFlow\OrderFlowService::tablesAvailable()) {
-            try {
-                $statusId = app(\App\Services\OrderFlow\OrderFlowService::class)->statusIdForCode($mapped);
-
-                if ($statusId) {
-                    $mirror['current_status_id'] = $statusId;
-                }
-            } catch (\Throwable $e) {
-                report($e);
-            }
-        }
-
-        Order::withoutGlobalScopes()->whereKey($order->id)->update($mirror);
     }
 
     /**
@@ -620,6 +591,14 @@ class OrderRepository extends BaseRepository
     {
         try {
             $orderInput = $request->only($this->dataArray);
+            // P2-1 (D2): flow columns are computed and merged BEFORE the
+            // single INSERT — the Marvel creation door never yields a
+            // flow-less row, and a fail-closed resolution can never orphan
+            // a half-created order (no post-insert fixup exists).
+            $orderInput = array_merge(
+                $orderInput,
+                $this->flowColumnsForCreation((string) ($orderInput['order_status'] ?? OrderStatus::PENDING))
+            );
             $order = $this->create($orderInput);
             $products = $this->processProducts($request['products'], $request['customer_id'], $order);
             $order->products()->attach($products);
@@ -628,6 +607,53 @@ class OrderRepository extends BaseRepository
         } catch (Exception $e) {
             throw $e;
         }
+    }
+
+    /**
+     * Creation-time flow columns (decision D2): every order created through
+     * the Marvel door carries the default-local flow, so no creation path
+     * can manufacture a flow-less row.
+     *
+     * The legacy `order_status` choice is honored as a STARTING STAGE
+     * arrangement (part of the creation INSERT — it is not a transition
+     * and never walks the transition guard): COD/cash orders keep their
+     * historical `processing` start, full-wallet orders their `completed`
+     * start. Unmapped legacy-only codes (refunded/failed/at_local_facility)
+     * fail closed (decision D5) BEFORE any row is written.
+     *
+     * Pre-flow-migration databases (no flow columns) keep the legacy
+     * behavior unchanged; the canonical writer stays fail-closed there.
+     *
+     * @return array<string, mixed> shipping_type / flow_id / current_status_id / status
+     */
+    private function flowColumnsForCreation(string $legacyOrderStatus): array
+    {
+        if (!\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
+            return [];
+        }
+
+        $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+
+        $mapped = self::mapLegacyOrderStatus($legacyOrderStatus);
+
+        // Creation starting-stage whitelist: only the stages the Marvel
+        // creation switch can legitimately produce. Everything else —
+        // unmapped strings AND mapped lifecycle codes (refunded/failed/
+        // at_local_facility/...) — is frozen (decision D5): a legacy
+        // status can never START an order outside its flow.
+        if ($mapped === null || !in_array($mapped, ['pending', 'processing', 'completed'], true)) {
+            throw new MarvelBadRequestException(
+                __('checkout.legacy_status_frozen', ['code' => $legacyOrderStatus])
+            );
+        }
+
+        // Authority-owned columns; the starting `status` itself rides along
+        // so the stage mirror invariant holds from the very first INSERT:
+        // orders.status == current_status_id.code == mapLegacyOrderStatus(order_status).
+        return array_merge(
+            $flowService->columnsForNewOrder('local', $mapped),
+            ['status' => $mapped]
+        );
     }
     /**
      * This function creates an array of data for an email invoice, including order information,
@@ -825,6 +851,13 @@ class OrderRepository extends BaseRepository
                 'language' => $language,
                 "payment_gateway" => $request->payment_gateway,
             ];
+
+            // P2-1 (D2): child (shop) orders carry the same assigned flow —
+            // computed pre-insert, so no creation path yields a flow-less row.
+            $orderInput = array_merge(
+                $orderInput,
+                $this->flowColumnsForCreation((string) ($orderInput['order_status'] ?? OrderStatus::PENDING))
+            );
 
             $order = $this->create($orderInput);
             $order->products()->attach($this->processProducts($cartProduct, $request['customer_id'], $order));

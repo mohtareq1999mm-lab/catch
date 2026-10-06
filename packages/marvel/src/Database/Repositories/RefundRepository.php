@@ -7,7 +7,6 @@ use Exception;
 use Marvel\Database\Models\Address;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Refund;
-use Marvel\Enums\OrderStatus;
 use Marvel\Enums\PaymentStatus;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
@@ -113,9 +112,14 @@ class RefundRepository extends BaseRepository
         $this->changeShopSpecificRefundStatus($refund->order_id, $data);
 
         if ($refund['status'] == RefundStatus::APPROVED) {
-            $orderData['order_status'] = OrderStatus::REFUNDED;
+            // P3-3 (D5): payment-only, matching the modern refund service
+            // (PaymentRefundService marks payment_status and never touches
+            // the lifecycle). The legacy `order_status` write is frozen:
+            // 'refunded' has no flow meaning, and writing it would corrupt
+            // the status mirror. payment_status is the payment domain's own
+            // marker and stays in sync for parent and children alike.
             $orderData['payment_status'] = PaymentStatus::REFUNDED;
-            $this->changeOrderStatus($refund->order_id, $orderData);
+            $this->markOrderPaymentRefunded($refund->order_id, $orderData);
         }
         return $refund;
     }
@@ -131,7 +135,13 @@ class RefundRepository extends BaseRepository
         $this->whereIn('order_id',  $childOrderIds)->update($data);
     }
 
-    private function changeOrderStatus($parentOrderId, array $data)
+    /**
+     * Payment-marker sync for refund approval (parent + children). It never
+     * touches lifecycle columns (`status`, `current_status_id`,
+     * `order_status`) — refunds are a payment-domain concern and the
+     * lifecycle stays exactly where the flow left it.
+     */
+    private function markOrderPaymentRefunded($parentOrderId, array $data)
     {
         $parentOrder = Order::findOrFail($parentOrderId);
         $parentOrder->update($data);

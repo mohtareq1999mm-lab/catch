@@ -56,14 +56,21 @@ class MarvelStatusAuthorityTest extends TestCase
             'email_verified_at' => now(),
         ]);
 
-        Role::create(['name' => 'staff_status', 'guard_name' => 'api']);
+        Role::firstOrCreate(
+            ['name' => 'staff_status', 'guard_name' => 'api'],
+            ['display_name' => 'Staff Status']
+        );
         $this->admin->assignRole('staff_status');
 
         foreach ([Permission::UPDATE_ORDER_STATUS, 'payments.mark_paid'] as $name) {
-            SpatiePermission::create(['name' => $name, 'guard_name' => 'api']);
+            SpatiePermission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
 
         $this->admin->givePermissionTo([Permission::UPDATE_ORDER_STATUS]);
+
+        // Production parity: general holders inherit granular targets.
+        (new \Database\Seeders\OrderStatusPermissionSeeder)->run();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         Product::create([
             'name' => 'Status Product',

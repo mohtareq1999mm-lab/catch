@@ -147,6 +147,7 @@ class AsyncQueuePersistenceAuditTest extends NotificationE2ETestCase
         // Simulate production where the notifications table was never created.
         Schema::dropIfExists('notifications');
 
+        try {
         $this->resetBroadcastRecordings();
 
         $user->notify(new UserOrderCreatedNotification($order));
@@ -168,6 +169,20 @@ class AsyncQueuePersistenceAuditTest extends NotificationE2ETestCase
 
         // No DB row can exist (table is gone).
         $this->assertFalse(Schema::hasTable('notifications'));
+        } finally {
+        // DDL commits in MySQL: restore the migration schema pass or fail so
+        // later tests (in-file and cross-suite) are not sabotaged.
+        if (!Schema::hasTable('notifications')) {
+            Schema::create('notifications', function (Blueprint $table) {
+                $table->uuid('id')->primary();
+                $table->string('type');
+                $table->morphs('notifiable');
+                $table->text('data');
+                $table->timestamp('read_at')->nullable();
+                $table->timestamps();
+            });
+        }
+        }
     }
 
     /**

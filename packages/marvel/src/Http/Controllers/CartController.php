@@ -2,7 +2,6 @@
 
 namespace Marvel\Http\Controllers;
 
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Marvel\Database\Repositories\CartRepository;
 use App\Services\General\CartInventoryService;
@@ -69,12 +68,13 @@ class CartController extends CoreController
 
     public function show(Request $request, $id)
     {
-        $cart = $this->repository->with(['items.product', 'items.productVariant.attributeProducts.attributeValue.attribute'])->findOrFail($id);
-        $user = $request->user();
-
-        if ($user && (int) $cart->user_id !== (int) $user->id) {
-            throw new AuthorizationException(NOT_AUTHORIZED);
-        }
+        // F-06: scope the lookup to the authenticated user's own carts
+        // BEFORE resolving, so a foreign cart ID and a nonexistent cart ID
+        // are indistinguishable (both 404) — no existence oracle.
+        $cart = Cart::query()
+            ->where('user_id', $request->user()?->id)
+            ->with(['items.product', 'items.productVariant.attributeProducts.attributeValue.attribute'])
+            ->findOrFail($id);
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CartResource::make($cart));
     }
@@ -151,7 +151,7 @@ class CartController extends CoreController
         $request->validate([
             'items' => 'required|array',
             'items.*.product_id' => 'required|integer',
-            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.quantity' => 'required|integer|min:1|max:' . max(1, (int) config('cart.max_item_quantity', 100)),
             'items.*.product_variant_id' => 'nullable|integer',
             'items.*.shipping_method' => 'nullable|string|in:scheduled,fast,SCHEDULED,FAST',
         ]);

@@ -60,7 +60,13 @@ abstract class NotificationE2ETestCase extends TestCase
             DB::statement('PRAGMA foreign_keys = ON;');
         }
 
-        $this->beginDatabaseTransaction();
+        // NOTE: no manual beginDatabaseTransaction() here — the
+        // DatabaseTransactions trait already opened (and will roll back) the
+        // test transaction. A second manual begin nests to savepoint level 2,
+        // and any DDL after that (Schema::create/dropIfExists, which MySQL
+        // commits implicitly) releases the savepoints, so teardown rollback
+        // blows up with "SAVEPOINT trans2 does not exist" (1305). Single
+        // level tolerates DDL the same way every other suite does.
 
         // The suite asserts on real broadcasts: resolve the Pusher
         // broadcaster with dummy credentials (no network on construct) so
@@ -203,8 +209,8 @@ abstract class NotificationE2ETestCase extends TestCase
             'reserved_quantity' => 0,
             'sold_quantity' => 0,
             'has_discount' => false,
-            'discount_type' => null,
-            'discount_amount' => null,
+            'discount_type' => 'percentage',
+            'discount_amount' => 0,
             'discount_status' => null,
             'price_after_discount' => null,
             'price_after_flash_sale' => null], $attributes));
@@ -214,7 +220,16 @@ abstract class NotificationE2ETestCase extends TestCase
 
     protected function createOrder(User $user, array $attributes = []): Order
     {
-        return Order::withoutEvents(fn () => Order::create(array_merge([
+        // NOT NULL guarantee: withoutEvents suppresses the creation backstop,
+        // so the flow columns ride the INSERT itself (event-independent),
+        // mirroring the caller's status/shipping_type overrides.
+        $flowColumns = \App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()
+            ? app(\App\Services\OrderFlow\OrderFlowService::class)->columnsForNewOrder(
+                $attributes['shipping_type'] ?? null,
+                $attributes['status'] ?? 'pending'
+            )
+            : [];
+        return Order::withoutEvents(fn () => Order::create(array_merge($flowColumns, [
             'user_id' => $user->id,
             'status' => 'pending',
             'payment_status' => 'pending',

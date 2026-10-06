@@ -247,8 +247,9 @@ class CustomerLifecycleContractTest extends TestCase
 
         $this->assertSame('cancelled', $body['status']);
         $this->assertSame('cancelled', $this->latestOrderFor($this->user)->status);
-        // Inventory reservation released by the canonical pipeline.
-        $this->assertSame(Order::INVENTORY_STATE_RELEASED, $this->latestOrderFor($this->user)->inventory_state);
+        // Phase 3 addendum: COD commits at creation, so customer-cancel of
+        // the committed pending restores (not releases) via the canonical pipeline.
+        $this->assertSame(Order::INVENTORY_STATE_RESTORED, $this->latestOrderFor($this->user)->inventory_state);
     }
 
     public function test_owner_can_cancel_processing_order(): void

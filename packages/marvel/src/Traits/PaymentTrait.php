@@ -410,11 +410,36 @@ trait PaymentTrait
             return;
         }
         
-        // Non-success statuses use existing simple update
-        $isFinal = $this->checkOrderStatusIsFinal($order);
-        if ($isFinal) return;
+        // Non-success statuses: payment-marker-only (decision D5 freeze).
+        // A non-success webhook NEVER moves the lifecycle — only the
+        // payment marker is recorded (parent + children). Any lifecycle
+        // consequence (expiry cancel, failure handling) belongs to the
+        // flow authority (reaper / explicit transition), never to the
+        // webhook. The legacy order_status write and the legacy status
+        // fanout (orderStatusManagementOnPayment) are frozen: the former
+        // has no flow meaning, the latter drives a dormant listener set
+        // (Marvel PaymentFailed is unregistered; live webhook traffic is
+        // owned by the modern PaymentWebhookController + App events).
+        //
+        // Stale-callback protection (preserved from the old finality guard,
+        // re-based on the maintained modern columns since the legacy column
+        // is no longer written): a non-success webhook never clobbers a
+        // resolved payment or a terminal lifecycle.
+        $resolvedPayment = in_array(
+            $order->payment_status,
+            [PaymentStatus::SUCCESS, PaymentStatus::REFUNDED],
+            true
+        );
+        $terminalLifecycle = in_array(
+            $order->status,
+            ['completed', 'delivered', 'cancelled'],
+            true
+        );
 
-        $order->order_status = $order_status;
+        if ($resolvedPayment || $terminalLifecycle) {
+            return;
+        }
+
         $order->payment_status = $payment_status;
         $order->save();
         try {
@@ -424,11 +449,9 @@ trait PaymentTrait
         }
         if (is_array($children) && count($children)) {
             foreach ($order->children as $child_order) {
-                $child_order->order_status = $order_status;
                 $child_order->payment_status = $payment_status;
                 $child_order->save();
             }
         }
-        $this->orderStatusManagementOnPayment($order, $order_status, $payment_status);
     }
 }

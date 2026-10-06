@@ -279,13 +279,29 @@ class OrderStatusLifecycleTest extends TestCase
 
     private function createOrder(string $status = 'pending'): Order
     {
-        return Order::create([
+        $order = Order::create([
             'user_id' => $this->customer->id,
             'price' => 100.00,
             'total_price' => 130.00,
             'shipping_price' => 30.00,
             'status' => $status,
         ]);
+
+        // Single-source-of-truth: every order carries its assigned flow,
+        // mirroring production creation (OrderCreationService). Requested
+        // non-pending starting states are arranged directly (fixture setup,
+        // not a lifecycle transition) with a consistent stage mirror.
+        $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+        $flowService->assignFlowToOrder($order->refresh(), 'local');
+
+        if ($status !== 'pending') {
+            \Illuminate\Support\Facades\DB::table('orders')->where('id', $order->id)->update([
+                'status' => $status,
+                'current_status_id' => $flowService->statusIdForCode($status),
+            ]);
+        }
+
+        return $order->refresh();
     }
 
     private function createTransaction(Order $order, string $method = 'cod', string $status = 'pending'): Transaction
@@ -312,7 +328,17 @@ class OrderStatusLifecycleTest extends TestCase
         $order = $this->createOrder('completed');
         $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        // Phase 8 (D8-5): the normal path requires the shipment completion
+        // invariant — refused for a bare order.
+        try {
+            $service->changeOrderStatus(null, 'delivered', $order->id);
+            $this->fail('Normal delivered without the completion invariant must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
+        }
+
+        // The audited force path runs the same mutation + event contract.
+        $this->forceDeliver($order);
 
         Event::assertDispatchedTimes(OrderDelivered::class, 1);
         Event::assertDispatched(OrderDelivered::class, fn ($e) => $e->order->id === $order->id);
@@ -447,6 +473,10 @@ class OrderStatusLifecycleTest extends TestCase
             'pickup_location_id' => null,
         ]);
 
+        // Same single-source-of-truth assignment as createOrder().
+        $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+        $flowService->assignFlowToOrder($order->refresh(), 'local');
+
         $service = app(OrderService::class);
 
         $processing = $service->changeOrderStatus(null, 'processing', $order->id);
@@ -516,10 +546,39 @@ class OrderStatusLifecycleTest extends TestCase
         $service->changeOrderStatus(null, 'completed', $order->id);
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        // Phase 8 (D8-5): delivered via the audited force path — still no
+        // duplicate invoice.
+        $this->forceDeliver($order);
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
+    }
+
+    /**
+     * Phase 8 (D8-5): audited force-delivered escape hatch for lifecycle
+     * tests. Carries the existing update-order-status permission.
+     */
+    private function forceDeliver(Order $order): void
+    {
+        $admin = User::create([
+            'name' => 'Force Admin',
+            'email' => 'force-' . Str::random(6) . '@example.com',
+            'password' => bcrypt('password'),
+            'type' => 'admin',
+            'is_active' => true,
+        ]);
+        if (Schema::hasTable('permissions')) {
+            $perm = \Spatie\Permission\Models\Permission::firstOrCreate(
+                ['name' => 'update-order-status', 'guard_name' => 'api']
+            );
+            $admin->givePermissionTo($perm);
+        }
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        \Laravel\Sanctum\Sanctum::actingAs($admin);
+
+        app(OrderService::class)->changeOrderStatus(
+            null, 'delivered', $order->id, true, 'lifecycle tail', null, true, [], false, false, true
+        );
     }
 
     /** @test */

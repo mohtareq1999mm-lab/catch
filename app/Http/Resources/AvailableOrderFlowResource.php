@@ -10,7 +10,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *
  * The single sanitized contract for BOTH frontend discovery endpoints:
  * - GET /api/v1/general/order-flows/available (guest-safe, all active flows)
- * - GET /api/v1/general/order-flows/by-shipping-type/{type} (auth, one flow)
+ * - GET /api/v1/general/order-flows/by-shipping-type/{type} (guest-safe, one flow)
  *
  * Exposes the business contract only (shipping_type selection + ordered
  * statuses + input schemas). Internal identifiers (id, flow_id),

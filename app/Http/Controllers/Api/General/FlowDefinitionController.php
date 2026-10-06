@@ -15,8 +15,8 @@ use Marvel\Traits\ApiResponse;
  * - GET .../order-flows/available: canonical guest-safe discovery. Returns
  *   every ACTIVE flow (shipping_type selection contract). No auth, no
  *   internal identifiers, no admin flags.
- * - GET .../order-flows/by-shipping-type/{type}: auth convenience for one
- *   flow. Same sanitized contract as available (one serializer).
+ * - GET .../order-flows/by-shipping-type/{type}: guest-safe convenience
+ *   for one flow (D8b). Same sanitized contract as available (one serializer).
  *
  * The frontend selects shipping_type (local|international); the backend
  * resolves the Flow. flow_id is never a customer contract.
@@ -28,9 +28,7 @@ class FlowDefinitionController extends Controller
     public function __construct(
         private OrderFlowService $flows,
     ) {
-        // Canonical discovery is guest-safe; the per-type convenience
-        // keeps its historical auth requirement (backward compatibility).
-        $this->middleware(['auth:sanctum'])->except(['available']);
+        // Both discovery endpoints are guest-safe by design (D8b).
     }
 
     public function available(): JsonResponse

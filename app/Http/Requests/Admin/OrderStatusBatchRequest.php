@@ -33,10 +33,43 @@ class OrderStatusBatchRequest extends FormRequest
             // service layer enforces which codes each order's flow permits.
             'status' => ['required', 'string', Rule::in(OrderFlowService::ALL_STATUS_CODES)],
             // Common transition inputs, applied to EVERY order independently
-            // (e.g. one customs_reference shared by the batch). Per-order
-            // values are a documented future extension, not this contract.
+            // (e.g. one customs_reference shared by the batch).
             'flow_values' => ['nullable', 'array'],
+            // Per-order transition inputs (D8a): merged OVER the common
+            // flow_values for that order only, then validated against that
+            // order's own flow — one order's missing/invalid input fails
+            // only that order (partial success preserved). Keys must name
+            // orders in this batch; anything else is a request-shape 422.
+            'flow_values_by_order' => ['nullable', 'array'],
+            'flow_values_by_order.*' => ['array'],
         ];
+    }
+
+    /**
+     * Keys of flow_values_by_order must reference orders in this batch.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $byOrder = $this->input('flow_values_by_order');
+
+            if (!is_array($byOrder)) {
+                return;
+            }
+
+            $ids = array_map('intval', (array) $this->input('order_ids', []));
+
+            foreach (array_keys($byOrder) as $key) {
+                if (!in_array((int) $key, $ids, true)) {
+                    $validator->errors()->add(
+                        'flow_values_by_order',
+                        __('checkout.flow_values_unknown_order', ['id' => $key])
+                    );
+
+                    return;
+                }
+            }
+        });
     }
 
     public function failedValidation(Validator $validator)
