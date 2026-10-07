@@ -6,7 +6,6 @@ use App\Events\QuestionAnswered;
 use App\Events\RefundApproved;
 use App\Events\ReviewCreated;
 use App\Listeners\CommissionRateUpdateListener;
-use App\Listeners\RatingRemoved;
 use App\Listeners\SendReviewNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Marvel\Events\CommissionRateUpdateEvent;
@@ -106,7 +105,11 @@ class EventServiceProvider extends ServiceProvider
             SendQuestionAnsweredNotification::class
         ],
         RefundApproved::class => [
-            RatingRemoved::class,
+            // Phase 10 unification: RatingRemoved deregistered. The reviews
+            // table has no order/item scope (no order_id column), so no
+            // refund — full or partial — can safely determine which reviews
+            // belong to it. Automatic review deletion is disabled and the
+            // limitation is pinned by test; reviews stay untouched.
             \App\Listeners\RestoreInventoryOnRefund::class,
             \App\Listeners\GenerateCreditNoteOnRefund::class,
             \App\Listeners\RevokePendingDigitalEntitlements::class,

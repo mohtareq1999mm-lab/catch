@@ -56,15 +56,21 @@ class ProductionClosureAuditRegressionTest extends TestCase
         $this->createAllTestTables();
 
         if (!Schema::hasTable('refunds')) {
+            // Phase 10 unification: canonical ledger columns (user_id owner,
+            // currency, decider audit). customer_id/images were never real
+            // columns and are not recreated here.
             Schema::create('refunds', function (Blueprint $table) {
                 $table->id();
                 $table->string('title')->nullable();
                 $table->text('description')->nullable();
-                $table->json('images')->nullable();
                 $table->decimal('amount', 10, 2)->default(0);
+                $table->char('currency', 3)->nullable();
                 $table->string('status')->default('pending');
                 $table->foreignId('order_id')->constrained('orders')->cascadeOnDelete();
-                $table->foreignId('customer_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+                $table->unsignedBigInteger('decided_by')->nullable();
+                $table->timestamp('decided_at')->nullable();
+                $table->text('decision_note')->nullable();
                 $table->unsignedBigInteger('shop_id')->nullable();
                 $table->unsignedBigInteger('refund_policy_id')->nullable();
                 $table->unsignedBigInteger('refund_reason_id')->nullable();
@@ -124,6 +130,12 @@ class ProductionClosureAuditRegressionTest extends TestCase
             Permission::CREATE_SHIPMENT,
         ]);
 
+        // Phase 10 unification: the canonical refund ownership override
+        // keys on the super_admin role.
+        $this->superAdmin->assignRole(
+            \Spatie\Permission\Models\Role::findOrCreate(Role::SUPER_ADMIN, 'api')
+        );
+
         $this->order = Order::create([
             'user_id' => $this->owner->id,
             'customer_id' => $this->owner->id,
@@ -144,9 +156,10 @@ class ProductionClosureAuditRegressionTest extends TestCase
             'title' => 'Damaged item',
             'description' => 'Arrived broken',
             'amount' => 150.00,
+            'currency' => 'KWD',
             'status' => 'pending',
             'order_id' => $orderId,
-            'customer_id' => $customerId,
+            'user_id' => $customerId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -191,10 +204,9 @@ class ProductionClosureAuditRegressionTest extends TestCase
     }
 
     /**
-     * NOTE (ERR-001): POST /refunds cannot complete end-to-end because the
-     * codebase ships no migration for the refunds table and reads
-     * orders.customer_id / orders.amount which no migration defines. See
-     * error.md. Only authorization behavior is asserted here.
+     * Phase 10 unification (ERR-001 resolved): POST /refunds works end to
+     * end now. A non-owner can no longer create a refund for a foreign
+     * order — fail-closed 403 with no row created.
      */
     /** @test */
     public function non_owner_customer_cannot_create_refund_for_foreign_order(): void
@@ -204,10 +216,11 @@ class ProductionClosureAuditRegressionTest extends TestCase
 
         $response = $this->postJson(self::PREFIX . '/refunds', [
             'order_id' => $this->order->id,
+            'amount' => 10.00,
             'title' => 'Not mine',
         ]);
 
-        $response->assertStatus(500);
+        $response->assertStatus(403);
         $this->assertDatabaseMissing('refunds', ['order_id' => $this->order->id]);
     }
 
@@ -217,16 +230,20 @@ class ProductionClosureAuditRegressionTest extends TestCase
         Event::fake();
         Sanctum::actingAs($this->superAdmin);
 
-        // Authorization (inverted-condition fix) passes for super_admin; the
-        // request proceeds past NOT_AUTHORIZED into ERR-001 schema territory,
-        // surfacing as 409/409-style DB error — but never 403.
+        // Phase 10 unification: super_admin ownership override is preserved
+        // and the request completes end-to-end (201 PENDING).
         $response = $this->postJson(self::PREFIX . '/refunds', [
             'order_id' => $this->order->id,
+            'amount' => 10.00,
             'title' => 'Admin filed refund',
             'description' => 'Filed by support',
         ]);
 
-        $this->assertNotEquals(403, $response->status());
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('refunds', [
+            'order_id' => $this->order->id,
+            'status' => 'pending',
+        ]);
     }
 
     /**

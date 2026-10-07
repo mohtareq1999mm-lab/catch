@@ -46,10 +46,26 @@ class GenerateCreditNoteOnRefund implements ShouldQueue
                 return;
             }
 
+            // Phase 10 unification: exactly one credit note per approved
+            // refund row. Queue retries are at-least-once, so a re-delivery
+            // for the same refund must no-op instead of issuing a duplicate.
+            $alreadyIssued = \App\Models\CreditNote::query()
+                ->where('invoice_id', $invoice->id)
+                ->where('reason', 'like', 'Refund #' . $refund->id . ' %')
+                ->exists();
+
+            if ($alreadyIssued) {
+                Log::info('Credit note already issued for refund, skipping duplicate', [
+                    'order_id' => $order->id,
+                    'refund_id' => $refund->id,
+                ]);
+                return;
+            }
+
             $this->creditNoteService->generateForRefund(
                 $invoice,
                 (float) ($refund->amount ?? $order->total_price ?? 0),
-                'Refund approved: ' . ($refund->title ?? 'No reason provided'),
+                'Refund #' . $refund->id . ' approved: ' . ($refund->title ?? 'No reason provided'),
                 null,
             );
 

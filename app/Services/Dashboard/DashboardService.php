@@ -868,7 +868,10 @@ class DashboardService
                 ->where('refund_orders.status', 'completed')
                 ->whereNull('refund_orders.deleted_at')
                 ->selectRaw("COALESCE(refund_orders.currency_code, 'UNKNOWN') as currency, SUM(refunds.amount) as total")
-                ->groupBy('currency')
+                // Phase 10 unification: group by the expression, never the
+                // bare alias — refunds.currency is a real column now and
+                // MySQL binds GROUP BY to real columns first.
+                ->groupBy(DB::raw("COALESCE(refund_orders.currency_code, 'UNKNOWN')"))
                 ->orderBy('currency')
                 ->pluck('total', 'currency')
                 ->map(fn ($total) => round((float) $total, 2))
@@ -984,16 +987,21 @@ class DashboardService
     /**
      * Per-currency refund buckets: currency => total.
      *
-     * REFUND CURRENCY CONTRACT (Model A + C): the marketplace `refunds` table
-     * carries no currency column, but creation requires `order_id`
-     * (RefundController OpenAPI: title/description/order_id/amount) and
-     * execution/partial-full comparison are denominated in the order's
-     * currency (`$gateway->refund($refund->order, $refund->amount)`,
-     * `$refund->amount >= $order->total`). Refund currency is therefore
-     * provably `orders.currency_code` via the order join. Refunds with no
+     * REFUND CURRENCY CONTRACT (Model A + C): pre-unification rows carry no
+     * currency of their own, so refund currency is provably
+     * `orders.currency_code` via the order join (RefundController OpenAPI:
+     * title/description/order_id/amount). Post-unification rows also store
+     * their own `refunds.currency`, but reporting keeps the order join as
+     * the key so legacy and new rows bucket identically. Refunds with no
      * linked order fall into 'UNKNOWN' and must never merge into a real
      * currency bucket. Gateway (online) refunds are NOT in this table — they
      * live per-transaction in the payment ledger in txn currency.
+     *
+     * GROUP-BY NOTE: the grouping binds the full COALESCE expression, never
+     * the bare `currency` alias — a real `refunds.currency` column exists
+     * since Phase 10 unification and MySQL resolves GROUP BY against real
+     * columns before select aliases (grouping by the column would merge
+     * every NULL-currency row into one bucket).
      *
      * Scope matches the paired scalar exactly so buckets reconcile with it.
      * Trashed orders remain joined BY DESIGN: DB::table applies no
@@ -1010,7 +1018,7 @@ class DashboardService
         return (clone $refundQuery)
             ->leftJoin('orders', 'orders.id', '=', 'refunds.order_id')
             ->selectRaw("COALESCE(orders.currency_code, 'UNKNOWN') as currency, SUM(refunds.amount) as total")
-            ->groupBy('currency')
+            ->groupBy(DB::raw("COALESCE(orders.currency_code, 'UNKNOWN')"))
             ->orderBy('currency')
             ->pluck('total', 'currency')
             ->map(fn ($total) => round((float) $total, 2))

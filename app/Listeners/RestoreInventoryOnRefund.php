@@ -30,6 +30,7 @@ class RestoreInventoryOnRefund implements ShouldQueue
 {
     public function __construct(
         private \App\Services\Inventory\InventoryRestoreService $inventoryRestore,
+        private \App\Services\Refund\RefundService $refunds,
     ) {}
 
     public function viaQueue($event = null): string
@@ -54,6 +55,15 @@ class RestoreInventoryOnRefund implements ShouldQueue
                 })
                 ->exists();
             if (!$hasRestorable) {
+                return;
+            }
+
+            // Phase 10 unification: amount-only partial approvals carry no
+            // item scope, so they must never move ambiguous stock. Restoration
+            // runs only when cumulative approved refunds cover the paid total
+            // (full refund). Partial approvals record accounting + credit
+            // note only.
+            if (!$this->refunds->isFullRefund($order)) {
                 return;
             }
 

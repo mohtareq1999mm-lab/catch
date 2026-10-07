@@ -24,7 +24,7 @@ class GetSingleRefundResource extends Resource
             'status'              => $this->status,
             'images'              => $this->images,
             'customer'            => [
-                'email'            => $this->customer->email
+                'email'            => $this->customer->email ?? null
             ],
             'order'               => $this->getOrderData($this->order),
             'created_at'          => $this->created_at,
@@ -43,6 +43,12 @@ class GetSingleRefundResource extends Resource
 
     private function getOrderData($data)
     {
+        // Phase 10 unification: orphan refunds (order soft-deleted via
+        // set-null FK) must serialize as null, not fatal the endpoint.
+        if (!$data) {
+            return null;
+        }
+
         return [
             'id' => $data->id,
             'tracking_number' => $data->tracking_number,
@@ -62,6 +68,12 @@ class GetSingleRefundResource extends Resource
     }
     private function getProductData($products)
     {
+        // Phase 10 unification: modern orders carry no legacy products
+        // payload — serialize as an empty list, not a foreach(null) warning.
+        if (!is_iterable($products)) {
+            return [];
+        }
+
         $item = [];
         foreach ($products as $product) {
             $item[] = [

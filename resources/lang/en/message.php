@@ -326,6 +326,8 @@ return [
     'MESSAGE.SHIPMENT_STATUS_UPDATED' => 'Shipment status updated',
     'MESSAGE.SHIPMENT_NOT_FOUND' => 'Shipment not found',
     'ERROR.SHIPMENT_INVALID_TRANSITION' => 'Shipment cannot transition to the requested status',
+    'MESSAGE.REFUND_REQUEST_SUBMITTED' => 'Refund request submitted',
+    'MESSAGE.REFUND_DECIDED' => 'Refund decision recorded',
     'SOCIAL_LOGIN_URL_GENERATED' => 'Social login URL generated successfully',
 
     // Social Login

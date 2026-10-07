@@ -6,8 +6,6 @@ namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderStatus;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Refund;
@@ -18,12 +16,12 @@ use Tests\Concerns\CreatesTestTables;
 use Tests\TestCase;
 
 /**
- * P3-3 (decision D5): refunds and non-success webhooks are payment-domain
- * concerns — they never mutate the order lifecycle.
+ * P3-3 (decision D5) + Phase 10 unification: refunds are a separate domain —
+ * they never mutate the order lifecycle AND never mark payment as refunded
+ * (no provider money movement exists in this phase).
  *
- * - Refund approval marks payment_status (parent + children) and leaves
- *   status / current_status_id / order_status untouched (matches the
- *   modern PaymentRefundService).
+ * - Canonical refund approval leaves status / current_status_id /
+ *   order_status untouched AND payment_status at payment-success.
  * - A non-success webhook records the payment marker only; the lifecycle
  *   never moves, and stale callbacks never clobber a resolved payment or
  *   a terminal lifecycle.
@@ -77,24 +75,21 @@ class RefundWebhookFreezeTest extends TestCase
     /** @test */
     public function refund_approval_is_payment_only(): void
     {
-        // The dormant Marvel refund SMS fanout reads a language column this
-        // app's orders table no longer has — fake just those two events so
-        // the test pins the repository's writes, not the dead fanout.
-        Event::fake([\Marvel\Events\RefundRequested::class, \Marvel\Events\RefundUpdate::class]);
-
         $order = $this->completedPaidOrder();
 
         $refund = Refund::create([
             'order_id' => $order->id,
             'user_id' => $this->customer->id,
             'amount' => 100,
+            'currency' => 'KWD',
             'title' => 'Freeze refund',
             'status' => RefundStatus::PENDING,
         ]);
 
-        $request = Request::create('/api/refunds/approve', 'POST', ['status' => RefundStatus::APPROVED]);
-
-        app(\Marvel\Database\Repositories\RefundRepository::class)->updateRefund($request, $refund);
+        // Canonical approval (no events — pins the service writes, not the
+        // fanout).
+        \Illuminate\Support\Facades\Event::fake();
+        app(\App\Services\Refund\RefundService::class)->approve((int) $refund->id, 1, 'freeze');
 
         $fresh = $order->fresh();
 
@@ -103,8 +98,10 @@ class RefundWebhookFreezeTest extends TestCase
         $this->assertSame($this->statusId('completed'), (int) $fresh->current_status_id);
         $this->assertNotSame('order-refunded', $fresh->order_status);
 
-        // Payment marker synced.
-        $this->assertSame(Order::PAYMENT_STATUS_REFUNDED, $fresh->payment_status);
+        // Phase 10 unification: NO false payment-refunded marker — approval
+        // records the business refund locally, money never moved.
+        $this->assertSame(Order::PAYMENT_STATUS_SUCCESS, $fresh->payment_status);
+        $this->assertSame('approved', $refund->fresh()->status);
     }
 
     /** @test */

@@ -183,8 +183,12 @@ class EventServiceProvider extends ServiceProvider
             \App\Listeners\RecordOrderShippedInTimeline::class,
         ],
         RefundApproved::class => [
+            // Phase 10 unification: inventory restoration is owned by the
+            // single Marvel-ESP registration alongside its fan-out siblings.
+            // The duplicate registration that lived here dispatched a second
+            // queued job per approval (harmless via the state claim, but
+            // wasteful) — removed.
             \App\Listeners\RecordRefundApprovedInTimeline::class,
-            \App\Listeners\RestoreInventoryOnRefund::class,
         ],
         RefundProcessed::class => [
             \App\Listeners\Refund\RecordRefundInTimeline::class,

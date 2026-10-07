@@ -37,7 +37,7 @@ return [
         'failed' => 'فشل الدفع',
         'failed_description' => 'فشلت محاولة الدفع. هذه المحاولة رقم :retry_attempt. يرجى المحاولة مرة أخرى.',
         'refunded' => 'تم استرداد المبلغ',
-        'refunded_description' => 'تم معالجة استرداد بقيمة :amount إلى محفظتك.',
+        'refunded_description' => 'تمت الموافقة على استرداد بقيمة :amount وتسجيله لدى المتجر.',
     ],
 
     // Fulfillment Events
@@ -109,15 +109,15 @@ return [
     ],
 
     // Refund Events
+    // Phase 10 unification: approved means business-approved/recorded — no
+    // provider money movement and no wallet credit exist in this phase.
     'refund' => [
         'requested' => 'تم طلب استرداد المبلغ',
         'requested_description' => 'تم تقديم طلب استرداد بقيمة :amount.',
-        'processing' => 'جاري معالجة الاسترداد',
-        'processing_description' => 'يتم معالجة طلب الاسترداد الخاص بك.',
         'approved' => 'تمت الموافقة على الاسترداد',
-        'approved_description' => 'تمت الموافقة على استرداد بقيمة :amount وإضافته إلى محفظتك.',
-        'processed' => 'تم معالجة الاسترداد',
-        'processed_description' => 'تم معالجة :refund_type بقيمة :refund_amount. إجمالي المبلغ المسترد: :total_refunded. الرصيد المتبقي: :remaining_balance',
+        'approved_description' => 'تمت الموافقة على استرداد بقيمة :amount وتسجيله لدى المتجر.',
+        'processed' => 'تم تسجيل الاسترداد',
+        'processed_description' => 'تم تسجيل :refund_type بقيمة :refund_amount. إجمالي المبلغ المسترد: :total_refunded. الرصيد المتبقي: :remaining_balance',
         'rejected' => 'تم رفض الاسترداد',
         'rejected_description' => 'تم رفض طلب الاسترداد. السبب: :reason',
         'failed' => 'فشل الاسترداد',

@@ -88,12 +88,18 @@ abstract class NotificationE2ETestCase extends TestCase
     protected function createNotificationE2ETables(): void
     {
         if (!Schema::hasTable('refunds')) {
+            // Phase 10 unification: refunds key the customer by user_id
+            // (customer_id was never a real column).
             Schema::create('refunds', function (Blueprint $table) {
                 $table->id();
-                $table->unsignedBigInteger('customer_id')->nullable();
+                $table->unsignedBigInteger('user_id')->nullable();
                 $table->unsignedBigInteger('order_id')->nullable();
                 $table->decimal('amount', 10, 2)->nullable();
+                $table->char('currency', 3)->nullable();
                 $table->string('status')->nullable();
+                $table->unsignedBigInteger('decided_by')->nullable();
+                $table->timestamp('decided_at')->nullable();
+                $table->text('decision_note')->nullable();
                 $table->timestamps();
             });
         }
@@ -112,7 +118,9 @@ abstract class NotificationE2ETestCase extends TestCase
             });
         }
 
-        // RatingRemoved (registered for RefundApproved) filters reviews by order_id.
+        // Phase 10 unification: automatic review deletion on refunds is
+        // disabled (reviews carry no order scope), so no order_id support
+        // column is needed here anymore. Kept guarded for legacy suites.
         if (Schema::hasTable('reviews') && !Schema::hasColumn('reviews', 'order_id')) {
             Schema::table('reviews', function (Blueprint $table) {
                 $table->unsignedBigInteger('order_id')->nullable();
@@ -348,7 +356,7 @@ abstract class NotificationE2ETestCase extends TestCase
     protected function createRefund(User $user, Order $order, array $attributes = []): Refund
     {
         return Refund::withoutEvents(fn () => Refund::create(array_merge([
-            'customer_id' => $user->id,
+            'user_id' => $user->id,
             'order_id' => $order->id,
             'amount' => 50.00,
             'status' => 'approved'], $attributes)));

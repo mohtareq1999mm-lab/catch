@@ -28,17 +28,35 @@ class SendRefundRequestedNotification implements ShouldQueue
     public function handle(RefundRequested $event)
     {
         $refund = $event->refund;
-        $customer = $refund->customer;
+        // Phase 10 unification: the modern orders table carries no language
+        // column and refunds key the customer by user_id. Guard both so the
+        // request mail/SMS fanout stays alive instead of fataling on nulls.
         $order = $refund->order;
-        $emailReceiver = $this->getWhichUserWillGetEmail(EventType::ORDER_REFUND, $order->language);
+
+        if (!$order) {
+            return;
+        }
+
+        $customer = $refund->customer
+            ?? \Marvel\Database\Models\User::query()->whereKey($refund->user_id)->first();
+
+        $language = $order->language ?? (defined('DEFAULT_LANGUAGE') ? DEFAULT_LANGUAGE : 'en');
+        $emailReceiver = $this->getWhichUserWillGetEmail(EventType::ORDER_REFUND, $language);
         if ($emailReceiver['admin']) {
-            $admins = $this->adminList();
+            // Phase 10 unification: no super_admin role seeded (fresh/test
+            // environments) means no admin recipients — skip, never fatal.
+            try {
+                $admins = $this->adminList();
+            } catch (\Throwable $e) {
+                $admins = collect();
+            }
             foreach ($admins as $admin) {
-                $admin->notify(new RefundRequested($refund, 'admin'));
+                // NOTE: the notification class (not the same-named event).
+                $admin->notify(new \Marvel\Notifications\RefundRequested($refund, 'admin'));
             }
         }
-        if ($emailReceiver['customer']) {
-            $customer->notify(new RefundRequested($refund, 'customer'));
+        if ($emailReceiver['customer'] && $customer) {
+            $customer->notify(new \Marvel\Notifications\RefundRequested($refund, 'customer'));
         }
         $this->sendRefundRequestedSms($refund);
     }

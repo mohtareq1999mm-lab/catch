@@ -24,7 +24,11 @@ use Tests\Feature\Currency\CurrencyTestCase;
  */
 class RefundCurrencyAndLedgerTest extends CurrencyTestCase
 {
-    private const ADMIN_REFUND = '/api/v1/admin/payments/';
+    // Phase 10 unification: the direct gateway-refund HTTP endpoint is
+    // removed (gateway money movement disabled), so these tests pin the
+    // dormant PaymentRefundService directly at the service boundary with a
+    // mocked provider. The canonical customer/admin refund flow lives in
+    // CanonicalRefundLifecycleTest and never touches a gateway.
 
     protected function tearDown(): void
     {
@@ -125,7 +129,7 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
     public function refund_after_catalog_switch_succeeds_in_transaction_currency(): void
     {
         [$order, $txn] = $this->makePaidCompletedOrder('PAY-SWITCH-1', 100.0);
-        $this->actingAdminWith(['payments.refund']);
+        $admin = $this->actingAdminWith(['payments.refund']);
 
         // Catalog switches KWD → SAR after the charge; the txn row (and the
         // order snapshot drift simulation below) still denominates KWD.
@@ -141,14 +145,13 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
             status: 'Refunded',
         ));
 
-        $response = $this->postJson(self::ADMIN_REFUND . $order->id . '/refund', [
-            'amount' => 10.0,
-            'idempotency_key' => 'switch-key-1',
-        ]);
+        $summary = app(\App\Services\Payment\PaymentRefundService::class)->refund(
+            $order->fresh(), 10.0, null, 'switch-key-1', (int) $admin->id,
+        );
 
-        $response->assertStatus(200)->assertJsonPath('success', true);
-        $response->assertJsonPath('data.refunded_currency', 'KWD');
-        $this->assertEqualsWithDelta(10.0, (float) $response->json('data.refunded_amount'), 0.0000001);
+        $this->assertFalse($summary['idempotent_replay']);
+        $this->assertSame('KWD', $summary['refunded_currency']);
+        $this->assertEqualsWithDelta(10.0, (float) $summary['refunded_amount'], 0.0000001);
         $this->assertSame('partially_refunded', $txn->fresh()->status);
     }
 
@@ -161,18 +164,17 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
     {
         [$orderA, $txnA] = $this->makePaidCompletedOrder('PAY-SCOPE-A', 100.0);
         [$orderB, $txnB] = $this->makePaidCompletedOrder('PAY-SCOPE-B', 100.0);
-        $this->actingAdminWith(['payments.refund']);
+        $admin = $this->actingAdminWith(['payments.refund']);
         $this->mockRefunds([$this->refundConfirmedPayload('RF-A'), $this->refundConfirmedPayload('RF-B')]);
+        $service = app(\App\Services\Payment\PaymentRefundService::class);
 
         // Documented scope: keys are unique PER TRANSACTION. Reusing one key
         // on another order's txn is a new refund, not a replay.
-        $this->postJson(self::ADMIN_REFUND . $orderA->id . '/refund', [
-            'amount' => 10.0, 'idempotency_key' => 'shared-key',
-        ])->assertStatus(200)->assertJsonPath('data.idempotent_replay', false);
+        $summaryA = $service->refund($orderA->fresh(), 10.0, null, 'shared-key', (int) $admin->id);
+        $this->assertFalse($summaryA['idempotent_replay']);
 
-        $this->postJson(self::ADMIN_REFUND . $orderB->id . '/refund', [
-            'amount' => 10.0, 'idempotency_key' => 'shared-key',
-        ])->assertStatus(200)->assertJsonPath('data.idempotent_replay', false);
+        $summaryB = $service->refund($orderB->fresh(), 10.0, null, 'shared-key', (int) $admin->id);
+        $this->assertFalse($summaryB['idempotent_replay']);
 
         // Two provider calls, one ledger row on each txn.
         $this->assertCount(1, $txnA->fresh()->gateway_response['_refunds'] ?? []);
@@ -189,7 +191,7 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
     public function summary_remaining_reflects_preexisting_committed_ledger(): void
     {
         [$order, $txn] = $this->makePaidCompletedOrder('PAY-SUMMARY-1', 100.0);
-        $this->actingAdminWith(['payments.refund']);
+        $admin = $this->actingAdminWith(['payments.refund']);
 
         // A previously committed partial (e.g. an external refund) sits in
         // the ledger: 30 of 100 already returned.
@@ -205,13 +207,12 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
 
         $this->mockRefunds([$this->refundConfirmedPayload('RF-SUM-1')]);
 
-        $response = $this->postJson(self::ADMIN_REFUND . $order->id . '/refund', [
-            'amount' => 70.0, 'idempotency_key' => 'summary-key-1',
-        ]);
+        $summary = app(\App\Services\Payment\PaymentRefundService::class)->refund(
+            $order->fresh(), 70.0, null, 'summary-key-1', (int) $admin->id,
+        );
 
-        $response->assertStatus(200);
-        $response->assertJsonPath('data.full_refund', true);
-        $this->assertEqualsWithDelta(0.0, (float) $response->json('data.remaining_refundable'), 0.0000001);
+        $this->assertTrue($summary['full_refund']);
+        $this->assertEqualsWithDelta(0.0, (float) $summary['remaining_refundable'], 0.0000001);
         $this->assertSame('refunded', $txn->fresh()->status);
     }
 
@@ -223,7 +224,7 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
     public function ledger_caps_at_100_entries_pruning_oldest_first(): void
     {
         [$order, $txn] = $this->makePaidCompletedOrder('PAY-CAP-1', 100.0);
-        $this->actingAdminWith(['payments.refund']);
+        $admin = $this->actingAdminWith(['payments.refund']);
 
         $seeded = [];
         for ($i = 0; $i < 99; $i++) {
@@ -239,17 +240,14 @@ class RefundCurrencyAndLedgerTest extends CurrencyTestCase
         $txn->update(['status' => 'partially_refunded']);
 
         $this->mockRefunds([$this->refundConfirmedPayload('RF-CAP-1'), $this->refundConfirmedPayload('RF-CAP-2')]);
+        $service = app(\App\Services\Payment\PaymentRefundService::class);
 
         // 99 + 1 → exactly 100, no pruning yet.
-        $this->postJson(self::ADMIN_REFUND . $order->id . '/refund', [
-            'amount' => 10.0, 'idempotency_key' => 'cap-key-1',
-        ])->assertStatus(200);
+        $service->refund($order->fresh(), 10.0, null, 'cap-key-1', (int) $admin->id);
         $this->assertCount(100, $txn->fresh()->gateway_response['_refunds'] ?? []);
 
         // 100 + 1 → oldest pruned, still 100.
-        $this->postJson(self::ADMIN_REFUND . $order->id . '/refund', [
-            'amount' => 5.0, 'idempotency_key' => 'cap-key-2',
-        ])->assertStatus(200);
+        $service->refund($order->fresh(), 5.0, null, 'cap-key-2', (int) $admin->id);
 
         $ledger = $txn->fresh()->gateway_response['_refunds'] ?? [];
         $this->assertCount(100, $ledger);

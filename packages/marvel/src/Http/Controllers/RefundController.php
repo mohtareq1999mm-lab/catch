@@ -2,22 +2,10 @@
 
 namespace Marvel\Http\Controllers;
 
-use App\Events\Refund\RefundProcessed;
-use App\Events\RefundApproved;
-use App\Events\QuestionAnswered;
-use App\Exceptions\UnsupportedGatewayException;
-use App\Services\Payment\PaymentGatewayFactory;
-use Exception;
+use App\Services\Refund\RefundService;
 use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Marvel\Database\Models\Balance;
-use Marvel\Database\Models\Order;
-use Marvel\Database\Models\Refund;
-use Marvel\Database\Models\Wallet;
 use Marvel\Database\Repositories\RefundRepository;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
@@ -27,7 +15,6 @@ use Marvel\Http\Requests\RefundRequest;
 use Marvel\Http\Resources\GetSingleRefundResource;
 use Marvel\Http\Resources\RefundResource;
 use Marvel\Traits\ApiResponse;
-use Marvel\Traits\WalletsTrait;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
@@ -52,13 +39,12 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 class RefundController extends CoreController
 {
     use ApiResponse;
-    use WalletsTrait;
 
     public $repository;
 
     public function __construct(
         RefundRepository $repository,
-        private PaymentGatewayFactory $paymentGatewayFactory,
+        private RefundService $refunds,
     ) {
         $this->repository = $repository;
     }
@@ -88,23 +74,41 @@ class RefundController extends CoreController
      */
     public function index(Request $request)
     {
-        $limit = $request->limit;
-        $refunds = $this->fetchRefunds($request)->paginate($limit);
-        $refundData = RefundResource::collection($refunds)->response()->getData(true);
+        // Phase 10 unification: thin adapter over the canonical refund list.
+        // Customers receive their own refunds + summary; staff keep the
+        // existing paginated shape with an additive summary block.
+        $user = $request->user();
+
+        if (!$user) {
+            throw new AuthorizationException(NOT_AUTHORIZED);
+        }
+
+        $limit = (int) ($request->limit ?? 15);
+
+        if ($user->hasRole(Role::SUPER_ADMIN) || $this->repository->hasPermission($user, $request->shop_id)) {
+            $result = $this->refunds->listForAdmin($request->only(['status', 'order_id']), $limit);
+        } else {
+            $result = $this->refunds->listForCustomer((int) $user->id, $limit);
+        }
+
+        $refunds = RefundResource::collection(collect($result['data']))->resolve($request);
+        $refundData = ['data' => $refunds] + $result['meta'];
+
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, [
             "data" => $refundData['data'] ?? [],
-            "page" => $refundData['meta']['current_page'] ?? 0,
-            "current_page" => $refundData['meta']['current_page'] ?? 0,
-            "from" => $refundData['meta']['from'] ?? 0,
-            "to" => $refundData['meta']['to'] ?? 0,
-            "last_page" => $refundData['meta']['last_page'] ?? 0,
-            "path" => $refundData['meta']['path'] ?? "",
-            "per_page" => $refundData['meta']['per_page'] ?? 0,
-            "total" => $refundData['meta']['total'] ?? 0,
-            "next_page_url" => $refundData['links']['next'] ?? "",
-            "prev_page_url" => $refundData['links']['prev'] ?? "",
-            "last_page_url" => $refundData['links']['last'] ?? "",
-            "first_page_url" => $refundData['links']['first'] ?? "",
+            "page" => $refundData['current_page'] ?? 0,
+            "current_page" => $refundData['current_page'] ?? 0,
+            "from" => null,
+            "to" => null,
+            "last_page" => $refundData['last_page'] ?? 0,
+            "path" => "",
+            "per_page" => $refundData['per_page'] ?? 0,
+            "total" => $refundData['total'] ?? 0,
+            "next_page_url" => "",
+            "prev_page_url" => "",
+            "last_page_url" => "",
+            "first_page_url" => "",
+            "summary" => $result['summary'],
         ]);
     }
 
@@ -172,11 +176,30 @@ class RefundController extends CoreController
      */
     public function store(RefundRequest $request)
     {
+        // Phase 10 unification: thin adapter. The canonical service creates
+        // PENDING and stops — no approval, inventory, gateway or wallet.
         try {
-            if (!$request->user()) {
+            $user = $request->user();
+
+            if (!$user) {
                 throw new AuthorizationException(NOT_AUTHORIZED);
             }
-            return $this->repository->storeRefund($request);
+
+            $refund = $this->refunds->request((int) $user->id, $request->only([
+                'order_id', 'amount', 'currency', 'title', 'description', 'images', 'refund_reason_id',
+            ]));
+
+            return $this->apiResponse(REFUND_REQUEST_SUBMITTED, 201, true, [
+                'id' => $refund->id,
+                'order_id' => $refund->order_id,
+                'amount' => $refund->amount,
+                'currency' => $refund->currency,
+                'status' => $refund->status,
+                'title' => $refund->title,
+                'created_at' => $refund->created_at,
+            ]);
+        } catch (\RuntimeException $e) {
+            return $this->apiResponse($e->getMessage(), $this->refundErrorStatus($e->getMessage()), false);
         } catch (MarvelException $th) {
             throw new MarvelException(COULD_NOT_CREATE_THE_RESOURCE);
         }
@@ -208,7 +231,9 @@ class RefundController extends CoreController
             if ($user->hasRole(Role::SUPER_ADMIN) || $this->repository->hasPermission($user)) {
                 $refund = $refundQuery->findOrFail($id);
             } else {
-                $refund = $refundQuery->where('customer_id', $user->id)->findOrFail($id);
+                // Phase 10 unification: refunds key the customer by user_id
+                // (customer_id was never a real column).
+                $refund = $refundQuery->where('user_id', $user->id)->findOrFail($id);
             }
 
             return new GetSingleRefundResource($refund);
@@ -223,14 +248,14 @@ class RefundController extends CoreController
      *     operationId="updateRefund",
      *     tags={"Content Moderation"},
      *     summary="Update Refund Status",
-     *     description="Update a refund request status (approve, reject, processing). When approved, credits customer wallet and deducts from shop balance. Requires SUPER_ADMIN permission.",
+     *     description="Approve or reject a refund request. Approval records the business refund locally (no payment-provider call, no wallet movement). Requires refund permission.",
      *     security={{"sanctum": {}}},
      *     @OA\Parameter(name="id", in="path", required=true, description="Refund ID", @OA\Schema(type="integer")),
      *     @OA\RequestBody(
      *         required=true,
      *         @OA\JsonContent(
      *             required={"status"},
-     *             @OA\Property(property="status", type="string", enum={"approved", "rejected", "processing", "pending"}, example="approved")
+     *             @OA\Property(property="status", type="string", enum={"approved", "rejected"}, example="approved")
      *         )
      *     ),
      *     @OA\Response(response=200, description="Refund updated successfully"),
@@ -252,166 +277,56 @@ class RefundController extends CoreController
 
     public function updateRefund(Request $request)
     {
+        // Phase 10 unification: thin adapter over the canonical
+        // RefundService. APPROVED means business-approved/recorded — never
+        // "money returned". No gateway call, no wallet/balance mutation and
+        // no payment-status change happens on this path anymore.
         $user = $request->user();
 
-        if ($this->repository->hasPermission($user)) {
-            try {
-                $refund = $this->repository->with(['shop', 'order', 'customer'])->findOrFail($request->id);
-            } catch (\Exception $e) {
-                throw new ModelNotFoundException(NOT_FOUND);
-            }
-            if ($refund->status == RefundStatus::APPROVED) {
-                throw new HttpException(400, ALREADY_REFUNDED);
-            }
-
-            if ($request->status == RefundStatus::APPROVED) {
-                // F-AUDIT-02: atomic claim — exactly one approver may drive
-                // this request to the provider. A concurrent approval sees a
-                // non-pending row and fails instead of double-refunding.
-                $claimed = DB::transaction(function () use ($refund) {
-                    $locked = Refund::query()->whereKey($refund->id)->lockForUpdate()->first();
-
-                    if (!$locked || $locked->status !== RefundStatus::PENDING) {
-                        return false;
-                    }
-
-                    $locked->update(['status' => RefundStatus::PROCESSING]);
-
-                    return true;
-                });
-
-                if (!$claimed) {
-                    throw new HttpException(400, ALREADY_REFUNDED);
-                }
-
-                // F-AUDIT-02: cross-path cap — the admin refund endpoint
-                // shares the txn `_refunds` ledger. Approving a full request
-                // on top of recorded refunds would over-refund, so it is
-                // rejected (remainder stays handlable via the admin path).
-                $refundService = app(\App\Services\Payment\PaymentRefundService::class);
-                $remaining = $refundService->ledgerRemaining((int) $refund->order_id);
-
-                if ($remaining !== null) {
-                    $requestMinor = \App\Services\Payment\CurrencyPrecision::toMinorUnits(
-                        (float) $refund->amount,
-                        $remaining['currency']
-                    );
-
-                    if ($requestMinor > $remaining['remaining_minor']) {
-                        Refund::query()->whereKey($refund->id)->update(['status' => RefundStatus::PENDING]);
-                        throw new HttpException(400, WRONG_REFUND);
-                    }
-                }
-
-                $gatewayRefunded = false;
-                $providerRef = null;
-                $providerStatus = null;
-                $ledgerCurrency = $remaining['currency'] ?? null;
-
-                // Call gateway refund BEFORE database transaction
-                if ($refund->order && $refund->order->payment_gateway) {
-                    try {
-                        $gateway = $this->paymentGatewayFactory->make($refund->order->payment_gateway);
-                        $result = $gateway->refund($refund->order, (float) $refund->amount);
-
-                        if (!$result->success) {
-                            Refund::query()->whereKey($refund->id)->update(['status' => RefundStatus::PENDING]);
-                            throw new HttpException(400, $result->errorMessage ?? 'Refund failed at payment gateway');
-                        }
-
-                        $gatewayRefunded = true;
-                        $providerRef = $result->gatewayTransactionId;
-                        $providerStatus = $result->status;
-                    } catch (UnsupportedGatewayException $e) {
-                        // Offline or unsupported payment method — skip gateway refund
-                    }
-                }
-
-                // Wrap entire refund approval in a transaction with proper locking
-                // to prevent race conditions and ensure data consistency
-                try {
-                    return DB::transaction(function () use ($request, $refund, $gatewayRefunded, $providerRef, $providerStatus, $ledgerCurrency, $refundService, $user) {
-                    // Update refund status first
-                    $this->repository->updateRefund($request, $refund);
-
-                    if ($gatewayRefunded) {
-                        // F-AUDIT-02: share the provider outcome with the
-                        // admin paid-minus-ledger cap (ledger note only —
-                        // states and side effects stay owned by this
-                        // workflow). allowOverCap: provider money already
-                        // moved, so the outcome must be recorded, flagged.
-                        $refundService->noteProviderRefund(
-                            (int) $refund->order_id,
-                            (float) $refund->amount,
-                            (string) ($ledgerCurrency ?? ''),
-                            $providerRef,
-                            'marvel-refund-request-'.$refund->id,
-                            $providerStatus,
-                            $user?->id,
-                            true,
-                        );
-                    }
-
-                    try {
-                        $order = Order::findOrFail($refund->order_id);
-                        foreach ($order->children as $childOrder) {
-                            // Lock balance record to prevent concurrent updates
-                            $balance = Balance::where('shop_id', $childOrder->shop_id)
-                                ->lockForUpdate()
-                                ->first();
-
-                            if ($balance) {
-                                // Use decrement for atomic operations
-                                $balance->decrement('total_earnings', $childOrder->amount);
-                                $balance->decrement('current_balance', $childOrder->amount);
-                            }
-                        }
-                    } catch (Exception $e) {
-                        throw new ModelNotFoundException(NOT_FOUND);
-                    }
-
-                    // Lock wallet for update to prevent race conditions
-                    $wallet = Wallet::where('customer_id', $refund->customer_id)
-                        ->lockForUpdate()
-                        ->first();
-
-                    if (!$wallet) {
-                        $wallet = Wallet::create(['customer_id' => $refund->customer_id]);
-                    }
-
-                    $walletPoints = $this->currencyToWalletPoints($refund->amount);
-                    // Use increment for atomic operations
-                    $wallet->increment('total_points', $walletPoints);
-                    $wallet->increment('available_points', $walletPoints);
-
-                    $refreshed = $refund->fresh();
-
-                    // Determine refund type
-                    $refundType = ($refund->amount >= $order->total) ? 'full' : 'partial';
-
-                    event(new RefundApproved($refreshed));
-                    event(new RefundProcessed($refreshed, $order, $refundType));
-
-                    return $refreshed;
-                    });
-                } catch (\Throwable $e) {
-                    // F-AUDIT-02: release the claim so a retry re-processes
-                    // instead of wedging on PROCESSING. A provider-side
-                    // outcome (if the gateway call had succeeded) is
-                    // preserved in the shared ledger note for ops.
-                    Refund::query()->whereKey($refund->id)
-                        ->where('status', RefundStatus::PROCESSING)
-                        ->update(['status' => RefundStatus::PENDING]);
-                    throw $e;
-                }
-            }
-
-            // Non-approved status updates don't need transaction
-            $this->repository->updateRefund($request, $refund);
-            return $refund;
-        } else {
+        if (!$this->repository->hasPermission($user)) {
             throw new AuthorizationException(NOT_AUTHORIZED);
         }
+
+        try {
+            $status = strtolower(trim((string) $request->status));
+            $note = $request->get('decision_note', $request->get('description'));
+
+            if ($status === RefundStatus::APPROVED) {
+                $refund = $this->refunds->approve((int) $request->id, (int) $user->id, $note);
+            } elseif ($status === RefundStatus::REJECTED) {
+                $refund = $this->refunds->reject((int) $request->id, (int) $user->id, $note);
+            } else {
+                throw new HttpException(422, WRONG_REFUND);
+            }
+
+            return $refund->load(['shop', 'order', 'customer', 'refund_policy', 'refund_reason']);
+        } catch (HttpException $e) {
+            throw $e;
+        } catch (\RuntimeException $e) {
+            throw new HttpException($this->refundErrorStatus($e->getMessage()), $e->getMessage());
+        }
+    }
+
+    /**
+     * Map canonical service failures to HTTP. Fail-closed: duplicate or
+     * late decisions are 400, missing rows 404, forbidden 403 and every
+     * validation/cap refusal 422 — none of them with side effects.
+     */
+    private function refundErrorStatus(string $message): int
+    {
+        if ($message === __('message.ERROR.NOT_FOUND')) {
+            return 404;
+        }
+
+        if ($message === __('message.ERROR.NOT_AUTHORIZED')) {
+            return 403;
+        }
+
+        if ($message === __('message.ERROR.ALREADY_REFUNDED')) {
+            return 400;
+        }
+
+        return 422;
     }
 
     /**
@@ -447,6 +362,12 @@ class RefundController extends CoreController
             throw new ModelNotFoundException(NOT_FOUND);
         }
         if ($this->repository->hasPermission($request->user())) {
+            // Phase 10 unification: decided refunds are ledger history and
+            // must never be deleted (approved sums drive over-refund
+            // protection). Only pending requests can be withdrawn.
+            if ($refund->status !== \App\Services\Refund\RefundService::STATUS_PENDING) {
+                throw new HttpException(422, WRONG_REFUND);
+            }
             $refund->delete();
             return $refund;
         } else {

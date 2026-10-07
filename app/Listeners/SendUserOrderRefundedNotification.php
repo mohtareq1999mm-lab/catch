@@ -16,7 +16,13 @@ class SendUserOrderRefundedNotification implements ShouldQueue
 
     public function handle(RefundApproved $event): void
     {
-        $user = $event->refund->customer;
+        // Phase 10 unification: the refunds ledger keys the customer by
+        // user_id (customer_id is a legacy read alias and is null on new
+        // rows). Fall back so approval notifications actually deliver.
+        $user = $event->refund->customer
+            ?? ($event->refund->user_id
+                ? \Marvel\Database\Models\User::query()->whereKey($event->refund->user_id)->first()
+                : null);
 
         if (!$user || $user->type !== UserType::USER->value) {
             return;

@@ -37,7 +37,7 @@ return [
         'failed' => 'Payment Failed',
         'failed_description' => 'Payment attempt failed. This is attempt #:retry_attempt. Please try again.',
         'refunded' => 'Payment Refunded',
-        'refunded_description' => 'Refund of :amount has been processed to your wallet.',
+        'refunded_description' => 'Refund of :amount has been approved and recorded by the store.',
     ],
 
     // Fulfillment Events
@@ -109,15 +109,15 @@ return [
     ],
 
     // Refund Events
+    // Phase 10 unification: approved means business-approved/recorded — no
+    // provider money movement and no wallet credit exist in this phase.
     'refund' => [
         'requested' => 'Refund Requested',
         'requested_description' => 'A refund request has been submitted for :amount.',
-        'processing' => 'Refund Processing',
-        'processing_description' => 'Your refund is being processed.',
         'approved' => 'Refund Approved',
-        'approved_description' => 'Refund of :amount has been approved and credited to your wallet.',
-        'processed' => 'Refund Processed',
-        'processed_description' => ':refund_type refund of :refund_amount processed. Total refunded: :total_refunded. Remaining balance: :remaining_balance',
+        'approved_description' => 'Refund of :amount has been approved and recorded by the store.',
+        'processed' => 'Refund Recorded',
+        'processed_description' => ':refund_type refund of :refund_amount recorded. Total refunded: :total_refunded. Remaining balance: :remaining_balance',
         'rejected' => 'Refund Rejected',
         'rejected_description' => 'Your refund request has been rejected. Reason: :reason',
         'failed' => 'Refund Failed',

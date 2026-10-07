@@ -59,6 +59,10 @@ class RefundRequested extends Notification implements ShouldQueue
                 ->markdown('emails.refund.refund-updated', [
                     'order'    => $order,
                     'refund'   => $this->refund,
+                    // Phase 10 unification: the shared updated view requires
+                    // $status — the request mail never passed it (latent 500
+                    // whenever an admin recipient existed).
+                    'status'   => ' **' . $this->refund->status . '** ',
                     'url'      => $url,
                     'receiver' => $this->receiver
                 ]);

@@ -121,7 +121,9 @@ trait OrderSmsTrait
     public function sendRefundRequestedSms($refund): void
     {
         $order = $refund->order;
-        $language = $order->language;
+        // Phase 10 unification: modern orders carry no language column —
+        // fall back instead of fataling setLocale().
+        $language = $order->language ?? (defined('DEFAULT_LANGUAGE') ? DEFAULT_LANGUAGE : 'en');
         App::setLocale($language);
         $smsArray = [
             'order'             => $order,
@@ -135,7 +137,9 @@ trait OrderSmsTrait
     public function sendRefundUpdateSms($refund): void
     {
         $order = $refund->order;
-        $language = $order->language;
+        // Phase 10 unification: modern orders carry no language column —
+        // fall back instead of fataling setLocale().
+        $language = $order->language ?? (defined('DEFAULT_LANGUAGE') ? DEFAULT_LANGUAGE : 'en');
         App::setLocale($language);
         $smsArray = [
             'order'             => $order,

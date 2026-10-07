@@ -2,8 +2,8 @@
 
 namespace App\Events\Refund;
 
-use App\Models\Refund;
 use Marvel\Database\Models\Order;
+use Marvel\Database\Models\Refund;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;

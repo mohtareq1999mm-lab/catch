@@ -382,10 +382,12 @@ class PaymentRefundService
     }
 
     /**
-     * F-AUDIT-02: remaining refundable for cross-path approval gating (used by
-     * the Marvel refund-request workflow). Lock-free read; the caller
-     * serializes decisions with its own claim lock. Null when no refundable
-     * transaction exists.
+     * Remaining refundable on the provider ledger (read-only reporting for
+     * the PayPal webhook path and currency verification; the canonical
+     * refund-request flow keeps its own refunds-table accounting in
+     * RefundService and never calls the provider).
+     * Lock-free read; callers that decide under concurrency hold their own
+     * locks. Null when no refundable transaction exists.
      *
      * @return array{transaction_id: int, currency: string, paid_minor: int, refunded_minor: int, remaining_minor: int}|null
      */
@@ -416,94 +418,6 @@ class PaymentRefundService
             'refunded_minor' => $refundedMinor,
             'remaining_minor' => max(0, $paidMinor - $refundedMinor),
         ];
-    }
-
-    /**
-     * F-AUDIT-02: ledger-only note for provider refunds executed OUTSIDE this
-     * service (Marvel refund-request approvals, which own their approval
-     * state, wallet/balance compensation and order updates). Appends to the
-     * shared `_refunds` ledger so the admin paid-minus-ledger cap accounts
-     * for Marvel-path refunds. Changes NO order/txn states and runs NO side
-     * effects. Single txn-row lock (no order lock → no lock cycle).
-     * Idempotent by $eventId. Fail-closed on currency divergence.
-     */
-    public function noteProviderRefund(
-        int $orderId,
-        float $amount,
-        string $currency,
-        ?string $providerRef,
-        string $eventId,
-        ?string $providerStatus,
-        ?int $actorId,
-        bool $allowOverCap = false,
-    ): void {
-        DB::transaction(function () use ($orderId, $amount, $currency, $providerRef, $eventId, $providerStatus, $actorId, $allowOverCap) {
-            $txn = Transaction::query()->where('order_id', $orderId)
-                ->whereIn('status', ['paid', 'partially_refunded'])
-                ->latest()
-                ->lockForUpdate()
-                ->first();
-
-            if (!$txn) {
-                throw new \RuntimeException(__('message.ERROR.INVALID_PAYMENT_ID'));
-            }
-
-            $txnCurrency = strtoupper(trim((string) $txn->currency));
-            $eventCurrency = strtoupper(trim($currency));
-
-            if ($txnCurrency === '' || $eventCurrency === '' || $eventCurrency !== $txnCurrency) {
-                throw new \RuntimeException(
-                    __('message.ERROR.PAYMENT_CURRENCY_UNSUPPORTED', ['currency' => $eventCurrency !== '' ? $eventCurrency : $txnCurrency])
-                );
-            }
-
-            $ledger = $this->readLedger($txn);
-
-            foreach ($ledger as $entry) {
-                if (is_array($entry) && ($entry['event_id'] ?? null) === $eventId) {
-                    return;
-                }
-            }
-
-            $requestMinor = CurrencyPrecision::toMinorUnits($amount, $txnCurrency);
-            $paidMinor = CurrencyPrecision::toMinorUnits((float) $txn->amount, $txnCurrency);
-            $refundedMinor = $this->refundedMinor($ledger, $txnCurrency);
-
-            // $allowOverCap (Marvel approval path): the provider has ALREADY
-            // moved the money, so the outcome must be recorded even past the
-            // cap — flagged for ops instead of thrown (which would hide a
-            // real money movement). The admin cap then blocks anything
-            // further. Default false: fail-closed everywhere else.
-            $overCap = $requestMinor > ($paidMinor - $refundedMinor);
-
-            if ($requestMinor <= 0 || ($overCap && !$allowOverCap)) {
-                throw new \RuntimeException(__('message.ERROR.WRONG_REFUND'));
-            }
-
-            $isFull = (($paidMinor - $refundedMinor) - $requestMinor) <= 0;
-
-            $ledger[] = [
-                'id' => (string) Str::uuid(),
-                'event_id' => $eventId,
-                'idempotency_key' => 'marvel:'.$eventId,
-                'amount' => CurrencyPrecision::fromMinorUnits($requestMinor, $txnCurrency),
-                'currency' => $txnCurrency,
-                'reason' => null,
-                'by' => $actorId,
-                'at' => now()->toIso8601String(),
-                'provider_ref' => $providerRef !== null && $providerRef !== '' ? $providerRef : null,
-                'provider_status' => $providerStatus,
-                'full_refund' => $isFull,
-                'external' => 'marvel-refund',
-                'over_cap' => $overCap,
-            ];
-            $ledger = $this->capLedger($ledger);
-
-            $gatewayResponse = is_array($txn->gateway_response) ? $txn->gateway_response : [];
-            $gatewayResponse['_refunds'] = $ledger;
-
-            $txn->update(['gateway_response' => $gatewayResponse]);
-        });
     }
 
     /**

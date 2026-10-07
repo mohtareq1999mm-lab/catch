@@ -25,18 +25,37 @@ class SendRefundUpdateNotification implements ShouldQueue
     public function handle(RefundUpdate $event)
     {
         $refund = $event->refund;
+        // Phase 10 unification: same null-safety as the request fanout —
+        // modern orders carry no language column, refunds key by user_id.
         $order = $refund->order;
-        if ($order->parent_id) return;
-        $emailReceiver = $this->getWhichUserWillGetEmail(EventType::ORDER_REFUND, $event->refund->order->language);
 
-        if ($emailReceiver['customer'] && $refund->customer()) {
-            $refund->customer->notify(new RefundUpdate($refund, 'customer'));
+        if (!$order) {
+            return;
+        }
+
+        if ($order->parent_id) return;
+        $language = $order->language ?? (defined('DEFAULT_LANGUAGE') ? DEFAULT_LANGUAGE : 'en');
+        $emailReceiver = $this->getWhichUserWillGetEmail(EventType::ORDER_REFUND, $language);
+
+        $customer = $refund->customer
+            ?? \Marvel\Database\Models\User::query()->whereKey($refund->user_id)->first();
+
+        if ($emailReceiver['customer'] && $customer) {
+            // NOTE: the notification class (not the same-named event).
+            $customer->notify(new \Marvel\Notifications\RefundUpdate($refund, 'customer'));
         }
 
         if ($emailReceiver['admin']) {
-            $admins = $this->adminList();
+            // Phase 10 unification: no super_admin role seeded (fresh/test
+            // environments) means no admin recipients — skip, never fatal.
+            try {
+                $admins = $this->adminList();
+            } catch (\Throwable $e) {
+                $admins = collect();
+            }
             foreach ($admins as $admin) {
-                $admin->notify(new RefundUpdate($refund, 'admin'));
+                // NOTE: the notification class (not the same-named event).
+                $admin->notify(new \Marvel\Notifications\RefundUpdate($refund, 'admin'));
             }
         }
     }

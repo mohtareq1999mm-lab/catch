@@ -248,8 +248,10 @@ class UserNotificationTest extends TestCase
 
     private function createRefund(User $user, Order $order): Refund
     {
+        // Phase 10 unification: refunds key the customer by user_id
+        // (customer_id was never a real column).
         return Refund::withoutEvents(fn () => Refund::create([
-            'customer_id' => $user->id,
+            'user_id' => $user->id,
             'order_id' => $order->id,
             'amount' => 50.00,
             'status' => 'approved',

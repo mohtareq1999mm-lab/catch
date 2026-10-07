@@ -28,6 +28,12 @@ class RefundResource extends Resource
 
     private function getOrderData($data)
     {
+        // Phase 10 unification: orphan refunds (order soft-deleted via
+        // set-null FK) must serialize as null, not fatal the list endpoint.
+        if (!$data) {
+            return null;
+        }
+
         return [
             'id' => $data->id,
             'tracking_number' => $data->tracking_number,
