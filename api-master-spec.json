@@ -1,7 +1,7 @@
 {
     "meta": {
         "specification_version": "3.0.0-merged",
-        "generated_utc": "2026-10-07T08:53:09Z",
+        "generated_utc": "2026-10-07T09:57:33Z",
         "source_of_truth": "implementation (forensic fragments over route:list)",
         "accuracy_policy": "implementation_over_documentation; unknown stays unknown; never invented",
         "audit_type": "forensic_api_contract_merge",
@@ -57,7 +57,7 @@
         },
         "general_expansion": "130 custom route entries expanded on | methods (GET|POST, PUT|PATCH) to one endpoint per method",
         "general_conversion_rules": "name=METHOD path — short purpose; raw={{base_url}}/path with :param; Accept always; Content-Type only with body; Bearer customer_token/admin_token by audience, none for public/system; lang:en on non-system (CheckLangMiddleware proven, gspec.locale); query from example_request.query else empty; GET=no body; body-required only where example_request.body or spec filters prove it; tests: none added (no verified capture paths in general surface)",
-        "postman_rules": "dedup by loose(method+path) (numeric segments≈params, double-v1 collapsed); first occurrence wins; same-fragment repeats kept as proven variants with suffix; folders Admin/General/System(+Legacy); General subfolders in dependency order Register/Login→Products→Cart→Checkout→Payment→Order",
+        "postman_rules": "dedup by loose(method+path) (numeric segments≈params, paths verbatim incl. double-v1); first occurrence wins; same-fragment repeats kept as proven variants with suffix; folders Admin/General/System(+Legacy); General subfolders in dependency order Register/Login→Products→Cart→Checkout→Payment→Order",
         "description_headings": [
             "PURPOSE",
             "ACTOR",
@@ -83,7 +83,9 @@
             "order_id",
             "payment_id",
             "refund_id"
-        ]
+        ],
+        "parity_breakdown": "511 route:list rows in scope; 537 unified spec endpoints (method-expanded splits e.g. GET|HEAD/PUT|PATCH, general 130-route expansion, closure-verified product-type); 542 postman requests (spec set + proven variants: checkout x4, product-variable, register-email). missing_from_postman=0 (template-aware match incl. example-valued paths).",
+        "stage2_finalizer": "postprocess-from-files.php: base_url host-only, triple-brace fix, token re-audience, destructive warnings, script guards, register-email variant, mislabeled-settings correction, product-type/seal spec corrections"
     },
     "authentication": {
         "mechanisms": {
@@ -38060,6 +38062,105 @@
             "fragment": "catalog"
         },
         {
+            "id": "get /api/v1/product-type",
+            "group": "catalog",
+            "audience": "staff",
+            "method": "GET",
+            "path": "/api/v1/product-type",
+            "route_name": null,
+            "middleware": [
+                "api"
+            ],
+            "authentication": {
+                "required": true,
+                "mechanism": "sanctum Bearer (Routes.php:122 group auth:sanctum)",
+                "throttle": "throttle:admin (same group)"
+            },
+            "authorization": {
+                "required": false,
+                "detail": "none in closure; group-level only"
+            },
+            "controller": "Closure",
+            "action": "Routes.php:364",
+            "path_parameters": [],
+            "query_parameters": [],
+            "headers": [
+                {
+                    "name": "Accept",
+                    "value": "application/json"
+                }
+            ],
+            "request": {
+                "content_type": "none (no body)",
+                "fields": null,
+                "validation_rules": []
+            },
+            "business": {
+                "purpose": "Returns map of 9 product-type keys to translated message strings (best_product_sales, brands_product, new_arrivals, all_product_discounts, product_discount_today_or_low_qty, flash_sales_product, flash_sales_end_today, product_for_parent_category, flash_sales_end_week). Plain JSON object, NO apiResponse envelope.",
+                "actor": "staff/admin (group middleware auth:sanctum + throttle:admin; verify role at runtime)",
+                "preconditions": null,
+                "postconditions": null,
+                "steps": [
+                    "Translate each key via message.PRODUCT_TYPE.*",
+                    "Return plain JSON object (NO apiResponse envelope)"
+                ]
+            },
+            "database": {
+                "reads": null,
+                "writes": null,
+                "transactions": "none",
+                "locks": "none"
+            },
+            "state_machine": null,
+            "side_effects": {
+                "events": [],
+                "jobs": [],
+                "notifications": [],
+                "external": []
+            },
+            "responses": [
+                {
+                    "status": 200,
+                    "description": "plain JSON object {key: translated string} x9 — NO {status,message,success,data} envelope (closure returns $result directly; Routes.php:364-383)",
+                    "body": {
+                        "best_product_sales": "string (translated)",
+                        "brands_product": "string (translated)",
+                        "new_arrivals": "string (translated)",
+                        "all_product_discounts": "string (translated)",
+                        "product_discount_today_or_low_qty": "string (translated)",
+                        "flash_sales_product": "string (translated)",
+                        "flash_sales_end_today": "string (translated)",
+                        "product_for_parent_category": "string (translated)",
+                        "flash_sales_end_week": "string (translated)"
+                    }
+                }
+            ],
+            "errors": [],
+            "business_flow": {
+                "flow": null,
+                "previous_step": null,
+                "current_step": "product-type key lookup",
+                "next_step": null,
+                "alternative_next_steps": null,
+                "next_step_status": "unknown: static list for storefront product widgets"
+            },
+            "consumers": [
+                "unknown: no test reference traced"
+            ],
+            "implementation_trace": {
+                "route_files": [
+                    "packages/marvel/src/Rest/Routes.php:364-383"
+                ]
+            },
+            "security": {
+                "notes": null
+            },
+            "evidence": {
+                "confidence": "high: closure source read verbatim (Routes.php:364-383), group middleware L122"
+            },
+            "fragment": "unknown"
+        },
+        {
             "id": "get /api/v1/products",
             "group": "admin",
             "audience": "admin",
@@ -52219,9 +52320,49 @@
                 "content_type": "application/json",
                 "fields": [
                     {
-                        "name": "(preference keys)",
+                        "name": "email_enabled",
                         "location": "body",
-                        "rules": "validated in-controller (see controller); unknown keys rejected — verify before relying"
+                        "rules": "sometimes|boolean"
+                    },
+                    {
+                        "name": "sms_enabled",
+                        "location": "body",
+                        "rules": "sometimes|boolean"
+                    },
+                    {
+                        "name": "push_enabled",
+                        "location": "body",
+                        "rules": "sometimes|boolean"
+                    },
+                    {
+                        "name": "websocket_enabled",
+                        "location": "body",
+                        "rules": "sometimes|boolean"
+                    },
+                    {
+                        "name": "event_preferences",
+                        "location": "body",
+                        "rules": "sometimes|array"
+                    },
+                    {
+                        "name": "quiet_hours_start",
+                        "location": "body",
+                        "rules": "sometimes|nullable|date_format:H:i"
+                    },
+                    {
+                        "name": "quiet_hours_end",
+                        "location": "body",
+                        "rules": "sometimes|nullable|date_format:H:i"
+                    },
+                    {
+                        "name": "respect_quiet_hours",
+                        "location": "body",
+                        "rules": "sometimes|boolean"
+                    },
+                    {
+                        "name": "notification_language",
+                        "location": "body",
+                        "rules": "sometimes|in:en,ar"
                     }
                 ],
                 "validation_rules": [
@@ -52295,7 +52436,8 @@
                         "audience": "customer"
                     },
                     "status": "deep-traced"
-                }
+                },
+                "verified_rules_from": "App/Http/Controllers/Api/User/NotificationPreferencesController@update (merge-time verification)"
             },
             "security": {
                 "notes": null
@@ -61124,6 +61266,11 @@
                         "name": "dimensions",
                         "location": "body",
                         "rules": "nullable|array|min:1"
+                    },
+                    {
+                        "name": "dimensions.*",
+                        "location": "body",
+                        "rules": "numeric (SealPackageRequest)"
                     }
                 ],
                 "validation_rules": [
@@ -66266,2566 +66413,10 @@
     ],
     "audit_summary": {
         "routes_discovered": 511,
-        "routes_documented": 536,
-        "postman_requests_generated": 540,
-        "routes_matched_to_postman": 0,
-        "routes_missing_from_postman": [
-            {
-                "route": "POST /api/v1/add-points",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/address",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/address",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/address/{address}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/address/{address}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/address/{address}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/admin-login",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/admin-users/add",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/admin-users/delete-forever/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/admin-users/delete/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/admin-users/restore/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin-users/trashed",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/admin-users/update-activation",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin/notifications",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/admin/notifications",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/admin/notifications/read-all",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin/notifications/unread",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/admin/notifications/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/admin/notifications/{id}/read",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin/tracking/dashboard",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin/tracking/orders",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin/tracking/orders/{orderId}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/admin/tracking/requires-attention",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/attributes",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/attributes",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/attributes/{attribute}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/attributes/{attribute}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/attributes/{attribute}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/banner/change-status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/banner/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/banners",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/banners",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/banners/{banner}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/banners/{banner}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/banners/{banner}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/brands",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/export",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/brands/export",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/export/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/brands/export/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/export/{id}/download",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/brands/import",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/import/sample",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/import/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/brands/import/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/import/{id}/download-errors",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/brands/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/brands/{brand}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/brands/{brand}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/brands/{brand}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|POST|HEAD /api/v1/broadcasting/auth",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/cart",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/cart",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/cart/bulk-items",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/cart/delete-item/{itemId}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/cart/delete-items",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/cart/update-item",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/cart/{id}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/categories",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/categories/bulk-delete",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/bulk-delete/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/categories/bulk-delete/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/export",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/export/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/categories/export/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/export/{id}/download",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/categories/feature",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/categories/import",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/import/sample",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/import/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/categories/import/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/import/{id}/download-errors",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/categories/{category}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/categories/{category}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/categories/{category}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/change-password",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/cities",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/cities",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/cities/{city}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/cities/{city}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/cities/{city}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/contact-us",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/contacts",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/contacts",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/contacts/delete-all",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/contacts/delete-all-read",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/contacts/{contact}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/contacts/{contact}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/contacts/{id}/reply",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/content-pages",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/content-pages",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/content-pages/{content_page}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/content-pages/{content_page}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/content-pages/{content_page}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/content-pages/{content_page}/attach-sections",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/content-pages/{content_page}/toggle-active",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/countries",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/countries",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/countries/change-status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/countries/{country}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/countries/{country}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/countries/{country}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/countries/{id}/governorates",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/coupons",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/rules",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/coupons/validate-configuration",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{coupon}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/coupons/{coupon}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/coupons/{coupon}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{coupon}/assignments",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/coupons/{coupon}/assignments",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{coupon}/assignments/{assignment}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/coupons/{coupon}/assignments/{assignment}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/coupons/{coupon}/assignments/{assignment}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/coupons/{id}/distribute",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{id}/distributions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{id}/distributions/{runId}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/coupons/{id}/suggest-fix",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{id}/targeting",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/coupons/{id}/targeting",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/coupons/{id}/targeting",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/coupons/{id}/usage-info",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/currencies",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/currencies",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/currencies/{currency}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/currencies/{currency}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/currencies/{currency}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/currencies/{id}/rate-mode",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/currencies/{id}/set-base",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/currencies/{id}/set-catalog",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/currency-rates",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/currency-rates",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/currency-rates/{currency_rate}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/currency-rates/{currency_rate}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/currency-rates/{currency_rate}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/cart",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/categories",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/category-stats",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/coupons",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/customers",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/finance",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/low-stock",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/order-stats",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/orders",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/overview",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/products",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/recent-orders",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/reconciliation",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/revenue",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/sales",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/dashboard/top-products",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/digital-assets/{uuid}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/digital-assets/{uuid}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/digital-assets/{uuid}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/digital-assets/{uuid}/license-keys",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/digital-assets/{uuid}/replace",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/digital-entitlements",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/digital-entitlements/{uuid}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/digital-entitlements/{uuid}/limit",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/digital-entitlements/{uuid}/restore",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/digital-entitlements/{uuid}/revoke",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/enum-types",
-                "class": "PUBLIC",
-                "reason": "Closure action (no controller) and no fragment contract"
-            },
-            {
-                "route": "GET|HEAD /api/v1/faqs",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/faqs",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/faqs/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/faqs/{faq}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/faqs/{faq}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/faqs/{faq}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/fast-shipping/settings",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/fast-shipping/settings",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/flash-sale",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/flash-sale",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/flash-sale/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/flash-sale/{flash_sale}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/flash-sale/{flash_sale}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/flash-sale/{flash_sale}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/forget-password",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/banners",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/banners/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/brands",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/brands-products",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/brands/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/categories",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/categories/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/checkout",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|POST|HEAD /api/v1/general/checkout/callback",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/checkout/cashier/{orderId}/mark-paid",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/checkout/cod/{orderId}/mark-paid",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|POST|HEAD /api/v1/general/checkout/error-callback",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/checkout/promotions",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/checkout/webhooks/paypal",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/checkout/webhooks/stripe",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/cities",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/cities/{id}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/content-pages",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/content-pages/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/countries",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/countries/{id}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/coupons",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/coupons/apply",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/coupons/available",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/coupons/mine",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/coupons/{id}/claim",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/currencies",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/currencies/select",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/device-tokens",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/general/device-tokens",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/digital/download/{entitlement}/{asset}",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/digital/downloads",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/digital/license/{entitlement}/{asset}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/digital/url/{entitlement}/{asset}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/faqs",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/fast-shipping/checkout",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/fast-shipping/status",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/flash-sale-products",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/flash-sale-products-ending-this-week",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/flash-sale-products-ending-today",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/flash-sales",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/flash-sales/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/governorates",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/governorates/{id}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/invoices/download/{uuid}",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/invoices/my-invoices",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/invoices/verify/{uuid}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/invoices/view/{uuid}",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/my-orders",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/nav-data",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/order-flows/available",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/order-flows/by-shipping-type/{shippingType}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/orders",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/orders/{id}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/orders/{id}/cancel",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/orders/{orderId}/invoice",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/orders/{orderId}/track",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/payment-gateways",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/pickup-locations",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/pickup-locations/{id}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/products",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/general/products/reviews/{id}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/products/{id}/reviews",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/products/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/promotions",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/promotions/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/settings",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/site-reviews",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/site-reviews",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/sliders",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/sliders/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/static-pages",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/static-pages/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/tags",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/general/tags/{slug}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/general/track-order",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/governorates",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/governorates",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/governorates/change-status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/governorates/{governorate}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/governorates/{governorate}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/governorates/{governorate}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/governorates/{id}/cities",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/governorates/{id}/fast-shipping",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/invoices",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/invoices/uuid/{uuid}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/invoices/verify/{uuid}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/invoices/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/invoices/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/invoices/{id}/correct",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/invoices/{id}/debit-note",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/invoices/{id}/regenerate",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/invoices/{uuid}/download",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/invoices/{uuid}/view",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/logout",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/logs/activity",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/me",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/notifications",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/notifications/read-all",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/notifications/unread",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/notifications/{id}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/notifications/{id}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/notifications/{id}/read",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/orders",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/orders/status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/orders/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/orders/{id}/status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/orders/{id}/statuses",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/otp-login",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/permissions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/pickup-locations",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/pickup-locations",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/pickup-locations/{pickup_location}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/pickup-locations/{pickup_location}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/pickup-locations/{pickup_location}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/product-flash-sale-info",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/product-type",
-                "class": "STAFF/ADMIN",
-                "reason": "Closure action (no controller) and no fragment contract"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/products/all",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products/bulk-delete",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/export",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products/export",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/export/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products/export/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/export/{id}/download",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products/import",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/import/sample",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/import/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products/import/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/import/{id}/download-errors",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/{product}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/products/{product}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/products/{product}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/products/{product}/digital-assets",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/products/{product}/digital-assets",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/promotions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/promotions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/promotions/{promotion}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/promotions/{promotion}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/promotions/{promotion}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/refunds",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/refunds",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/refunds/{refund}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/refunds/{refund}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/refunds/{refund}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/register",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/reset-password",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/reviews",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/reviews",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/reviews/{id}/toggle-approve",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/reviews/{review}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/reviews/{review}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/reviews/{review}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/roles",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/roles",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/roles/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/roles/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/roles/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/roles/{roleId}/permissions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/section-types",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/section-types",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/section-types/{section_type}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/section-types/{section_type}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/section-types/{section_type}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/section-types/{type}/settings",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/section-types/{type}/settings",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/sections",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/sections",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/sections/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/sections/types",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/sections/{section}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/sections/{section}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/sections/{section}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/sections/{section}/toggle-active",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/send-otp-code",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/settings",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/settings",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/shipments",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/shipments",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/shipments/uuid/{uuid}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/shipments/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/shipments/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/shipments/{id}/status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/shipping-prices",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/shipping-prices",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/shipping-prices/{shipping_price}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/shipping-prices/{shipping_price}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/shipping-prices/{shipping_price}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/site-reviews",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/site-reviews/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/site-reviews/{id}/approve",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/site-reviews/{id}/reject",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/sliders",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/sliders",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/sliders/change-status",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/sliders/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/sliders/{slider}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/sliders/{slider}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/sliders/{slider}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/social/exchange",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/social/redirect",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/social/{provider}",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/social/{provider}/callback",
-                "class": "SYSTEM",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/static-pages",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/static-pages/{static_page}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/static-pages/{static_page}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/static-pages/{static_page}/sections",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/static-pages/{static_page}/sections/reorder",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/static-pages/{static_page}/sections/{static_section}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/static-pages/{static_page}/sections/{static_section}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/tags",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/tags",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/tags/{tag}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/tags/{tag}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/tags/{tag}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/token",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/update-contact",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/user/devices/register",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/user/devices/{deviceId}",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/user/notification-preferences",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/user/notification-preferences",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/user/notifications/history",
-                "class": "CUSTOMER",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/users",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users/block-user",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users/make-admin",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users/unblock-user",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users/{userId}/assign-role",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users/{userId}/permissions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT /api/v1/users/{userId}/permissions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/users/{userId}/permissions",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/users/{userId}/remove-role",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/users/{user}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PUT|PATCH /api/v1/users/{user}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "DELETE /api/v1/users/{user}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/analytics/clear-cache",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/analytics/customer-segmentation",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/analytics/dashboard",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/analytics/export/customer-ltv",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/analytics/export/orders",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/analytics/export/performance",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/analytics/performance",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/analytics/time-series",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/analytics/top-customers",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/batches",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/batches",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/batches/pending-fulfillments",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/batches/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/batches/{id}/assign",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/batches/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/batches/{id}/next-task",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/batches/{id}/refresh-progress",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/batches/{id}/retry",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/batches/{id}/start",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillment-items/{id}/assign-placement",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/fulfillments",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/release",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/fulfillments/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/{id}/assign",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/{id}/complete-picking",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/{id}/create-packing-task",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/{id}/create-tasks",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/fulfillments/{id}/shipments",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/locations",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/locations",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/locations/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "PUT /api/v1/v1/admin/locations/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/locations/{id}/activate",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/locations/{id}/deactivate",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "PUT /api/v1/v1/admin/order-flow-inputs/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "DELETE /api/v1/v1/admin/order-flow-inputs/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/order-flows",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/order-flows",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/order-flows/{flowId}/inputs",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/order-flows/{flowId}/inputs",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/order-flows/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "PUT /api/v1/v1/admin/order-flows/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/order-statuses",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/order-statuses/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "PUT /api/v1/v1/admin/order-statuses/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/orders/{orderId}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/orders/{orderId}/shipment",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/orders/{orderId}/shipment/update-status",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/packages",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packages",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/packages/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packages/{id}/add-item",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packages/{id}/seal",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packages/{id}/void",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/packing-stations",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/packing-tasks",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/packing-tasks/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packing-tasks/{id}/assign",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packing-tasks/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packing-tasks/{id}/pack",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packing-tasks/{id}/start",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/packing-tasks/{id}/verify",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/payment-gateways",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "PUT /api/v1/v1/admin/payment-gateways/{code}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/picking-tasks",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/picking-tasks/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/picking-tasks/{id}/claim",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/picking-tasks/{id}/confirm",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/picking-tasks/{id}/reallocate",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/picking-tasks/{id}/record-pick",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/picking-tasks/{id}/release",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/picking-tasks/{id}/skip",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/refunds",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/refunds/{refund}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/refunds/{refund}/approve",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/refunds/{refund}/reject",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/shipments",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/shipments/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/shipments/{id}/cancel",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/shipments/{id}/deliver",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/shipments/{id}/dispatch",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/warehouses",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/warehouses",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "GET|HEAD /api/v1/v1/admin/warehouses/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "PUT /api/v1/v1/admin/warehouses/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "DELETE /api/v1/v1/admin/warehouses/{id}",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/warehouses/{id}/activate",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/warehouses/{id}/deactivate",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/v1/admin/warehouses/{id}/set-default",
-                "class": "STAFF/ADMIN",
-                "reason": "double-v1 runtime path, unreachable at documented single-v1 (A-01)"
-            },
-            {
-                "route": "POST /api/v1/verify-forget-password-token",
-                "class": "PUBLIC",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/wishlists",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "POST /api/v1/wishlists",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "GET|HEAD /api/v1/wishlists/in_wishlist/{product_id}",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            },
-            {
-                "route": "PATCH /api/v1/wishlists/toggle",
-                "class": "STAFF/ADMIN",
-                "reason": "no fragment documents this route:list path"
-            }
-        ],
+        "routes_documented": 537,
+        "postman_requests_generated": 541,
+        "routes_matched_to_postman": 511,
+        "routes_missing_from_postman": [],
         "routes_without_request_body": [
             {
                 "id": "auth-address-index",
@@ -70961,6 +68552,11 @@
                 "id": "delete /api/v1/notifications/{id}",
                 "method": "DELETE",
                 "reason": "DELETE with path parameters only; no body proven in fragment"
+            },
+            {
+                "id": "get /api/v1/product-type",
+                "method": "GET",
+                "reason": "GET semantics; no body in fragment and none proven at runtime"
             }
         ],
         "routes_without_response_contract": [
@@ -71725,7 +69321,8 @@
             "get /api/v1/notifications/{id}",
             "patch /api/v1/notifications/{id}/read",
             "post /api/v1/notifications/read-all",
-            "delete /api/v1/notifications/{id}"
+            "delete /api/v1/notifications/{id}",
+            "get /api/v1/product-type"
         ],
         "routes_without_business_flow": [
             "delete /api/v1/attributes/{attribute}",
@@ -72735,7 +70332,8 @@
             "get /api/v1/notifications/{id}",
             "patch /api/v1/notifications/{id}/read",
             "post /api/v1/notifications/read-all",
-            "delete /api/v1/notifications/{id}"
+            "delete /api/v1/notifications/{id}",
+            "get /api/v1/product-type"
         ],
         "legacy_routes": [
             "DELETE /api/v1/v1/admin/order-flow-inputs/{{id}}",
@@ -72974,8 +70572,29 @@
                 "id": "N-02",
                 "title": "Invoice verify (GET verify/{uuid}) has no owner check in InvoiceService::verifyInvoice",
                 "source": "commerce-spec.gaps"
+            },
+            {
+                "id": "APP-B1",
+                "title": "POST /api/v1/users (users.store) has no permission middleware and no in-method gate — any authenticated caller can create users (UserController:208-216 vs Routes.php:357)",
+                "source": "merge-time verification (security review)"
+            },
+            {
+                "id": "APP-B2",
+                "title": "POST /api/v1/update-contact: no FormRequest, no throttle, no ownership check — any authed caller can set contact on any user_id (UserController:1133-1156)",
+                "source": "merge-time verification (security review)"
+            },
+            {
+                "id": "APP-M1",
+                "title": "GET /contacts/{contact} performs write (markAsRead) on safe method; pairs with DELETE delete-all-read triage risk (ContactController:63-66)",
+                "source": "merge-time verification (security review)"
+            },
+            {
+                "id": "APP-M2",
+                "title": "UserUpdateRequest unique rule reads route(id) but param is {user} — always null; same-email update 422s (UserUpdateRequest.php:32)",
+                "source": "merge-time verification (security review)"
             }
         ],
+        "body_required_but_empty_in_postman": [],
         "contract_mismatches": [
             {
                 "id": "G1",
@@ -73048,7 +70667,7 @@
                 "dropped_id": "post /api/v1/general/track-order"
             },
             {
-                "key": "delete /api/v1/admin/order-flow-inputs/{}",
+                "key": "delete /api/v1/v1/admin/order-flow-inputs/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "delete /api/v1/v1/admin/order-flow-inputs/{id}",
                 "dropped_fragment": "admin",
@@ -73097,231 +70716,231 @@
                 "dropped_id": "get /api/v1/dashboard/recent-orders"
             },
             {
-                "key": "get /api/v1/admin/batches/pending-fulfillments",
+                "key": "get /api/v1/v1/admin/batches/pending-fulfillments",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/batches/pending-fulfillments",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/batches/pending-fulfillments"
             },
             {
-                "key": "get /api/v1/admin/fulfillments",
+                "key": "get /api/v1/v1/admin/fulfillments",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/fulfillments",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/fulfillments"
             },
             {
-                "key": "get /api/v1/admin/fulfillments/{}",
+                "key": "get /api/v1/v1/admin/fulfillments/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/fulfillments/{id}",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/fulfillments/{id}"
             },
             {
-                "key": "get /api/v1/admin/order-flows",
+                "key": "get /api/v1/v1/admin/order-flows",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/order-flows",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/order-flows"
             },
             {
-                "key": "get /api/v1/admin/order-flows/{}/inputs",
+                "key": "get /api/v1/v1/admin/order-flows/{}/inputs",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/order-flows/{flowid}/inputs",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/order-flows/{flowid}/inputs"
             },
             {
-                "key": "get /api/v1/admin/order-flows/{}",
+                "key": "get /api/v1/v1/admin/order-flows/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/order-flows/{id}",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/order-flows/{id}"
             },
             {
-                "key": "get /api/v1/admin/orders/{}/shipment",
+                "key": "get /api/v1/v1/admin/orders/{}/shipment",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/orders/{orderid}/shipment",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/orders/{orderid}/shipment"
             },
             {
-                "key": "get /api/v1/admin/payment-gateways",
+                "key": "get /api/v1/v1/admin/payment-gateways",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/payment-gateways",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/payment-gateways"
             },
             {
-                "key": "get /api/v1/admin/refunds",
+                "key": "get /api/v1/v1/admin/refunds",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/refunds",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/refunds"
             },
             {
-                "key": "get /api/v1/admin/refunds/{}",
+                "key": "get /api/v1/v1/admin/refunds/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/refunds/{refund}",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/refunds/{refund}"
             },
             {
-                "key": "get /api/v1/admin/shipments",
+                "key": "get /api/v1/v1/admin/shipments",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/shipments",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/shipments"
             },
             {
-                "key": "get /api/v1/admin/shipments/{}",
+                "key": "get /api/v1/v1/admin/shipments/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "get /api/v1/v1/admin/shipments/{id}",
                 "dropped_fragment": "admin",
                 "dropped_id": "get /api/v1/v1/admin/shipments/{id}"
             },
             {
-                "key": "post /api/v1/admin/analytics/export/orders",
+                "key": "post /api/v1/v1/admin/analytics/export/orders",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/analytics/export/orders",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/analytics/export/orders"
             },
             {
-                "key": "post /api/v1/admin/fulfillment-items/{}/assign-placement",
+                "key": "post /api/v1/v1/admin/fulfillment-items/{}/assign-placement",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillment-items/{id}/assign-placement",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillment-items/{id}/assign-placement"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/release",
+                "key": "post /api/v1/v1/admin/fulfillments/release",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/release",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/release"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/assign",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/assign",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/{id}/assign",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/{id}/assign"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/cancel",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/cancel",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/{id}/cancel",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/{id}/cancel"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/complete-picking",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/complete-picking",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/{id}/complete-picking",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/{id}/complete-picking"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/create-packing-task",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/create-packing-task",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/{id}/create-packing-task",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/{id}/create-packing-task"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/create-tasks",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/create-tasks",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/{id}/create-tasks",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/{id}/create-tasks"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/shipments",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/shipments",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/fulfillments/{id}/shipments",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/fulfillments/{id}/shipments"
             },
             {
-                "key": "post /api/v1/admin/order-flows",
+                "key": "post /api/v1/v1/admin/order-flows",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/order-flows",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/order-flows"
             },
             {
-                "key": "post /api/v1/admin/order-flows/{}/inputs",
+                "key": "post /api/v1/v1/admin/order-flows/{}/inputs",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/order-flows/{flowid}/inputs",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/order-flows/{flowid}/inputs"
             },
             {
-                "key": "post /api/v1/admin/orders/{}/cancel",
+                "key": "post /api/v1/v1/admin/orders/{}/cancel",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/orders/{orderid}/cancel",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/orders/{orderid}/cancel"
             },
             {
-                "key": "post /api/v1/admin/orders/{}/shipment/update-status",
+                "key": "post /api/v1/v1/admin/orders/{}/shipment/update-status",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/orders/{orderid}/shipment/update-status",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/orders/{orderid}/shipment/update-status"
             },
             {
-                "key": "post /api/v1/admin/refunds/{}/approve",
+                "key": "post /api/v1/v1/admin/refunds/{}/approve",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/refunds/{refund}/approve",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/refunds/{refund}/approve"
             },
             {
-                "key": "post /api/v1/admin/refunds/{}/reject",
+                "key": "post /api/v1/v1/admin/refunds/{}/reject",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/refunds/{refund}/reject",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/refunds/{refund}/reject"
             },
             {
-                "key": "post /api/v1/admin/shipments/{}/cancel",
+                "key": "post /api/v1/v1/admin/shipments/{}/cancel",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/shipments/{id}/cancel",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/shipments/{id}/cancel"
             },
             {
-                "key": "post /api/v1/admin/shipments/{}/deliver",
+                "key": "post /api/v1/v1/admin/shipments/{}/deliver",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/shipments/{id}/deliver",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/shipments/{id}/deliver"
             },
             {
-                "key": "post /api/v1/admin/shipments/{}/dispatch",
+                "key": "post /api/v1/v1/admin/shipments/{}/dispatch",
                 "kept_fragment": "commerce",
                 "kept_id": "post /api/v1/v1/admin/shipments/{id}/dispatch",
                 "dropped_fragment": "admin",
                 "dropped_id": "post /api/v1/v1/admin/shipments/{id}/dispatch"
             },
             {
-                "key": "put /api/v1/admin/order-flow-inputs/{}",
+                "key": "put /api/v1/v1/admin/order-flow-inputs/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "put /api/v1/v1/admin/order-flow-inputs/{id}",
                 "dropped_fragment": "admin",
                 "dropped_id": "put /api/v1/v1/admin/order-flow-inputs/{id}"
             },
             {
-                "key": "put /api/v1/admin/order-flows/{}",
+                "key": "put /api/v1/v1/admin/order-flows/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "put /api/v1/v1/admin/order-flows/{id}",
                 "dropped_fragment": "admin",
                 "dropped_id": "put /api/v1/v1/admin/order-flows/{id}"
             },
             {
-                "key": "put /api/v1/admin/payment-gateways/{}",
+                "key": "put /api/v1/v1/admin/payment-gateways/{}",
                 "kept_fragment": "commerce",
                 "kept_id": "put /api/v1/v1/admin/payment-gateways/{code}",
                 "dropped_fragment": "admin",
@@ -73694,14 +71313,14 @@
                 "dropped_name": "POST /api/v1/general/track-order"
             },
             {
-                "key": "post /api/v1/admin/analytics/export/orders",
+                "key": "post /api/v1/v1/admin/analytics/export/orders",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/analytics/export/orders",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/analytics/export/orders"
             },
             {
-                "key": "get /api/v1/admin/batches/pending-fulfillments",
+                "key": "get /api/v1/v1/admin/batches/pending-fulfillments",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/batches/pending-fulfillments",
                 "dropped_fragment": "admin",
@@ -73736,168 +71355,168 @@
                 "dropped_name": "GET /api/v1/dashboard/recent-orders"
             },
             {
-                "key": "get /api/v1/admin/fulfillments",
+                "key": "get /api/v1/v1/admin/fulfillments",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/fulfillments",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/fulfillments"
             },
             {
-                "key": "get /api/v1/admin/fulfillments/{}",
+                "key": "get /api/v1/v1/admin/fulfillments/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/fulfillments/{id}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/fulfillments/{id}"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/release",
+                "key": "post /api/v1/v1/admin/fulfillments/release",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/release",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/release"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/assign",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/assign",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/{id}/assign",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/{id}/assign"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/cancel",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/cancel",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/{id}/cancel",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/{id}/cancel"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/complete-picking",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/complete-picking",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/{id}/complete-picking",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/{id}/complete-picking"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/create-packing-task",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/create-packing-task",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/{id}/create-packing-task",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/{id}/create-packing-task"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/create-tasks",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/create-tasks",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/{id}/create-tasks",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/{id}/create-tasks"
             },
             {
-                "key": "post /api/v1/admin/fulfillments/{}/shipments",
+                "key": "post /api/v1/v1/admin/fulfillments/{}/shipments",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillments/{id}/shipments",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillments/{id}/shipments"
             },
             {
-                "key": "delete /api/v1/admin/order-flow-inputs/{}",
+                "key": "delete /api/v1/v1/admin/order-flow-inputs/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "DELETE /api/v1/v1/admin/order-flow-inputs/{id}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] DELETE /api/v1/v1/admin/order-flow-inputs/{id}"
             },
             {
-                "key": "get /api/v1/admin/order-flows",
+                "key": "get /api/v1/v1/admin/order-flows",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/order-flows",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/order-flows"
             },
             {
-                "key": "get /api/v1/admin/order-flows/{}/inputs",
+                "key": "get /api/v1/v1/admin/order-flows/{}/inputs",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/order-flows/{flowId}/inputs",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/order-flows/{flowId}/inputs"
             },
             {
-                "key": "get /api/v1/admin/order-flows/{}",
+                "key": "get /api/v1/v1/admin/order-flows/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/order-flows/{id}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/order-flows/{id}"
             },
             {
-                "key": "post /api/v1/admin/order-flows",
+                "key": "post /api/v1/v1/admin/order-flows",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/order-flows",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/order-flows"
             },
             {
-                "key": "post /api/v1/admin/order-flows/{}/inputs",
+                "key": "post /api/v1/v1/admin/order-flows/{}/inputs",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/order-flows/{flowId}/inputs",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/order-flows/{flowId}/inputs"
             },
             {
-                "key": "put /api/v1/admin/order-flow-inputs/{}",
+                "key": "put /api/v1/v1/admin/order-flow-inputs/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "PUT /api/v1/v1/admin/order-flow-inputs/{id}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] PUT /api/v1/v1/admin/order-flow-inputs/{id}"
             },
             {
-                "key": "put /api/v1/admin/order-flows/{}",
+                "key": "put /api/v1/v1/admin/order-flows/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "PUT /api/v1/v1/admin/order-flows/{id}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] PUT /api/v1/v1/admin/order-flows/{id}"
             },
             {
-                "key": "post /api/v1/admin/fulfillment-items/{}/assign-placement",
+                "key": "post /api/v1/v1/admin/fulfillment-items/{}/assign-placement",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/fulfillment-items/{id}/assign-placement",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/fulfillment-items/{id}/assign-placement"
             },
             {
-                "key": "get /api/v1/admin/refunds",
+                "key": "get /api/v1/v1/admin/refunds",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/refunds",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/refunds"
             },
             {
-                "key": "get /api/v1/admin/refunds/{}",
+                "key": "get /api/v1/v1/admin/refunds/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/refunds/{refund}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/refunds/{refund}"
             },
             {
-                "key": "post /api/v1/admin/refunds/{}/approve",
+                "key": "post /api/v1/v1/admin/refunds/{}/approve",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/refunds/{refund}/approve",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/refunds/{refund}/approve"
             },
             {
-                "key": "post /api/v1/admin/refunds/{}/reject",
+                "key": "post /api/v1/v1/admin/refunds/{}/reject",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/refunds/{refund}/reject",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/refunds/{refund}/reject"
             },
             {
-                "key": "get /api/v1/admin/payment-gateways",
+                "key": "get /api/v1/v1/admin/payment-gateways",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/payment-gateways",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/payment-gateways"
             },
             {
-                "key": "put /api/v1/admin/payment-gateways/{}",
+                "key": "put /api/v1/v1/admin/payment-gateways/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "PUT /api/v1/v1/admin/payment-gateways/{code}",
                 "dropped_fragment": "admin",
@@ -73911,56 +71530,56 @@
                 "dropped_name": "GET /api/v1/admin/tracking/orders/{orderId}"
             },
             {
-                "key": "get /api/v1/admin/orders/{}/shipment",
+                "key": "get /api/v1/v1/admin/orders/{}/shipment",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/orders/{orderId}/shipment",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/orders/{orderId}/shipment"
             },
             {
-                "key": "get /api/v1/admin/shipments",
+                "key": "get /api/v1/v1/admin/shipments",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/shipments",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/shipments"
             },
             {
-                "key": "get /api/v1/admin/shipments/{}",
+                "key": "get /api/v1/v1/admin/shipments/{}",
                 "kept_fragment": "commerce",
                 "kept_name": "GET /api/v1/v1/admin/shipments/{id}",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] GET /api/v1/v1/admin/shipments/{id}"
             },
             {
-                "key": "post /api/v1/admin/orders/{}/cancel",
+                "key": "post /api/v1/v1/admin/orders/{}/cancel",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/orders/{orderId}/cancel",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/orders/{orderId}/cancel"
             },
             {
-                "key": "post /api/v1/admin/orders/{}/shipment/update-status",
+                "key": "post /api/v1/v1/admin/orders/{}/shipment/update-status",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/orders/{orderId}/shipment/update-status",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/orders/{orderId}/shipment/update-status"
             },
             {
-                "key": "post /api/v1/admin/shipments/{}/cancel",
+                "key": "post /api/v1/v1/admin/shipments/{}/cancel",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/shipments/{id}/cancel",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/shipments/{id}/cancel"
             },
             {
-                "key": "post /api/v1/admin/shipments/{}/deliver",
+                "key": "post /api/v1/v1/admin/shipments/{}/deliver",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/shipments/{id}/deliver",
                 "dropped_fragment": "admin",
                 "dropped_name": "[UNREACHABLE double-v1] POST /api/v1/v1/admin/shipments/{id}/deliver"
             },
             {
-                "key": "post /api/v1/admin/shipments/{}/dispatch",
+                "key": "post /api/v1/v1/admin/shipments/{}/dispatch",
                 "kept_fragment": "commerce",
                 "kept_name": "POST /api/v1/v1/admin/shipments/{id}/dispatch",
                 "dropped_fragment": "admin",
@@ -74002,6 +71621,119 @@
                 "dropped_name": "POST /api/v1/general/checkout/webhooks/stripe"
             }
         ],
+        "body_patches_applied": [
+            {
+                "request": "POST /api/v1/v1/admin/packages/{id}/seal",
+                "note": "verified App/Http/Requests/Admin/Wms/SealPackageRequest: weight nullable|numeric|gt:0, dimensions nullable|array|min:1, dimensions.* numeric"
+            },
+            {
+                "request": "POST /api/v1/v1/admin/packing-tasks/{id}/verify",
+                "note": "verified App/Http/Requests/Admin/Wms/VerifyPackingRequest: notes nullable|string|max:2000"
+            },
+            {
+                "request": "PUT /api/v1/user/notification-preferences",
+                "note": "verified App/Http/Controllers/Api/User/NotificationPreferencesController@update inline validate() — 9 sometimes-fields (booleans, event_preferences array, quiet_hours H:i, notification_language en|ar)"
+            },
+            {
+                "request": "PUT /api/v1/settings",
+                "note": "URL corrected (fragment item mislabeled: pointed at .../v1/admin/warehouses/{{id}}); multipart form-data per admin-spec fields"
+            },
+            {
+                "request": "spec put /api/v1/user/notification-preferences",
+                "note": "fields replaced with 9 verified inline-validate() rules"
+            },
+            {
+                "request": "spec get /api/v1/product-type",
+                "note": "closure endpoint added verbatim from Routes.php:364-383 (10 keys -> translated strings, no envelope)"
+            }
+        ],
+        "postman_path_divergences": [
+            {
+                "route": "GET /api/v1/brands/import/{id}",
+                "note": "postman uses example-valued path /api/v1/brands/import/sample for template /api/v1/brands/import/{}"
+            },
+            {
+                "route": "GET /api/v1/brands/{brand}",
+                "note": "postman uses example-valued path /api/v1/brands/export for template /api/v1/brands/{}"
+            },
+            {
+                "route": "PUT|PATCH /api/v1/brands/{brand}",
+                "note": "postman uses example-valued path /api/v1/brands/reorder for template /api/v1/brands/{}"
+            },
+            {
+                "route": "GET /api/v1/categories/import/{id}",
+                "note": "postman uses example-valued path /api/v1/categories/import/sample for template /api/v1/categories/import/{}"
+            },
+            {
+                "route": "GET /api/v1/categories/{category}",
+                "note": "postman uses example-valued path /api/v1/categories/export for template /api/v1/categories/{}"
+            },
+            {
+                "route": "PUT|PATCH /api/v1/categories/{category}",
+                "note": "postman uses example-valued path /api/v1/categories/feature for template /api/v1/categories/{}"
+            },
+            {
+                "route": "DELETE /api/v1/contacts/{contact}",
+                "note": "postman uses example-valued path /api/v1/contacts/delete-all for template /api/v1/contacts/{}"
+            },
+            {
+                "route": "GET /api/v1/coupons/{coupon}",
+                "note": "postman uses example-valued path /api/v1/coupons/rules for template /api/v1/coupons/{}"
+            },
+            {
+                "route": "PUT|PATCH /api/v1/faqs/{faq}",
+                "note": "postman uses example-valued path /api/v1/faqs/reorder for template /api/v1/faqs/{}"
+            },
+            {
+                "route": "PUT|PATCH /api/v1/flash-sale/{flash_sale}",
+                "note": "postman uses example-valued path /api/v1/flash-sale/reorder for template /api/v1/flash-sale/{}"
+            },
+            {
+                "route": "GET /api/v1/notifications/{id}",
+                "note": "postman uses example-valued path /api/v1/notifications/unread for template /api/v1/notifications/{}"
+            },
+            {
+                "route": "GET|HEAD /api/v1/product-type",
+                "note": "closure covered by hand-verified request (HEAD has no separate representation)"
+            },
+            {
+                "route": "GET /api/v1/products/import/{id}",
+                "note": "postman uses example-valued path /api/v1/products/import/sample for template /api/v1/products/import/{}"
+            },
+            {
+                "route": "GET /api/v1/products/{product}",
+                "note": "postman uses example-valued path /api/v1/products/export for template /api/v1/products/{}"
+            },
+            {
+                "route": "DELETE /api/v1/products/{product}",
+                "note": "postman uses example-valued path /api/v1/products/all for template /api/v1/products/{}"
+            },
+            {
+                "route": "GET /api/v1/sections/{section}",
+                "note": "postman uses example-valued path /api/v1/sections/types for template /api/v1/sections/{}"
+            },
+            {
+                "route": "PUT|PATCH /api/v1/sections/{section}",
+                "note": "postman uses example-valued path /api/v1/sections/reorder for template /api/v1/sections/{}"
+            },
+            {
+                "route": "PUT|PATCH /api/v1/sliders/{slider}",
+                "note": "postman uses example-valued path /api/v1/sliders/reorder for template /api/v1/sliders/{}"
+            },
+            {
+                "route": "GET /api/v1/social/{provider}",
+                "note": "postman uses example-valued path /api/v1/social/redirect for template /api/v1/social/{}"
+            },
+            {
+                "route": "GET /api/v1/social/{provider}/callback",
+                "note": "postman uses example-valued path /api/v1/social/google/callback for template /api/v1/social/{}/callback"
+            },
+            {
+                "route": "GET /api/v1/v1/admin/batches/{id}",
+                "note": "postman uses example-valued path /api/v1/v1/admin/batches/pending-fulfillments for template /api/v1/v1/admin/batches/{}"
+            }
+        ],
+        "fragment_mislabels_name_vs_url": [],
         "general_items_dropped_on_collision": [],
         "proven_variants_kept": [
             {

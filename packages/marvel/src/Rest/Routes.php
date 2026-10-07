@@ -474,7 +474,7 @@ Route::prefix('invoices')->group(function () {
     });
 });
 
-Route::prefix('v1/admin/analytics')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/analytics')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('dashboard', [AnalyticsController::class, 'dashboard'])->name('api.admin.analytics.dashboard');
     Route::get('time-series', [AnalyticsController::class, 'timeSeries'])->name('api.admin.analytics.time-series');
     Route::get('top-customers', [AnalyticsController::class, 'topCustomers'])->name('api.admin.analytics.top-customers');
@@ -483,18 +483,18 @@ Route::prefix('v1/admin/analytics')->middleware(['api', 'auth:sanctum', 'throttl
     Route::post('clear-cache', [AnalyticsController::class, 'clearCache'])->name('api.admin.analytics.clear-cache');
 });
 
-Route::prefix('v1/admin/analytics/export')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/analytics/export')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('orders', [AnalyticsExportController::class, 'exportOrders'])->name('api.admin.analytics.export.orders');
     Route::post('customer-ltv', [AnalyticsExportController::class, 'exportCustomerLTV'])->name('api.admin.analytics.export.ltv');
     Route::post('performance', [AnalyticsExportController::class, 'exportPerformance'])->name('api.admin.analytics.export.performance');
 });
 
-Route::prefix('v1/admin/payment-gateways')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
+Route::prefix('admin/payment-gateways')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
     Route::get('/', [PaymentGatewaySettingsController::class, 'index'])->middleware('permission:view-settings|update-settings')->name('api.admin.payment-gateways.index');
     Route::put('/{code}', [PaymentGatewaySettingsController::class, 'update'])->middleware('permission:update-settings')->name('api.admin.payment-gateways.update');
 });
 
-Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     // Order shipment fields are admin-operated: reads ride on shipment /
     // order viewing, writes require shipment management. Never leave these
     // without permission middleware (SEC-1: any authenticated caller could
@@ -511,12 +511,12 @@ Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:a
 // Granular flow permissions (view/create/update-order-flows, manage
 // inputs) are accepted alongside the legacy order permissions so existing
 // admins keep working without a permission migration flag-day.
-Route::prefix('v1/admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-statuses.index');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'show'])->whereNumber('id')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-statuses.show');
     Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-flows|update-order-status')->name('api.admin.order-statuses.update');
 });
-Route::prefix('v1/admin/order-flows')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/order-flows')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'index'])->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.index');
     Route::post('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'store'])->middleware('permission:create-order-flows|update-order-status')->name('api.admin.order-flows.store');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'show'])->whereNumber('id')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.show');
@@ -526,7 +526,7 @@ Route::prefix('v1/admin/order-flows')->middleware(['api', 'auth:sanctum', 'throt
     Route::get('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'index'])->whereNumber('flowId')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.inputs.index');
     Route::post('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'store'])->whereNumber('flowId')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flows.inputs.store');
 });
-Route::prefix('v1/admin/order-flow-inputs')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/order-flow-inputs')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::put('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'update'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.update');
     Route::delete('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.destroy');
 });
@@ -538,7 +538,7 @@ Route::prefix('v1/admin/order-flow-inputs')->middleware(['api', 'auth:sanctum', 
 // movement is disabled for this phase, so the money-moving route must not
 // exist. PaymentRefundService::refund stays available for the future
 // provider phase but is unreachable via HTTP.
-Route::prefix('v1/admin/refunds')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
+Route::prefix('admin/refunds')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\RefundController::class, 'index'])->middleware('permission:view-refunds')->name('api.admin.refunds.index');
     Route::get('{refund}', [\App\Http\Controllers\Api\Admin\RefundController::class, 'show'])->whereNumber('refund')->middleware('permission:view-refunds')->name('api.admin.refunds.show');
     Route::post('{refund}/approve', [\App\Http\Controllers\Api\Admin\RefundController::class, 'approve'])->whereNumber('refund')->middleware('permission:payments.refund')->name('api.admin.refunds.approve');
@@ -548,7 +548,7 @@ Route::prefix('v1/admin/refunds')->middleware(['api', 'auth:sanctum', 'throttle:
 // Fulfillment Phase 9 (P9-2): Warehouse / Location admin surface. Reads ride
 // on view-*, writes require manage-*. Object-level warehouse scope is enforced
 // in-controller via WmsAdminController (permission alone is not authorization).
-Route::prefix('v1/admin/warehouses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/warehouses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'index'])->middleware('permission:view-warehouse')->name('api.admin.warehouses.index');
     Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'store'])->middleware('permission:manage-warehouse')->name('api.admin.warehouses.store');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'show'])->whereNumber('id')->middleware('permission:view-warehouse')->name('api.admin.warehouses.show');
@@ -558,7 +558,7 @@ Route::prefix('v1/admin/warehouses')->middleware(['api', 'auth:sanctum', 'thrott
     Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'deactivate'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.deactivate');
     Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.destroy');
 });
-Route::prefix('v1/admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'index'])->middleware('permission:view-location')->name('api.admin.locations.index');
     Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'store'])->middleware('permission:manage-location')->name('api.admin.locations.store');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'show'])->whereNumber('id')->middleware('permission:view-location')->name('api.admin.locations.show');
@@ -570,7 +570,7 @@ Route::prefix('v1/admin/locations')->middleware(['api', 'auth:sanctum', 'throttl
 // Fulfillment Phase 9 (P9-3): Fulfillment admin surface. Command routes only —
 // no generic status mutation. Lifecycle authority stays in FulfillmentService;
 // object-level warehouse scope is enforced in-controller via WmsAdminController.
-Route::prefix('v1/admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.fulfillments.index');
     Route::post('/release', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'release'])->middleware('permission:fulfillment.create')->name('api.admin.fulfillments.release');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.fulfillments.show');
@@ -579,14 +579,14 @@ Route::prefix('v1/admin/fulfillments')->middleware(['api', 'auth:sanctum', 'thro
     Route::post('{id}/create-tasks', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'createTasks'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.fulfillments.create-tasks');
     Route::post('{id}/complete-picking', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'completePicking'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.fulfillments.complete-picking');
 });
-Route::prefix('v1/admin/fulfillment-items')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/fulfillment-items')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('{id}/assign-placement', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'assignPlacement'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.fulfillment-items.assign-placement');
 });
 
 // Fulfillment Phase 9 (P9-4.1): Picking + Batch read surface. Commands land in
 // P9-4.2/P9-4.3. Object-level warehouse scope is enforced in-controller via
 // WmsAdminController (permission alone is not authorization).
-Route::prefix('v1/admin/picking-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/picking-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'index'])->middleware('permission:picking-execute')->name('api.admin.picking-tasks.index');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'show'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.show');
     Route::post('{id}/claim', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'claim'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.claim');
@@ -596,7 +596,7 @@ Route::prefix('v1/admin/picking-tasks')->middleware(['api', 'auth:sanctum', 'thr
     Route::post('{id}/skip', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'skip'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.skip');
     Route::post('{id}/reallocate', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'reallocate'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.reallocate');
 });
-Route::prefix('v1/admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.batches.index');
     Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'store'])->middleware('permission:batch.manage')->name('api.admin.batches.store');
     Route::get('pending-fulfillments', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'pendingFulfillments'])->middleware('permission:view-fulfillment')->name('api.admin.batches.pending-fulfillments');
@@ -613,10 +613,10 @@ Route::prefix('v1/admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:
 // via fulfillment.warehouse_id, stations carry warehouse_id directly,
 // packages scope via fulfillment.warehouse_id. Shipment creation from a
 // verified task is P9-8 territory and is NOT exposed here.
-Route::prefix('v1/admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('{id}/create-packing-task', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'createTask'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.fulfillments.create-packing-task');
 });
-Route::prefix('v1/admin/packing-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/packing-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packing-tasks.index');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.packing-tasks.show');
     Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'assign'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.packing-tasks.assign');
@@ -625,10 +625,10 @@ Route::prefix('v1/admin/packing-tasks')->middleware(['api', 'auth:sanctum', 'thr
     Route::post('{id}/verify', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'verify'])->whereNumber('id')->middleware('permission:packing.complete')->name('api.admin.packing-tasks.verify');
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'cancel'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.packing-tasks.cancel');
 });
-Route::prefix('v1/admin/packing-stations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/packing-stations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'stations'])->middleware('permission:view-fulfillment')->name('api.admin.packing-stations.index');
 });
-Route::prefix('v1/admin/packages')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/packages')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packages.index');
     Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'store'])->middleware('permission:packing-execute')->name('api.admin.packages.store');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.packages.show');
@@ -642,10 +642,10 @@ Route::prefix('v1/admin/packages')->middleware(['api', 'auth:sanctum', 'throttle
 // fulfillment moves (inside the service); Order Flow owns orders. Scope
 // resolves via shipment.fulfillment_id → fulfillment.warehouse_id —
 // order-only labels (null fulfillment) 404 on this surface.
-Route::prefix('v1/admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('{id}/shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'store'])->whereNumber('id')->middleware('permission:create-shipment')->name('api.admin.fulfillments.shipments.store');
 });
-Route::prefix('v1/admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:view-shipment')->name('api.admin.shipments.index');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-shipment')->name('api.admin.shipments.show');
     Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.dispatch');
