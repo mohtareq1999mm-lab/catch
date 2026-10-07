@@ -130,4 +130,22 @@ return [
 
     'active_otp_gateway' => env('ACTIVE_OTP_GATEWAY', 'twilio'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Local OTP Gateway (development / testing fallback)
+    |--------------------------------------------------------------------------
+    |
+    | The LocalGateway issues the static id 'local-verification-id' and
+    | accepts a single static code so OTP login can be exercised without
+    | a real SMS provider. Enabled by default everywhere EXCEPT
+    | production; set LOCAL_OTP_ENABLED=true explicitly to allow it
+    | elsewhere. Never enable a publicly-known code in production:
+    | anyone knowing the code could log in as any phone number.
+    |
+    */
+
+    'local_otp_enabled' => env('LOCAL_OTP_ENABLED', env('APP_ENV') !== 'production'),
+
+    'local_otp_code' => env('LOCAL_OTP_CODE', '123456'),
+
 ];
