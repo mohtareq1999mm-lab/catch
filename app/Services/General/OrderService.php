@@ -125,24 +125,24 @@ class OrderService
             // Powers digital_downloads[] on delivered DIGITAL lines.
             // Powers digital_downloads[] on delivered DIGITAL lines (BD1 Option B).
             'digitalEntitlements.orderItem.product.digitalAssets',
-            // Flow context on lists (no stages: statuses[] stays null unless
-            // flow.statuses is loaded, keeping list queries flat).
+            // Flow context on lists: full stages (flow.statuses) are included
+            // so GET /general/orders returns the same `flow` contract as
+            // GET /general/orders/{id} (customer progress UI in lists).
+            'flow.statuses',
             'flow',
             'currentStatus',
         ];
     }
 
     /**
-     * Detail-view relations: list relations plus the ordered Flow stages
-     * powering the customer progress UI (single order: one extra query).
+     * Detail-view relations: same as the list (flow stages included for
+     * the customer progress UI; single order: one extra query).
      *
      * @return array<int|string, mixed>
      */
     private function orderDetailRelations(): array
     {
-        return array_merge($this->orderListRelations(), [
-            'flow.statuses',
-        ]);
+        return $this->orderListRelations();
     }
 
     private function getLimit(Request $request): int

@@ -62,7 +62,7 @@ class OrderResource extends JsonResource
                 'name' => \App\Support\LocalizedName::for($this->flow, 'name'),
                 'shipping_type' => $this->flow->shipping_type,
                 // Ordered stages of THIS flow only (never the global catalog).
-                // Present only when flow.statuses was eager-loaded (details).
+                // Null only when flow.statuses was not eager-loaded.
                 'statuses' => $this->flow->relationLoaded('statuses')
                     ? $this->flow->statuses->map(fn ($status) => [
                         'code' => $status->code,

@@ -628,7 +628,7 @@ class FinalArchitectureTest extends TestCase
         $this->assertSame('pending', $body['current_status']['code']);
     }
 
-    public function test_order_list_stays_lightweight(): void
+    public function test_order_list_includes_flow_stages(): void
     {
         $this->freshCartWithProduct($this->user);
         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
@@ -637,7 +637,7 @@ class FinalArchitectureTest extends TestCase
         $item = $this->getJson('/api/v1/general/orders')->assertOk()->json('data.data.0');
 
         $this->assertSame('local', $item['flow']['code']);
-        $this->assertNull($item['flow']['statuses']);
+        $this->assertNotEmpty($item['flow']['statuses']);
         $this->assertArrayNotHasKey('id', $item['flow']);
     }
 

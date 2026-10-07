@@ -430,7 +430,7 @@ class OrderLifecycleResponseTest extends TestCase
         $this->assertSame('pending', $body['status']);
     }
 
-    public function test_customer_list_omits_stages_but_keeps_position(): void
+    public function test_customer_list_exposes_flow_stages_and_position(): void
     {
         $this->freshCart();
         Sanctum::actingAs($this->user);
@@ -438,8 +438,10 @@ class OrderLifecycleResponseTest extends TestCase
 
         $item = $this->getJson('/api/v1/general/orders')->assertOk()->json('data.data.0');
         $this->assertSame('local', $item['flow']['code']);
-        $this->assertNull($item['flow']['statuses']);
+        $codes = collect($item['flow']['statuses'])->pluck('code')->all();
+        $this->assertSame(['pending', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'], $codes);
         $this->assertSame('pending', $item['current_status']['code']);
+        $this->assertSame(1, $item['current_status']['sort_order']);
     }
 
     public function test_admin_show_exposes_stages(): void
