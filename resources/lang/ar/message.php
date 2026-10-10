@@ -257,6 +257,7 @@ return [
     'MESSAGE.SHOP_UPDATED_SUCCESSFULLY' => 'تم تحديث المتجر بنجاح',
     'MESSAGE.SHOP_DELETED_SUCCESSFULLY' => 'تم حذف المتجر بنجاح',
     'ERROR.CANNOT_DELETE_CATEGORY_WITH_ASSOCIATED_RESOURCES' => 'لا يمكن حذف الفئة مع وجود موارد مرتبطة بها',
+    'ERROR.CATEGORY_CIRCULAR_REFERENCE' => 'الفئة الرئيسية المحددة تُنشئ مرجعًا دائريًا.',
     'MESSAGE.POINTS_ADDED_SUCCESSFULLY' => 'تمت إضافة النقاط بنجاح',
     'ERROR.CART_NOT_FOUND' => 'السلة غير موجودة',
     'ERROR.ERROR_CREATING_INVOICE' => 'خطأ في إنشاء الفاتورة',

@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ShipmentController extends Controller
 {
@@ -27,12 +28,7 @@ class ShipmentController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+        $validator->validate();
 
         try {
             $order = Order::findOrFail($orderId);
@@ -75,10 +71,10 @@ class ShipmentController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Shipment status update failed', ['order_id' => $orderId, 'exception' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update shipment status',
-                'error' => $e->getMessage(),
             ], 500);
         }
     }

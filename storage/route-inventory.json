@@ -58,6 +58,32 @@
     },
     {
         "method": "DELETE",
+        "uri": "/api/v1/admin/order-flow-inputs/{id}",
+        "name": "api.admin.order-flow-inputs.destroy",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@destroy",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-order-flow-inputs|update-order-status"
+        ]
+    },
+    {
+        "method": "DELETE",
+        "uri": "/api/v1/admin/warehouses/{id}",
+        "name": "api.admin.warehouses.destroy",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@destroy",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-warehouse"
+        ]
+    },
+    {
+        "method": "DELETE",
         "uri": "/api/v1/attributes/{attribute}",
         "name": "attributes.destroy",
         "action": "Marvel\\Http\\Controllers\\AttributeController@destroy",
@@ -543,32 +569,6 @@
         ]
     },
     {
-        "method": "DELETE",
-        "uri": "/api/v1/v1/admin/order-flow-inputs/{id}",
-        "name": "api.admin.order-flow-inputs.destroy",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@destroy",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-order-flow-inputs|update-order-status"
-        ]
-    },
-    {
-        "method": "DELETE",
-        "uri": "/api/v1/v1/admin/warehouses/{id}",
-        "name": "api.admin.warehouses.destroy",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@destroy",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-warehouse"
-        ]
-    },
-    {
         "method": "GET",
         "uri": "/api/documentation",
         "name": "l5-swagger.default.api",
@@ -622,6 +622,170 @@
     },
     {
         "method": "GET",
+        "uri": "/api/v1/admin/analytics/customer-segmentation",
+        "name": "api.admin.analytics.segmentation",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@customerSegmentation",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/analytics/dashboard",
+        "name": "api.admin.analytics.dashboard",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@dashboard",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/analytics/performance",
+        "name": "api.admin.analytics.performance",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@performance",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/analytics/time-series",
+        "name": "api.admin.analytics.time-series",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@timeSeries",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/analytics/top-customers",
+        "name": "api.admin.analytics.top-customers",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@topCustomers",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/batches",
+        "name": "api.admin.batches.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/batches/pending-fulfillments",
+        "name": "api.admin.batches.pending-fulfillments",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@pendingFulfillments",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/batches/{id}",
+        "name": "api.admin.batches.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/batches/{id}/next-task",
+        "name": "api.admin.batches.next-task",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@nextTask",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/fulfillments",
+        "name": "api.admin.fulfillments.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/fulfillments/{id}",
+        "name": "api.admin.fulfillments.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/locations",
+        "name": "api.admin.locations.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-location"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/locations/{id}",
+        "name": "api.admin.locations.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-location"
+        ]
+    },
+    {
+        "method": "GET",
         "uri": "/api/v1/admin/notifications",
         "name": null,
         "action": "Marvel\\Http\\Controllers\\NotificationController@index",
@@ -640,6 +804,243 @@
             "api",
             "permission:view-notifications",
             "lang"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/order-flows",
+        "name": "api.admin.order-flows.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-order-flows|view-orders|view-order"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/order-flows/{flowId}/inputs",
+        "name": "api.admin.order-flows.inputs.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-order-flows|view-orders|view-order"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/order-flows/{id}",
+        "name": "api.admin.order-flows.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-order-flows|view-orders|view-order"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/order-statuses",
+        "name": "api.admin.order-statuses.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderStatusCatalogController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-order-flows|view-orders|view-order"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/order-statuses/{id}",
+        "name": "api.admin.order-statuses.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderStatusCatalogController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-order-flows|view-orders|view-order"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/orders/{orderId}/shipment",
+        "name": "api.admin.orders.shipment.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\ShipmentController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-shipment|view-shipments|view-orders|view-order"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/packages",
+        "name": "api.admin.packages.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/packages/{id}",
+        "name": "api.admin.packages.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/packing-stations",
+        "name": "api.admin.packing-stations.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@stations",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/packing-tasks",
+        "name": "api.admin.packing-tasks.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/packing-tasks/{id}",
+        "name": "api.admin.packing-tasks.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-fulfillment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/payment-gateways",
+        "name": "api.admin.payment-gateways.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\PaymentGatewaySettingsController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "lang",
+            "permission:view-settings|update-settings"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/picking-tasks",
+        "name": "api.admin.picking-tasks.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/picking-tasks/{id}",
+        "name": "api.admin.picking-tasks.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/refunds",
+        "name": "api.admin.refunds.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "lang",
+            "permission:view-refunds"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/refunds/{refund}",
+        "name": "api.admin.refunds.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "lang",
+            "permission:view-refunds"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/shipments",
+        "name": "api.admin.shipments.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-shipment"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/shipments/{id}",
+        "name": "api.admin.shipments.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-shipment"
         ]
     },
     {
@@ -688,6 +1089,32 @@
             "api",
             "auth:sanctum",
             "throttle:admin"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/warehouses",
+        "name": "api.admin.warehouses.index",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@index",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-warehouse"
+        ]
+    },
+    {
+        "method": "GET",
+        "uri": "/api/v1/admin/warehouses/{id}",
+        "name": "api.admin.warehouses.show",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@show",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:view-warehouse"
         ]
     },
     {
@@ -3078,433 +3505,6 @@
     },
     {
         "method": "GET",
-        "uri": "/api/v1/v1/admin/analytics/customer-segmentation",
-        "name": "api.admin.analytics.segmentation",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@customerSegmentation",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/analytics/dashboard",
-        "name": "api.admin.analytics.dashboard",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@dashboard",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/analytics/performance",
-        "name": "api.admin.analytics.performance",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@performance",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/analytics/time-series",
-        "name": "api.admin.analytics.time-series",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@timeSeries",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/analytics/top-customers",
-        "name": "api.admin.analytics.top-customers",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@topCustomers",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/batches",
-        "name": "api.admin.batches.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/batches/pending-fulfillments",
-        "name": "api.admin.batches.pending-fulfillments",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@pendingFulfillments",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/batches/{id}",
-        "name": "api.admin.batches.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/batches/{id}/next-task",
-        "name": "api.admin.batches.next-task",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@nextTask",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/fulfillments",
-        "name": "api.admin.fulfillments.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}",
-        "name": "api.admin.fulfillments.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/locations",
-        "name": "api.admin.locations.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-location"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/locations/{id}",
-        "name": "api.admin.locations.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-location"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/order-flows",
-        "name": "api.admin.order-flows.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-order-flows|view-orders|view-order"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/order-flows/{flowId}/inputs",
-        "name": "api.admin.order-flows.inputs.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-order-flows|view-orders|view-order"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/order-flows/{id}",
-        "name": "api.admin.order-flows.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-order-flows|view-orders|view-order"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/order-statuses",
-        "name": "api.admin.order-statuses.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderStatusCatalogController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-order-flows|view-orders|view-order"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/order-statuses/{id}",
-        "name": "api.admin.order-statuses.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderStatusCatalogController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-order-flows|view-orders|view-order"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/orders/{orderId}/shipment",
-        "name": "api.admin.orders.shipment.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\ShipmentController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-shipment|view-shipments|view-orders|view-order"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/packages",
-        "name": "api.admin.packages.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/packages/{id}",
-        "name": "api.admin.packages.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/packing-stations",
-        "name": "api.admin.packing-stations.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@stations",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/packing-tasks",
-        "name": "api.admin.packing-tasks.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/packing-tasks/{id}",
-        "name": "api.admin.packing-tasks.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-fulfillment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/payment-gateways",
-        "name": "api.admin.payment-gateways.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\PaymentGatewaySettingsController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "lang",
-            "permission:view-settings|update-settings"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/picking-tasks",
-        "name": "api.admin.picking-tasks.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}",
-        "name": "api.admin.picking-tasks.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/refunds",
-        "name": "api.admin.refunds.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "lang",
-            "permission:view-refunds"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/refunds/{refund}",
-        "name": "api.admin.refunds.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "lang",
-            "permission:view-refunds"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/shipments",
-        "name": "api.admin.shipments.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-shipment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/shipments/{id}",
-        "name": "api.admin.shipments.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-shipment"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/warehouses",
-        "name": "api.admin.warehouses.index",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@index",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-warehouse"
-        ]
-    },
-    {
-        "method": "GET",
-        "uri": "/api/v1/v1/admin/warehouses/{id}",
-        "name": "api.admin.warehouses.show",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@show",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:view-warehouse"
-        ]
-    },
-    {
-        "method": "GET",
         "uri": "/api/v1/wishlists",
         "name": "wishlists.index",
         "action": "Marvel\\Http\\Controllers\\WishlistController@index",
@@ -4059,6 +4059,641 @@
             "auth:sanctum",
             "throttle:admin",
             "lang"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/analytics/clear-cache",
+        "name": "api.admin.analytics.clear-cache",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@clearCache",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/analytics/export/customer-ltv",
+        "name": "api.admin.analytics.export.ltv",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsExportController@exportCustomerLTV",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/analytics/export/orders",
+        "name": "api.admin.analytics.export.orders",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsExportController@exportOrders",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/analytics/export/performance",
+        "name": "api.admin.analytics.export.performance",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsExportController@exportPerformance",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/batches",
+        "name": "api.admin.batches.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:batch.manage"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/batches/{id}/assign",
+        "name": "api.admin.batches.assign",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@assign",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:batch.operate"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/batches/{id}/cancel",
+        "name": "api.admin.batches.cancel",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@cancel",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:batch.manage"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/batches/{id}/refresh-progress",
+        "name": "api.admin.batches.refresh-progress",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@refreshProgress",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:batch.operate"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/batches/{id}/retry",
+        "name": "api.admin.batches.retry",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@retry",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:batch.manage"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/batches/{id}/start",
+        "name": "api.admin.batches.start",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@start",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:batch.operate"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillment-items/{id}/assign-placement",
+        "name": "api.admin.fulfillment-items.assign-placement",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@assignPlacement",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-fulfillment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/release",
+        "name": "api.admin.fulfillments.release",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@release",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:fulfillment.create"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/{id}/assign",
+        "name": "api.admin.fulfillments.assign",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@assign",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-fulfillment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/{id}/cancel",
+        "name": "api.admin.fulfillments.cancel",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@cancel",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:fulfillment.cancel"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/{id}/complete-picking",
+        "name": "api.admin.fulfillments.complete-picking",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@completePicking",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-fulfillment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/{id}/create-packing-task",
+        "name": "api.admin.fulfillments.create-packing-task",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@createTask",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/{id}/create-tasks",
+        "name": "api.admin.fulfillments.create-tasks",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@createTasks",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/fulfillments/{id}/shipments",
+        "name": "api.admin.fulfillments.shipments.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:create-shipment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/locations",
+        "name": "api.admin.locations.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-location"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/locations/{id}/activate",
+        "name": "api.admin.locations.activate",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@activate",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-location"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/locations/{id}/deactivate",
+        "name": "api.admin.locations.deactivate",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@deactivate",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-location"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/order-flows",
+        "name": "api.admin.order-flows.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:create-order-flows|update-order-status"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/order-flows/{flowId}/inputs",
+        "name": "api.admin.order-flows.inputs.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-order-flow-inputs|update-order-status"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/orders/{orderId}/cancel",
+        "name": "api.admin.orders.cancel",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\OrderCancellationController@cancel",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:order.cancel-during-fulfillment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/orders/{orderId}/shipment/update-status",
+        "name": "api.admin.orders.shipment.update-status",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\ShipmentController@updateStatus",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:update-shipment|create-shipment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packages",
+        "name": "api.admin.packages.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packages/{id}/add-item",
+        "name": "api.admin.packages.add-item",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@addItem",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packages/{id}/seal",
+        "name": "api.admin.packages.seal",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@seal",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packages/{id}/void",
+        "name": "api.admin.packages.void",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@void",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-fulfillment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packing-tasks/{id}/assign",
+        "name": "api.admin.packing-tasks.assign",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@assign",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packing-tasks/{id}/cancel",
+        "name": "api.admin.packing-tasks.cancel",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@cancel",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-fulfillment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packing-tasks/{id}/pack",
+        "name": "api.admin.packing-tasks.pack",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@pack",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing.complete"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packing-tasks/{id}/start",
+        "name": "api.admin.packing-tasks.start",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@start",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/packing-tasks/{id}/verify",
+        "name": "api.admin.packing-tasks.verify",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@verify",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:packing.complete"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/picking-tasks/{id}/claim",
+        "name": "api.admin.picking-tasks.claim",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@claim",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/picking-tasks/{id}/confirm",
+        "name": "api.admin.picking-tasks.confirm",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@confirm",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/picking-tasks/{id}/reallocate",
+        "name": "api.admin.picking-tasks.reallocate",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@reallocate",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/picking-tasks/{id}/record-pick",
+        "name": "api.admin.picking-tasks.record-pick",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@recordPick",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/picking-tasks/{id}/release",
+        "name": "api.admin.picking-tasks.release",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@releaseClaim",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/picking-tasks/{id}/skip",
+        "name": "api.admin.picking-tasks.skip",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@skip",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:picking-execute"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/refunds/{refund}/approve",
+        "name": "api.admin.refunds.approve",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@approve",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "lang",
+            "permission:payments.refund"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/refunds/{refund}/reject",
+        "name": "api.admin.refunds.reject",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@reject",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "lang",
+            "permission:payments.refund"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/shipments/{id}/cancel",
+        "name": "api.admin.shipments.cancel",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@cancelShipment",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:update-shipment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/shipments/{id}/deliver",
+        "name": "api.admin.shipments.deliver",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@markDelivered",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:update-shipment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/shipments/{id}/dispatch",
+        "name": "api.admin.shipments.dispatch",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@dispatchShipment",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:update-shipment"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/warehouses",
+        "name": "api.admin.warehouses.store",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@store",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-warehouse"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/warehouses/{id}/activate",
+        "name": "api.admin.warehouses.activate",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@activate",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-warehouse"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/warehouses/{id}/deactivate",
+        "name": "api.admin.warehouses.deactivate",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@deactivate",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-warehouse"
+        ]
+    },
+    {
+        "method": "POST",
+        "uri": "/api/v1/admin/warehouses/{id}/set-default",
+        "name": "api.admin.warehouses.set-default",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@setDefault",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-warehouse"
         ]
     },
     {
@@ -5312,641 +5947,6 @@
     },
     {
         "method": "POST",
-        "uri": "/api/v1/v1/admin/analytics/clear-cache",
-        "name": "api.admin.analytics.clear-cache",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsController@clearCache",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/analytics/export/customer-ltv",
-        "name": "api.admin.analytics.export.ltv",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsExportController@exportCustomerLTV",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/analytics/export/orders",
-        "name": "api.admin.analytics.export.orders",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsExportController@exportOrders",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/analytics/export/performance",
-        "name": "api.admin.analytics.export.performance",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\AnalyticsExportController@exportPerformance",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/batches",
-        "name": "api.admin.batches.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:batch.manage"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/batches/{id}/assign",
-        "name": "api.admin.batches.assign",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@assign",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:batch.operate"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/batches/{id}/cancel",
-        "name": "api.admin.batches.cancel",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@cancel",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:batch.manage"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/batches/{id}/refresh-progress",
-        "name": "api.admin.batches.refresh-progress",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@refreshProgress",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:batch.operate"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/batches/{id}/retry",
-        "name": "api.admin.batches.retry",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@retry",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:batch.manage"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/batches/{id}/start",
-        "name": "api.admin.batches.start",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\BatchController@start",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:batch.operate"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillment-items/{id}/assign-placement",
-        "name": "api.admin.fulfillment-items.assign-placement",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@assignPlacement",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-fulfillment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/release",
-        "name": "api.admin.fulfillments.release",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@release",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:fulfillment.create"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}/assign",
-        "name": "api.admin.fulfillments.assign",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@assign",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-fulfillment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}/cancel",
-        "name": "api.admin.fulfillments.cancel",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\FulfillmentController@cancel",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:fulfillment.cancel"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}/complete-picking",
-        "name": "api.admin.fulfillments.complete-picking",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@completePicking",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-fulfillment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}/create-packing-task",
-        "name": "api.admin.fulfillments.create-packing-task",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@createTask",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}/create-tasks",
-        "name": "api.admin.fulfillments.create-tasks",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@createTasks",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/fulfillments/{id}/shipments",
-        "name": "api.admin.fulfillments.shipments.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:create-shipment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/locations",
-        "name": "api.admin.locations.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-location"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/locations/{id}/activate",
-        "name": "api.admin.locations.activate",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@activate",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-location"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/locations/{id}/deactivate",
-        "name": "api.admin.locations.deactivate",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@deactivate",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-location"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/order-flows",
-        "name": "api.admin.order-flows.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:create-order-flows|update-order-status"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/order-flows/{flowId}/inputs",
-        "name": "api.admin.order-flows.inputs.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-order-flow-inputs|update-order-status"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/orders/{orderId}/cancel",
-        "name": "api.admin.orders.cancel",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\OrderCancellationController@cancel",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:order.cancel-during-fulfillment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/orders/{orderId}/shipment/update-status",
-        "name": "api.admin.orders.shipment.update-status",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\ShipmentController@updateStatus",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:update-shipment|create-shipment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packages",
-        "name": "api.admin.packages.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packages/{id}/add-item",
-        "name": "api.admin.packages.add-item",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@addItem",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packages/{id}/seal",
-        "name": "api.admin.packages.seal",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@seal",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packages/{id}/void",
-        "name": "api.admin.packages.void",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackageController@void",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-fulfillment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packing-tasks/{id}/assign",
-        "name": "api.admin.packing-tasks.assign",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@assign",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packing-tasks/{id}/cancel",
-        "name": "api.admin.packing-tasks.cancel",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@cancel",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-fulfillment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packing-tasks/{id}/pack",
-        "name": "api.admin.packing-tasks.pack",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@pack",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing.complete"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packing-tasks/{id}/start",
-        "name": "api.admin.packing-tasks.start",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@start",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/packing-tasks/{id}/verify",
-        "name": "api.admin.packing-tasks.verify",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PackingController@verify",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:packing.complete"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}/claim",
-        "name": "api.admin.picking-tasks.claim",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@claim",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}/confirm",
-        "name": "api.admin.picking-tasks.confirm",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@confirm",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}/reallocate",
-        "name": "api.admin.picking-tasks.reallocate",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@reallocate",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}/record-pick",
-        "name": "api.admin.picking-tasks.record-pick",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@recordPick",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}/release",
-        "name": "api.admin.picking-tasks.release",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@releaseClaim",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/picking-tasks/{id}/skip",
-        "name": "api.admin.picking-tasks.skip",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\PickingController@skip",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:picking-execute"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/refunds/{refund}/approve",
-        "name": "api.admin.refunds.approve",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@approve",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "lang",
-            "permission:payments.refund"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/refunds/{refund}/reject",
-        "name": "api.admin.refunds.reject",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\RefundController@reject",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "lang",
-            "permission:payments.refund"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/shipments/{id}/cancel",
-        "name": "api.admin.shipments.cancel",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@cancelShipment",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:update-shipment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/shipments/{id}/deliver",
-        "name": "api.admin.shipments.deliver",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@markDelivered",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:update-shipment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/shipments/{id}/dispatch",
-        "name": "api.admin.shipments.dispatch",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\ShipmentController@dispatchShipment",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:update-shipment"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/warehouses",
-        "name": "api.admin.warehouses.store",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@store",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-warehouse"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/warehouses/{id}/activate",
-        "name": "api.admin.warehouses.activate",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@activate",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-warehouse"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/warehouses/{id}/deactivate",
-        "name": "api.admin.warehouses.deactivate",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@deactivate",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-warehouse"
-        ]
-    },
-    {
-        "method": "POST",
-        "uri": "/api/v1/v1/admin/warehouses/{id}/set-default",
-        "name": "api.admin.warehouses.set-default",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@setDefault",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-warehouse"
-        ]
-    },
-    {
-        "method": "POST",
         "uri": "/api/v1/verify-forget-password-token",
         "name": null,
         "action": "Marvel\\Http\\Controllers\\UserController@verifyForgetPasswordToken",
@@ -6001,6 +6001,85 @@
             "auth:sanctum",
             "throttle:admin",
             "lang"
+        ]
+    },
+    {
+        "method": "PUT",
+        "uri": "/api/v1/admin/locations/{id}",
+        "name": "api.admin.locations.update",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@update",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-location"
+        ]
+    },
+    {
+        "method": "PUT",
+        "uri": "/api/v1/admin/order-flow-inputs/{id}",
+        "name": "api.admin.order-flow-inputs.update",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@update",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-order-flow-inputs|update-order-status"
+        ]
+    },
+    {
+        "method": "PUT",
+        "uri": "/api/v1/admin/order-flows/{id}",
+        "name": "api.admin.order-flows.update",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@update",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:update-order-flows|update-order-status"
+        ]
+    },
+    {
+        "method": "PUT",
+        "uri": "/api/v1/admin/order-statuses/{id}",
+        "name": "api.admin.order-statuses.update",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderStatusCatalogController@update",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:update-order-flows|update-order-status"
+        ]
+    },
+    {
+        "method": "PUT",
+        "uri": "/api/v1/admin/payment-gateways/{code}",
+        "name": "api.admin.payment-gateways.update",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\PaymentGatewaySettingsController@update",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "lang",
+            "permission:update-settings"
+        ]
+    },
+    {
+        "method": "PUT",
+        "uri": "/api/v1/admin/warehouses/{id}",
+        "name": "api.admin.warehouses.update",
+        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@update",
+        "middleware": [
+            "api",
+            "api",
+            "auth:sanctum",
+            "throttle:admin",
+            "permission:manage-warehouse"
         ]
     },
     {
@@ -6595,85 +6674,6 @@
             "auth:sanctum",
             "throttle:admin",
             "lang"
-        ]
-    },
-    {
-        "method": "PUT",
-        "uri": "/api/v1/v1/admin/locations/{id}",
-        "name": "api.admin.locations.update",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\LocationController@update",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-location"
-        ]
-    },
-    {
-        "method": "PUT",
-        "uri": "/api/v1/v1/admin/order-flow-inputs/{id}",
-        "name": "api.admin.order-flow-inputs.update",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\FlowInputController@update",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-order-flow-inputs|update-order-status"
-        ]
-    },
-    {
-        "method": "PUT",
-        "uri": "/api/v1/v1/admin/order-flows/{id}",
-        "name": "api.admin.order-flows.update",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderFlowController@update",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:update-order-flows|update-order-status"
-        ]
-    },
-    {
-        "method": "PUT",
-        "uri": "/api/v1/v1/admin/order-statuses/{id}",
-        "name": "api.admin.order-statuses.update",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\OrderStatusCatalogController@update",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:update-order-flows|update-order-status"
-        ]
-    },
-    {
-        "method": "PUT",
-        "uri": "/api/v1/v1/admin/payment-gateways/{code}",
-        "name": "api.admin.payment-gateways.update",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\PaymentGatewaySettingsController@update",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "lang",
-            "permission:update-settings"
-        ]
-    },
-    {
-        "method": "PUT",
-        "uri": "/api/v1/v1/admin/warehouses/{id}",
-        "name": "api.admin.warehouses.update",
-        "action": "App\\Http\\Controllers\\Api\\Admin\\Wms\\WarehouseController@update",
-        "middleware": [
-            "api",
-            "api",
-            "auth:sanctum",
-            "throttle:admin",
-            "permission:manage-warehouse"
         ]
     }
 ]

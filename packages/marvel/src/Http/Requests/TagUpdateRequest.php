@@ -6,7 +6,7 @@ namespace Marvel\Http\Requests;
 use CodeZero\UniqueTranslation\UniqueTranslationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 
 
 class TagUpdateRequest extends FormRequest
@@ -45,16 +45,11 @@ class TagUpdateRequest extends FormRequest
      */
     public function messages()
     {
-        return [
-            'name.string'    => 'Name is not a valid string',
-            'name.max:255'   => 'Name can not be more than 255 character',
-            'image.string'   => 'image is not a valid string',
-            'parent.integer' => 'Parent is not a valid integer',
-        ];
+        return [];
     }
 
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

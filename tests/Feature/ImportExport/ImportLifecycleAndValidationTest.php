@@ -31,11 +31,9 @@ class ImportLifecycleAndValidationTest extends TestCase
         Permission::findOrCreate(Perm::EXPORT_BRAND,'api');
         $role = Role::create(['name'=>'r'.uniqid(),'guard_name'=>'api','display_name'=>'r']);
         foreach ($perms as $p) $role->givePermissionTo($p);
-        if ($super)
         $u = User::create(['name'=>'u'.uniqid(),'email'=>uniqid().'@test.local','password'=>Hash::make('password'),'email_verified_at'=>now(),'is_active'=>true,'type'=>'admin']);
         $u->assignRole($role);
         foreach ($perms as $p) $u->givePermissionTo($p);
-        if ($super)
         return $u;
     }
 

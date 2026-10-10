@@ -75,6 +75,7 @@ return [
     'MESSAGE.CATEGORY_BULK_DELETE_NOT_FOUND' => 'Category not found or already deleted',
     'MESSAGE.CATEGORY_BULK_DELETE_HAS_CHILDREN' => 'Category has children and cannot be deleted',
     'ERROR.CANNOT_DELETE_CATEGORY_WITH_ASSOCIATED_RESOURCES' => 'Cannot delete category with existing associated resources',
+    'ERROR.CATEGORY_CIRCULAR_REFERENCE' => 'The selected parent category creates a circular reference.',
 
     // Users
     'MESSAGE.USER_CREATED_SUCCESSFULLY' => 'User created successfully',

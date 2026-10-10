@@ -41,8 +41,6 @@ class SelectCurrencyRequest extends FormRequest
 
     public function messages(): array
     {
-        return [
-            'currency_code.required' => 'The currency code field is required.',
-        ];
+        return [];
     }
 }

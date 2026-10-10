@@ -101,8 +101,15 @@ class StaticPageValidationTest extends TestCase
         $response->assertStatus(422);
         $json = $response->json();
 
+        // Canonical envelope (app/Exceptions/Handler.php): ValidationException
+        // renders as {message, status:false, errors:{...}}.
+        $this->assertArrayHasKey('status', $json, 'Expected canonical envelope status key');
+        $this->assertFalse($json['status'], 'Expected canonical envelope status=false');
+        $this->assertArrayHasKey('errors', $json, 'Expected canonical envelope errors key');
+        $this->assertIsArray($json['errors']);
+
         foreach ($keys as $key) {
-            $this->assertArrayHasKey($key, $json, "Expected a validation error for key '{$key}'");
+            $this->assertArrayHasKey($key, $json['errors'], "Expected a validation error for key '{$key}'");
         }
     }
 

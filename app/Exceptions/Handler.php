@@ -182,9 +182,6 @@ class Handler extends ExceptionHandler
         elseif ($exception instanceof QueryException) {
             $statusCode = 409;
             $message = 'Database error occurred. Please check your request and try again.';
-            if (app()->environment('local')) {
-                $message .= ' ' . $exception->getMessage();
-            }
         }
         // Handle MarvelException
         elseif ($exception instanceof MarvelException) {

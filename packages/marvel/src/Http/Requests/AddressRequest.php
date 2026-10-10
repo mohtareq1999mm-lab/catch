@@ -4,7 +4,7 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 
 
 class AddressRequest extends FormRequest
@@ -42,9 +42,25 @@ class AddressRequest extends FormRequest
         ];
     }
 
+    /**
+     * Friendly names for nested fields. Only keys with an existing
+     * validation.attributes.* entry in both locales are mapped;
+     * simple fields are covered by the global attributes.
+     *
+     * @return array
+     */
+    public function attributes()
+    {
+        return [
+            'address.city' => __('validation.attributes.city'),
+            'address.country' => __('validation.attributes.country'),
+            'governorate_id' => __('validation.attributes.governorate_id'),
+        ];
+    }
+
     public function failedValidation(Validator $validator)
     {
 
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

@@ -7,7 +7,7 @@ use App\Services\General\CategoryHierarchyService;
 use CodeZero\UniqueTranslation\UniqueTranslationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 
 
 class CategoryUpdateRequest extends FormRequest
@@ -45,7 +45,7 @@ class CategoryUpdateRequest extends FormRequest
                     }
 
                     if (app(CategoryHierarchyService::class)->createsCycle((int) $id, (int) $value)) {
-                        $fail('The selected parent category creates a circular reference.');
+                        $fail(__('message.ERROR.CATEGORY_CIRCULAR_REFERENCE'));
                     }
                 },
             ],
@@ -62,6 +62,6 @@ class CategoryUpdateRequest extends FormRequest
 
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

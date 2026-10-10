@@ -4,8 +4,8 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CouponAssignmentRequest extends FormRequest
 {
@@ -37,9 +37,6 @@ class CouponAssignmentRequest extends FormRequest
 
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json([
-            'message' => __('validation.given_data_invalid'),
-            'errors' => $validator->errors(),
-        ], 422));
+        throw new ValidationException($validator);
     }
 }

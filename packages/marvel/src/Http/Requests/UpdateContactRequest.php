@@ -1,14 +1,12 @@
 <?php
 
-
 namespace Marvel\Http\Requests;
 
-use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Validation\ValidationException;
 
-
-class RefundReasonUpdateRequest extends FormRequest
+class UpdateContactRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -21,15 +19,19 @@ class RefundReasonUpdateRequest extends FormRequest
     }
 
     /**
-     * Get the validation rules that apply to the request.
+     * Mirror the raw fields UserController@updateContact reads
+     * (user_id, phone_number, otp_id, code) so failures surface
+     * through the canonical Handler 422 envelope.
      *
      * @return array
      */
     public function rules()
     {
         return [
-            'name'        => ['required', 'string', 'max:255'],
-            'slug'        => ['nullable', 'string', 'max:255'],
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'phone_number' => ['required', 'string', 'min:8', 'max:20'],
+            'otp_id' => ['required', 'string'],
+            'code' => ['required', 'string', 'min:4', 'max:6'],
         ];
     }
 

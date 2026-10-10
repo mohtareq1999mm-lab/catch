@@ -27,6 +27,7 @@ use Marvel\Exceptions\MarvelNotFoundException;
 use Marvel\Http\Requests\AdminCreateUserRequest;
 use Marvel\Http\Requests\ChangePasswordRequest;
 use Marvel\Http\Requests\LicenseRequest;
+use Marvel\Http\Requests\UpdateContactRequest;
 use Marvel\Http\Requests\UserAuthEmailAndPasswordRequest;
 use Marvel\Http\Requests\UserCreateRequest;
 use Marvel\Http\Requests\UserUpdateRequest;
@@ -1130,7 +1131,7 @@ $userCreated->providers()->updateOrCreate(
         }
     }
 
-    public function updateContact(Request $request)
+    public function updateContact(UpdateContactRequest $request)
     {
         $phoneNumber = $request->phone_number;
         $user_id = $request->user_id;

@@ -5,7 +5,7 @@ namespace Marvel\Http\Requests;
 use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Marvel\Enums\Permission;
 use Marvel\Enums\StoreNoticePriority;
@@ -75,9 +75,7 @@ class StoreNoticeRequest extends FormRequest
      */
     public function messages()
     {
-        return [
-            'received_by.required_if' => 'Please! Select at least one Specific receiver.'
-        ];
+        return [];
     }
 
     /**
@@ -88,6 +86,6 @@ class StoreNoticeRequest extends FormRequest
      */
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

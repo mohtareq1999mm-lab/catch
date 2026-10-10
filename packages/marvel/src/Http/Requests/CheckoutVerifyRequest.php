@@ -4,7 +4,7 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 
 class CheckoutVerifyRequest extends FormRequest
 {
@@ -46,21 +46,8 @@ class CheckoutVerifyRequest extends FormRequest
         return $this->getRules();
     }
 
-    /**
-     * Get the error messages that apply to the request parameters.
-     *
-     * @return array
-     */
-    public function messages()
-    {
-        return [
-            'products.required' => 'Product field is required',
-        ];
-    }
-
-
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

@@ -4,7 +4,7 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 use Marvel\Enums\StaticSectionType;
 
 class StoreStaticSectionRequest extends FormRequest
@@ -72,6 +72,6 @@ class StoreStaticSectionRequest extends FormRequest
 
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

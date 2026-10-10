@@ -5,7 +5,7 @@ namespace Marvel\Http\Requests;
 use CodeZero\UniqueTranslation\UniqueTranslationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Marvel\Enums\DiscountType;
 use Marvel\Enums\ItemType;
@@ -114,6 +114,16 @@ class ProductCreateRequest extends FormRequest
 
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'name.*' => __('validation.attributes.name'),
+            'description.*' => __('validation.attributes.description'),
+            'variants.*.price' => __('validation.attributes.price'),
+            'variants.*.quantity' => __('validation.attributes.quantity'),
+        ];
     }
 }

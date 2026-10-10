@@ -4,7 +4,7 @@ namespace Marvel\Http\Requests;
 
 use CodeZero\UniqueTranslation\UniqueTranslationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Contracts\Validation\Validator;
 
 class CountryStoreRequest extends FormRequest
@@ -25,6 +25,6 @@ class CountryStoreRequest extends FormRequest
     }
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }

@@ -5,7 +5,7 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 
 
 class CategoryFeatureToggleRequest extends FormRequest
@@ -22,20 +22,8 @@ class CategoryFeatureToggleRequest extends FormRequest
         ];
     }
 
-    public function messages()
-    {
-        return [
-            'id.required' => 'Category ID is required',
-            'id.integer' => 'Category ID must be an integer',
-            'id.exists' => 'The selected category does not exist',
-        ];
-    }
-
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json([
-            'message' => 'The given data was invalid.',
-            'errors' => $validator->errors(),
-        ], 422));
+        throw new ValidationException($validator);
     }
 }

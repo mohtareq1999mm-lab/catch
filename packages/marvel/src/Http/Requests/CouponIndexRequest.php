@@ -4,8 +4,8 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CouponIndexRequest extends FormRequest
 {
@@ -142,7 +142,7 @@ class CouponIndexRequest extends FormRequest
                 ['date_from', 'date_to'],
             ] as [$from, $to]) {
                 if (! empty($d[$from]) && ! empty($d[$to]) && $d[$from] > $d[$to]) {
-                    $validator->errors()->add($to, "The {$to} must not be before {$from}.");
+                    $validator->errors()->add($to, __('validation.after_or_equal', ['attribute' => $to, 'date' => $from]));
                 }
             }
 
@@ -155,7 +155,7 @@ class CouponIndexRequest extends FormRequest
             ] as [$min, $max]) {
                 if (isset($d[$min], $d[$max]) && $d[$min] !== '' && $d[$max] !== ''
                     && (float) $d[$min] > (float) $d[$max]) {
-                    $validator->errors()->add($max, "The {$max} must not be less than {$min}.");
+                    $validator->errors()->add($max, __('validation.gte.numeric', ['attribute' => $max, 'value' => $min, 'min' => $min]));
                 }
             }
         });
@@ -163,9 +163,6 @@ class CouponIndexRequest extends FormRequest
 
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json([
-            'message' => __('validation.given_data_invalid'),
-            'errors' => $validator->errors(),
-        ], 422));
+        throw new ValidationException($validator);
     }
 }

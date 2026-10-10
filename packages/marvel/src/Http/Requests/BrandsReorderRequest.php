@@ -4,7 +4,7 @@ namespace Marvel\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\ValidationException;
 
 class BrandsReorderRequest extends FormRequest
 {
@@ -21,19 +21,8 @@ class BrandsReorderRequest extends FormRequest
         ];
     }
 
-    public function messages()
-    {
-        return [
-            'brands.required' => 'Brands list is required',
-            'brands.array' => 'Brands must be an array',
-            'brands.*.required' => 'Each brand ID is required',
-            'brands.*.integer' => 'Each brand ID must be an integer',
-            'brands.*.exists' => 'One or more brands do not exist',
-        ];
-    }
-
     public function failedValidation(Validator $validator)
     {
-        throw new HttpResponseException(response()->json($validator->errors(), 422));
+        throw new ValidationException($validator);
     }
 }
