@@ -180,7 +180,7 @@ class RoleAndPermissionController extends CoreController
                 return $this->apiResponse(CANNOT_ASSIGN_ROLE_TO_USER, 400, false);
             }
             $roles = Role::whereIn('id', $request->role_ids)->where('guard_name', 'api')->get();
-            $user->syncRoles($roles)->load('roles', 'permissions');
+            $user->syncRoles($roles)->load('roles','permissions');
 
             return $this->apiResponse(ROLE_ASSIGNED_SUCCESSFULLY, 200, true, UserResource::make($user));
         } catch (ValidationException $e) {

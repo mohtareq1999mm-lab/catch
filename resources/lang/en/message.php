@@ -522,6 +522,7 @@ return [
     'ERROR.DIGITAL_LICENSE_ALREADY_REVEALED' => 'This license key has already been revealed and cannot be shown again.',
     'ERROR.DIGITAL_ACCESS_SECRET_REQUIRED' => 'An access credential is required for this asset type.',
     'ERROR.DIGITAL_LICENSE_POOL_ONLY' => 'License keys can only be added to license pool assets.',    'ERROR.DIGITAL_ASSET_MIME_MISMATCH' => 'The file content does not match its extension.',
+    'ERROR.DIGITAL_LICENSE_DUPLICATE_KEY' => 'Duplicate license key in this request.',
     'ERROR.DIGITAL_ASSET_SOFTWARE_DISABLED' => 'Software asset uploads are currently disabled.',
     'ERROR.DIGITAL_ASSET_TOO_LARGE' => 'The file exceeds the maximum upload size of :max KB.',
     'ERROR.DIGITAL_ASSET_UPLOAD_FAILED' => 'Digital asset could not be stored. Please try again.',

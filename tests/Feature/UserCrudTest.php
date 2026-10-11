@@ -595,7 +595,7 @@ class UserCrudTest extends TestCase
     }
 
     // ========================================================================
-    // POST /api/users/make-admin — edge cases
+    // PATCH /api/users/make-admin — edge cases
     // ========================================================================
 
     public function test_make_admin_toggles_twice_returns_to_user(): void
@@ -605,11 +605,11 @@ class UserCrudTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $this->postJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
+        $this->patchJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
         $target->refresh();
         $this->assertEquals('admin', $target->type);
 
-        $this->postJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
+        $this->patchJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
         $target->refresh();
         $this->assertEquals('user', $target->type);
     }
@@ -623,8 +623,8 @@ class UserCrudTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $this->postJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
-        $this->postJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
+        $this->patchJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
+        $this->patchJson(self::PREFIX . '/users/make-admin', ['user_id' => $target->id]);
 
         Event::assertDispatchedTimes(UserRolesUpdated::class, 2);
     }
@@ -655,7 +655,7 @@ class UserCrudTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/make-admin', [
+        $response = $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => $target->id]);
 
         $response->assertOk();

@@ -785,7 +785,7 @@ class ContentPageSectionTypeApiTest extends TestCase
         $sectionA = $this->createSection(['order' => 1]);
         $sectionB = $this->createSection(['order' => 2]);
 
-        $response = $this->postJson(self::PREFIX . '/sections/reorder', [
+        $response = $this->putJson(self::PREFIX . '/sections/reorder', [
             'sections' => [$sectionB->id, $sectionA->id],
         ]);
 
@@ -797,7 +797,7 @@ class ContentPageSectionTypeApiTest extends TestCase
     {
         Sanctum::actingAs($this->adminUser, ['*']);
 
-        $response = $this->postJson(self::PREFIX . '/sections/reorder', []);
+        $response = $this->putJson(self::PREFIX . '/sections/reorder', []);
 
         $response->assertStatus(422);
     }
@@ -806,7 +806,7 @@ class ContentPageSectionTypeApiTest extends TestCase
     {
         Sanctum::actingAs($this->adminUser, ['*']);
 
-        $response = $this->postJson(self::PREFIX . '/sections/reorder', [
+        $response = $this->putJson(self::PREFIX . '/sections/reorder', [
             'sections' => [9999],
         ]);
 

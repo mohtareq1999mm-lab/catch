@@ -1148,7 +1148,7 @@ class UserControllerTest extends TestCase
     }
 
     // ========================================================================
-    // makeOrRevokeAdmin — POST /users/make-admin
+    // makeOrRevokeAdmin — PATCH /users/make-admin
     // ========================================================================
 
     public function test_super_admin_can_make_user_admin(): void
@@ -1158,7 +1158,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/make-admin', [
+        $response = $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => $target->id]);
 
         $response->assertOk();
@@ -1182,7 +1182,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/make-admin', [
+        $response = $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => $target->id]);
 
         $response->assertOk();
@@ -1197,7 +1197,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/make-admin', [
+        $response = $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => 99999]);
 
         $response->assertStatus(404);
@@ -1216,18 +1216,18 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->postJson(self::PREFIX . '/users/make-admin', [
+        $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => $target->id])->assertStatus(404);
     }
 
     public function test_make_admin_fails_for_unauthenticated_user(): void
     {
-        $this->postJson(self::PREFIX . '/users/make-admin', [
+        $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => 1])->assertStatus(401);
     }
 
     // ========================================================================
-    // banUser — POST /users/block-user
+    // banUser — PATCH /users/block-user
     // ========================================================================
 
     public function test_super_admin_can_ban_user(): void
@@ -1237,7 +1237,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/block-user', [
+        $response = $this->patchJson(self::PREFIX . '/users/block-user', [
             'id' => $target->id]);
 
         $response->assertOk();
@@ -1260,7 +1260,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/block-user', [
+        $response = $this->patchJson(self::PREFIX . '/users/block-user', [
             'id' => $target->id]);
 
         $response->assertOk();
@@ -1275,7 +1275,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $this->postJson(self::PREFIX . '/users/block-user', [
+        $this->patchJson(self::PREFIX . '/users/block-user', [
             'id' => 99999])->assertStatus(404);
     }
 
@@ -1285,18 +1285,18 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->postJson(self::PREFIX . '/users/block-user', [
+        $this->patchJson(self::PREFIX . '/users/block-user', [
             'id' => 1])->assertStatus(403);
     }
 
     public function test_ban_user_fails_for_unauthenticated_user(): void
     {
-        $this->postJson(self::PREFIX . '/users/block-user', [
+        $this->patchJson(self::PREFIX . '/users/block-user', [
             'id' => 1])->assertStatus(401);
     }
 
     // ========================================================================
-    // activeUser — POST /users/unblock-user
+    // activeUser — PATCH /users/unblock-user
     // ========================================================================
 
     public function test_super_admin_can_activate_user(): void
@@ -1312,7 +1312,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/unblock-user', [
+        $response = $this->patchJson(self::PREFIX . '/users/unblock-user', [
             'id' => $target->id]);
 
         $response->assertOk();
@@ -1329,7 +1329,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $response = $this->postJson(self::PREFIX . '/users/unblock-user', [
+        $response = $this->patchJson(self::PREFIX . '/users/unblock-user', [
             'id' => $target->id]);
 
         $response->assertOk();
@@ -1344,7 +1344,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $this->postJson(self::PREFIX . '/users/unblock-user', [
+        $this->patchJson(self::PREFIX . '/users/unblock-user', [
             'id' => 99999])->assertStatus(404);
     }
 
@@ -1354,13 +1354,13 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->postJson(self::PREFIX . '/users/unblock-user', [
+        $this->patchJson(self::PREFIX . '/users/unblock-user', [
             'id' => 1])->assertStatus(403);
     }
 
     public function test_activate_user_fails_for_unauthenticated_user(): void
     {
-        $this->postJson(self::PREFIX . '/users/unblock-user', [
+        $this->patchJson(self::PREFIX . '/users/unblock-user', [
             'id' => 1])->assertStatus(401);
     }
 
@@ -1496,7 +1496,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $this->postJson(self::PREFIX . '/users/make-admin', [
+        $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => $target->id]);
 
         Event::assertDispatched(UserRolesUpdated::class);
@@ -1518,7 +1518,7 @@ class UserControllerTest extends TestCase
 
         Sanctum::actingAs($admin);
 
-        $this->postJson(self::PREFIX . '/users/make-admin', [
+        $this->patchJson(self::PREFIX . '/users/make-admin', [
             'user_id' => $target->id]);
 
         Event::assertDispatched(UserRolesUpdated::class);

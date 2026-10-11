@@ -40,7 +40,7 @@ class DigitalAssetAdminTest extends TestCase
 
         $this->createAllTestTables();
 
-        foreach ([Permission::VIEW_PRODUCTS, Permission::CREATE_PRODUCT, Permission::UPDATE_PRODUCT] as $perm) {
+        foreach ([Permission::VIEW_PRODUCTS, Permission::CREATE_PRODUCT, Permission::UPDATE_PRODUCT, Permission::DELETE_PRODUCT] as $perm) {
             SpatiePermission::firstOrCreate(['name' => $perm, 'guard_name' => 'api']);
         }
 
@@ -52,7 +52,7 @@ class DigitalAssetAdminTest extends TestCase
             'is_active' => true,
             'type' => 'admin',
         ]);
-        $this->admin->givePermissionTo([Permission::VIEW_PRODUCTS, Permission::CREATE_PRODUCT, Permission::UPDATE_PRODUCT]);
+        $this->admin->givePermissionTo([Permission::VIEW_PRODUCTS, Permission::CREATE_PRODUCT, Permission::UPDATE_PRODUCT, Permission::DELETE_PRODUCT]);
 
         $this->viewOnly = User::create([
             'name' => 'View Only',

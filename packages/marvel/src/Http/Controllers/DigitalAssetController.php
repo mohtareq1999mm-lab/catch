@@ -26,7 +26,8 @@ class DigitalAssetController extends CoreController
         $this->digitalAssetService = $digitalAssetService;
         $this->middleware("permission:" . Permission::VIEW_PRODUCTS, ["only" => ["index", "show"]]);
         $this->middleware("permission:" . Permission::CREATE_PRODUCT, ["only" => ["store"]]);
-        $this->middleware("permission:" . Permission::UPDATE_PRODUCT, ["only" => ["update", "destroy", "replace"]]);
+        $this->middleware("permission:" . Permission::UPDATE_PRODUCT, ["only" => ["update", "replace"]]);
+        $this->middleware("permission:" . Permission::DELETE_PRODUCT, ["only" => ["destroy"]]);
         $this->middleware("permission:" . Permission::MANAGE_DIGITAL_LICENSES, ["only" => ["storeLicenseKeys"]]);
     }
 
@@ -89,11 +90,13 @@ class DigitalAssetController extends CoreController
             ->where('uuid', $uuid)
             ->firstOrFail();
 
-        $created = $this->digitalAssetService->addLicenseKeys($asset, $request->validated('keys'));
+        $result = $this->digitalAssetService->addLicenseKeys($asset, $request->validated('keys'));
 
         return $this->apiResponse(CREATE_DATA_SUCCESSFULLY, 201, true, [
             'asset_uuid' => $asset->uuid,
-            'created' => $created,
+            'created' => $result['created'],
+            'skipped_blank' => $result['skipped_blank'],
+            'skipped_duplicate' => $result['skipped_duplicate'],
         ]);
     }
 

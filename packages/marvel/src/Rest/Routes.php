@@ -219,7 +219,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
 
     //======================== reviews ========================/
     Route::patch('reviews/{id}/toggle-approve', [ReviewController::class, 'toggleApproveReview'])->middleware('permission:approve-reviews');
-    Route::apiResource('reviews', ReviewController::class)->middleware('permission:view-contacts|update-contact|delete-contact|approve-reviews|delete-reviews');
+    Route::apiResource('reviews', ReviewController::class)->middleware('permission:view-contacts|update-contact|delete-contact|approve-reviews|delete-reviews')->except(['store', 'update']);
 
     //======================== site reviews ========================/
     Route::get('site-reviews', [SiteReviewController::class, 'index'])->middleware('permission:view-site-reviews');
@@ -228,10 +228,10 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::patch('site-reviews/{id}/reject', [SiteReviewController::class, 'reject'])->whereNumber('id')->middleware('permission:reject-site-reviews');
 
     //======================== currencies ========================/
-    Route::apiResource('currencies', CurrencyController::class)->whereNumber('currency')->middleware('permission:view-currencies|create-currency|update-currency|delete-currency');
     Route::post('currencies/{id}/set-base', [CurrencyController::class, 'setBase'])->whereNumber('id')->middleware('permission:set-base-currency');
     Route::post('currencies/{id}/set-catalog', [CurrencyController::class, 'setCatalog'])->whereNumber('id')->middleware('permission:set-catalog-currency');
     Route::patch('currencies/{id}/rate-mode', [CurrencyController::class, 'setRateMode'])->whereNumber('id')->middleware('permission:update-currency');
+    Route::apiResource('currencies', CurrencyController::class)->whereNumber('currency')->middleware('permission:view-currencies|create-currency|update-currency|delete-currency');
 
     //======================== currency rates ========================/
     Route::apiResource('currency-rates', CurrencyRateController::class)->whereNumber('currency_rate')->middleware('permission:view-exchange-rates|create-exchange-rate|update-exchange-rate|delete-exchange-rate');
@@ -261,7 +261,11 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::delete('digital-assets/{uuid}', [\Marvel\Http\Controllers\DigitalAssetController::class, 'destroy'])->whereUuid('uuid')->name('admin.digital-assets.destroy')->middleware('permission:delete-product');
     Route::post('digital-assets/{uuid}/replace', [\Marvel\Http\Controllers\DigitalAssetController::class, 'replace'])->whereUuid('uuid')->name('admin.digital-assets.replace')->middleware('permission:update-product');
     // W5 — bulk-provision encrypted keys into a LICENSE pool (A2/A4).
-    Route::post('digital-assets/{uuid}/license-keys', [\Marvel\Http\Controllers\DigitalAssetController::class, 'storeLicenseKeys'])->whereUuid('uuid')->name('admin.digital-assets.license-keys.store')->middleware('permission:update-product');
+    // License provisioning is governed SOLELY by manage-digital-licenses
+    // (route + controller constructor agree): product editors without the
+    // license permission must be rejected, and license managers without
+    // product permissions must be accepted.
+    Route::post('digital-assets/{uuid}/license-keys', [\Marvel\Http\Controllers\DigitalAssetController::class, 'storeLicenseKeys'])->whereUuid('uuid')->name('admin.digital-assets.license-keys.store')->middleware('permission:manage-digital-licenses');
 
     //==================== digital entitlement management (W6) ====================/
     Route::get('digital-entitlements', [\Marvel\Http\Controllers\DigitalEntitlementController::class, 'index'])->name('admin.digital-entitlements.index')->middleware('permission:manage-digital-access');
@@ -323,8 +327,8 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::post('/roles', [RoleAndPermissionController::class, 'addRole']);
     Route::put('/roles/{id}', [RoleAndPermissionController::class, 'updateRole']);
     Route::delete('/roles/{id}', [RoleAndPermissionController::class, 'destroyRole']);
-    Route::post('/users/{userId}/assign-role', [RoleAndPermissionController::class, 'assignRole']);
-    Route::post('/users/{userId}/remove-role', [RoleAndPermissionController::class, 'removeRoleFromUser']);
+    Route::patch('/users/{userId}/assign-role', [RoleAndPermissionController::class, 'assignRole']);
+    Route::patch('/users/{userId}/remove-role', [RoleAndPermissionController::class, 'removeRoleFromUser']);
     //=============================  permission ========================/
     Route::get('/permissions', [RoleAndPermissionController::class, 'getAllPermissions']);
     Route::post('/roles/{roleId}/permissions', [RoleAndPermissionController::class, 'assignPermissionToRole']);
@@ -340,7 +344,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::get('sections/types', [SectionController::class, 'getTypeSection']);
     Route::patch('sections/{section}/toggle-active', [SectionController::class, 'toggleStatus']);
     Route::apiResource('sections', SectionController::class);
-    Route::apiResource('section-types', SectionTypeController::class);
+    Route::apiResource('section-types', SectionTypeController::class)->except(['update', 'store', 'destroy']);
     Route::post('section-types/{type}/settings', [SectionTypeController::class, 'updateSettings']);
     Route::get('section-types/{type}/settings', [SectionTypeController::class, 'settings']);
 
@@ -350,15 +354,17 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::put('static-pages/{static_page:slug}', [StaticPageController::class, 'update']);
     Route::post('static-pages/{static_page:slug}/sections', [StaticPageController::class, 'storeSection']);
     // reorder is declared before sections/{static_section} to prevent route capture
-    Route::post('static-pages/{static_page:slug}/sections/reorder', [StaticPageController::class, 'reorderSections']);
+    Route::patch('static-pages/{static_page:slug}/sections/reorder', [StaticPageController::class, 'reorderSections']);
     Route::put('static-pages/{static_page:slug}/sections/{static_section}', [StaticPageController::class, 'updateSection']);
     Route::delete('static-pages/{static_page:slug}/sections/{static_section}', [StaticPageController::class, 'destroySection']);
 
-    Route::apiResource('users', UserController::class);
-    Route::post('users/block-user', [UserController::class, 'banUser']);
-    Route::post('users/unblock-user', [UserController::class, 'activeUser']);
-    Route::post('add-points', [UserController::class, 'addPoints']);
-    Route::post('users/make-admin', [UserController::class, 'makeOrRevokeAdmin']);
+    // Custom PATCH user actions MUST precede apiResource('users') so
+    // single-segment PATCHs (e.g. /users/block-user) are not captured by users/{user}.
+    Route::patch('users/block-user', [UserController::class, 'banUser']);
+    Route::patch('users/unblock-user', [UserController::class, 'activeUser']);
+//    Route::patch('users/make-admin', [UserController::class, 'makeOrRevokeAdmin']);
+    Route::apiResource('users', UserController::class)->except(['store', 'destroy']);
+//    Route::post('add-points', [UserController::class, 'addPoints']);
 
 
     Route::get('product-type', function () {
@@ -412,6 +418,11 @@ Route::middleware(['auth:sanctum', 'throttle:analytics', 'permission:' . \Marvel
     Route::get('cart', [DashboardController::class, 'cartAnalytics']);
     Route::get('finance', [DashboardController::class, 'financeAnalytics']);
     Route::get('reconciliation', [DashboardController::class, 'reconciliation']);
+    Route::get('time-series', [AnalyticsController::class, 'timeSeries'])->name('api.admin.analytics.time-series');
+    Route::get('top-customers', [AnalyticsController::class, 'topCustomers'])->name('api.admin.analytics.top-customers');
+    Route::get('customer-segmentation', [AnalyticsController::class, 'customerSegmentation'])->name('api.admin.analytics.segmentation');
+    Route::get('performance', [AnalyticsController::class, 'performance'])->name('api.admin.analytics.performance');
+    Route::post('clear-cache', [AnalyticsController::class, 'clearCache'])->name('api.admin.analytics.clear-cache');
 });
 // need to ad end point to update data for dashboard
 // Route::apiResource('shippings', ShippingController::class);
@@ -472,15 +483,6 @@ Route::prefix('invoices')->group(function () {
         Route::get('verify/{uuid}', [InvoiceController::class, 'verify'])->middleware('throttle:5,1');
         Route::get('uuid/{uuid}', [InvoiceController::class, 'showByUuid']);
     });
-});
-
-Route::prefix('admin/analytics')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('dashboard', [AnalyticsController::class, 'dashboard'])->name('api.admin.analytics.dashboard');
-    Route::get('time-series', [AnalyticsController::class, 'timeSeries'])->name('api.admin.analytics.time-series');
-    Route::get('top-customers', [AnalyticsController::class, 'topCustomers'])->name('api.admin.analytics.top-customers');
-    Route::get('customer-segmentation', [AnalyticsController::class, 'customerSegmentation'])->name('api.admin.analytics.segmentation');
-    Route::get('performance', [AnalyticsController::class, 'performance'])->name('api.admin.analytics.performance');
-    Route::post('clear-cache', [AnalyticsController::class, 'clearCache'])->name('api.admin.analytics.clear-cache');
 });
 
 Route::prefix('admin/analytics/export')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {

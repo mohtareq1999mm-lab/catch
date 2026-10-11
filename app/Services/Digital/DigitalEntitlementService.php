@@ -2,7 +2,8 @@
 
 namespace App\Services\Digital;
 
-use App\Jobs\LogActivityJob;
+use App\Audit\ActivityAuditService;
+use App\Audit\ActivitySnapshot;
 use App\Models\DigitalEntitlement;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Marvel\Database\Models\User;
@@ -93,14 +94,22 @@ class DigitalEntitlementService
 
     private function log(DigitalEntitlement $entitlement, ?User $actor, string $event, array $properties): void
     {
-        LogActivityJob::dispatch(
-            DigitalEntitlement::class,
-            $entitlement->id,
-            $actor?->getAuthIdentifier(),
-            $event,
-            'digital-entitlements',
-            __("activity.{$event}"),
-            $properties
-        );
+        // Canonical audit API: a self-contained snapshot dispatched to the
+        // configured medium queue (see ActivityAuditService::dispatch).
+        // NOTE (repaired): this previously called LogActivityJob::dispatch()
+        // with the legacy 7-scalar-argument shape, but the job constructor
+        // takes a single ActivitySnapshot — every limit/revoke/restore call
+        // threw a TypeError AFTER persisting its write (work done, 500
+        // returned). The snapshot below preserves all legacy fields.
+        ActivityAuditService::dispatch(new ActivitySnapshot(
+            logName: 'digital-entitlements',
+            event: $event,
+            description: __("activity.{$event}"),
+            subjectType: DigitalEntitlement::class,
+            subjectId: $entitlement->id,
+            causerType: $actor ? $actor::class : null,
+            causerId: $actor?->getAuthIdentifier(),
+            context: $properties,
+        ));
     }
 }

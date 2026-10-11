@@ -306,6 +306,7 @@ return [
     'ERROR.DIGITAL_LICENSE_ALREADY_REVEALED' => 'تم كشف مفتاح الترخيص هذا مسبقاً ولا يمكن عرضه مرة أخرى.',
     'ERROR.DIGITAL_ACCESS_SECRET_REQUIRED' => 'بيانات اعتماد الوصول مطلوبة لهذا النوع من الأصول.',
     'ERROR.DIGITAL_LICENSE_POOL_ONLY' => 'لا يمكن إضافة مفاتيح الترخيص إلا لأصول مجموعة التراخيص.',
+    'ERROR.DIGITAL_LICENSE_DUPLICATE_KEY' => 'مفتاح ترخيص مكرر داخل هذا الطلب.',
     'ERROR.DIGITAL_ASSET_MIME_MISMATCH' => 'لا يتطابق محتوى الملف مع امتداده.',
     'ERROR.DIGITAL_ASSET_SOFTWARE_DISABLED' => 'تحميل ملفات البرمجيات معطل حالياً.',    'ERROR.DIGITAL_ASSET_TOO_LARGE' => 'حجم الملف يتجاوز الحد الأقصى للرفع وهو :max كيلوبايت.',
     'ERROR.DIGITAL_ASSET_UPLOAD_FAILED' => 'تعذر تخزين الأصل الرقمي. يرجى المحاولة مرة أخرى.',

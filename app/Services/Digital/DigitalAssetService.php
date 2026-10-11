@@ -228,8 +228,25 @@ class DigitalAssetService
      * Bulk-provision encrypted keys into a LICENSE pool. Plaintext exists
      * only for the duration of this call; storage goes through the
      * 'encrypted' cast and responses carry counts exclusively.
+     *
+     * Explicit skip accounting (no silent behavior):
+     * - blank entries (empty after trim) are skipped and counted;
+     * - keys already present in this asset's pool (decrypted comparison,
+     *   exact case-sensitive match) are skipped and counted, so repeating a
+     *   request with the same keys is safe (content-based idempotency:
+     *   a full repeat yields created=0 instead of duplicates);
+     * - intra-batch duplicates are rejected earlier at the FormRequest
+     *   layer with a 422 (see StoreLicenseKeysRequest).
+     *
+     * Residual risk (documented, accepted): two concurrent requests carrying
+     * the same new key can both pass the existence check before either
+     * commits, because randomized encryption prevents a DB-level unique
+     * constraint on the ciphertext. Provisioning is an admin operation with
+     * negligible concurrency in practice.
+     *
+     * @return array{created: int, skipped_blank: int, skipped_duplicate: int}
      */
-    public function addLicenseKeys(DigitalAsset $asset, array $keys): int
+    public function addLicenseKeys(DigitalAsset $asset, array $keys): array
     {
         if ($asset->type !== \App\Enums\DigitalAssetType::LICENSE->value) {
             throw new HttpException(422, __('message.ERROR.DIGITAL_LICENSE_POOL_ONLY'));
@@ -241,13 +258,29 @@ class DigitalAssetService
             throw new HttpException(422, __('message.ERROR.DIGITAL_ASSET_TOO_LARGE', ['max' => $max]));
         }
 
-        $created = 0;
+        $existing = DigitalLicenseKey::query()
+            ->where('asset_id', $asset->id)
+            ->get(['encrypted_key'])
+            ->map(fn (DigitalLicenseKey $row) => trim((string) $row->encrypted_key))
+            ->all();
 
-        DB::transaction(function () use ($asset, $keys, &$created) {
+        $created = 0;
+        $skippedBlank = 0;
+        $skippedDuplicate = 0;
+
+        DB::transaction(function () use ($asset, $keys, $existing, &$created, &$skippedBlank, &$skippedDuplicate) {
+            $pool = $existing;
+
             foreach ($keys as $key) {
                 $trimmed = trim((string) $key);
 
                 if ($trimmed === '') {
+                    $skippedBlank++;
+                    continue;
+                }
+
+                if (in_array($trimmed, $pool, true)) {
+                    $skippedDuplicate++;
                     continue;
                 }
 
@@ -255,11 +288,16 @@ class DigitalAssetService
                     'asset_id' => $asset->id,
                     'encrypted_key' => $trimmed,
                 ]);
+                $pool[] = $trimmed;
                 $created++;
             }
         });
 
-        return $created;
+        return [
+            'created' => $created,
+            'skipped_blank' => $skippedBlank,
+            'skipped_duplicate' => $skippedDuplicate,
+        ];
     }
 
     /**

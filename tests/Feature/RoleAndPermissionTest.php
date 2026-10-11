@@ -602,7 +602,7 @@ class RoleAndPermissionTest extends TestCase
         $targetUser = $this->createCustomerUser();
         $targetUser->assignRole($role);
 
-        $response = $this->postJson(self::PREFIX . "/users/{$targetUser->id}/remove-role", [
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/remove-role", [
             'role_ids' => [$role->id]]);
 
         $response->assertOk();
@@ -623,7 +623,7 @@ class RoleAndPermissionTest extends TestCase
             'display_name' => json_encode(['en' => 'Ghost', 'ar' => 'شبح']),
             'guard_name' => self::GUARD]);
 
-        $response = $this->postJson(self::PREFIX . '/users/99999/remove-role', [
+        $response = $this->patchJson(self::PREFIX . '/users/99999/remove-role', [
             'role_ids' => [$role->id]]);
 
         $response->assertStatus(404);
@@ -645,7 +645,7 @@ class RoleAndPermissionTest extends TestCase
             'email_verified_at' => now(),
             'is_active' => true]);
 
-        $response = $this->postJson(self::PREFIX . "/users/{$targetUser->id}/remove-role", [
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/remove-role", [
             'role_ids' => [$role->id]]);
 
         $response->assertStatus(403);
