@@ -52,7 +52,7 @@ class PackageController extends WmsAdminController
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(
-            'Packages fetched successfully.',
+            __('wms.package.fetched_many'),
             200,
             true,
             PackageResource::collection($query->paginate($perPage))
@@ -70,7 +70,7 @@ class PackageController extends WmsAdminController
         $package->loadMissing('items');
 
         return $this->apiResponse(
-            'Package fetched successfully.',
+            __('wms.package.fetched_one'),
             200,
             true,
             PackageDetailResource::make($package)
@@ -103,17 +103,17 @@ class PackageController extends WmsAdminController
                     'notes' => $request->validated('notes'),
                 ], fn ($v) => $v !== null)
             );
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            // One-active-package contention → 409 (typed, locale-proof).
+            $this->conflict($e->getMessage());
         } catch (\RuntimeException $e) {
-            if (str_contains($e->getMessage(), 'already has an active package')) {
-                $this->conflict($e->getMessage());
-            }
             $this->unprocessable($e->getMessage());
         } catch (\Exception $e) {
             $this->unprocessable($e->getMessage());
         }
 
         return $this->apiResponse(
-            'Package created successfully.',
+            __('wms.package.created'),
             201,
             true,
             PackageDetailResource::make($package->fresh()->loadMissing('items'))
@@ -142,7 +142,7 @@ class PackageController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Package item added successfully.',
+            __('wms.package.item_added'),
             200,
             true,
             PackageDetailResource::make($package->fresh()->loadMissing('items'))
@@ -168,7 +168,7 @@ class PackageController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Package sealed successfully.',
+            __('wms.package.sealed'),
             200,
             true,
             PackageDetailResource::make($sealed->fresh()->loadMissing('items'))
@@ -195,7 +195,7 @@ class PackageController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Package voided successfully.',
+            __('wms.package.voided'),
             200,
             true,
             PackageDetailResource::make($voided->fresh()->loadMissing('items'))

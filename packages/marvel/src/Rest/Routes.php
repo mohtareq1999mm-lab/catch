@@ -528,7 +528,7 @@ Route::prefix('admin/order-flows')->middleware(['api', 'auth:sanctum', 'throttle
     Route::get('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'index'])->whereNumber('flowId')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.inputs.index');
     Route::post('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'store'])->whereNumber('flowId')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flows.inputs.store');
 });
-Route::prefix('admin/order-flow-inputs')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/order-flow-inputs')->middleware(['api',"lang", 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::put('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'update'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.update');
     Route::delete('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.destroy');
 });
@@ -567,6 +567,7 @@ Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'update'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.update');
     Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'activate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.activate');
     Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'deactivate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.deactivate');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.destroy');
 });
 
 // Fulfillment Phase 9 (P9-3): Fulfillment admin surface. Command routes only —
@@ -653,6 +654,15 @@ Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.dispatch');
     Route::post('{id}/deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'markDelivered'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.deliver');
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'cancelShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.cancel');
+});
+// Inventory intake + relocation surface. StockOperationService owns the
+// authority moves; object-level warehouse scope is enforced in-controller
+// via WmsAdminController (permission alone is not authorization).
+Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::post('{location}/stock-receipts', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'receive'])->whereNumber('location')->middleware('permission:inventory-adjust')->name('api.admin.locations.stock-receipts');
+});
+Route::prefix('admin')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::post('stock-transfers', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'transfer'])->middleware('permission:inventory-adjust')->name('api.admin.stock-transfers');
 });
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without
 // auth or throttle). Test payments use the gateway sandbox directly.

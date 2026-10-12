@@ -69,7 +69,7 @@ class ProductCreateRequest extends FormRequest
             'type_id'                      => ['sometimes', 'integer', 'exists:types,id'],
             'categories'                   => ['required', 'array'],
             'categories.*'                 => ['integer', 'exists:categories,id'],
-            'quantity'                     => ['sometimes', 'integer', 'min:1'],
+            'quantity'                     => ['sometimes', 'integer', 'min:1', Rule::requiredIf(fn () => $this->filled('location_id'))],
             'images'                        => ['required', 'array'],
             'images.*'                      => ['required', 'file', 'mimes:jpeg,png,jpg,gif', 'max:2048'],
             'pieces'                       => ['sometimes', 'integer', 'min:1'],
@@ -98,6 +98,13 @@ class ProductCreateRequest extends FormRequest
             'sliders.*'                    => ['integer', 'exists:sliders,id'],
             'tax_enabled'                  => ['sometimes', 'boolean'],
             'tax_rate'                     => ['nullable', 'numeric', 'min:0', 'max:100'],
+
+            // Optional initial WMS placement. Absent = legacy behavior,
+            // byte-identical. location_id alone resolves the warehouse from
+            // the authoritative location row; warehouse_id alone (nothing to
+            // place into) is rejected via location_id requiredIf.
+            'warehouse_id'                 => ['nullable', 'integer', 'exists:warehouses,id'],
+            'location_id'                  => ['nullable', 'integer', 'exists:locations,id', Rule::requiredIf(fn () => $this->filled('warehouse_id'))],
 
             // variants (for variable products)
             'variants'                     => ['sometimes', 'array'],

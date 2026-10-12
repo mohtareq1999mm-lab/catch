@@ -93,7 +93,9 @@ class DatabaseSeeder extends Seeder
             OrderFlowSeeder::class,
             FlowInputSeeder::class,
             OrderStatusPermissionSeeder::class,
-
+            WarehouseSeeder::class,
+            AdminOrderOperationsSeeder::class,
+            WmsOperationsSeeder::class,
         ]);
     }
 }

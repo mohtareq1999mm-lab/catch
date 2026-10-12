@@ -27,7 +27,7 @@ class BatchPickingService
     ): FulfillmentBatch {
         return DB::transaction(function () use ($fulfillments, $warehouseId, $type) {
             if ($fulfillments->isEmpty()) {
-                throw new \InvalidArgumentException('Cannot create a batch from zero fulfillments');
+                throw new \InvalidArgumentException(__('wms.batch.zero_fulfillments'));
             }
 
             // Single-operation rule (§22): same warehouse + same Order Flow +
@@ -61,12 +61,12 @@ class BatchPickingService
                 ->lockForUpdate()
                 ->get();
             if ($lockedFulfillments->count() !== count($fulfillmentIds)) {
-                throw new \RuntimeException('Batch creation: fulfillment row missing under lock');
+                throw new \RuntimeException(__('wms.batch.row_missing'));
             }
             foreach ($lockedFulfillments as $locked) {
                 if ($locked->status !== 'pending') {
                     throw new \RuntimeException(
-                        "Batch scope mismatch: fulfillment #{$locked->id} status {$locked->status} != pending"
+                        __('wms.batch.scope_status', ['id' => $locked->id, 'status' => $locked->status])
                     );
                 }
             }
@@ -103,7 +103,7 @@ class BatchPickingService
                         ->first();
                     if ($open) {
                         throw new \RuntimeException(
-                            "Batch creation refused: fulfillment item #{$item->id} already has open picking task #{$open->id} (status: {$open->status})"
+                            __('wms.batch.item_open_task', ['item' => $item->id, 'task' => $open->id, 'status' => $open->status])
                         );
                     }
                     $remainingByItem[$item->id] = $remaining;
@@ -116,7 +116,7 @@ class BatchPickingService
             // any task exists or any fulfillment transitions — the enclosing
             // transaction rolls everything back, so no partial state survives.
             if ($allItems->isEmpty()) {
-                throw new \InvalidArgumentException('Cannot create a batch with zero pickable items');
+                throw new \InvalidArgumentException(__('wms.batch.zero_pickable'));
             }
 
             // Group by location for optimized picking route
@@ -187,24 +187,24 @@ class BatchPickingService
             // Anything else surfaces here, not mid-loop after tasks exist.
             if ($fulfillment->status !== 'pending') {
                 throw new \RuntimeException(
-                    "Batch scope mismatch: fulfillment #{$fulfillment->id} status {$fulfillment->status} != pending"
+                    __('wms.batch.scope_status', ['id' => $fulfillment->id, 'status' => $fulfillment->status])
                 );
             }
             if ((int) $fulfillment->warehouse_id !== (int) $expectedWarehouse) {
                 throw new \RuntimeException(
-                    "Batch scope mismatch: fulfillment #{$fulfillment->id} warehouse {$fulfillment->warehouse_id} != {$expectedWarehouse}"
+                    __('wms.batch.scope_warehouse', ['id' => $fulfillment->id, 'warehouse' => $fulfillment->warehouse_id, 'expected' => $expectedWarehouse])
                 );
             }
             $flow = $fulfillment->order?->flow_id;
             $stage = $fulfillment->order?->status;
             if ($flow !== $expectedFlow) {
                 throw new \RuntimeException(
-                    "Batch scope mismatch: order #{$fulfillment->order_id} flow {$flow} != {$expectedFlow} (same Order Flow required)"
+                    __('wms.batch.scope_flow', ['order' => $fulfillment->order_id, 'flow' => $flow, 'expected' => $expectedFlow])
                 );
             }
             if ($stage !== $expectedStage) {
                 throw new \RuntimeException(
-                    "Batch scope mismatch: order #{$fulfillment->order_id} stage {$stage} != {$expectedStage} (same current stage required)"
+                    __('wms.batch.scope_stage', ['order' => $fulfillment->order_id, 'stage' => $stage, 'expected' => $expectedStage])
                 );
             }
         }
@@ -221,13 +221,14 @@ class BatchPickingService
 
             if (!in_array($locked->status, ['pending', 'assigned'], true)) {
                 throw new \RuntimeException(
-                    "Cannot assign batch in status: {$locked->status}"
+                    __('wms.batch.assign_conflict_status', ['status' => $locked->status])
                 );
             }
 
             if ($locked->assigned_to !== null && (int) $locked->assigned_to !== $userId) {
-                throw new \RuntimeException(
-                    "Batch #{$locked->id} is already assigned to user {$locked->assigned_to}"
+                // First-winner contention → HTTP 409 at the adapter.
+                throw new \App\Exceptions\WmsConflictException(
+                    __('wms.batch.already_assigned', ['id' => $locked->id, 'user' => $locked->assigned_to])
                 );
             }
 
@@ -255,7 +256,7 @@ class BatchPickingService
 
             if ($locked->status !== 'assigned') {
                 throw new \RuntimeException(
-                    "Cannot start picking batch in status: {$locked->status}"
+                    __('wms.batch.start_status', ['status' => $locked->status])
                 );
             }
 
@@ -292,13 +293,13 @@ class BatchPickingService
             // claimant (or an explicit override) — same authority as confirm.
             if (!in_array($locked->status, ['assigned', 'picking'], true)) {
                 throw new \Exception(
-                    "Cannot record pick on task #{$locked->id} in status {$locked->status}"
+                    __('wms.batch.record_pick_status', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
             if (!$override && $locked->claimed_by !== null
                 && ($userId === null || (int) $locked->claimed_by !== $userId)) {
                 throw new \Exception(
-                    "Picking task #{$locked->id} is claimed by another worker"
+                    __('wms.batch.claimed_other', ['id' => $locked->id])
                 );
             }
 
@@ -306,12 +307,12 @@ class BatchPickingService
 
             if ($quantity > $remaining) {
                 throw new \Exception(
-                    "Picked quantity ({$quantity}) exceeds remaining quantity ({$remaining})"
+                    __('wms.batch.pick_exceeds', ['quantity' => $quantity, 'remaining' => $remaining])
                 );
             }
 
             if ($quantity <= 0) {
-                throw new \Exception('Picked quantity must be greater than zero');
+                throw new \Exception(__('wms.batch.pick_positive'));
             }
 
             $task = $locked;
@@ -434,7 +435,7 @@ class BatchPickingService
     {
         $reason = trim($reason);
         if ($reason === '') {
-            throw new \InvalidArgumentException('Skip reason is required');
+            throw new \InvalidArgumentException(__('wms.batch.skip_reason'));
         }
 
         return DB::transaction(function () use ($task, $reason) {
@@ -442,7 +443,7 @@ class BatchPickingService
 
             if (!in_array($locked->status, ['pending', 'assigned', 'picking'], true)) {
                 throw new \RuntimeException(
-                    "Cannot skip picking task #{$locked->id} in status {$locked->status}"
+                    __('wms.batch.skip_status', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
 
@@ -486,14 +487,14 @@ class BatchPickingService
     {
         $reason = trim($reason);
         if ($reason === '') {
-            throw new \InvalidArgumentException('Retry reason is required');
+            throw new \InvalidArgumentException(__('wms.batch.retry_reason'));
         }
 
         return DB::transaction(function () use ($batch, $reason) {
             $locked = FulfillmentBatch::whereKey($batch->id)->lockForUpdate()->firstOrFail();
             if (in_array($locked->status, ['completed', 'cancelled'], true)) {
                 throw new \RuntimeException(
-                    "Cannot retry skipped tasks on batch #{$locked->id} in status {$locked->status}"
+                    __('wms.batch.retry_status', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
 
@@ -525,8 +526,10 @@ class BatchPickingService
                     ->lockForUpdate()
                     ->first();
                 if ($open) {
-                    throw new \RuntimeException(
-                        "Retry refused: fulfillment item #{$item->id} already has open picking task #{$open->id} (status: {$open->status})"
+                    // Exactly-one-open-task conflict → HTTP 409 at the
+                    // adapter via WmsConflictException (type, never text).
+                    throw new \App\Exceptions\WmsConflictException(
+                        __('wms.batch.retry_open_task', ['item' => $item->id, 'task' => $open->id, 'status' => $open->status])
                     );
                 }
 
@@ -562,12 +565,12 @@ class BatchPickingService
     public function cancelBatch(FulfillmentBatch $batch, string $reason): FulfillmentBatch
     {
         if (trim($reason) === '') {
-            throw new \InvalidArgumentException('Cancellation reason is required');
+            throw new \InvalidArgumentException(__('wms.batch.cancel_reason'));
         }
 
         if (in_array($batch->status, ['completed', 'cancelled'])) {
             throw new \Exception(
-                "Cannot cancel batch in status: {$batch->status}"
+                __('wms.batch.cancel_status', ['status' => $batch->status])
             );
         }
 
@@ -575,7 +578,7 @@ class BatchPickingService
             $locked = FulfillmentBatch::whereKey($batch->id)->lockForUpdate()->firstOrFail();
             if (in_array($locked->status, ['completed', 'cancelled'], true)) {
                 throw new \Exception(
-                    "Cannot cancel batch in status: {$locked->status}"
+                    __('wms.batch.cancel_status', ['status' => $locked->status])
                 );
             }
 

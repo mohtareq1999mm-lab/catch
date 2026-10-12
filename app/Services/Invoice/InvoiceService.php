@@ -117,7 +117,7 @@ class InvoiceService
             $original = Invoice::lockForUpdate()->findOrFail($originalId);
 
             if (!in_array($original->status, ['generated', 'ready', 'verified', 'downloaded', 'printed'], true)) {
-                throw new \RuntimeException("Invoice {$original->id} cannot be corrected from status '{$original->status}'");
+                throw new \RuntimeException(__('message.ERROR.INVOICE_CORRECT_STATE', ['id' => $original->id, 'status' => $original->status]));
             }
 
             $numberData = $this->numberService->generateNext();
@@ -192,7 +192,7 @@ class InvoiceService
 
             $allowed = ['generated', 'ready', 'failed', 'corrected', 'verified', 'downloaded', 'printed'];
             if (!in_array($invoice->status, $allowed, true)) {
-                throw new \RuntimeException("Invoice {$invoice->id} cannot be cancelled from status '{$invoice->status}'");
+                throw new \RuntimeException(__('message.ERROR.INVOICE_CANCEL_STATE', ['id' => $invoice->id, 'status' => $invoice->status]));
             }
 
             $invoice->update([

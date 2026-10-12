@@ -54,25 +54,10 @@ return [
         'failed_description' => 'فشلت محاولة التوصيل. سنحاول مجدداً قريباً.',
     ],
 
-    // Shipment Events
-    'shipment' => [
-        'created' => 'تم إنشاء الشحنة',
-        'created_description' => 'تم إنشاء الشحنة برقم تتبع :tracking_number.',
-        'picked_up' => 'تم استلام الطرد',
-        'picked_up_description' => 'تم استلام طردك من قبل :carrier.',
-        'in_transit' => 'قيد النقل',
-        'in_transit_description' => 'طردك في الطريق إليك.',
-        'out_for_delivery' => 'قيد التوصيل',
-        'out_for_delivery_description' => 'طردك قيد التوصيل.',
-        'delivered' => 'تم التوصيل',
-        'delivered_description' => 'تم توصيل طردك.',
-        'failed' => 'فشل التوصيل',
-        'failed_description' => 'فشلت محاولة التوصيل.',
-        'returned' => 'تم إرجاع الطرد',
-        'returned_description' => 'تم إرجاع طردك.',
-    ],
-
-    // Inventory Events
+    // Shipment Events (merged: fulfillment-pipeline statuses + courier statuses).
+    // NOTE: this key must stay unique in this file — a duplicate 'shipment'
+    // block would silently overwrite these entries (PHP array semantics) and
+    // surface raw keys like tracking.shipment.created to customers.
     'inventory' => [
         'reserved' => 'تم حجز المخزون',
         'reserved_description' => 'تم حجز المنتجات لطلبك.',
@@ -84,6 +69,8 @@ return [
 
     // Shipment Events
     'shipment' => [
+        'created' => 'تم إنشاء الشحنة',
+        'created_description' => 'تم إنشاء الشحنة برقم تتبع :tracking_number.',
         'pending' => 'في انتظار الشحن',
         'pending_description' => 'جاري تجهيز شحنتك.',
         'label_created' => 'تم إنشاء ملصق الشحن',
@@ -96,6 +83,8 @@ return [
         'out_for_delivery_description' => 'طردك خارج للتوصيل اليوم.',
         'delivered' => 'تم التوصيل',
         'delivered_description' => 'تم توصيل طردك بنجاح.',
+        'failed' => 'فشل التوصيل',
+        'failed_description' => 'فشلت محاولة التوصيل.',
         'failed_delivery' => 'فشل التوصيل',
         'failed_delivery_description' => 'فشلت محاولة التوصيل. سيحاول :courier_name مجدداً.',
         'returned' => 'تم الإرجاع',
@@ -166,5 +155,20 @@ return [
             'medium' => 'تقديري',
             'low' => 'تقريبي',
         ],
+    ],
+
+    // Customer-facing payment-verification helper (OrderTrackingController).
+    'verification' => [
+        'in_progress' => 'جاري التحقق من الدفع. يتم ذلك عادة خلال دقائق.',
+        'delayed' => 'التحقق من الدفع يستغرق وقتًا أطول من المعتاد. طلبك قيد المعالجة.',
+        'requires_attention' => 'التحقق من الدفع معلق. يرجى التواصل مع الدعم إذا أتممت الدفع.',
+    ],
+
+    // Customer-facing delivery estimate helper (OrderTrackingController).
+    // Dates stay ISO/locale-neutral; only the sentence is translated.
+    'delivery' => [
+        'delivered' => 'تم توصيل الطلب.',
+        'overdue' => 'التوصيل متأخر. يرجى التواصل مع الدعم.',
+        'estimated_on' => 'التوصيل المتوقع بتاريخ :date.',
     ],
 ];

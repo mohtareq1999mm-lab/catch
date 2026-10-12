@@ -237,9 +237,51 @@ class ProductController extends CoreController
 
     public function store(ProductCreateRequest $request)
     {
+        // Optional initial placement: fail fast with 422/403 BEFORE any
+        // write (the repository re-validates under lock inside its
+        // transaction, so a concurrent location change still fails closed).
+        if ($request->filled('location_id')) {
+            $placementError = $this->validateInitialPlacement($request);
+            if ($placementError !== null) {
+                return $placementError;
+            }
+        }
+
         $product = $this->ProductStore($request);
         $this->flushTag(FrontendResource::PRODUCTS->value);
         return $this->apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, ProductResource::make($product));
+    }
+
+    /**
+     * Read-only pre-check for the optional initial WMS placement.
+     * Returns a 422/403 JsonResponse on refusal, null when allowed.
+     */
+    private function validateInitialPlacement(ProductCreateRequest $request): ?JsonResponse
+    {
+        try {
+            $service = app(\App\Services\Inventory\StockOperationService::class);
+            [, $warehouseId] = $service->resolvePlaceableLocation(
+                (int) $request->input('location_id'),
+                $request->filled('warehouse_id') ? (int) $request->input('warehouse_id') : null
+            );
+            $service->authorizeStockOperation($request->user(), $warehouseId);
+
+            if (!empty($request->input('variants', []))) {
+                throw new \InvalidArgumentException(
+                    'Initial placement is not supported for variable products: receive variant stock separately.'
+                );
+            }
+
+            if (($request->input('item_type') ?? \Marvel\Enums\ItemType::PHYSICAL) === \Marvel\Enums\ItemType::DIGITAL) {
+                throw new \InvalidArgumentException('Digital products hold no physical stock.');
+            }
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (\InvalidArgumentException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
+
+        return null;
     }
 
 

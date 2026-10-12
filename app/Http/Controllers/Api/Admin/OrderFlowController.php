@@ -45,7 +45,7 @@ class OrderFlowController extends Controller
 
         $flows = $query->orderBy('id')->paginate($this->perPage($request));
 
-        return $this->apiResponse('Order flows retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.FLOWS_RETRIEVED'), 200, true, [
             'data' => OrderFlowResource::collection($flows->items()),
             'meta' => [
                 'current_page' => $flows->currentPage(),
@@ -62,7 +62,7 @@ class OrderFlowController extends Controller
         $payload = (new OrderFlowResource($flow))->toArray(request());
         $payload['inputs'] = \App\Http\Resources\FlowInputResource::collection($flow->inputs)->toArray(request());
 
-        return $this->apiResponse('Order flow retrieved successfully.', 200, true, $payload);
+        return $this->apiResponse(__('message.MESSAGE.FLOW_RETRIEVED'), 200, true, $payload);
     }
 
     public function store(OrderFlowUpsertRequest $request): JsonResponse
@@ -70,7 +70,7 @@ class OrderFlowController extends Controller
         $data = $request->validated();
 
         if (!isset($data['code'], $data['name'], $data['shipping_type'], $data['status_ids'])) {
-            return $this->apiResponse('code, name, shipping_type and status_ids are required.', 422, false);
+            return $this->apiResponse(__('message.ERROR.FLOW_FIELDS_REQUIRED'), 422, false);
         }
 
         try {
@@ -97,7 +97,7 @@ class OrderFlowController extends Controller
             return $this->apiResponse($e->getMessage(), 422, false);
         }
 
-        return $this->apiResponse('Order flow created successfully.', 201, true,
+        return $this->apiResponse(__('message.MESSAGE.FLOW_CREATED'), 201, true,
             (new OrderFlowResource($flow))->toArray(request()));
     }
 
@@ -115,13 +115,12 @@ class OrderFlowController extends Controller
             }
         }
 
-        // shipping_type is the flow identity and is unique per flow (see
-        // OrderFlowUpsertRequest): it can never be changed to another value.
-        // The explicit check stays even though validation would usually
-        // reject first — it documents intent for future types (sea/air).
-        if (isset($data['shipping_type']) && $data['shipping_type'] !== $flow->shipping_type) {
-            return $this->apiResponse('shipping_type cannot be changed. Create a new flow instead.', 422, false);
-        }
+        // Multi-flow (2026_10_12): shipping_type is a SHARED controlled
+        // category, not the flow identity (identity is `code`). Changing it
+        // to another SUPPORTED type (validated in OrderFlowUpsertRequest) is
+        // allowed: existing orders stay bound to their stored flow_id and are
+        // never rewritten, so the change only affects future selections.
+        // No explicit check here — validation owns the allow-list.
 
         // Flow deactivation guardrail: never allow deactivating the LAST
         // active flow for a shipping_type — otherwise new orders for that
@@ -150,7 +149,7 @@ class OrderFlowController extends Controller
                     }
                 }
 
-                $flow->update(array_intersect_key($data, array_flip(['code', 'name', 'is_default', 'is_active'])));
+                $flow->update(array_intersect_key($data, array_flip(['code', 'name', 'shipping_type', 'is_default', 'is_active'])));
                 if (isset($statuses)) {
                     $this->syncStatuses($flow, $statuses);
                 }
@@ -162,7 +161,7 @@ class OrderFlowController extends Controller
             return $this->apiResponse($e->getMessage(), 422, false);
         }
 
-        return $this->apiResponse('Order flow updated successfully.', 200, true,
+        return $this->apiResponse(__('message.MESSAGE.FLOW_UPDATED'), 200, true,
             (new OrderFlowResource($flow))->toArray(request()));
     }
 
@@ -221,11 +220,13 @@ class OrderFlowController extends Controller
     /**
      * Exactly one active default per shipping_type. The most recently saved
      * default wins; the previous default is demoted (never deleted).
+     * Type-only checkout resolves this default, so multi-flow types keep a
+     * deterministic selection while explicit flow_code selection bypasses it.
      *
      * Known limitation: concurrent writers can both read-then-write
-     * is_default=true. Admin-only, low-frequency surface; the shipping_type
-     * UNIQUE key still guarantees a single flow per type, so order routing
-     * (which keys on shipping_type, not is_default) is unaffected.
+     * is_default=true. Admin-only, low-frequency surface; ambiguous
+     * type-only resolution then fails closed (flow_ambiguous) instead of
+     * routing arbitrarily, so order routing stays safe.
      */
     private function enforceSingleDefault(OrderFlow $flow): void
     {

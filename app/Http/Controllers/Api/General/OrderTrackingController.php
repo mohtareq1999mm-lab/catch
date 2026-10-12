@@ -36,7 +36,7 @@ class OrderTrackingController extends Controller
         $order = $query->with(['orderItems'])->first();
 
         if (!$order) {
-            return $this->apiResponse('Order not found. Please check your order number and contact details.', 404, false);
+            return $this->apiResponse(__('message.ERROR.TRACKING_ORDER_NOT_FOUND'), 404, false);
         }
 
         try {
@@ -44,7 +44,7 @@ class OrderTrackingController extends Controller
             \App\Services\Metrics\OrderTrackingMetrics::incrementTrackingAccess('customer_public');
         } catch (\Throwable $e) {}
 
-        return $this->apiResponse('Order tracking retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.TRACKING_RETRIEVED_SUCCESSFULLY'), 200, true, [
             'order' => $this->formatOrderForTracking($order),
             'timeline' => $this->publicTimeline($order),
             'current_status' => $this->getCurrentStatusInfo($order),
@@ -64,7 +64,7 @@ class OrderTrackingController extends Controller
             ->first();
 
         if (!$order) {
-            return $this->apiResponse('Order not found.', 404, false);
+            return $this->apiResponse(__('message.ERROR.ORDER_NOT_FOUND'), 404, false);
         }
 
         try {
@@ -72,7 +72,7 @@ class OrderTrackingController extends Controller
             \App\Services\Metrics\OrderTrackingMetrics::incrementTrackingAccess('customer_auth');
         } catch (\Throwable $e) {}
 
-        return $this->apiResponse('Order tracking retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.TRACKING_RETRIEVED_SUCCESSFULLY'), 200, true, [
             'order' => $this->formatOrderForTracking($order),
             'timeline' => $this->timeline($order),
             'current_status' => $this->getCurrentStatusInfo($order),
@@ -117,7 +117,7 @@ class OrderTrackingController extends Controller
 
         $orders->setCollection($data);
 
-        return $this->apiResponse('Orders retrieved successfully.', 200, true, $orders);
+        return $this->apiResponse(__('message.MESSAGE.ORDERS_RETRIEVED_SUCCESSFULLY'), 200, true, $orders);
     }
 
     // Helper methods
@@ -313,13 +313,13 @@ class OrderTrackingController extends Controller
             $minutesSinceCreation = now()->diffInMinutes($order->created_at);
 
             if ($minutesSinceCreation < 30) {
-                $statusInfo['verification_message'] = 'Payment verification in progress. This usually completes within a few minutes.';
+                $statusInfo['verification_message'] = __('tracking.verification.in_progress');
                 $statusInfo['verification_status'] = 'in_progress';
             } elseif ($minutesSinceCreation < 120) {
-                $statusInfo['verification_message'] = 'Payment verification is taking longer than usual. Your order is being processed.';
+                $statusInfo['verification_message'] = __('tracking.verification.delayed');
                 $statusInfo['verification_status'] = 'delayed';
             } else {
-                $statusInfo['verification_message'] = 'Payment verification is pending. Please contact support if you completed payment.';
+                $statusInfo['verification_message'] = __('tracking.verification.requires_attention');
                 $statusInfo['verification_status'] = 'requires_attention';
                 $statusInfo['support_action'] = 'contact_support';
             }
@@ -333,7 +333,7 @@ class OrderTrackingController extends Controller
         if ($order->status === Order::ORDER_STATUS_DELIVERED) {
             return [
                 'delivered_at' => $order->completed_at?->toIso8601String(),
-                'message' => 'Order has been delivered',
+                'message' => __('tracking.delivery.delivered'),
             ];
         }
 
@@ -351,14 +351,134 @@ class OrderTrackingController extends Controller
 
         $daysRemaining = (int) max(0, now()->diffInDays($estimatedDate, false));
 
+        // Dates stay locale-neutral (ISO + Y-m-d); only the sentence is
+        // translated. The previous English-only diffForHumans() relative
+        // string is intentionally replaced (see endpoint audit D4).
         return [
             'estimated_date' => $estimatedDate->toIso8601String(),
-            'estimated_date_formatted' => $estimatedDate->format('l, F j, Y'),
+            'estimated_date_formatted' => $estimatedDate->format('Y-m-d'),
             'days_remaining' => $daysRemaining,
             'message' => $estimatedDate->isPast()
-                ? 'Delivery is overdue. Please contact support.'
-                : "Estimated delivery in {$estimatedDate->diffForHumans()}",
+                ? __('tracking.delivery.overdue')
+                : __('tracking.delivery.estimated_on', ['date' => $estimatedDate->format('Y-m-d')]),
         ];
+    }
+
+    /**
+     * Customer-facing status summary for the tracking widget.
+     *
+     * These helpers were missing (undefined-method fatal on every
+     * successful tracking response). Labels/descriptions resolve through
+     * the existing tracking.* catalogue; icons/colors/percentages are
+     * stable presentational codes (not translated text).
+     */
+    private function getStatusLabel(string $status): string
+    {
+        return match ($status) {
+            Order::ORDER_STATUS_PENDING => __('tracking.order.created'),
+            Order::ORDER_STATUS_PROCESSING => __('tracking.order.processing'),
+            Order::ORDER_STATUS_COMPLETED => __('tracking.order.completed'),
+            Order::ORDER_STATUS_CANCELLED => __('tracking.order.cancelled'),
+            Order::ORDER_STATUS_DELIVERED => __('tracking.fulfillment.delivered'),
+            // Unknown future statuses stay machine-stable (never English prose).
+            default => $status,
+        };
+    }
+
+    private function getStatusDescription(Order $order): string
+    {
+        if ($order->status === Order::ORDER_STATUS_CANCELLED) {
+            return __('tracking.order.cancelled_description', [
+                'cancellation_reason' => $this->cancellationReasonLabel($order->getAttribute('cancellation_reason')),
+            ]);
+        }
+
+        if ($order->status === Order::ORDER_STATUS_DELIVERED) {
+            return __('tracking.fulfillment.delivered_description');
+        }
+
+        if ($order->status === Order::ORDER_STATUS_COMPLETED) {
+            return __('tracking.order.completed_description');
+        }
+
+        if ($order->payment_status === Order::PAYMENT_STATUS_FAILED) {
+            return __('tracking.payment.failed');
+        }
+
+        if ($order->payment_status === Order::PAYMENT_STATUS_SUCCESS) {
+            return __('tracking.payment.succeeded_description', [
+                'amount' => (string) round((float) $order->total_price, 2),
+                'method' => $this->paymentMethodLabel($order->payment_method),
+            ]);
+        }
+
+        if ($order->payment_status === Order::PAYMENT_STATUS_PENDING) {
+            return __('tracking.payment.pending_description');
+        }
+
+        return __('tracking.order.processing_description');
+    }
+
+    private function paymentMethodLabel(?string $method): string
+    {
+        return match ($method) {
+            'online' => __('checkout.payment_method_online'),
+            'cod' => __('checkout.payment_method_cod'),
+            'pay_at_cashier' => __('checkout.payment_method_pay_at_cashier'),
+            // Unknown future methods stay machine-stable (never English prose).
+            default => (string) $method,
+        };
+    }
+
+    /**
+     * Stored cancellation codes (payment_failed, customer_request, …) are
+     * stable identifiers; render their translated label, never the raw code.
+     */
+    private function cancellationReasonLabel(mixed $reason): string
+    {
+        if (is_string($reason) && $reason !== '' && \Illuminate\Support\Facades\Lang::has('tracking.cancellation_reasons.'.$reason)) {
+            return __('tracking.cancellation_reasons.'.$reason);
+        }
+
+        return $reason !== null && $reason !== ''
+            ? (string) $reason
+            : __('tracking.cancellation_reasons.unknown');
+    }
+
+    private function getStatusIcon(string $status): string
+    {
+        return match ($status) {
+            Order::ORDER_STATUS_PENDING => 'clock',
+            Order::ORDER_STATUS_PROCESSING => 'package',
+            Order::ORDER_STATUS_COMPLETED => 'check-circle',
+            Order::ORDER_STATUS_CANCELLED => 'x-circle',
+            Order::ORDER_STATUS_DELIVERED => 'truck',
+            default => 'circle',
+        };
+    }
+
+    private function getStatusColor(string $status): string
+    {
+        return match ($status) {
+            Order::ORDER_STATUS_PENDING => '#f59e0b',
+            Order::ORDER_STATUS_PROCESSING => '#3b82f6',
+            Order::ORDER_STATUS_COMPLETED => '#10b981',
+            Order::ORDER_STATUS_CANCELLED => '#ef4444',
+            Order::ORDER_STATUS_DELIVERED => '#059669',
+            default => '#6b7280',
+        };
+    }
+
+    private function getProgressPercentage(Order $order): int
+    {
+        return match ($order->status) {
+            Order::ORDER_STATUS_PENDING => 10,
+            Order::ORDER_STATUS_PROCESSING => 40,
+            Order::ORDER_STATUS_COMPLETED => 90,
+            Order::ORDER_STATUS_DELIVERED => 100,
+            Order::ORDER_STATUS_CANCELLED => 0,
+            default => 0,
+        };
     }
 
     private function canCancel(Order $order): bool

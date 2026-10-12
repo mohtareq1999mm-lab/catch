@@ -100,28 +100,35 @@ class Handler extends ExceptionHandler
     private function handleJsonResponse($request, Throwable $exception)
     {
         $statusCode = 500;
-        $message = 'Internal Server Error';
+        $message = __('message.ERROR.INTERNAL');
         $errors = [];
 
         // Handle ModelNotFoundException
         if ($exception instanceof ModelNotFoundException) {
             $statusCode = 404;
-            $message = 'Resource Not Found';
+            $message = __('message.ERROR.RESOURCE_NOT_FOUND');
         }
         // Handle NotFoundHttpException
         elseif ($exception instanceof NotFoundHttpException) {
             $statusCode = 404;
-            $message = $exception->getMessage() ?: 'Not Found';
+            // Framework default route messages ("The route … could not be
+            // found.") echo the caller's own path — safe passthrough.
+            // Known English literals (e.g. WMS anti-enumeration
+            // 'Resource Not Found') are mapped to the catalogue instead.
+            $rawNotFound = $exception->getMessage();
+            $message = $rawNotFound === ''
+                ? __('message.ERROR.HTTP_NOT_FOUND')
+                : $this->translateHttpMessage($rawNotFound);
         }
         // Handle MethodNotAllowedHttpException
         elseif ($exception instanceof MethodNotAllowedHttpException) {
             $statusCode = 405;
-            $message = 'Method Not Allowed';
+            $message = __('message.ERROR.METHOD_NOT_ALLOWED');
         }
         // Handle invalid/expired/missing signed-URL signatures (customer view/download)
         elseif ($exception instanceof InvalidSignatureException) {
             $statusCode = 403;
-            $message = 'Invalid signature';
+            $message = __('message.ERROR.INVALID_SIGNATURE');
         }
         // Handle Spatie permission exceptions
         elseif ($exception instanceof SpatieUnauthorizedException) {
@@ -160,28 +167,34 @@ class Handler extends ExceptionHandler
         // Handle AuthenticationException (unauthenticated)
         elseif ($exception instanceof AuthenticationException) {
             $statusCode = 401;
-            $message = 'Unauthenticated';
+            $message = __('message.ERROR.UNAUTHENTICATED');
         }
         // Handle AuthorizationException
         elseif ($exception instanceof AuthorizationException) {
             $statusCode = 403;
-            $message =  'This action is unauthorized';
+            $message = __('message.ERROR.UNAUTHORIZED_ACTION');
         }
         // Handle ValidationException
         elseif ($exception instanceof ValidationException) {
             $statusCode = 422;
-            $message = $exception->getMessage();
+            // The framework's default top message echoes the first field
+            // error plus an untranslatable "(and N more errors)" suffix
+            // (JSON translation source, no catalogue). The API contract
+            // uses a single localized sentence on top; field details stay
+            // in `errors` untouched.
+            $message = __('message.ERROR.INVALID_DATA');
             $errors = $exception->validator->errors()->toArray();
         }
         // Handle HttpException (includes various HTTP status codes)
         elseif ($exception instanceof HttpException) {
             $statusCode = $exception->getStatusCode();
-            $message = $exception->getMessage() ?: 'HTTP Exception';
+            $message = $this->translateHttpMessage($exception->getMessage());
         }
         // Handle QueryException (SQL errors)
         elseif ($exception instanceof QueryException) {
             $statusCode = 409;
-            $message = 'Database error occurred. Please check your request and try again.';
+            // Never expose SQL internals; single localized sentence.
+            $message = __('message.ERROR.DATABASE_ERROR');
         }
         // Handle MarvelException
         elseif ($exception instanceof MarvelException) {
@@ -198,7 +211,9 @@ class Handler extends ExceptionHandler
         // Handle other exceptions
         else {
             $statusCode = 500;
-            $message = config('app.debug') ? $exception->getMessage() : 'Internal Server Error';
+            // Debug mode intentionally surfaces the raw message for
+            // developers; production always returns the localized generic.
+            $message = config('app.debug') ? $exception->getMessage() : __('message.ERROR.INTERNAL');
         }
 
         $responseData = [
@@ -228,7 +243,42 @@ class Handler extends ExceptionHandler
             $translated = __($key, $replace);
         }
 
+        // Fail closed: never surface a raw translation key (e.g.
+        // "ERROR.SOMETHING_WENT_WRONG") as the user-facing message.
+        if ($translated === $normalizedKey || $translated === $key) {
+            return __('message.ERROR.SOMETHING_WENT_WRONG', $replace);
+        }
+
         return $translated;
+    }
+
+    /**
+     * Localize framework abort()/HTTP messages while preserving custom
+     * (already translated at their origin) messages verbatim.
+     */
+    private function translateHttpMessage(string $rawMessage): string
+    {
+        if ($rawMessage === '') {
+            return __('message.ERROR.HTTP_EXCEPTION');
+        }
+
+        if ($rawMessage === 'Unauthenticated.' || $rawMessage === 'Unauthenticated') {
+            return __('message.ERROR.UNAUTHENTICATED');
+        }
+
+        if ($rawMessage === 'Resource Not Found') {
+            return __('message.ERROR.RESOURCE_NOT_FOUND');
+        }
+
+        $permissionPrefix = 'Forbidden. Missing required permission: ';
+
+        if (str_starts_with($rawMessage, $permissionPrefix)) {
+            return __('message.ERROR.FORBIDDEN_PERMISSION', [
+                'permission' => substr($rawMessage, strlen($permissionPrefix)),
+            ]);
+        }
+
+        return $rawMessage;
     }
 
     private function stripNoticeDomain(string $key): string
@@ -320,7 +370,8 @@ class Handler extends ExceptionHandler
             ]);
         }
 
-        return $message;
+        // Unparseable permission internals must never leak as English text.
+        return __('message.ERROR.SOMETHING_WENT_WRONG');
     }
 
     private function messageForRoleDoesNotExist(RoleDoesNotExist $exception): string
@@ -341,7 +392,8 @@ class Handler extends ExceptionHandler
             ]);
         }
 
-        return $message;
+        // Unparseable permission internals must never leak as English text.
+        return __('message.ERROR.SOMETHING_WENT_WRONG');
     }
 
     private function messageForPermissionAlreadyExists(PermissionAlreadyExists $exception): string
@@ -355,7 +407,8 @@ class Handler extends ExceptionHandler
             ]);
         }
 
-        return $message;
+        // Unparseable permission internals must never leak as English text.
+        return __('message.ERROR.SOMETHING_WENT_WRONG');
     }
 
     private function messageForRoleAlreadyExists(RoleAlreadyExists $exception): string
@@ -369,7 +422,8 @@ class Handler extends ExceptionHandler
             ]);
         }
 
-        return $message;
+        // Unparseable permission internals must never leak as English text.
+        return __('message.ERROR.SOMETHING_WENT_WRONG');
     }
 
     private function messageForGuardDoesNotMatch(GuardDoesNotMatch $exception): string
@@ -383,7 +437,8 @@ class Handler extends ExceptionHandler
             ]);
         }
 
-        return $message;
+        // Unparseable permission internals must never leak as English text.
+        return __('message.ERROR.SOMETHING_WENT_WRONG');
     }
 
     private function messageForWildcardPermissionNotProperlyFormatted(
@@ -397,6 +452,7 @@ class Handler extends ExceptionHandler
             ]);
         }
 
-        return $message;
+        // Unparseable permission internals must never leak as English text.
+        return __('message.ERROR.SOMETHING_WENT_WRONG');
     }
 }

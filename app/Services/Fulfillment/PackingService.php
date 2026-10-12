@@ -38,7 +38,7 @@ class PackingService
 
             if (!in_array($locked->status, ['picked', 'packing'], true)) {
                 throw new \Exception(
-                    "Cannot create packing task from fulfillment in status: {$locked->status}"
+                    __('wms.packing.create_status', ['status' => $locked->status])
                 );
             }
 
@@ -48,8 +48,10 @@ class PackingService
                 ->exists();
 
             if ($openExists) {
-                throw new \RuntimeException(
-                    "Fulfillment #{$locked->id} already has an open packing task"
+                // At-most-one-open-task contention → HTTP 409 at the adapter
+                // via WmsConflictException (type, never text).
+                throw new \App\Exceptions\WmsConflictException(
+                    __('wms.packing.open_exists', ['id' => $locked->id])
                 );
             }
 
@@ -87,25 +89,26 @@ class PackingService
 
             if (!in_array($locked->status, ['pending', 'assigned'], true)) {
                 throw new \RuntimeException(
-                    "Cannot assign packing task in status: {$locked->status}"
+                    __('wms.packing.assign_status', ['status' => $locked->status])
                 );
             }
 
             if ($locked->assigned_to !== null && (int) $locked->assigned_to !== $userId) {
-                throw new \RuntimeException(
-                    "Packing task #{$locked->id} is already assigned to user {$locked->assigned_to}"
+                // First-winner contention → HTTP 409 at the adapter.
+                throw new \App\Exceptions\WmsConflictException(
+                    __('wms.packing.already_assigned', ['id' => $locked->id, 'user' => $locked->assigned_to])
                 );
             }
 
             $station = PackingStation::whereKey($stationId)->lockForUpdate()->firstOrFail();
 
             if ($station->status !== 'active') {
-                throw new \RuntimeException('Packing station is not active');
+                throw new \RuntimeException(__('wms.packing.station_inactive'));
             }
 
             if ((int) $station->warehouse_id !== (int) $fulfillment->warehouse_id) {
                 throw new \RuntimeException(
-                    "Packing station #{$station->id} belongs to a different warehouse than fulfillment #{$fulfillment->id}"
+                    __('wms.packing.station_warehouse', ['station' => $station->id, 'fulfillment' => $fulfillment->id])
                 );
             }
 
@@ -138,7 +141,7 @@ class PackingService
 
             if ($locked->status !== 'assigned') {
                 throw new \RuntimeException(
-                    "Cannot start packing task in status: {$locked->status}"
+                    __('wms.packing.start_status', ['status' => $locked->status])
                 );
             }
 
@@ -147,7 +150,7 @@ class PackingService
 
                 if ($station === null || $station->status !== 'active') {
                     throw new \RuntimeException(
-                        "Cannot start packing task #{$locked->id}: packing station is no longer active"
+                        __('wms.packing.start_station_inactive', ['id' => $locked->id])
                     );
                 }
             }
@@ -184,7 +187,7 @@ class PackingService
 
             if ($locked->status !== 'packing') {
                 throw new \RuntimeException(
-                    "Cannot complete packing task in status: {$locked->status}"
+                    __('wms.packing.complete_status', ['status' => $locked->status])
                 );
             }
 
@@ -224,7 +227,7 @@ class PackingService
 
             if ($locked->status !== 'packed') {
                 throw new \RuntimeException(
-                    "Cannot verify packing task in status: {$locked->status}"
+                    __('wms.packing.verify_status', ['status' => $locked->status])
                 );
             }
 
@@ -238,7 +241,7 @@ class PackingService
 
             if ($siblingOpen) {
                 throw new \RuntimeException(
-                    "Cannot verify packing task #{$locked->id}: fulfillment #{$fulfillment->id} has another open packing task"
+                    __('wms.packing.verify_open_sibling', ['task' => $locked->id, 'fulfillment' => $fulfillment->id])
                 );
             }
 
@@ -289,7 +292,7 @@ class PackingService
 
             if (abs($packed - $picked) > 0.000001) {
                 throw new \RuntimeException(
-                    "Cannot verify packing: fulfillment item #{$item->id} picked {$picked}, packed {$packed}"
+                    __('wms.packing.verify_quantities', ['item' => $item->id, 'picked' => $picked, 'packed' => $packed])
                 );
             }
         }
@@ -303,7 +306,7 @@ class PackingService
     public function createShipment(PackingTask $task, array $shipmentData): Shipment
     {
         if ($task->status !== 'verified') {
-            throw new \Exception('Cannot create shipment from unverified packing task');
+            throw new \Exception(__('wms.packing.shipment_unverified'));
         }
 
         return DB::transaction(function () use ($task, $shipmentData) {
@@ -352,7 +355,7 @@ class PackingService
     public function cancelTask(PackingTask $task, ?string $reason): PackingTask
     {
         if ($reason === null || trim($reason) === '') {
-            throw new \InvalidArgumentException('Cancellation reason is required');
+            throw new \InvalidArgumentException(__('wms.batch.cancel_reason'));
         }
 
         return DB::transaction(function () use ($task, $reason) {
@@ -360,7 +363,7 @@ class PackingService
 
             if (in_array($locked->status, ['packed', 'verified', 'cancelled'], true)) {
                 throw new \RuntimeException(
-                    "Cannot cancel packing task in status: {$locked->status}"
+                    __('wms.packing.cancel_status', ['status' => $locked->status])
                 );
             }
 
@@ -447,7 +450,7 @@ class PackingService
 
             if (!in_array($locked->status, ['packing', 'picked'], true)) {
                 throw new \Exception(
-                    "Cannot create package for fulfillment in status: {$locked->status}"
+                    __('wms.packing.create_package_status', ['status' => $locked->status])
                 );
             }
 
@@ -457,8 +460,9 @@ class PackingService
                 ->exists();
 
             if ($activeExists) {
-                throw new \RuntimeException(
-                    "Fulfillment #{$locked->id} already has an active package (one package per fulfillment)"
+                // One-active-package contention → HTTP 409 at the adapter.
+                throw new \App\Exceptions\WmsConflictException(
+                    __('wms.packing.active_package', ['id' => $locked->id])
                 );
             }
 
@@ -467,7 +471,7 @@ class PackingService
 
                 if ((int) $linked->fulfillment_id !== (int) $locked->id) {
                     throw new \RuntimeException(
-                        "Packing task #{$packingTaskId} belongs to a different fulfillment than #{$locked->id}"
+                        __('wms.packing.task_fulfillment_mismatch', ['task' => $packingTaskId, 'fulfillment' => $locked->id])
                     );
                 }
             }
@@ -505,7 +509,7 @@ class PackingService
             $lockedPackage = Package::whereKey($package->id)->lockForUpdate()->firstOrFail();
 
             if ($lockedPackage->status !== Package::STATUS_OPEN) {
-                throw new \Exception("Cannot modify package in status: {$lockedPackage->status}");
+                throw new \Exception(__('wms.packing.package_status', ['status' => $lockedPackage->status]));
             }
 
             // P6-6B: cancelled fulfillments cannot accrue package quantity.
@@ -518,17 +522,17 @@ class PackingService
 
             if ($fulfillmentStatus === 'cancelled') {
                 throw new \RuntimeException(
-                    "Cannot pack items for cancelled fulfillment #{$lockedPackage->fulfillment_id}"
+                    __('wms.packing.pack_cancelled', ['fulfillment' => $lockedPackage->fulfillment_id])
                 );
             }
 
             $item = FulfillmentItem::whereKey($fulfillmentItemId)->lockForUpdate()->firstOrFail();
 
             if ((int) $item->fulfillment_id !== (int) $lockedPackage->fulfillment_id) {
-                throw new \Exception('Package item belongs to a different fulfillment');
+                throw new \Exception(__('wms.packing.package_foreign_item'));
             }
             if ($quantity <= 0) {
-                throw new \Exception('Package quantity must be greater than zero');
+                throw new \Exception(__('wms.packing.package_qty_positive'));
             }
 
             $alreadyPacked = PackageItem::where('fulfillment_item_id', $item->id)
@@ -537,11 +541,11 @@ class PackingService
             $picked = (float) $item->quantity_picked;
 
             if ($picked <= 0) {
-                throw new \Exception('Cannot pack unpicked quantity');
+                throw new \Exception(__('wms.packing.pack_unpicked'));
             }
             if ((float) $alreadyPacked + $quantity > $picked) {
                 throw new \Exception(
-                    "Over-pack rejected: picked {$picked}, already packed {$alreadyPacked}, requested {$quantity}"
+                    __('wms.packing.overpack', ['picked' => $picked, 'packed' => $alreadyPacked, 'quantity' => $quantity])
                 );
             }
 
@@ -577,10 +581,10 @@ class PackingService
             $locked = Package::whereKey($package->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->status !== Package::STATUS_OPEN) {
-                throw new \Exception("Cannot seal package in status: {$locked->status}");
+                throw new \Exception(__('wms.packing.seal_status', ['status' => $locked->status]));
             }
             if ($locked->items()->count() === 0) {
-                throw new \Exception('Cannot seal an empty package');
+                throw new \Exception(__('wms.packing.seal_empty'));
             }
 
             $locked->update([
@@ -608,19 +612,19 @@ class PackingService
     public function voidPackage(Package $package, ?string $reason): Package
     {
         if ($reason === null || trim($reason) === '') {
-            throw new \InvalidArgumentException('Void reason is required');
+            throw new \InvalidArgumentException(__('wms.packing.void_reason'));
         }
 
         return DB::transaction(function () use ($package, $reason) {
             $locked = Package::whereKey($package->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->status === Package::STATUS_VOIDED) {
-                throw new \RuntimeException("Package #{$locked->id} is already voided");
+                throw new \RuntimeException(__('wms.packing.package_voided', ['id' => $locked->id]));
             }
 
             if ($locked->status !== Package::STATUS_OPEN) {
                 throw new \RuntimeException(
-                    "Cannot void package in status: {$locked->status} (only open packages may be voided)"
+                    __('wms.packing.void_status', ['status' => $locked->status])
                 );
             }
 

@@ -82,7 +82,13 @@ class FlowInputSeeder extends Seeder
         }
 
         foreach (self::seedDefinitions() as $shippingType => $inputs) {
-            $flow = OrderFlow::query()->where('shipping_type', $shippingType)->first();
+            // Multi-flow deterministic target: the seeded `international` code
+            // flow first (fallback: active default for the type, then first).
+            // Keyed by code so a second international flow never steals seeds.
+            $flow = OrderFlow::query()->where('code', $shippingType)->first()
+                ?? OrderFlow::query()->where('shipping_type', $shippingType)
+                    ->where('is_active', true)->orderByDesc('is_default')->orderBy('id')->first()
+                ?? OrderFlow::query()->where('shipping_type', $shippingType)->first();
 
             if (!$flow) {
                 continue;

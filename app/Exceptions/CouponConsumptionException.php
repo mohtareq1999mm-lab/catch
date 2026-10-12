@@ -26,6 +26,8 @@ class CouponConsumptionException extends \RuntimeException
         public readonly array $context = [],
         ?\Throwable $previous = null,
     ) {
-        parent::__construct($message !== '' ? $message : "Coupon consumption failed: {$reason}", 0, $previous);
+        // Fail closed and localized: the reason code stays machine-stable,
+        // the human sentence always resolves through the coupon catalogue.
+        parent::__construct($message !== '' ? $message : __('coupon.not_eligible'), 0, $previous);
     }
 }

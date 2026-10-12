@@ -81,7 +81,7 @@ class PackingController extends WmsAdminController
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(
-            'Packing tasks fetched successfully.',
+            __('wms.packing.tasks_fetched'),
             200,
             true,
             PackingTaskResource::collection($query->paginate($perPage))
@@ -99,7 +99,7 @@ class PackingController extends WmsAdminController
         $task->loadMissing(['packingStation:id,code,name,warehouse_id']);
 
         return $this->apiResponse(
-            'Packing task fetched successfully.',
+            __('wms.packing.task_fetched'),
             200,
             true,
             PackingTaskDetailResource::make($task)
@@ -116,18 +116,18 @@ class PackingController extends WmsAdminController
 
         try {
             $task = $this->packing->createPackingTaskFromFulfillment($fulfillment);
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            // At-most-one-open-task contention → 409 (typed, locale-proof).
+            $this->conflict($e->getMessage());
         } catch (\RuntimeException $e) {
-            // At-most-one-open-task guard → 409; wrong-status stays 422.
-            if (str_contains($e->getMessage(), 'already has an open packing task')) {
-                $this->conflict($e->getMessage());
-            }
+            // Wrong-status and other refusals stay 422.
             $this->unprocessable($e->getMessage());
         } catch (\Exception $e) {
             $this->unprocessable($e->getMessage());
         }
 
         return $this->apiResponse(
-            'Packing task created successfully.',
+            __('wms.packing.created'),
             201,
             true,
             PackingTaskDetailResource::make($task->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
@@ -151,15 +151,15 @@ class PackingController extends WmsAdminController
                 (int) $request->validated('station_id'),
                 $this->actorId()
             );
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            // First-winner contention → 409 (typed, locale-proof).
+            $this->conflict($e->getMessage());
         } catch (\RuntimeException $e) {
-            if (str_contains($e->getMessage(), 'already assigned to user')) {
-                $this->conflict($e->getMessage());
-            }
             $this->unprocessable($e->getMessage());
         }
 
         return $this->apiResponse(
-            'Packing task assigned successfully.',
+            __('wms.packing.assigned'),
             200,
             true,
             PackingTaskDetailResource::make($assigned->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
@@ -181,7 +181,7 @@ class PackingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Packing started successfully.',
+            __('wms.packing.started'),
             200,
             true,
             PackingTaskDetailResource::make($started->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
@@ -213,7 +213,7 @@ class PackingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Packing completed successfully.',
+            __('wms.packing.completed'),
             200,
             true,
             PackingTaskDetailResource::make($packed->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
@@ -239,7 +239,7 @@ class PackingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Packing verified successfully.',
+            __('wms.packing.verified'),
             200,
             true,
             PackingTaskDetailResource::make($verified->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
@@ -266,7 +266,7 @@ class PackingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Packing task cancelled successfully.',
+            __('wms.packing.cancelled'),
             200,
             true,
             PackingTaskDetailResource::make($cancelled->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
@@ -305,7 +305,7 @@ class PackingController extends WmsAdminController
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(
-            'Packing stations fetched successfully.',
+            __('wms.packing.stations'),
             200,
             true,
             PackingStationResource::collection($query->paginate($perPage))

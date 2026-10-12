@@ -37,7 +37,7 @@ class OrderStatusCatalogController extends Controller
 
         $statuses = $query->orderBy('id')->paginate(max(1, min(200, (int) $request->get('per_page', 50))));
 
-        return $this->apiResponse('Order statuses retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.STATUSES_RETRIEVED'), 200, true, [
             'data' => OrderStatusResource::collection($statuses->items()),
             'meta' => [
                 'current_page' => $statuses->currentPage(),
@@ -51,7 +51,7 @@ class OrderStatusCatalogController extends Controller
     {
         $status = OrderStatus::query()->findOrFail($id);
 
-        return $this->apiResponse('Order status retrieved successfully.', 200, true,
+        return $this->apiResponse(__('message.MESSAGE.STATUS_RETRIEVED'), 200, true,
             (new OrderStatusResource($status))->toArray(request()));
     }
 
@@ -96,7 +96,7 @@ class OrderStatusCatalogController extends Controller
 
         $status->update($data);
 
-        return $this->apiResponse('Order status updated successfully.', 200, true,
+        return $this->apiResponse(__('message.MESSAGE.STATUS_UPDATED'), 200, true,
             (new OrderStatusResource($status->fresh()))->toArray(request()));
     }
 }

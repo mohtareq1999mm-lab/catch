@@ -105,9 +105,9 @@ class ShipmentService
             $existing = Shipment::where('idempotency_key', $idempotencyKey)->first();
             if ($existing) {
                 if ((int) $existing->fulfillment_id !== (int) $fulfillment->id) {
-                    throw new \RuntimeException(
-                        "Idempotency key is already bound to shipment #{$existing->id} " .
-                        "of fulfillment #{$existing->fulfillment_id}; refusing fulfillment #{$fulfillment->id}"
+                    // Same-key/different-fulfillment contention → HTTP 409.
+                    throw new \App\Exceptions\WmsConflictException(
+                        __('wms.shipment.key_bound', ['shipment' => $existing->id, 'fulfillment' => $existing->fulfillment_id])
                     );
                 }
 
@@ -127,12 +127,12 @@ class ShipmentService
 
             if ($locked->status === 'cancelled') {
                 throw new \RuntimeException(
-                    "Cannot create shipment: fulfillment #{$locked->id} is cancelled"
+                    __('wms.shipment.create_cancelled', ['id' => $locked->id])
                 );
             }
             if ($locked->status !== 'ready_to_ship') {
                 throw new \RuntimeException(
-                    "Cannot create shipment: fulfillment #{$locked->id} is {$locked->status}, expected ready_to_ship"
+                    __('wms.shipment.create_status', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
 
@@ -183,8 +183,7 @@ class ShipmentService
 
             if ($fulfillment !== null && !$fulfillment->canTransitionTo('shipped')) {
                 throw new \RuntimeException(
-                    "Cannot dispatch shipment #{$probe->id}: fulfillment #{$fulfillment->id} " .
-                    "is {$fulfillment->status}, expected ready_to_ship"
+                    __('wms.shipment.dispatch_status', ['shipment' => $probe->id, 'fulfillment' => $fulfillment->id, 'status' => $fulfillment->status])
                 );
             }
 
@@ -196,7 +195,7 @@ class ShipmentService
 
             if (!$shipment->canTransitionTo('picked_up')) {
                 throw new \RuntimeException(
-                    "Shipment {$shipment->id} cannot dispatch from '{$shipment->status}': expected label_created"
+                    __('wms.shipment.dispatch_state', ['shipment' => $shipment->id, 'status' => $shipment->status])
                 );
             }
 
@@ -252,8 +251,7 @@ class ShipmentService
 
             if (!in_array($probe->status, ['picked_up', 'in_transit', 'out_for_delivery'], true)) {
                 throw new \RuntimeException(
-                    "Shipment {$probe->id} cannot be delivered from '{$probe->status}': " .
-                    'expected picked_up, in_transit or out_for_delivery'
+                    __('wms.shipment.deliver_state', ['shipment' => $probe->id, 'status' => $probe->status])
                 );
             }
 
@@ -267,8 +265,7 @@ class ShipmentService
 
             if ($fulfillment !== null && !$fulfillment->canTransitionTo('delivered')) {
                 throw new \RuntimeException(
-                    "Cannot deliver shipment #{$probe->id}: fulfillment #{$fulfillment->id} " .
-                    "is {$fulfillment->status}, expected shipped"
+                    __('wms.shipment.deliver_fulfillment', ['shipment' => $probe->id, 'fulfillment' => $fulfillment->id, 'status' => $fulfillment->status])
                 );
             }
 
@@ -276,8 +273,7 @@ class ShipmentService
 
             if (!in_array($shipment->status, ['picked_up', 'in_transit', 'out_for_delivery'], true)) {
                 throw new \RuntimeException(
-                    "Shipment {$shipment->id} cannot be delivered from '{$shipment->status}': " .
-                    'expected picked_up, in_transit or out_for_delivery'
+                    __('wms.shipment.deliver_state', ['shipment' => $shipment->id, 'status' => $shipment->status])
                 );
             }
 
@@ -286,7 +282,7 @@ class ShipmentService
             foreach (array_slice($chain, $start + 1) as $next) {
                 if (!$shipment->canTransitionTo($next)) {
                     throw new \RuntimeException(
-                        "Shipment {$shipment->id} cannot transition from '{$shipment->status}' to '{$next}'"
+                        __('wms.shipment.transition', ['shipment' => $shipment->id, 'from' => $shipment->status, 'to' => $next])
                     );
                 }
                 $this->writeStatus($shipment, $next, $notes);
@@ -321,7 +317,7 @@ class ShipmentService
     public function cancelShipment(int $shipmentId, string $reason, array $context = []): Shipment
     {
         if (trim($reason) === '') {
-            throw new \InvalidArgumentException('Shipment cancellation reason is required');
+            throw new \InvalidArgumentException(__('wms.shipment.cancel_reason'));
         }
 
         return DB::transaction(function () use ($shipmentId, $reason, $context) {
@@ -335,7 +331,7 @@ class ShipmentService
 
             if (!$shipment->canTransitionTo('cancelled')) {
                 throw new \RuntimeException(
-                    "Shipment {$shipment->id} cannot be cancelled from '{$shipment->status}'"
+                    __('wms.shipment.cancel_state', ['shipment' => $shipment->id, 'status' => $shipment->status])
                 );
             }
 
@@ -343,8 +339,7 @@ class ShipmentService
                 $fulfillment = Fulfillment::whereKey((int) $shipment->fulfillment_id)->lockForUpdate()->first();
                 if ($fulfillment !== null && in_array($fulfillment->status, ['shipped', 'delivered'], true)) {
                     throw new \RuntimeException(
-                        "Cannot cancel shipment #{$shipment->id}: fulfillment #{$fulfillment->id} " .
-                        "is already {$fulfillment->status} (cancellation never moves fulfillment backward)"
+                        __('wms.shipment.cancel_fulfillment', ['shipment' => $shipment->id, 'fulfillment' => $fulfillment->id, 'status' => $fulfillment->status])
                     );
                 }
             }
@@ -447,7 +442,7 @@ class ShipmentService
 
             if (!$shipment->canTransitionTo($newStatus)) {
                 throw new \RuntimeException(
-                    "Shipment {$shipment->id} cannot transition from '{$shipment->status}' to '{$newStatus}'"
+                    __('wms.shipment.transition', ['shipment' => $shipment->id, 'from' => $shipment->status, 'to' => $newStatus])
                 );
             }
 
@@ -479,7 +474,7 @@ class ShipmentService
         foreach (array_keys($data) as $key) {
             if (in_array(strtolower((string) $key), $protected, true)) {
                 throw new \InvalidArgumentException(
-                    "Shipment field '{$key}' is transition-authority owned and cannot be mass-updated"
+                    __('wms.shipment.field_locked', ['field' => \Illuminate\Support\Str::limit((string) $key, 200)])
                 );
             }
         }
@@ -545,8 +540,9 @@ class ShipmentService
             ->exists();
 
         if ($active) {
-            throw new \RuntimeException(
-                "Cannot create shipment: fulfillment #{$fulfillmentId} already has an active shipment"
+            // One-active-shipment contention → HTTP 409 at the adapter.
+            throw new \App\Exceptions\WmsConflictException(
+                __('wms.shipment.active_exists', ['id' => $fulfillmentId])
             );
         }
     }
@@ -558,7 +554,7 @@ class ShipmentService
     {
         if ($fulfillment->status === 'cancelled') {
             throw new \RuntimeException(
-                "Cannot create shipment: fulfillment #{$fulfillment->id} is cancelled"
+                __('wms.shipment.create_cancelled', ['id' => $fulfillment->id])
             );
         }
     }
@@ -596,7 +592,7 @@ class ShipmentService
 
             if (abs($packed - $picked) > 0.000001) {
                 throw new \RuntimeException(
-                    "Cannot dispatch shipment: fulfillment item #{$item->id} picked {$picked}, packed {$packed}"
+                    __('wms.shipment.dispatch_quantities', ['item' => $item->id, 'picked' => $picked, 'packed' => $packed])
                 );
             }
         }
@@ -611,7 +607,7 @@ class ShipmentService
     {
         if (!$shipment->canTransitionTo($newStatus)) {
             throw new \RuntimeException(
-                "Shipment {$shipment->id} cannot transition from '{$shipment->status}' to '{$newStatus}'"
+                __('wms.shipment.transition', ['shipment' => $shipment->id, 'from' => $shipment->status, 'to' => $newStatus])
             );
         }
 

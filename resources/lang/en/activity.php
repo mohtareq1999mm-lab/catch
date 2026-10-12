@@ -108,4 +108,7 @@ return [
     'import_completed' => 'Product import completed',
     'import_failed' => 'Product import failed',
     'import_rolled_back' => 'Product import rolled back',
+    'stock_transferred' => 'Stock transferred for product #:id',
+    'stock_received' => 'Stock received for product #:id',
+    'stock_placed' => 'Initial stock placed for product #:id',
 ];

@@ -47,7 +47,7 @@ class PickingExecutionService
             // work is not a valid operation).
             if (in_array($locked->status, ['picked', 'skipped', 'cancelled'], true)) {
                 throw new \RuntimeException(
-                    "Picking task #{$locked->id} is terminal (status: {$locked->status}): claim refused"
+                    __('wms.picking.claim_terminal_exec', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
 
@@ -64,7 +64,7 @@ class PickingExecutionService
 
             if ((!$claimFree && !$leaseExpired && !$override) || (!$override && !in_array($locked->status, ['pending', 'assigned'], true))) {
                 throw new \RuntimeException(
-                    "Picking task #{$locked->id} is already claimed (status: {$locked->status})"
+                    __('wms.picking.already_claimed', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
 
@@ -92,7 +92,7 @@ class PickingExecutionService
             $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
             if (!$override && (int) $locked->claimed_by !== $userId) {
-                throw new \RuntimeException("Picking task #{$locked->id} is claimed by another worker");
+                throw new \RuntimeException(__('wms.picking.claimed_other', ['id' => $locked->id]));
             }
 
             $locked->update([
@@ -208,7 +208,7 @@ class PickingExecutionService
             $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
             if (in_array($locked->status, ['picked', 'skipped', 'cancelled'], true)) {
-                throw new \RuntimeException("Cannot reallocate task #{$locked->id} in status {$locked->status}");
+                throw new \RuntimeException(__('wms.picking.reallocate_status', ['id' => $locked->id, 'status' => $locked->status]));
             }
 
             $item = $locked->fulfillmentItem()->firstOrFail();
@@ -218,19 +218,19 @@ class PickingExecutionService
             $location = $target->location()->firstOrFail();
 
             if ((int) $target->product_id !== (int) $item->product_id) {
-                throw new \RuntimeException('Reallocation target holds a different product');
+                throw new \RuntimeException(__('wms.picking.reallocate_product'));
             }
             if ((int) $target->warehouse_id !== (int) $fulfillment->warehouse_id) {
-                throw new \RuntimeException('Reallocation must stay in the same warehouse');
+                throw new \RuntimeException(__('wms.picking.reallocate_warehouse'));
             }
             // Mirror scopePlaceable: active + (null or placeable type).
             $placeable = $location->status === \App\Models\Fulfillment\Location::STATUS_ACTIVE
                 && ($location->type === null || in_array($location->type, \App\Models\Fulfillment\Location::PLACEABLE_TYPES, true));
             if (!$placeable) {
-                throw new \RuntimeException("Target location #{$location->id} is not active/placeable");
+                throw new \RuntimeException(__('wms.picking.target_inactive', ['id' => $location->id]));
             }
             if ((int) $target->warehouse_id !== (int) $location->warehouse_id) {
-                throw new \RuntimeException('Product placement warehouse does not match its location warehouse');
+                throw new \RuntimeException(__('wms.picking.placement_warehouse_mismatch'));
             }
 
             $locked->update(['product_location_id' => $target->id]);

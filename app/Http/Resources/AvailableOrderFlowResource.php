@@ -10,12 +10,15 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *
  * The single sanitized contract for BOTH frontend discovery endpoints:
  * - GET /api/v1/general/order-flows/available (guest-safe, all active flows)
- * - GET /api/v1/general/order-flows/by-shipping-type/{type} (guest-safe, one flow)
+ * - GET /api/v1/general/order-flows/by-shipping-type/{type} (guest-safe, the
+ *   type's DEFAULT flow)
  *
- * Exposes the business contract only (shipping_type selection + ordered
- * statuses + input schemas). Internal identifiers (id, flow_id),
- * administrative flags (is_active, is_default) and timestamps are NEVER
- * exposed here — the admin OrderFlowResource/FlowInputResource carry those.
+ * Multi-flow: several flows may share one shipping_type. The customer selects
+ * `code` (stable identity, submitted as `flow_code` at checkout); the
+ * shipping_type stays the controlled category. Internal identifiers (id,
+ * flow_id), administrative flags (is_active, is_default) and timestamps are
+ * NEVER exposed here — the admin OrderFlowResource/FlowInputResource carry
+ * those.
  * Machine identifiers (code, key, type, source, required_at) stay
  * untranslated; human labels stay bilingual {en, ar}.
  */

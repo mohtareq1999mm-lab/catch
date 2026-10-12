@@ -71,7 +71,7 @@ class FulfillmentController extends WmsAdminController
             $query->withCount(['items', 'shipments'])->paginate($perPage)
         );
 
-        return $this->apiResponse('Fulfillments fetched successfully.', 200, true, $page);
+        return $this->apiResponse(__('wms.fulfillment.fetched_many'), 200, true, $page);
     }
 
     /**
@@ -83,7 +83,7 @@ class FulfillmentController extends WmsAdminController
         $this->authorizeWarehouseScope($fulfillment->warehouse_id, 'view-fulfillment', true);
 
         return $this->apiResponse(
-            'Fulfillment fetched successfully.',
+            __('wms.fulfillment.fetched_one'),
             200,
             true,
             FulfillmentDetailResource::make($this->loadDetail($fulfillment))
@@ -144,7 +144,7 @@ class FulfillmentController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            $replayed ? 'Fulfillment already released.' : 'Fulfillment released successfully.',
+            $replayed ? __('wms.fulfillment.replay') : __('wms.fulfillment.released'),
             $replayed ? 200 : 201,
             true,
             FulfillmentDetailResource::make($this->loadDetail($fulfillment->fresh()))
@@ -175,7 +175,7 @@ class FulfillmentController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Fulfillment cancelled successfully.',
+            __('wms.fulfillment.cancelled'),
             200,
             true,
             FulfillmentDetailResource::make($this->loadDetail($cancelled->fresh()))
@@ -201,7 +201,7 @@ class FulfillmentController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Fulfillment assigned successfully.',
+            __('wms.fulfillment.assigned'),
             200,
             true,
             FulfillmentDetailResource::make($this->loadDetail($assigned->fresh()))

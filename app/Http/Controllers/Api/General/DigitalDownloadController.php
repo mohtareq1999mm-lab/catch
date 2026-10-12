@@ -73,6 +73,15 @@ class DigitalDownloadController extends Controller
                         default => null,
                     },
 
+                    // Route action keyword (download / url / license)
+                    'path' => match ($asset->type) {
+                        \App\Enums\DigitalAssetType::FILE->value => 'download',
+                        \App\Enums\DigitalAssetType::URL->value => 'url',
+                        \App\Enums\DigitalAssetType::LICENSE->value,
+                        \App\Enums\DigitalAssetType::ACCESS->value => 'license',
+                        default => null,
+                    },
+
                     // FILE: controlled signed URL (existing contract).
                     'download_url' => $asset->type === \App\Enums\DigitalAssetType::FILE->value
                         ? $this->signedUrl($entitlement, $asset)
@@ -88,7 +97,7 @@ class DigitalDownloadController extends Controller
                     // W5/W7 — LICENSE/ACCESS: metadata only, never the secret.
                     'reveal' => in_array($asset->type, [\App\Enums\DigitalAssetType::LICENSE->value, \App\Enums\DigitalAssetType::ACCESS->value], true)
                         ? [
-                            'path' => "/api/v1/general/digital/license/{$entitlement->uuid}/{$asset->uuid}",
+                            'path' => 'license',
                             'available' => $accessible && (
                                 $asset->type === \App\Enums\DigitalAssetType::ACCESS->value
                                     ? $asset->secret !== null

@@ -12,7 +12,8 @@ use Marvel\Database\Models\Order;
  * Single authority for the configurable Order Status / Shipping Flow system.
  *
  * Mental model:
- *   shipping_type  ->  flow  ->  ordered statuses  ->  order follows it
+ *   shipping_type  ->  (default) flow  ->  ordered statuses  ->  order follows it
+ *   Explicit flow_code/flow_id selects one flow among the type's flows.
  *
  * - Local shipping is the default (null/empty input normalizes to local).
  * - Availability is fail-closed: a shipping type is available only when an
@@ -209,6 +210,13 @@ class OrderFlowService
      * must be a supported business value (local|international) AND have an
      * ACTIVE flow. Anything else throws.
      *
+     * Multi-flow (2026_10_12): several ACTIVE flows may share one type.
+     * Type-only resolution is deterministic via the default policy — a single
+     * active flow wins outright; with several, the one active default wins;
+     * with none (or competing defaults) resolution throws `flow_ambiguous`
+     * instead of picking an arbitrary first row. Callers that need a specific
+     * flow must use resolveCheckoutFlow() with an explicit code/id.
+     *
      * @throws \InvalidArgumentException
      */
     public function resolveFlowForShippingType(?string $shippingType): OrderFlow
@@ -219,13 +227,72 @@ class OrderFlowService
             throw new \InvalidArgumentException(__('checkout.shipping_type_unsupported'));
         }
 
-        $flow = OrderFlow::query()
+        $active = OrderFlow::query()
             ->where('shipping_type', $type)
             ->where('is_active', true)
-            ->first();
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->get();
+
+        if ($active->isEmpty()) {
+            throw new \InvalidArgumentException(__('checkout.shipping_type_unavailable'));
+        }
+
+        if ($active->count() === 1) {
+            return $active->first();
+        }
+
+        $defaults = $active->where('is_default', true)->values();
+
+        if ($defaults->count() === 1) {
+            return $defaults->first();
+        }
+
+        throw new \InvalidArgumentException(__('checkout.flow_ambiguous'));
+    }
+
+    /**
+     * Explicit flow resolution for checkout/admin selection.
+     *
+     * - flowCode (stable identity, preferred) or flowId selects exactly one flow.
+     * - The flow must be ACTIVE, otherwise `flow_inactive` (fail-closed).
+     * - When a shipping type is ALSO supplied it must equal the flow's own
+     *   type, otherwise `flow_mismatch` (prevents cross-type assignment).
+     * - With neither code nor id, falls back to resolveFlowForShippingType().
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function resolveCheckoutFlow(?string $shippingType, ?string $flowCode = null, ?int $flowId = null): OrderFlow
+    {
+        $flowCode = is_string($flowCode) ? trim($flowCode) : null;
+        $flowCode = ($flowCode === '' ? null : $flowCode);
+
+        if ($flowCode === null && $flowId === null) {
+            return $this->resolveFlowForShippingType($shippingType);
+        }
+
+        $flow = $flowCode !== null
+            ? OrderFlow::query()->where('code', $flowCode)->first()
+            : OrderFlow::query()->whereKey($flowId)->first();
 
         if (!$flow) {
             throw new \InvalidArgumentException(__('checkout.shipping_type_unavailable'));
+        }
+
+        if (!$flow->is_active) {
+            throw new \InvalidArgumentException(__('checkout.flow_inactive'));
+        }
+
+        if ($shippingType !== null && trim((string) $shippingType) !== '') {
+            $type = self::normalizeShippingType($shippingType);
+
+            if (!in_array($type, self::SUPPORTED_SHIPPING_TYPES, true)) {
+                throw new \InvalidArgumentException(__('checkout.shipping_type_unsupported'));
+            }
+
+            if ($flow->shipping_type !== $type) {
+                throw new \InvalidArgumentException(__('checkout.flow_mismatch'));
+            }
         }
 
         return $flow;
@@ -361,9 +428,11 @@ class OrderFlowService
      *
      * @return array{shipping_type: string, flow_id: int, current_status_id: int}
      */
-    public function columnsForNewOrder(?string $shippingType, ?string $statusCode): array
+    public function columnsForNewOrder(?string $shippingType, ?string $statusCode, ?int $flowId = null, ?string $flowCode = null): array
     {
-        $flow = $this->resolveFlowForShippingType($shippingType);
+        $flow = ($flowId !== null || $flowCode !== null)
+            ? $this->resolveCheckoutFlow($shippingType, $flowCode, $flowId)
+            : $this->resolveFlowForShippingType($shippingType);
 
         $statusId = $this->statusIdForCode($statusCode ?: 'pending');
 
@@ -384,9 +453,11 @@ class OrderFlowService
      * persists; creation doors that can merge columns into the INSERT
      * prefer the helper directly so the guarantee holds event-independently.
      */
-    public function assignFlowToOrder(Order $order, ?string $shippingType): Order
+    public function assignFlowToOrder(Order $order, ?string $shippingType, ?int $flowId = null, ?string $flowCode = null): Order
     {
-        $flow = $this->resolveFlowForShippingType($shippingType);
+        $flow = ($flowId !== null || $flowCode !== null)
+            ? $this->resolveCheckoutFlow($shippingType, $flowCode, $flowId)
+            : $this->resolveFlowForShippingType($shippingType);
         $first = $this->firstStatus($flow);
 
         $order->forceFill([

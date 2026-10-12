@@ -45,7 +45,7 @@ class ShipmentController extends Controller
                     courierName: $request->input('courier_name'),
                     locationData: $request->input('location_data'),
                     estimatedDelivery: $request->input('estimated_delivery_at')
-                        ? new \DateTime($request->input('estimated_delivery_at'))
+                        ? \Illuminate\Support\Carbon::parse($request->input('estimated_delivery_at'))
                         : null,
                 ));
 
@@ -54,7 +54,7 @@ class ShipmentController extends Controller
                     event(new EstimatedDeliveryChanged(
                         order: $order,
                         oldEta: $order->estimated_delivery_at,
-                        newEta: new \DateTime($newEta),
+                        newEta: \Illuminate\Support\Carbon::parse($newEta),
                         reason: $request->input('notes') ?? 'admin_update',
                     ));
                 }
@@ -62,7 +62,7 @@ class ShipmentController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Shipment status updated successfully',
+                'message' => __('message.MESSAGE.SHIPMENT_STATUS_UPDATED_SUCCESSFULLY'),
                 'data' => [
                     'order_id' => $order->id,
                     'shipment_status' => $order->fresh()->shipment_status,
@@ -74,7 +74,7 @@ class ShipmentController extends Controller
             Log::error('Shipment status update failed', ['order_id' => $orderId, 'exception' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update shipment status',
+                'message' => __('message.ERROR.SHIPMENT_STATUS_UPDATE_FAILED'),
             ], 500);
         }
     }
@@ -102,7 +102,7 @@ class ShipmentController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Order not found',
+                'message' => __('message.ERROR.ORDER_NOT_FOUND'),
             ], 404);
         }
     }

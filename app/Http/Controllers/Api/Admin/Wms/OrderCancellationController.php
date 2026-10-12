@@ -58,7 +58,7 @@ class OrderCancellationController extends WmsAdminController
         }
 
         if ($result === false) {
-            $this->unprocessable('Order cannot be cancelled in its current state.');
+            $this->unprocessable(__('wms.order.cancel_current_state'));
         }
 
         $order = $order->fresh();
@@ -69,7 +69,7 @@ class OrderCancellationController extends WmsAdminController
             ->all();
 
         return $this->apiResponse(
-            'Order cancelled successfully.',
+            __('wms.order.cancelled'),
             200,
             true,
             [

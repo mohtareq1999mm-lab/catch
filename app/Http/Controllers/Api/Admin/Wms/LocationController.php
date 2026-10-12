@@ -6,11 +6,13 @@ use App\Http\Requests\Admin\Wms\CreateLocationRequest;
 use App\Http\Requests\Admin\Wms\UpdateLocationRequest;
 use App\Http\Resources\Wms\LocationResource;
 use App\Models\Fulfillment\Location;
+use App\Models\Fulfillment\PickingTask;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * P9-2: location HTTP adapter. Location has no domain service (CRUD-only,
@@ -49,10 +51,35 @@ class LocationController extends WmsAdminController
             }
         }
 
+        if ($request->filled('barcode')) {
+            $query->where('barcode', $request->get('barcode'));
+        }
+
+        if ($request->filled('code')) {
+            $query->where('code', $request->get('code'));
+        }
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->get('type'));
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->get('status'));
+        }
+
+        if ($request->filled('search')) {
+            $search = addcslashes((string) $request->get('search'), '%_\\');
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('barcode', 'like', "%{$search}%");
+            });
+        }
+
         $perPage = min((int) $request->get('limit', 15), 100);
 
         return $this->apiResponse(
-            'Locations fetched successfully.',
+            __('wms.location.fetched_many'),
             200,
             true,
             LocationResource::collection($query->paginate($perPage))
@@ -68,7 +95,7 @@ class LocationController extends WmsAdminController
         $this->authorizeWarehouseScope($location->warehouse_id, 'view-location', true);
 
         return $this->apiResponse(
-            'Location fetched successfully.',
+            __('wms.location.fetched_one'),
             200,
             true,
             LocationResource::make($location)
@@ -88,14 +115,14 @@ class LocationController extends WmsAdminController
         if (!empty($data['parent_id'])) {
             $parent = Location::whereKey($data['parent_id'])->firstOrFail();
             if ((int) $parent->warehouse_id !== (int) $data['warehouse_id']) {
-                $this->unprocessable('Parent location belongs to a different warehouse.');
+                $this->unprocessable(__('wms.location.parent_warehouse'));
             }
         }
 
         $location = Location::create($data);
 
         return $this->apiResponse(
-            'Location created successfully.',
+            __('wms.location.created'),
             201,
             true,
             LocationResource::make($location)
@@ -115,14 +142,14 @@ class LocationController extends WmsAdminController
         if (!empty($data['parent_id'])) {
             $parent = Location::whereKey($data['parent_id'])->firstOrFail();
             if ((int) $parent->warehouse_id !== (int) $location->warehouse_id) {
-                $this->unprocessable('Parent location belongs to a different warehouse.');
+                $this->unprocessable(__('wms.location.parent_warehouse'));
             }
         }
 
         $location->update($data);
 
         return $this->apiResponse(
-            'Location updated successfully.',
+            __('wms.location.updated'),
             200,
             true,
             LocationResource::make($location->fresh())
@@ -140,7 +167,7 @@ class LocationController extends WmsAdminController
         $location->update(['status' => Location::STATUS_ACTIVE]);
 
         return $this->apiResponse(
-            'Location activated successfully.',
+            __('wms.location.activated'),
             200,
             true,
             LocationResource::make($location->fresh())
@@ -158,10 +185,71 @@ class LocationController extends WmsAdminController
         $location->update(['status' => Location::STATUS_INACTIVE]);
 
         return $this->apiResponse(
-            'Location deactivated successfully.',
+            __('wms.location.deactivated'),
             200,
             true,
             LocationResource::make($location->fresh())
         );
+    }
+
+    /**
+     * DELETE /api/v1/admin/locations/{id}
+     *
+     * Safe deletion guards:
+     * 1. Blocks if location has child locations.
+     * 2. Blocks if location holds active physical inventory (quantity > 0 or allocated_hint > 0).
+     * 3. Blocks if active picking tasks target this location.
+     * 4. Atomic transaction deletes zero-stock placement records and removes the location.
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $location = Location::whereKey($id)->firstOrFail();
+        $this->authorizeWarehouseScope($location->warehouse_id, 'manage-location');
+
+        // 1. Guard against active child locations
+        if ($location->children()->exists()) {
+            return $this->apiResponse(
+                __('wms.location.delete_children'),
+                422,
+                false
+            );
+        }
+
+        // 2. Guard against physical inventory stock
+        $hasStock = $location->productLocations()
+            ->where(function ($q) {
+                $q->where('quantity', '>', 0)
+                  ->orWhere('allocated_hint', '>', 0);
+            })
+            ->exists();
+
+        if ($hasStock) {
+            return $this->apiResponse(
+                __('wms.location.delete_stock'),
+                422,
+                false
+            );
+        }
+
+        // 3. Guard against active picking tasks linked to this location
+        $hasActiveTasks = PickingTask::whereIn('product_location_id', $location->productLocations()->pluck('id'))
+            ->whereIn('status', ['pending', 'claimed'])
+            ->exists();
+
+        if ($hasActiveTasks) {
+            return $this->apiResponse(
+                __('wms.location.delete_tasks'),
+                422,
+                false
+            );
+        }
+
+        // 4. Safely delete within a transaction
+        DB::transaction(function () use ($location) {
+            $location->productLocations()->delete();
+            $location->delete();
+        });
+
+        return $this->apiResponse(__('message.MESSAGE.WMS_LOCATION_DELETED'), 200, true);
     }
 }

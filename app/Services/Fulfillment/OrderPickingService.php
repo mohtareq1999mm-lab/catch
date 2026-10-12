@@ -104,7 +104,7 @@ class OrderPickingService
                 ->exists();
             if ($incomplete) {
                 throw new \RuntimeException(
-                    "Fulfillment #{$locked->id} has incomplete picking work: completion refused"
+                    __('wms.fulfillment.incomplete_picking', ['id' => $locked->id])
                 );
             }
 

@@ -35,14 +35,9 @@ return [
 
     'connections' => [
 
-        'sqlite' => [
-            'driver' => 'sqlite',
-            'url' => env('DATABASE_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
-            'prefix' => '',
-            'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-        ],
-
+        // MySQL-only: single canonical connection (default DB `catch`).
+        // Do not re-add sqlite/sqlsrv/pgsql stanzas; migrations and tests
+        // assume MySQL (phpunit.xml forces DB_CONNECTION=mysql).
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('MYSQL_URL', env('DATABASE_URL')),
@@ -62,19 +57,6 @@ return [
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA', env('MYSQL_SSL_CA')),
                 PDO::MYSQL_ATTR_INIT_COMMAND => env('DB_INIT_COMMAND'),
             ]) : [],
-        ],
-
-        'sqlsrv' => [
-            'driver' => 'sqlsrv',
-            'url' => env('DATABASE_URL'),
-            'host' => env('DB_HOST', 'localhost'),
-            'port' => env('DB_PORT', '1433'),
-            'database' => env('DB_DATABASE', 'forge'),
-            'username' => env('DB_USERNAME', 'forge'),
-            'password' => env('DB_PASSWORD', ''),
-            'charset' => 'utf8',
-            'prefix' => '',
-            'prefix_indexes' => true,
         ],
 
     ],

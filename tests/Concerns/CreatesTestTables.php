@@ -9,6 +9,12 @@ trait CreatesTestTables
 {
     protected function createAllTestTables(): void
     {
+        // Multi-flow parity (production: 2026_10_12_000001): test databases
+        // created before the migration still carry the single-flow UNIQUE on
+        // order_flows.shipping_type. Heal the schema on every run (data is
+        // untouched; DatabaseTransactions still isolates each test).
+        $this->dropLegacySingleFlowUniqueIndex();
+
         if (Schema::hasTable('users')) {
             return;
         }
@@ -616,10 +622,14 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->id();
                 $table->string('code', 50)->unique();
                 $table->string('name', 100);
-                $table->string('shipping_type', 30)->unique();
+                // Multi-flow parity (production: 2026_10_12_000001): shipping_type
+                // is a shared controlled category, NOT a unique identity.
+                $table->string('shipping_type', 30);
                 $table->boolean('is_default')->default(false);
                 $table->boolean('is_active')->default(true);
                 $table->timestamps();
+
+                $table->index(['shipping_type', 'is_active']);
             });
         }
         if (!Schema::hasTable('order_flow_statuses')) {
@@ -1131,6 +1141,49 @@ Schema::create('categories', function (Blueprint $table) {
             $table->index('mismatch_type');
             $table->index('resolved_at');
         });
+    }
+
+    /**
+     * Drop the pre-multi-flow UNIQUE index covering exactly (shipping_type),
+     * when present. `code` stays the unique flow identity. Safe to run on
+     * every suite start: no-op on healed databases, data-preserving.
+     */
+    private function dropLegacySingleFlowUniqueIndex(): void
+    {
+        try {
+            if (!Schema::hasTable('order_flows')) {
+                return;
+            }
+
+            $indexes = Schema::getConnection()->getDoctrineSchemaManager()->listTableIndexes('order_flows');
+        } catch (\Throwable) {
+            return;
+        }
+
+        foreach ($indexes as $name => $index) {
+            try {
+                $isTarget = $index->isUnique() && !$index->isPrimary()
+                    && array_map('strtolower', $index->getColumns()) === ['shipping_type'];
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if (!$isTarget) {
+                continue;
+            }
+
+            try {
+                Schema::table('order_flows', function (Blueprint $table) use ($name) {
+                    $table->dropUnique($name);
+                });
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'Could not drop legacy order_flows.shipping_type unique index in test DB: '.$e->getMessage()
+                );
+            }
+
+            return;
+        }
     }
 
     /**

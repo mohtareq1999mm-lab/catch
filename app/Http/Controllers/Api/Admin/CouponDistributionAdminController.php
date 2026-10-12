@@ -102,7 +102,7 @@ class CouponDistributionAdminController extends Controller
             && in_array($run->status, [CouponDistributionRunStatus::PENDING, CouponDistributionRunStatus::RUNNING], true)
         ) {
             return $this->apiResponse(
-                'A distribution run is already in progress for this targeting version.',
+                __('message.MESSAGE.DISTRIBUTION_ALREADY_RUNNING'),
                 409,
                 false,
                 ['reason' => 'already_running', 'run' => $this->presentRun($run)]
@@ -110,7 +110,7 @@ class CouponDistributionAdminController extends Controller
         }
 
         return $this->apiResponse(
-            'Distribution run accepted.',
+            __('message.MESSAGE.DISTRIBUTION_ACCEPTED'),
             202,
             true,
             ['run' => $this->presentRun($run->fresh())]

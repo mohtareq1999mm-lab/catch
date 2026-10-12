@@ -68,7 +68,7 @@ class BatchController extends WmsAdminController
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(
-            'Batches fetched successfully.',
+            __('wms.batch.fetched_many'),
             200,
             true,
             BatchResource::collection($query->paginate($perPage))
@@ -86,7 +86,7 @@ class BatchController extends WmsAdminController
         $batch->loadMissing(['pickingTasks' => fn ($q) => $q->orderBy('sequence')]);
 
         return $this->apiResponse(
-            'Batch fetched successfully.',
+            __('wms.batch.fetched_one'),
             200,
             true,
             BatchDetailResource::make($batch)
@@ -103,11 +103,11 @@ class BatchController extends WmsAdminController
 
         $task = $this->batches->getNextTask($batch->fresh());
         if ($task === null) {
-            return $this->apiResponse('No pending tasks in this batch.', 200, true);
+            return $this->apiResponse(__('message.MESSAGE.BATCH_NO_PENDING_TASKS'), 200, true);
         }
 
         return $this->apiResponse(
-            'Next picking task fetched successfully.',
+            __('wms.batch.next_task'),
             200,
             true,
             PickingTaskResource::make($task)
@@ -136,7 +136,7 @@ class BatchController extends WmsAdminController
         $fulfillments = $this->batches->getPendingFulfillments($resolvedId, $limit);
 
         return $this->apiResponse(
-            'Pending fulfillments fetched successfully.',
+            __('wms.batch.pending_fulfillments'),
             200,
             true,
             FulfillmentResource::collection($fulfillments)
@@ -180,7 +180,7 @@ class BatchController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Batch created successfully.',
+            __('wms.batch.created'),
             201,
             true,
             BatchDetailResource::make($batch->fresh()->loadMissing(['pickingTasks' => fn ($q) => $q->orderBy('sequence')]))
@@ -198,17 +198,20 @@ class BatchController extends WmsAdminController
         // Terminal/wrong-state batches refuse with 422; live contention
         // surfaces as 409 from the service below.
         if (!in_array($batch->status, ['pending', 'assigned'], true)) {
-            $this->unprocessable("Cannot assign batch in status: {$batch->status}");
+            $this->unprocessable(__('wms.batch.assign_status', ['status' => $batch->status]));
         }
 
         try {
             $assigned = $this->batches->assignBatch($batch, (int) $request->validated('user_id'));
-        } catch (\RuntimeException $e) {
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            // Live contention surfaces as 409 from the service.
             $this->conflict($e->getMessage());
+        } catch (\RuntimeException $e) {
+            $this->unprocessable($e->getMessage());
         }
 
         return $this->apiResponse(
-            'Batch assigned successfully.',
+            __('wms.batch.assigned'),
             200,
             true,
             BatchDetailResource::make($assigned->fresh()->loadMissing(['pickingTasks' => fn ($q) => $q->orderBy('sequence')]))
@@ -230,7 +233,7 @@ class BatchController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Batch picking started successfully.',
+            __('wms.batch.started'),
             200,
             true,
             BatchDetailResource::make($started->fresh()->loadMissing(['pickingTasks' => fn ($q) => $q->orderBy('sequence')]))
@@ -260,8 +263,8 @@ class BatchController extends WmsAdminController
 
         return $this->apiResponse(
             $refreshed->status === 'completed'
-                ? 'Batch completed successfully.'
-                : 'Batch progress refreshed successfully.',
+                ? __('wms.batch.completed')
+                : __('wms.batch.progress'),
             200,
             true,
             BatchDetailResource::make($refreshed->fresh()->loadMissing(['pickingTasks' => fn ($q) => $q->orderBy('sequence')]))
@@ -287,7 +290,7 @@ class BatchController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Batch cancelled successfully.',
+            __('wms.batch.cancelled'),
             200,
             true,
             BatchDetailResource::make($cancelled->fresh()->loadMissing(['pickingTasks' => fn ($q) => $q->orderBy('sequence')]))
@@ -306,18 +309,17 @@ class BatchController extends WmsAdminController
             $created = $this->batches->retrySkippedTasks($batch, (string) $request->validated('reason'));
         } catch (\InvalidArgumentException $e) {
             $this->unprocessable($e->getMessage());
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            // Exactly-one-open-task contention surfaces as 409; terminal
+            // batches and other refusals stay 422. Typed by the service so
+            // locale can never change the status code.
+            $this->conflict($e->getMessage());
         } catch (\RuntimeException $e) {
-            // Exactly-one-open-task conflicts surface as 409; terminal
-            // batches and other refusals stay 422. The service message for
-            // the open-task guard is stable and covered by domain tests.
-            if (str_contains($e->getMessage(), 'already has open picking task')) {
-                $this->conflict($e->getMessage());
-            }
             $this->unprocessable($e->getMessage());
         }
 
         return $this->apiResponse(
-            count($created) > 0 ? 'Skipped tasks retried successfully.' : 'Nothing retryable in this batch.',
+            count($created) > 0 ? __('wms.batch.retried') : __('wms.batch.nothing_retry'),
             200,
             true,
             PickingTaskResource::collection($created)

@@ -181,6 +181,14 @@ Route::prefix('v1/general')->group(function () {
         Route::get('digital/url/{entitlement}/{asset}', [\App\Http\Controllers\Api\General\DigitalDownloadController::class, 'redirectToExternal'])
             ->whereUuid('entitlement')->whereUuid('asset')
             ->name('general.digital.url');
+
+        // Digital product downloads via temporary SIGNED urls (no Sanctum at
+        // redemption). Ownership is enforced when the URL is issued; the controller
+        // re-checks entitlement status, asset ownership and the download limit.
+        Route::get('digital/download/{entitlement}/{asset}', [\App\Http\Controllers\Api\General\DigitalDownloadController::class, 'download'])
+            ->middleware(['signed', 'throttle:30,1'])
+            ->whereUuid('entitlement')->whereUuid('asset')
+            ->name('general.digital.download');
         //========================= product reviews =========================//
         Route::post('products/{id}/reviews', [ProductController::class, 'addProductReview']);
         Route::put('products/reviews/{id}', [ProductController::class, 'updateProductReview']);

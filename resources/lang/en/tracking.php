@@ -54,25 +54,10 @@ return [
         'failed_description' => 'Delivery attempt failed. We will retry soon.',
     ],
 
-    // Shipment Events
-    'shipment' => [
-        'created' => 'Shipment Created',
-        'created_description' => 'Shipment has been created with tracking number :tracking_number.',
-        'picked_up' => 'Package Picked Up',
-        'picked_up_description' => 'Your package has been picked up by :carrier.',
-        'in_transit' => 'In Transit',
-        'in_transit_description' => 'Your package is on its way.',
-        'out_for_delivery' => 'Out for Delivery',
-        'out_for_delivery_description' => 'Your package is out for delivery.',
-        'delivered' => 'Delivered',
-        'delivered_description' => 'Your package has been delivered.',
-        'failed' => 'Delivery Failed',
-        'failed_description' => 'Delivery attempt failed.',
-        'returned' => 'Package Returned',
-        'returned_description' => 'Your package has been returned.',
-    ],
-
-    // Inventory Events
+    // Shipment Events (merged: fulfillment-pipeline statuses + courier statuses).
+    // NOTE: this key must stay unique in this file — a duplicate 'shipment'
+    // block would silently overwrite these entries (PHP array semantics) and
+    // surface raw keys like tracking.shipment.created to customers.
     'inventory' => [
         'reserved' => 'Inventory Reserved',
         'reserved_description' => 'Items have been reserved for your order.',
@@ -84,6 +69,8 @@ return [
 
     // Shipment Events
     'shipment' => [
+        'created' => 'Shipment Created',
+        'created_description' => 'Shipment has been created with tracking number :tracking_number.',
         'pending' => 'Shipment Pending',
         'pending_description' => 'Your shipment is being prepared.',
         'label_created' => 'Label Created',
@@ -96,6 +83,8 @@ return [
         'out_for_delivery_description' => 'Your package is out for delivery today.',
         'delivered' => 'Delivered',
         'delivered_description' => 'Your package has been delivered successfully.',
+        'failed' => 'Delivery Failed',
+        'failed_description' => 'Delivery attempt failed.',
         'failed_delivery' => 'Delivery Failed',
         'failed_delivery_description' => 'Delivery attempt failed. :courier_name will retry.',
         'returned' => 'Returned',
@@ -166,5 +155,20 @@ return [
             'medium' => 'Estimated',
             'low' => 'Approximate',
         ],
+    ],
+
+    // Customer-facing payment-verification helper (OrderTrackingController).
+    'verification' => [
+        'in_progress' => 'Payment verification in progress. This usually completes within a few minutes.',
+        'delayed' => 'Payment verification is taking longer than usual. Your order is being processed.',
+        'requires_attention' => 'Payment verification is pending. Please contact support if you completed payment.',
+    ],
+
+    // Customer-facing delivery estimate helper (OrderTrackingController).
+    // Dates stay ISO/locale-neutral; only the sentence is translated.
+    'delivery' => [
+        'delivered' => 'Order has been delivered.',
+        'overdue' => 'Delivery is overdue. Please contact support.',
+        'estimated_on' => 'Estimated delivery on :date.',
     ],
 ];

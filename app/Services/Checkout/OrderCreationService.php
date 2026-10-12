@@ -28,7 +28,7 @@ class OrderCreationService
             ->first();
     }
 
-    public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?string $shippingType = null): ?Order
+    public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?string $shippingType = null, ?int $flowId = null, ?string $flowCode = null): ?Order
     {
         $shippingPrice = $shippingPrice ?? 0;
         // Authoritative formula: net total + taxes + shipping + fast shipping.
@@ -119,7 +119,9 @@ class OrderCreationService
                 $orderDataForCreate,
                 app(\App\Services\OrderFlow\OrderFlowService::class)->columnsForNewOrder(
                     $shippingType,
-                    $orderDataForCreate['status'] ?? null
+                    $orderDataForCreate['status'] ?? null,
+                    $flowId,
+                    $flowCode
                 )
             );
         }
@@ -138,7 +140,7 @@ class OrderCreationService
         // flow-less order can ever persist when the columns exist.
         if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
             try {
-                app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order, $shippingType);
+                app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order, $shippingType, $flowId, $flowCode);
                 $order->refresh();
             } catch (\InvalidArgumentException $e) {
                 throw $e;

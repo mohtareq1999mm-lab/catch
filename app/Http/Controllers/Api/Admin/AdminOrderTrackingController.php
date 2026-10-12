@@ -27,7 +27,7 @@ class AdminOrderTrackingController extends Controller
         $period = $request->get('period', 'today'); // today, week, month, year
         $dateRange = $this->getDateRange($period);
 
-        return $this->apiResponse('Dashboard retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.DASHBOARD_RETRIEVED_SUCCESSFULLY'), 200, true, [
             'overview' => $this->getOverviewStats($dateRange),
             'status_breakdown' => $this->getStatusBreakdown($dateRange),
             'recent_orders' => $this->getRecentOrders(10),
@@ -88,7 +88,7 @@ class AdminOrderTrackingController extends Controller
         $perPage = min(max((int) $request->get('per_page', 50), 1), 100);
         $orders = $query->paginate($perPage);
 
-        return $this->apiResponse('Orders retrieved successfully.', 200, true, $orders);
+        return $this->apiResponse(__('message.MESSAGE.ORDERS_RETRIEVED_SUCCESSFULLY'), 200, true, $orders);
     }
 
     /**
@@ -106,7 +106,7 @@ class AdminOrderTrackingController extends Controller
         ])->find($orderId);
 
         if (!$order) {
-            return $this->apiResponse('Order not found.', 404, false);
+            return $this->apiResponse(__('message.ERROR.ORDER_NOT_FOUND'), 404, false);
         }
 
         try {
@@ -114,7 +114,7 @@ class AdminOrderTrackingController extends Controller
             \App\Services\Metrics\OrderTrackingMetrics::incrementTrackingAccess('admin');
         } catch (\Throwable $e) {}
 
-        return $this->apiResponse('Order tracking retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.TRACKING_RETRIEVED_SUCCESSFULLY'), 200, true, [
             'order' => $order,
             'timeline' => $this->buildAdminTimeline($order),
             'analytics' => $this->getOrderAnalytics($order),
@@ -185,7 +185,7 @@ class AdminOrderTrackingController extends Controller
             }
         }
 
-        return $this->apiResponse('Attention metrics retrieved successfully.', 200, true, array_merge($issues, ['alerts' => $alerts]));
+        return $this->apiResponse(__('message.MESSAGE.ATTENTION_METRICS_RETRIEVED'), 200, true, array_merge($issues, ['alerts' => $alerts]));
     }
 
     // Helpers
@@ -372,7 +372,7 @@ class AdminOrderTrackingController extends Controller
         return [
             'total_status_changes' => $history->count(),
             'time_to_complete' => $completedAt && $createdAt
-                ? $createdAt->diffInHours($completedAt) . ' hours'
+                ? trans_choice('message.MESSAGE.ANALYTICS_HOURS', $createdAt->diffInHours($completedAt), ['count' => $createdAt->diffInHours($completedAt)])
                 : null,
             'time_since_creation' => $createdAt?->diffForHumans(),
             'time_in_current_status' => $firstHistory
@@ -401,8 +401,8 @@ class AdminOrderTrackingController extends Controller
                 'type' => 'warning',
                 'priority' => 'medium',
                 'count' => $issues['payment_verification_stuck'],
-                'message' => "{$issues['payment_verification_stuck']} order(s) have pending payment verification for over 30 minutes",
-                'action' => 'Review and manually verify with payment gateway',
+                'message' => __('message.MESSAGE.ATTENTION_VERIFICATION_STUCK', ['count' => $issues['payment_verification_stuck']]),
+                'action' => __('message.MESSAGE.ATTENTION_VERIFICATION_STUCK_ACTION'),
                 'link' => '/admin/orders?payment_status=payment-pending&sort_by=created_at',
             ];
         }
@@ -412,8 +412,8 @@ class AdminOrderTrackingController extends Controller
                 'type' => 'info',
                 'priority' => 'low',
                 'count' => $issues['payment_pending'],
-                'message' => "{$issues['payment_pending']} orders pending payment for over 24 hours",
-                'action' => 'Consider cancellation or follow-up',
+                'message' => __('message.MESSAGE.ATTENTION_PAYMENT_PENDING', ['count' => $issues['payment_pending']]),
+                'action' => __('message.MESSAGE.ATTENTION_PAYMENT_PENDING_ACTION'),
                 'link' => '/admin/orders?status=pending&payment_status=payment-pending',
             ];
         }
@@ -423,8 +423,8 @@ class AdminOrderTrackingController extends Controller
                 'type' => 'warning',
                 'priority' => 'high',
                 'count' => $issues['processing_delayed'],
-                'message' => "{$issues['processing_delayed']} orders stuck in processing for over 48 hours",
-                'action' => 'Review fulfillment pipeline',
+                'message' => __('message.MESSAGE.ATTENTION_PROCESSING_DELAYED', ['count' => $issues['processing_delayed']]),
+                'action' => __('message.MESSAGE.ATTENTION_PROCESSING_DELAYED_ACTION'),
                 'link' => '/admin/orders?status=processing',
             ];
         }

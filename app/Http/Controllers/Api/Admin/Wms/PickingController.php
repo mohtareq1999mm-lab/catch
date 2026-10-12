@@ -80,7 +80,7 @@ class PickingController extends WmsAdminController
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(
-            'Picking tasks fetched successfully.',
+            __('wms.picking.fetched_many'),
             200,
             true,
             PickingTaskResource::collection($query->paginate($perPage))
@@ -98,7 +98,7 @@ class PickingController extends WmsAdminController
         $task->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']);
 
         return $this->apiResponse(
-            'Picking task fetched successfully.',
+            __('wms.picking.fetched_one'),
             200,
             true,
             PickingTaskDetailResource::make($task)
@@ -116,7 +116,7 @@ class PickingController extends WmsAdminController
         $tasks = $this->orderPicking->createTasksForFulfillment($fulfillment);
 
         return $this->apiResponse(
-            'Picking tasks ready.',
+            __('wms.picking.ready'),
             200,
             true,
             PickingTaskResource::collection($tasks)
@@ -134,7 +134,7 @@ class PickingController extends WmsAdminController
         // Terminal tasks refuse with 422 (illegal state); live contention
         // surfaces as 409 from the service below.
         if (!in_array($task->status, ['pending', 'assigned', 'picking'], true)) {
-            $this->unprocessable("Picking task #{$task->id} is terminal (status: {$task->status}): claim refused");
+            $this->unprocessable(__('wms.picking.claim_terminal', ['id' => $task->id, 'status' => $task->status]));
         }
 
         try {
@@ -149,7 +149,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Picking task claimed successfully.',
+            __('wms.picking.claimed'),
             200,
             true,
             PickingTaskDetailResource::make($claimed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
@@ -168,7 +168,7 @@ class PickingController extends WmsAdminController
         // which would wipe claim state off completed work. Terminal tasks
         // refuse here; the service still owns the claimant check.
         if (!in_array($task->status, ['pending', 'assigned', 'picking'], true)) {
-            $this->unprocessable("Picking task #{$task->id} is terminal (status: {$task->status}): release refused");
+            $this->unprocessable(__('wms.picking.release_terminal', ['id' => $task->id, 'status' => $task->status]));
         }
 
         try {
@@ -182,7 +182,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Picking claim released successfully.',
+            __('wms.picking.released'),
             200,
             true,
             PickingTaskDetailResource::make($released->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
@@ -216,7 +216,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Pick confirmed successfully.',
+            __('wms.picking.confirmed'),
             200,
             true,
             PickingTaskDetailResource::make($confirmed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
@@ -247,7 +247,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Pick recorded successfully.',
+            __('wms.picking.recorded'),
             200,
             true,
             PickingTaskDetailResource::make($recorded->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
@@ -271,7 +271,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Picking task skipped successfully.',
+            __('wms.picking.skipped'),
             200,
             true,
             PickingTaskDetailResource::make($skipped->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
@@ -296,7 +296,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Picking task reallocated successfully.',
+            __('wms.picking.reallocated'),
             200,
             true,
             PickingTaskDetailResource::make($moved->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
@@ -323,7 +323,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Fulfillment picking completed successfully.',
+            __('wms.picking.picking_completed'),
             200,
             true,
             FulfillmentDetailResource::make($this->loadFulfillmentDetail($completed->fresh()))
@@ -349,7 +349,7 @@ class PickingController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Placement assigned successfully.',
+            __('wms.picking.placement_assigned'),
             200,
             true,
             FulfillmentItemResource::make($assigned->fresh())

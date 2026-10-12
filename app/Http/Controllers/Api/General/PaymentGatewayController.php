@@ -40,7 +40,7 @@ class PaymentGatewayController extends Controller
      */
     public function index(): JsonResponse
     {
-        return $this->apiResponse('Payment options fetched successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.PAYMENT_OPTIONS_FETCHED'), 200, true, [
             'gateways' => $this->gateways->getPublicView($this->catalog->getCatalogCode()),
             'payment_methods' => [
                 ['code' => 'online', 'display_name' => __('checkout.payment_method_online')],

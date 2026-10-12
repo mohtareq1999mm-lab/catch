@@ -42,7 +42,7 @@ class WarehouseController extends WmsAdminController
         $perPage = min((int) $request->get('limit', 15), 100);
 
         return $this->apiResponse(
-            'Warehouses fetched successfully.',
+            __('wms.warehouse.fetched_many'),
             200,
             true,
             WarehouseResource::collection($query->paginate($perPage))
@@ -58,7 +58,7 @@ class WarehouseController extends WmsAdminController
         $this->authorizeWarehouseScope($warehouse->id, 'view-warehouse', true);
 
         return $this->apiResponse(
-            'Warehouse fetched successfully.',
+            __('wms.warehouse.fetched_one'),
             200,
             true,
             WarehouseResource::make($warehouse)
@@ -79,7 +79,7 @@ class WarehouseController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Warehouse created successfully.',
+            __('wms.warehouse.created'),
             201,
             true,
             WarehouseResource::make($warehouse)
@@ -97,7 +97,7 @@ class WarehouseController extends WmsAdminController
         $warehouse = $this->warehouses->updateDetails($warehouse, $request->validated());
 
         return $this->apiResponse(
-            'Warehouse updated successfully.',
+            __('wms.warehouse.updated'),
             200,
             true,
             WarehouseResource::make($warehouse)
@@ -119,7 +119,7 @@ class WarehouseController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Default warehouse updated successfully.',
+            __('wms.warehouse.default_updated'),
             200,
             true,
             WarehouseResource::make($warehouse)
@@ -137,7 +137,7 @@ class WarehouseController extends WmsAdminController
         $warehouse = $this->warehouses->activate($warehouse->id);
 
         return $this->apiResponse(
-            'Warehouse activated successfully.',
+            __('wms.warehouse.activated'),
             200,
             true,
             WarehouseResource::make($warehouse)
@@ -159,7 +159,7 @@ class WarehouseController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Warehouse deactivated successfully.',
+            __('wms.warehouse.deactivated'),
             200,
             true,
             WarehouseResource::make($warehouse)
@@ -180,6 +180,6 @@ class WarehouseController extends WmsAdminController
             $this->unprocessable($e->getMessage());
         }
 
-        return $this->apiResponse('Warehouse archived successfully.', 200, true);
+        return $this->apiResponse(__('message.MESSAGE.WAREHOUSE_ARCHIVED'), 200, true);
     }
 }

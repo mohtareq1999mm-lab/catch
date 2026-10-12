@@ -34,7 +34,7 @@ class FulfillmentTransition
 
             if (!$locked->canTransitionTo($to)) {
                 throw new \RuntimeException(
-                    "Invalid fulfillment transition from {$from} to {$to} (fulfillment #{$locked->id})"
+                    __('wms.fulfillment.invalid_transition', ['from' => $from, 'to' => $to, 'id' => $locked->id])
                 );
             }
 

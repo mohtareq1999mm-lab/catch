@@ -41,7 +41,7 @@ class PaymentGatewaySettingsController extends Controller
             return $row;
         }, $this->gateways->getAdminView());
 
-        return $this->apiResponse('Payment gateways fetched successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.PAYMENT_GATEWAYS_FETCHED'), 200, true, [
             'catalog_currency' => $catalogCode,
             'gateways' => $gateways,
         ]);
@@ -59,7 +59,7 @@ class PaymentGatewaySettingsController extends Controller
         $before = $this->gateways->adminRow($code);
 
         if ($before === null) {
-            return $this->apiResponse('Payment gateway not found.', 404, false);
+            return $this->apiResponse(__('message.ERROR.PAYMENT_GATEWAY_NOT_FOUND'), 404, false);
         }
 
         $row = $this->gateways->updateOverride($code, $request->validated());
@@ -79,6 +79,6 @@ class PaymentGatewaySettingsController extends Controller
             context: ['gateway' => $code, 'source' => 'admin-api'],
         ));
 
-        return $this->apiResponse('Payment gateway updated successfully.', 200, true, $row);
+        return $this->apiResponse(__('message.MESSAGE.PAYMENT_GATEWAY_UPDATED'), 200, true, $row);
     }
 }

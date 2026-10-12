@@ -12,7 +12,9 @@ class PickingValidationException extends \RuntimeException
      */
     public function __construct(string $reason, array $context = [])
     {
-        parent::__construct("Picking validation failed: {$reason}");
+        // The reason is a stable machine code (wrong_product, …); only the
+        // surrounding sentence is translated.
+        parent::__construct(__('wms.picking.validation_failed', ['reason' => $reason]));
         $this->context = array_merge(['reason' => $reason], $context);
     }
 }

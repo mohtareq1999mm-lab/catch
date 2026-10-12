@@ -58,7 +58,7 @@ class ShipmentController extends WmsAdminController
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(
-            'Shipments fetched successfully.',
+            __('wms.shipment.fetched_many'),
             200,
             true,
             ShipmentResource::collection($query->paginate($perPage))
@@ -74,7 +74,7 @@ class ShipmentController extends WmsAdminController
         $this->authorizeWarehouseScope($this->shipmentWarehouseId($shipment), 'view-shipment', true);
 
         return $this->apiResponse(
-            'Shipment fetched successfully.',
+            __('wms.shipment.fetched_one'),
             200,
             true,
             ShipmentDetailResource::make($shipment)
@@ -114,16 +114,15 @@ class ShipmentController extends WmsAdminController
                 $data,
                 $key
             );
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            // One-active-shipment / key-reuse contention → 409 (typed).
+            $this->conflict($e->getMessage());
         } catch (\RuntimeException $e) {
-            if (str_contains($e->getMessage(), 'already has an active shipment')
-                || str_contains($e->getMessage(), 'already bound to shipment')) {
-                $this->conflict($e->getMessage());
-            }
             $this->unprocessable($e->getMessage());
         }
 
         return $this->apiResponse(
-            $replay ? 'Shipment already exists for this idempotency key.' : 'Shipment created successfully.',
+            $replay ? __('wms.shipment.replay_exists') : __('wms.shipment.created'),
             $replay ? 200 : 201,
             true,
             ShipmentDetailResource::make($shipment->fresh())
@@ -149,7 +148,7 @@ class ShipmentController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Shipment dispatched successfully.',
+            __('wms.shipment.dispatched'),
             200,
             true,
             ShipmentDetailResource::make($dispatched->fresh())
@@ -175,7 +174,7 @@ class ShipmentController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Shipment delivered successfully.',
+            __('wms.shipment.delivered'),
             200,
             true,
             ShipmentDetailResource::make($delivered->fresh())
@@ -207,7 +206,7 @@ class ShipmentController extends WmsAdminController
         }
 
         return $this->apiResponse(
-            'Shipment cancelled successfully.',
+            __('wms.shipment.cancelled'),
             200,
             true,
             ShipmentDetailResource::make($cancelled->fresh())

@@ -271,7 +271,7 @@ class OrderService
             $minimumOrderAmount = (float) (Settings::first()?->minimum_order_amount ?? 0);
             if ($minimumOrderAmount > 0 && $checkoutTotals->subtotal < $minimumOrderAmount) {
                 throw new \InvalidArgumentException(
-                    __('Minimum order amount is :amount', ['amount' => $minimumOrderAmount])
+                    __('message.ERROR.MINIMUM_ORDER_AMOUNT', ['amount' => $minimumOrderAmount])
                 );
             }
 
@@ -312,6 +312,21 @@ class OrderService
                 );
                 if ($requestedShippingType !== $storedShippingType) {
                     throw new \InvalidArgumentException(__('checkout.pending_order_shipping_type_conflict'));
+                }
+
+                // Multi-flow: a retry explicitly selecting a DIFFERENT flow
+                // than the pending order's stored flow_id fails closed (422)
+                // instead of silently keeping the old flow. No explicit
+                // selection reuses the stored flow (unchanged behavior).
+                $retryFlowId = $request->input('flow_id') !== null ? (int) $request->input('flow_id') : null;
+                $retryFlowCode = is_string($request->input('flow_code')) ? $request->input('flow_code') : null;
+                if ($retryFlowId !== null || ($retryFlowCode !== null && trim($retryFlowCode) !== '')) {
+                    $retryFlow = app(\App\Services\OrderFlow\OrderFlowService::class)->resolveCheckoutFlow(
+                        $request->input('shipping_type'), $retryFlowCode, $retryFlowId
+                    );
+                    if ($pendingOrder->flow_id && (int) $pendingOrder->flow_id !== (int) $retryFlow->id) {
+                        throw new \InvalidArgumentException(__('checkout.flow_mismatch'));
+                    }
                 }
 
                 // Phase 3 addendum: a pending order whose inventory is
@@ -355,7 +370,7 @@ class OrderService
 
                     // Sync order items with current cart
                     if (!$this->orderCreationService->syncOrderItems($order, $cart, $checkoutTotals->giftItems, $checkoutTotals)) {
-                        throw new \RuntimeException('Order item sync failed.');
+                        throw new \RuntimeException(__('message.MESSAGE.ORDER_ITEM_SYNC_FAILED'));
                     }
                 }
             }
@@ -378,23 +393,37 @@ class OrderService
                     throw new \InvalidArgumentException(__('checkout.flow_values_must_be_object'));
                 }
                 $validatedCheckoutValues = [];
+                $checkoutFlowId = $request->input('flow_id') !== null ? (int) $request->input('flow_id') : null;
+                $checkoutFlowCode = is_string($request->input('flow_code')) ? $request->input('flow_code') : null;
                 if (\App\Services\OrderFlow\OrderFlowService::orderFlowColumnsAvailable()) {
-                    $checkoutFlow = $flowService->resolveFlowForShippingType($request->input('shipping_type'));
+                    $checkoutFlow = $flowService->resolveCheckoutFlow(
+                        $request->input('shipping_type'),
+                        $checkoutFlowCode,
+                        $checkoutFlowId
+                    );
                     $validatedCheckoutValues = $flowService->validateFlowValues($checkoutFlow, $checkoutFlowValues, 'checkout');
+                    // Pin the validated flow: creation binds this exact flow id,
+                    // so a concurrent default-switch cannot re-route the order
+                    // after its inputs were validated (TOCTOU fail-closed: a
+                    // concurrent deactivation still aborts creation).
+                    $checkoutFlowId = (int) $checkoutFlow->id;
+                    $checkoutFlowCode = null;
                 }
                 $order = $this->orderCreationService->createOrder(
                     $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
                     $request->input('shipping_type'),
+                    $checkoutFlowId,
+                    $checkoutFlowCode,
                 );
                 if (!$order) {
-                    throw new \RuntimeException('Order creation failed.');
+                    throw new \RuntimeException(__('message.MESSAGE.ORDER_CREATION_FAILED'));
                 }
                 if (!empty($validatedCheckoutValues)) {
                     $flowService->persistValidatedValues($order, $validatedCheckoutValues, 'checkout');
                     $order->refresh();
                 }
                 if (!$this->orderCreationService->createOrderItems($order, $cart, $checkoutTotals->giftItems, $checkoutTotals)) {
-                    throw new \RuntimeException('Order item creation failed.');
+                    throw new \RuntimeException(__('message.MESSAGE.ORDER_ITEM_CREATION_FAILED'));
                 }
             }
 
@@ -1026,7 +1055,7 @@ class OrderService
                     }
                     if ($auditReason === null || trim($auditReason) === '') {
                         throw new \RuntimeException(
-                            'A reason is required to force-deliver an order'
+                            __('message.ERROR.FORCE_DELIVER_REASON_REQUIRED')
                         );
                     }
                     $auditContext = array_merge($auditContext ?? [], [
@@ -1041,7 +1070,7 @@ class OrderService
                     ]);
                 } elseif (!$this->orderSatisfiesDeliveryCompletion($order)) {
                     throw new \RuntimeException(
-                        'Order cannot transition to delivered: payment must be successful and every fulfillment delivered'
+                        __('message.ERROR.DELIVER_TRANSITION_BLOCKED')
                     );
                 }
             }
@@ -1827,7 +1856,9 @@ class OrderService
         }
         $activeCount = Product::query()->active()->whereIn('id', $productIds)->count();
         if ($activeCount !== $productIds->count()) {
-            throw new \InvalidArgumentException(__('product.not_available'));
+            // NOTE: __('product.not_available') has no product.php catalogue
+            // and would leak as a raw key — the cart-level sentence is used.
+            throw new \InvalidArgumentException(__('checkout.fast_shipping_items_ineligible'));
         }
     }
 }

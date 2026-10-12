@@ -42,9 +42,10 @@ class OrderFlowUpsertRequest extends FormRequest
                 'string',
                 'max:30',
                 // Controlled business discriminator: exactly local|international.
+                // Multi-flow (2026_10_12): the type is a SHARED category, not a
+                // unique identity — uniqueness lives on `code`. Duplicate types
+                // across flows are allowed by design.
                 Rule::in(OrderFlowService::SUPPORTED_SHIPPING_TYPES),
-                // One flow row per shipping_type: the type IS the mapping.
-                Rule::unique('order_flows', 'shipping_type')->ignore($flowId),
             ],
             'is_default' => ['sometimes', 'required', 'boolean'],
             'is_active' => ['sometimes', 'required', 'boolean'],

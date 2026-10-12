@@ -316,7 +316,13 @@ class OrderStatusFlowTest extends TestCase
         $this->adminPut("/api/v1/admin/order-flows/{$flow->id}", ['status_ids' => $ids])->assertStatus(422);
     }
 
-    public function test_second_flow_for_same_shipping_type_rejected(): void
+    /**
+     * Multi-flow (2026_10_12): shipping_type is a SHARED controlled category.
+     * A second flow with the same supported type coexists; stable identity is
+     * the UNIQUE `code`. Duplicate codes remain rejected (see
+     * MultiFlowPerTypeTest for the full matrix).
+     */
+    public function test_second_flow_for_same_shipping_type_allowed(): void
     {
         $resp = $this->adminPost('/api/v1/admin/order-flows', [
             'code' => 'local-two',
@@ -325,7 +331,10 @@ class OrderStatusFlowTest extends TestCase
             'status_ids' => [$this->statusId('pending'), $this->statusId('delivered')],
         ]);
 
-        $resp->assertStatus(422);
+        $resp->assertStatus(201);
+        $this->assertSame('local-two', $resp->json('data.code'));
+        $this->assertSame('local', $resp->json('data.shipping_type'));
+        $this->assertSame(2, OrderFlow::query()->where('shipping_type', 'local')->count());
     }
 
     // -----------------------------------------------------------------

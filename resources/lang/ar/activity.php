@@ -108,4 +108,7 @@ return [
     'import_completed' => 'اكتمل استيراد المنتجات',
     'import_failed' => 'فشل استيراد المنتجات',
     'import_rolled_back' => 'تم التراجع عن استيراد المنتجات',
+    'stock_transferred' => 'تم نقل المخزون للمنتج #:id',
+    'stock_received' => 'تم استلام المخزون للمنتج #:id',
+    'stock_placed' => 'تم تموضع المخزون الأولي للمنتج #:id',
 ];

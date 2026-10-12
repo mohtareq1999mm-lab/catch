@@ -30,7 +30,7 @@ class WarehouseService
             $warehouse = Warehouse::withTrashed()->whereKey($warehouseId)->firstOrFail();
             if ($warehouse->trashed()) {
                 throw new \RuntimeException(
-                    "Warehouse #{$warehouse->id} ({$warehouse->code}) is deleted: cannot create new fulfillment"
+                    __('wms.warehouse.deleted', ['id' => $warehouse->id, 'code' => $warehouse->code])
                 );
             }
             $this->assertActive($warehouse);
@@ -42,7 +42,7 @@ class WarehouseService
         // default is never the effective default (exactly-one-ACTIVE-default).
         $warehouse = Warehouse::where('is_default', true)->orderBy('id')->first();
         if (!$warehouse) {
-            throw new \RuntimeException('No default warehouse configured');
+            throw new \RuntimeException(__('wms.warehouse.no_default'));
         }
         $this->assertActive($warehouse);
 
@@ -56,7 +56,7 @@ class WarehouseService
     {
         if ($warehouse->status !== 'active') {
             throw new \RuntimeException(
-                "Warehouse #{$warehouse->id} ({$warehouse->code}) is not active: cannot create new fulfillment"
+                __('wms.warehouse.inactive', ['id' => $warehouse->id, 'code' => $warehouse->code])
             );
         }
     }
@@ -97,15 +97,15 @@ class WarehouseService
         return DB::transaction(function () use ($data) {
             $code = trim((string) ($data['code'] ?? ''));
             if ($code === '') {
-                throw new \RuntimeException('Warehouse code is required');
+                throw new \RuntimeException(__('wms.warehouse.code_required'));
             }
             if (Warehouse::withTrashed()->where('code', $code)->exists()) {
-                throw new \RuntimeException("Warehouse code {$code} already exists");
+                throw new \RuntimeException(__('wms.warehouse.code_exists', ['code' => $code]));
             }
 
             $status = $data['status'] ?? 'active';
             if (!in_array($status, ['active', 'inactive'], true)) {
-                throw new \RuntimeException("Invalid warehouse status {$status}");
+                throw new \RuntimeException(__('wms.warehouse.invalid_status', ['status' => $status]));
             }
 
             $warehouse = Warehouse::create([
@@ -209,7 +209,7 @@ class WarehouseService
 
             if ((bool) $warehouse->is_default) {
                 throw new \RuntimeException(
-                    "Cannot deactivate default warehouse #{$warehouse->id} ({$warehouse->code}): promote another active warehouse first"
+                    __('wms.warehouse.deactivate_default', ['id' => $warehouse->id, 'code' => $warehouse->code])
                 );
             }
 

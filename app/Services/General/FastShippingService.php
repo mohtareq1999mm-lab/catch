@@ -62,18 +62,18 @@ class FastShippingService
         $cart = $this->cartInventoryService->getActiveCartForUser($user);
 
         if (!$cart || !$cart->items()->exists()) {
-            throw new \InvalidArgumentException('Cart is empty.');
+            throw new \InvalidArgumentException(__('checkout.cart_empty'));
         }
 
         $governorate = Governorate::query()->find($request->input('governorate_id'));
         if (!$governorate) {
-            throw new \InvalidArgumentException('Governorate not found.');
+            throw new \InvalidArgumentException(__('checkout.governorate_not_found'));
         }
 
         $cart->load(['items' => fn($q) => $q->where('shipping_method', ShippingMethod::FAST), 'items.product', 'items.productVariant']);
 
         if ($cart->items->isEmpty()) {
-            throw new \InvalidArgumentException('No fast shipping items in cart.');
+            throw new \InvalidArgumentException(__('checkout.fast_shipping_no_items'));
         }
 
         $errors = $this->fastShippingRepo->validateCheckout($governorate, $cart->items);
@@ -94,7 +94,7 @@ class FastShippingService
 
             if (!$cart || $cart->items->isEmpty()) {
                 DB::rollBack();
-                throw new \InvalidArgumentException('Cart is empty.');
+                throw new \InvalidArgumentException(__('checkout.cart_empty'));
             }
 
             $this->assertCartProductsActive($cart);
@@ -309,7 +309,9 @@ class FastShippingService
         }
         $activeCount = \Marvel\Database\Models\Product::query()->active()->whereIn('id', $productIds)->count();
         if ($activeCount !== $productIds->count()) {
-            throw new \InvalidArgumentException(__('product.not_available'));
+            // NOTE: __('product.not_available') has no product.php catalogue
+            // and would leak as a raw key — the cart-level sentence is used.
+            throw new \InvalidArgumentException(__('checkout.fast_shipping_items_ineligible'));
         }
     }
 }

@@ -110,8 +110,7 @@ class ProductLocationService
 
         if ($remaining > 0) {
             throw new \Exception(
-                "Insufficient stock in locations. Required: $requiredQuantity, Found: " .
-                ($requiredQuantity - $remaining)
+                __('wms.placement.insufficient', ['required' => $requiredQuantity, 'found' => ($requiredQuantity - $remaining)])
             );
         }
 
@@ -138,7 +137,7 @@ class ProductLocationService
 
         if ($locationWarehouse !== null && (int) $locationWarehouse !== (int) $productLocation->warehouse_id) {
             throw new \RuntimeException(
-                "PLACEMENT_MISMATCH: product placement #{$productLocation->id} warehouse {$productLocation->warehouse_id} != location warehouse {$locationWarehouse}"
+                __('wms.placement.mismatch', ['id' => $productLocation->id, 'warehouse' => $productLocation->warehouse_id, 'location' => $locationWarehouse])
             );
         }
     }
@@ -157,12 +156,12 @@ class ProductLocationService
             $newQuantity = $productLocation->quantity + $delta;
 
             if ($newQuantity < 0) {
-                throw new \Exception("Cannot reduce quantity below zero");
+                throw new \Exception(__('wms.placement.negative'));
             }
 
             if ($newQuantity < $productLocation->allocated_hint) {
                 throw new \Exception(
-                    "Cannot reduce quantity below allocated hint ({$productLocation->allocated_hint})"
+                    __('wms.placement.below_hint', ['hint' => $productLocation->allocated_hint])
                 );
             }
 

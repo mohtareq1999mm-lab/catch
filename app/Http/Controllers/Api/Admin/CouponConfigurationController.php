@@ -69,14 +69,14 @@ class CouponConfigurationController extends Controller
             if ($maxUsesPerUser > 1) {
                 $errors[] = [
                     'field' => 'max_uses_per_user',
-                    'message' => 'Public coupons only support single use per customer.',
+                    'message' => __('message.MESSAGE.COUPON_CONFIG_PUBLIC_SINGLE_USE'),
                 ];
             }
 
             $limiterDisplay = $limiter ?? 'unlimited';
             $recommendations[] = [
-                'title' => 'Public Coupon Behavior',
-                'description' => "Each customer can redeem this coupon exactly once. Global capacity: {$limiterDisplay} total redemptions across all customers.",
+                'title' => __('message.MESSAGE.COUPON_CONFIG_PUBLIC_BEHAVIOR_TITLE'),
+                'description' => __('message.MESSAGE.COUPON_CONFIG_PUBLIC_BEHAVIOR_DESC', ['capacity' => $limiterDisplay]),
             ];
         }
 
@@ -84,15 +84,15 @@ class CouponConfigurationController extends Controller
         if ($couponType === 'assigned') {
             if ($maxUsesPerUser > 1) {
                 $recommendations[] = [
-                    'title' => 'Multi-Use Configuration',
-                    'description' => "Each assigned customer can redeem this coupon up to {$maxUsesPerUser} times. You must create coupon assignments with max_uses={$maxUsesPerUser} for each eligible customer.",
+                    'title' => __('message.MESSAGE.COUPON_CONFIG_MULTI_USE_TITLE'),
+                    'description' => __('message.MESSAGE.COUPON_CONFIG_MULTI_USE_DESC', ['maxUses' => $maxUsesPerUser]),
                 ];
             }
 
             if (!$limiter) {
                 $warnings[] = [
                     'field' => 'limiter',
-                    'message' => 'No global limiter set. Coupon can be used unlimited times (only limited by assignments).',
+                    'message' => __('message.MESSAGE.COUPON_CONFIG_NO_LIMITER'),
                 ];
             }
         }
@@ -102,12 +102,12 @@ class CouponConfigurationController extends Controller
             if ($limiter > 1000) {
                 $warnings[] = [
                     'field' => 'limiter',
-                    'message' => "High global limit ({$limiter}). This allows {$limiter} different customers to redeem (1 per customer).",
+                    'message' => __('message.MESSAGE.COUPON_CONFIG_HIGH_LIMIT', ['limiter' => $limiter]),
                 ];
             }
         }
 
-        return $this->apiResponse('Validation completed.', 200, empty($errors), [
+        return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_VALIDATION_COMPLETED'), 200, empty($errors), [
             'valid' => empty($errors),
             'errors' => $errors,
             'warnings' => $warnings,
@@ -143,7 +143,7 @@ class CouponConfigurationController extends Controller
             ];
         }
 
-        return $this->apiResponse('Usage info retrieved.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_USAGE_RETRIEVED'), 200, true, [
             'coupon_code' => $coupon->code,
             'coupon_type' => $isPublic ? 'public' : 'assigned',
             'usage_model' => $coupon->getUsageDescription(),
@@ -174,7 +174,7 @@ class CouponConfigurationController extends Controller
         $desiredBehavior = $request->input('desired_behavior'); // 'multi_use_per_user' or 'single_use_per_user'
 
         if (! in_array($desiredBehavior, ['multi_use_per_user', 'single_use_per_user'], true)) {
-            return $this->apiResponse('Invalid desired behavior.', 400, false, [
+            return $this->apiResponse(__('message.ERROR.COUPON_CONFIG_INVALID_BEHAVIOR'), 400, false, [
                 'allowed_values' => ['multi_use_per_user', 'single_use_per_user'],
             ]);
         }
@@ -190,30 +190,30 @@ class CouponConfigurationController extends Controller
                 // (CouponValidator already_used via coupon_usages), so
                 // per-customer limits require customer assignments.
                 // Creating the first assignment converts public → assigned.
-                return $this->apiResponse('Suggestion generated.', 200, true, [
-                    'current_state' => 'This coupon is currently public and has no customer assignments. Public coupons allow one use per customer.',
+                return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_SUGGESTION'), 200, true, [
+                    'current_state' => __('message.MESSAGE.COUPON_GUIDE_PUBLIC_NO_ASSIGN'),
                     'recommended_action' => 'convert_to_assigned',
-                    'summary' => 'To give each customer an individual usage limit, the coupon must use customer-specific assignments.',
+                    'summary' => __('message.MESSAGE.COUPON_GUIDE_SUMMARY_INDIVIDUAL_LIMIT'),
                     'steps' => [
-                        'Select the customers who should receive this coupon.',
-                        'Create a coupon assignment for each selected customer.',
-                        'Set the maximum number of uses for each customer.',
-                        'Verify that the assignments are active and check their expiration settings.',
-                        'The selected customers can then use the coupon up to their individual limit.',
+                        __('message.MESSAGE.COUPON_GUIDE_STEP_SELECT_CUSTOMERS'),
+                        __('message.MESSAGE.COUPON_GUIDE_STEP_CREATE_ASSIGNMENT'),
+                        __('message.MESSAGE.COUPON_GUIDE_STEP_SET_MAX_USES'),
+                        __('message.MESSAGE.COUPON_GUIDE_STEP_VERIFY_ACTIVE'),
+                        __('message.MESSAGE.COUPON_GUIDE_STEP_INDIVIDUAL_LIMIT'),
                     ],
-                    'expected_result' => 'Each assigned customer receives an independent usage limit.',
+                    'expected_result' => __('message.MESSAGE.COUPON_GUIDE_RESULT_INDEPENDENT_LIMIT'),
                     'warnings' => array_merge([
-                        'Creating the first assignment converts this coupon from public to assigned. Customers who are not assigned will no longer be able to use it.',
-                        'Past public usage history is preserved and still counts against returning customers.',
+                        __('message.MESSAGE.COUPON_GUIDE_WARN_CONVERTS'),
+                        __('message.MESSAGE.COUPON_GUIDE_WARN_HISTORY_KEPT'),
                     ], $warnings),
                     'available_actions' => [
                         [
-                            'label' => 'Create coupon assignment',
+                            'label' => __('message.MESSAGE.COUPON_GUIDE_LABEL_CREATE'),
                             'method' => 'POST',
                             'path' => "/api/v1/coupons/{$coupon->getKey()}/assignments",
                         ],
                         [
-                            'label' => 'List coupon assignments',
+                            'label' => __('message.MESSAGE.COUPON_GUIDE_LABEL_LIST'),
                             'method' => 'GET',
                             'path' => "/api/v1/coupons/{$coupon->getKey()}/assignments",
                         ],
@@ -222,41 +222,41 @@ class CouponConfigurationController extends Controller
             }
 
             if ($currentMaxUses > 1) {
-                return $this->apiResponse('Suggestion generated.', 200, true, [
-                    'current_state' => "This coupon is already configured with up to {$currentMaxUses} uses per customer.",
+                return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_SUGGESTION'), 200, true, [
+                    'current_state' => __('message.MESSAGE.COUPON_GUIDE_ALREADY_MULTI', ['maxUses' => $currentMaxUses]),
                     'recommended_action' => 'no_change_needed',
-                    'summary' => 'The current configuration already supports the requested behavior.',
+                    'summary' => __('message.MESSAGE.COUPON_GUIDE_SUMMARY_ALREADY_OK'),
                     'steps' => [],
-                    'expected_result' => 'Each assigned customer can use the coupon according to their configured usage limit.',
+                    'expected_result' => __('message.MESSAGE.COUPON_GUIDE_RESULT_CONFIGURED_LIMIT'),
                     'warnings' => $warnings,
                     'available_actions' => [],
                 ]);
             }
 
-            return $this->apiResponse('Suggestion generated.', 200, true, [
-                'current_state' => 'The current assignments allow one use per customer.',
+            return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_SUGGESTION'), 200, true, [
+                'current_state' => __('message.MESSAGE.COUPON_GUIDE_SINGLE_ASSIGN'),
                 'recommended_action' => 'update_assignments',
-                'summary' => 'Raise the per-customer usage limit on the existing assignments.',
+                'summary' => __('message.MESSAGE.COUPON_GUIDE_SUMMARY_RAISE_LIMIT'),
                 'steps' => [
-                    'Open the coupon customer assignments list.',
-                    'Select the assignments that should support multiple uses.',
-                    'Increase the maximum allowed uses for each selected customer.',
-                    'Save the changes for each assignment.',
-                    'Verify the updated usage limits.',
+                    __('message.MESSAGE.COUPON_GUIDE_STEP_OPEN_LIST'),
+                    __('message.MESSAGE.COUPON_GUIDE_STEP_SELECT_MULTI'),
+                    __('message.MESSAGE.COUPON_GUIDE_STEP_INCREASE_LIMIT'),
+                    __('message.MESSAGE.COUPON_GUIDE_STEP_SAVE_CHANGES'),
+                    __('message.MESSAGE.COUPON_GUIDE_STEP_VERIFY_LIMITS'),
                 ],
-                'expected_result' => 'The selected customers can use the coupon multiple times, up to their configured limit.',
+                'expected_result' => __('message.MESSAGE.COUPON_GUIDE_RESULT_MULTI_LIMIT'),
                 'warnings' => array_merge([
-                    'Assignments can only be updated one at a time; there is no bulk update. No automatic change was made.',
-                    'Raising the limit never revokes past uses.',
+                    __('message.MESSAGE.COUPON_GUIDE_WARN_ONE_AT_A_TIME'),
+                    __('message.MESSAGE.COUPON_GUIDE_WARN_NO_REVOKE'),
                 ], $warnings),
                 'available_actions' => [
                     [
-                        'label' => 'List coupon assignments',
+                        'label' => __('message.MESSAGE.COUPON_GUIDE_LABEL_LIST'),
                         'method' => 'GET',
                         'path' => "/api/v1/coupons/{$coupon->getKey()}/assignments",
                     ],
                     [
-                        'label' => 'Update coupon assignment',
+                        'label' => __('message.MESSAGE.COUPON_GUIDE_LABEL_UPDATE'),
                         'method' => 'PUT',
                         'path' => "/api/v1/coupons/{$coupon->getKey()}/assignments/{assignmentId}",
                     ],
@@ -267,24 +267,24 @@ class CouponConfigurationController extends Controller
         // single_use_per_user: public coupons already enforce one use per
         // customer via the prior-use check, so nothing needs to change.
         if ($isPublic) {
-            return $this->apiResponse('Suggestion generated.', 200, true, [
-                'current_state' => 'This coupon is public and already limited to one use per customer.',
+            return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_SUGGESTION'), 200, true, [
+                'current_state' => __('message.MESSAGE.COUPON_GUIDE_PUBLIC_SINGLE'),
                 'recommended_action' => 'no_change_needed',
-                'summary' => 'The coupon already supports the requested single-use behavior.',
+                'summary' => __('message.MESSAGE.COUPON_GUIDE_SUMMARY_ALREADY_SINGLE'),
                 'steps' => [],
-                'expected_result' => 'Each customer can use the coupon once.',
+                'expected_result' => __('message.MESSAGE.COUPON_GUIDE_RESULT_ONCE'),
                 'warnings' => $warnings,
                 'available_actions' => [],
             ]);
         }
 
         if ($currentMaxUses <= 1) {
-            return $this->apiResponse('Suggestion generated.', 200, true, [
-                'current_state' => 'The current assignments already allow one use per customer.',
+            return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_SUGGESTION'), 200, true, [
+                'current_state' => __('message.MESSAGE.COUPON_GUIDE_ALREADY_SINGLE'),
                 'recommended_action' => 'no_change_needed',
-                'summary' => 'The coupon already supports the requested single-use behavior.',
+                'summary' => __('message.MESSAGE.COUPON_GUIDE_SUMMARY_ALREADY_SINGLE'),
                 'steps' => [],
-                'expected_result' => 'Each assigned customer can use the coupon once.',
+                'expected_result' => __('message.MESSAGE.COUPON_GUIDE_RESULT_ASSIGNED_ONCE'),
                 'warnings' => $warnings,
                 'available_actions' => [],
             ]);
@@ -294,31 +294,31 @@ class CouponConfigurationController extends Controller
         // Removal is deliberately NOT recommended: deleting assignments
         // affects eligibility, claim state, usage history, and prior
         // notifications, and is never equivalent to a limit change.
-        return $this->apiResponse('Suggestion generated.', 200, true, [
-            'current_state' => "The current assignments allow up to {$currentMaxUses} uses per customer.",
+        return $this->apiResponse(__('message.MESSAGE.COUPON_CONFIG_SUGGESTION'), 200, true, [
+            'current_state' => __('message.MESSAGE.COUPON_GUIDE_MULTI_ASSIGN', ['maxUses' => $currentMaxUses]),
             'recommended_action' => 'update_assignments',
-            'summary' => 'Lower the per-customer usage limit on the existing assignments to one.',
+            'summary' => __('message.MESSAGE.COUPON_GUIDE_SUMMARY_LOWER_LIMIT'),
             'steps' => [
-                'Open the coupon customer assignments list.',
-                'Select the assignments that should be limited to a single use.',
-                'Set the maximum allowed uses to one for each selected customer.',
-                'Save the changes for each assignment.',
-                'Verify that each customer now has a one-use limit.',
+                __('message.MESSAGE.COUPON_GUIDE_STEP_OPEN_LIST'),
+                __('message.MESSAGE.COUPON_GUIDE_STEP_SELECT_SINGLE'),
+                __('message.MESSAGE.COUPON_GUIDE_STEP_SET_ONE'),
+                __('message.MESSAGE.COUPON_GUIDE_STEP_SAVE_CHANGES'),
+                __('message.MESSAGE.COUPON_GUIDE_STEP_VERIFY_ONE'),
             ],
-            'expected_result' => 'The selected customers can use the coupon once.',
+            'expected_result' => __('message.MESSAGE.COUPON_GUIDE_RESULT_SELECTED_ONCE'),
             'warnings' => array_merge([
-                'Assignments can only be updated one at a time; there is no bulk update. No automatic change was made.',
-                'The limit cannot be set below a customer already-recorded uses.',
-                'Past usage history is preserved; customers who already used the coupon keep their history but cannot use it again.',
+                __('message.MESSAGE.COUPON_GUIDE_WARN_ONE_AT_A_TIME'),
+                __('message.MESSAGE.COUPON_GUIDE_WARN_MIN_LIMIT'),
+                __('message.MESSAGE.COUPON_GUIDE_WARN_HISTORY_PRESERVED'),
             ], $warnings),
             'available_actions' => [
                 [
-                    'label' => 'List coupon assignments',
+                    'label' => __('message.MESSAGE.COUPON_GUIDE_LABEL_LIST'),
                     'method' => 'GET',
                     'path' => "/api/v1/coupons/{$coupon->getKey()}/assignments",
                 ],
                 [
-                    'label' => 'Update coupon assignment',
+                    'label' => __('message.MESSAGE.COUPON_GUIDE_LABEL_UPDATE'),
                     'method' => 'PUT',
                     'path' => "/api/v1/coupons/{$coupon->getKey()}/assignments/{assignmentId}",
                 ],
@@ -355,11 +355,11 @@ class CouponConfigurationController extends Controller
         $warnings = [];
 
         if ($targeting && (bool) ($targeting->require_claim ?? false)) {
-            $warnings[] = 'Customers may need to claim the coupon before they can use it, depending on the coupon claim configuration. Changing usage limits does not change the claim requirement.';
+            $warnings[] = __('message.MESSAGE.COUPON_GUIDE_WARN_CLAIM');
         }
 
         if ($targeting && ($targeting->mode ?? null) === 'dynamic') {
-            $warnings[] = 'This coupon uses dynamic targeting, which is evaluated independently of assignments. Per-customer assignment limits only take effect for targeting modes that honor assignments; changing the targeting mode is a separate admin action.';
+            $warnings[] = __('message.MESSAGE.COUPON_GUIDE_WARN_DYNAMIC');
         }
 
         return $warnings;

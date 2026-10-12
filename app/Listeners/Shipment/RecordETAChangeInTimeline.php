@@ -19,8 +19,12 @@ class RecordETAChangeInTimeline
                 : 0;
 
             $metadata = [
-                'old_eta' => $event->oldEta?->toIso8601String(),
-                'new_eta' => $event->newEta->toIso8601String(),
+                'old_eta' => $event->oldEta instanceof \DateTimeInterface
+                    ? (method_exists($event->oldEta, 'toIso8601String') ? $event->oldEta->toIso8601String() : $event->oldEta->format(\DateTimeInterface::ATOM))
+                    : null,
+                'new_eta' => $event->newEta instanceof \DateTimeInterface
+                    ? (method_exists($event->newEta, 'toIso8601String') ? $event->newEta->toIso8601String() : $event->newEta->format(\DateTimeInterface::ATOM))
+                    : null,
                 'reason' => $event->reason,
                 'is_delayed' => $isDelayed,
                 'delay_days' => $delayDays,

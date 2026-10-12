@@ -21,7 +21,7 @@ class NotificationPreferencesController extends Controller
     {
         $preferences = UserNotificationPreference::forUser($request->user()->id);
 
-        return $this->apiResponse('Preferences retrieved.', 200, true, $preferences);
+        return $this->apiResponse(__('message.MESSAGE.NOTIF_PREFS_RETRIEVED'), 200, true, $preferences);
     }
 
     public function update(Request $request)
@@ -41,7 +41,7 @@ class NotificationPreferencesController extends Controller
         $preferences = UserNotificationPreference::forUser($request->user()->id);
         $preferences->update($validated);
 
-        return $this->apiResponse('Notification preferences updated', 200, true, $preferences->fresh());
+        return $this->apiResponse(__('message.MESSAGE.NOTIF_PREFS_UPDATED'), 200, true, $preferences->fresh());
     }
 
     public function registerDevice(Request $request)
@@ -71,7 +71,7 @@ class NotificationPreferencesController extends Controller
             ]
         );
 
-        return $this->apiResponse('Device registered successfully', 200, true, $device);
+        return $this->apiResponse(__('message.MESSAGE.DEVICE_REGISTERED'), 200, true, $device);
     }
 
     public function unregisterDevice(Request $request, int $deviceId)
@@ -81,12 +81,12 @@ class NotificationPreferencesController extends Controller
             ->first();
 
         if (!$device) {
-            return $this->apiResponse('Device not found.', 404, false);
+            return $this->apiResponse(__('message.ERROR.DEVICE_NOT_FOUND'), 404, false);
         }
 
         $device->deactivate();
 
-        return $this->apiResponse('Device unregistered', 200, true);
+        return $this->apiResponse(__('message.MESSAGE.DEVICE_UNREGISTERED'), 200, true);
     }
 
     public function notificationHistory(Request $request)
@@ -98,6 +98,6 @@ class NotificationPreferencesController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
-        return $this->apiResponse('Notification history retrieved.', 200, true, $notifications);
+        return $this->apiResponse(__('message.MESSAGE.NOTIF_HISTORY_RETRIEVED'), 200, true, $notifications);
     }
 }

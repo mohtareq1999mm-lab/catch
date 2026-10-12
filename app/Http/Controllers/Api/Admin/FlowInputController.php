@@ -41,7 +41,7 @@ class FlowInputController extends Controller
             ->when($request->filled('is_active'), fn ($q) => $q->where('is_active', filter_var($request->get('is_active'), FILTER_VALIDATE_BOOLEAN)))
             ->get();
 
-        return $this->apiResponse('Flow inputs retrieved successfully.', 200, true,
+        return $this->apiResponse(__('message.MESSAGE.FLOW_INPUTS_RETRIEVED'), 200, true,
             FlowInputResource::collection($inputs)->toArray($request));
     }
 
@@ -142,7 +142,7 @@ class FlowInputController extends Controller
             ]))->values();
         });
 
-        return $this->apiResponse('Flow inputs created successfully.', 201, true,
+        return $this->apiResponse(__('message.MESSAGE.FLOW_INPUT_CREATED'), 201, true,
             FlowInputResource::collection($created)->toArray(request()));
     }
 
@@ -180,7 +180,7 @@ class FlowInputController extends Controller
             'required', 'required_at', 'sort_order', 'validation', 'is_active',
         ])));
 
-        return $this->apiResponse('Flow input updated successfully.', 200, true,
+        return $this->apiResponse(__('message.MESSAGE.FLOW_INPUT_UPDATED'), 200, true,
             (new FlowInputResource($input->fresh()))->toArray(request()));
     }
 
@@ -198,7 +198,7 @@ class FlowInputController extends Controller
 
         $input->delete();
 
-        return $this->apiResponse('Flow input deleted successfully.', 200, true);
+        return $this->apiResponse(__('message.MESSAGE.FLOW_INPUT_DELETED'), 200, true);
     }
 
     private function nextSortOrder(int $flowId): int

@@ -19,7 +19,9 @@ class RecordShipmentStatusInTimeline
                 'tracking_number' => $event->trackingNumber,
                 'courier_name' => $event->courierName,
                 'location_data' => $event->locationData,
-                'estimated_delivery' => $event->estimatedDelivery?->toIso8601String(),
+                'estimated_delivery' => $event->estimatedDelivery instanceof \DateTimeInterface
+                    ? (method_exists($event->estimatedDelivery, 'toIso8601String') ? $event->estimatedDelivery->toIso8601String() : $event->estimatedDelivery->format(\DateTimeInterface::ATOM))
+                    : null,
                 'changed_at' => now()->toIso8601String(),
             ];
 

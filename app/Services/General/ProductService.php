@@ -520,7 +520,7 @@ class ProductService
             $review = $product->reviews()->create($reviewData);
             if ($request->has('images')) {
                 if (!$this->uploadImages($request, 'images', $review, 'reviews', 'reviews')) {
-                    throw new HttpException(422, 'Logo upload failed, please check the file format or size.');
+                    throw new HttpException(422, __('message.ERROR.REVIEW_IMAGE_UPLOAD_FAILED'));
                 }
             }
             DB::commit();
@@ -549,7 +549,7 @@ class ProductService
             $review->update($reviewData);
             if ($request->has('images')) {
                 if (!$this->uploadImages($request, 'images', $review->fresh(), 'reviews', 'reviews')) {
-                    throw new HttpException(422, 'Logo upload failed, please check the file format or size.');
+                    throw new HttpException(422, __('message.ERROR.REVIEW_IMAGE_UPLOAD_FAILED'));
                 }
             }
             DB::commit();

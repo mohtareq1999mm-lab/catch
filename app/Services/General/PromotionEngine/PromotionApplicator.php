@@ -38,7 +38,7 @@ class PromotionApplicator
             // lock promotion to protect limiter / usage counts
             $lockedPromotion = Promotion::whereKey($promotion->id)->lockForUpdate()->first();
             if (!$lockedPromotion) {
-                throw new \InvalidArgumentException('Promotion no longer available.');
+                throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_UNAVAILABLE'));
             }
 
             // Lock cart and items to avoid concurrent modifications

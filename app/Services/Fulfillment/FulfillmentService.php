@@ -86,9 +86,7 @@ class FulfillmentService
                     ->first();
                 if ($foreign) {
                     throw new \RuntimeException(
-                        "Order #{$fresh->id} already has fulfillment #{$foreign->id} " .
-                        "in warehouse {$foreign->warehouse_id}: second normal fulfillment " .
-                        "in warehouse {$resolvedWarehouseId} rejected (use an explicit split key)"
+                        __('wms.fulfillment.second_rejected', ['order' => $fresh->id, 'fulfillment' => $foreign->id, 'warehouse' => $foreign->warehouse_id, 'resolved' => $resolvedWarehouseId])
                     );
                 }
 
@@ -126,7 +124,7 @@ class FulfillmentService
     private function assertReleasable(Order $order): void
     {
         if (in_array($order->status, ['cancelled', 'delivered'], true)) {
-            throw new \RuntimeException("Order #{$order->id} is {$order->status}: cannot release to warehouse");
+            throw new \RuntimeException(__('wms.fulfillment.status_closed', ['order' => $order->id, 'status' => $order->status]));
         }
 
         $deferred = in_array($order->payment_method, ['cod', 'pay_at_cashier'], true);
@@ -140,7 +138,7 @@ class FulfillmentService
             // delivered are refused above; anything else fails closed.
             if (!in_array($order->inventory_state, [Order::INVENTORY_STATE_ACTIVE, Order::INVENTORY_STATE_COMMITTED], true)) {
                 throw new \RuntimeException(
-                    "COD order #{$order->id} has no secured inventory (state: {$order->inventory_state})"
+                    __('wms.fulfillment.cod_no_inventory', ['order' => $order->id, 'state' => $order->inventory_state])
                 );
             }
 
@@ -151,7 +149,7 @@ class FulfillmentService
         // the releasable state is COMMITTED + paid (never active + paid).
         if (!$paid || $order->inventory_state !== Order::INVENTORY_STATE_COMMITTED) {
             throw new \RuntimeException(
-                "Order #{$order->id} is not captured (payment: {$order->payment_status}, inventory: {$order->inventory_state})"
+                __('wms.fulfillment.not_captured', ['order' => $order->id, 'payment' => $order->payment_status, 'inventory' => $order->inventory_state])
             );
         }
     }
@@ -211,7 +209,7 @@ class FulfillmentService
             // rolls back the header row as well — nothing persists.
             if ($fulfillment->items()->count() === 0) {
                 throw new \RuntimeException(
-                    "Order #{$order->id} has no physical lines: refusing empty fulfillment"
+                    __('wms.fulfillment.no_physical', ['order' => $order->id])
                 );
             }
 
@@ -347,7 +345,7 @@ class FulfillmentService
     public function cancelFulfillment(Fulfillment $fulfillment, string $reason, array $context = []): Fulfillment
     {
         if (trim($reason) === '') {
-            throw new \InvalidArgumentException('Cancellation reason is required');
+            throw new \InvalidArgumentException(__('wms.batch.cancel_reason'));
         }
 
         return DB::transaction(function () use ($fulfillment, $reason, $context) {
@@ -363,8 +361,7 @@ class FulfillmentService
                 ->exists();
             if ($liveShipment) {
                 throw new \RuntimeException(
-                    "Cannot cancel fulfillment #{$locked->id}: a live shipment exists " .
-                    '(shipment cancellation belongs to Phase 8)'
+                    __('wms.fulfillment.cancel_shipment', ['id' => $locked->id])
                 );
             }
 
@@ -376,7 +373,7 @@ class FulfillmentService
                 ->exists();
             if ($sealed) {
                 throw new \RuntimeException(
-                    "Cannot cancel fulfillment #{$locked->id}: sealed packages exist (physical custody)"
+                    __('wms.fulfillment.cancel_packages', ['id' => $locked->id])
                 );
             }
 
@@ -389,7 +386,7 @@ class FulfillmentService
                 ->exists();
             if ($packed) {
                 throw new \RuntimeException(
-                    "Cannot cancel fulfillment #{$locked->id}: packed packing tasks exist (verify first)"
+                    __('wms.fulfillment.cancel_tasks', ['id' => $locked->id])
                 );
             }
 
@@ -491,7 +488,7 @@ class FulfillmentService
 
             if ($locked->assigned_to !== null && (int) $locked->assigned_to !== $userId) {
                 throw new \RuntimeException(
-                    "Fulfillment #{$locked->id} is already assigned to user {$locked->assigned_to}"
+                    __('wms.fulfillment.already_assigned', ['id' => $locked->id, 'user' => $locked->assigned_to])
                 );
             }
 
@@ -527,7 +524,7 @@ class FulfillmentService
 
             if ((float) $locked->quantity_picked >= (float) $locked->quantity) {
                 throw new \RuntimeException(
-                    "Cannot assign placement: fulfillment item #{$locked->id} is already fully picked"
+                    __('wms.fulfillment.placement_picked', ['id' => $locked->id])
                 );
             }
 
@@ -537,7 +534,7 @@ class FulfillmentService
                 ->first();
             if ($openTask) {
                 throw new \RuntimeException(
-                    "Cannot assign placement: fulfillment item #{$locked->id} already has open picking task #{$openTask->id}"
+                    __('wms.fulfillment.placement_open_task', ['id' => $locked->id, 'task' => $openTask->id])
                 );
             }
 
@@ -549,15 +546,15 @@ class FulfillmentService
             $location = $target->location()->firstOrFail();
 
             if ((int) $target->product_id !== (int) $locked->product_id) {
-                throw new \RuntimeException('Cannot assign placement: target holds a different product');
+                throw new \RuntimeException(__('wms.fulfillment.placement_product'));
             }
             if ((int) $target->warehouse_id !== (int) $fulfillment->warehouse_id) {
-                throw new \RuntimeException('Cannot assign placement: target is in a different warehouse');
+                throw new \RuntimeException(__('wms.fulfillment.placement_warehouse'));
             }
             $placeable = $location->status === \App\Models\Fulfillment\Location::STATUS_ACTIVE
                 && ($location->type === null || in_array($location->type, \App\Models\Fulfillment\Location::PLACEABLE_TYPES, true));
             if (!$placeable) {
-                throw new \RuntimeException("Cannot assign placement: location #{$location->id} is not active/placeable");
+                throw new \RuntimeException(__('wms.fulfillment.placement_inactive', ['id' => $location->id]));
             }
             $this->productLocationService->assertConsistent($target);
 

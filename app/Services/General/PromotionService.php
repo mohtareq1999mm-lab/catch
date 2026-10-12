@@ -77,14 +77,14 @@ class PromotionService
                 ->first();
 
             if (!$promotion) {
-                throw new \InvalidArgumentException('Selected promotion is not valid.');
+                throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_INVALID'));
             }
 
             // Evaluate promotion (read-only)
             $result = $this->resolver->resolve($cart, $promotion, $subtotalCents);
 
             if (!$result) {
-                throw new \InvalidArgumentException('Selected promotion is not eligible for this cart.');
+                throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_NOT_ELIGIBLE'));
             }
 
             // PromotionResult from resolver already contains matchedSubtotalCents computed during resolve()
@@ -117,7 +117,7 @@ class PromotionService
                 // The user explicitly requested a gift the engine could not
                 // offer (e.g. out of stock). Fail loudly instead of silently
                 // dropping the promised gift from the order.
-                throw new \InvalidArgumentException('Selected gift product is not available for this promotion.');
+                throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_GIFT_UNAVAILABLE'));
             }
         } else {
             return $this->clearPromotionFromCart($cart);
@@ -267,7 +267,7 @@ class PromotionService
             $quantity = max(1, (int) ($gift['quantity'] ?? 1));
 
             if (!$this->isGiftStockAvailable($productId, $variantId, $quantity)) {
-                throw new \InvalidArgumentException('Selected gift product is not available for this promotion.');
+                throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_GIFT_UNAVAILABLE'));
             }
         }
     }
@@ -345,14 +345,14 @@ class PromotionService
             ->values();
 
         if ($availableGiftItems->isEmpty()) {
-            throw new \InvalidArgumentException('No available gift products for this promotion.');
+            throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_NO_GIFTS'));
         }
 
         if ($selectedGiftProductId) {
             $selectedGiftItem = $availableGiftItems->firstWhere('product_id', $selectedGiftProductId);
 
             if (!$selectedGiftItem) {
-                throw new \InvalidArgumentException('Selected gift product is not available for this promotion.');
+                throw new \InvalidArgumentException(__('message.ERROR.PROMOTION_GIFT_UNAVAILABLE'));
             }
 
             return $selectedGiftItem;

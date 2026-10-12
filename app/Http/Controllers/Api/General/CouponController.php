@@ -38,7 +38,7 @@ class CouponController extends Controller
                 'path' => $request->path(),
             ]);
 
-            return $this->apiResponse('Unauthenticated.', 401, false);
+            return $this->apiResponse(__('message.ERROR.UNAUTHENTICATED'), 401, false);
         }
         $coupons = $this->couponService->getCoupons($request, $user);
 

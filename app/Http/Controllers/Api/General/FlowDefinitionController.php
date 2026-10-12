@@ -16,10 +16,14 @@ use Marvel\Traits\ApiResponse;
  *   every ACTIVE flow (shipping_type selection contract). No auth, no
  *   internal identifiers, no admin flags.
  * - GET .../order-flows/by-shipping-type/{type}: guest-safe convenience
- *   for one flow (D8b). Same sanitized contract as available (one serializer).
+ *   for the type's DEFAULT flow (D8b). Same sanitized contract as available
+ *   (one serializer).
  *
- * The frontend selects shipping_type (local|international); the backend
- * resolves the Flow. flow_id is never a customer contract.
+ * The frontend lists `available` and selects an explicit `flow_code`
+ * (stable identity; several flows may share one shipping_type); the backend
+ * validates the selection and binds the order to that flow_id. Type-only
+ * checkout resolves the type's default flow. flow_id is never a customer
+ * contract — customers use `code`.
  */
 class FlowDefinitionController extends Controller
 {
@@ -39,7 +43,7 @@ class FlowDefinitionController extends Controller
             ->orderBy('id')
             ->get();
 
-        return $this->apiResponse('Order flow definitions retrieved successfully.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.FLOW_DEFINITIONS_RETRIEVED'), 200, true, [
             'flows' => AvailableOrderFlowResource::collection($flows)->toArray(request()),
         ]);
     }
@@ -54,7 +58,7 @@ class FlowDefinitionController extends Controller
 
         $flow->load(['statuses', 'inputs' => fn ($q) => $q->active()->ordered()]);
 
-        return $this->apiResponse('Order flow definition retrieved successfully.', 200, true,
+        return $this->apiResponse(__('message.MESSAGE.FLOW_DEFINITION_RETRIEVED'), 200, true,
             (new AvailableOrderFlowResource($flow))->toArray(request()));
     }
 }

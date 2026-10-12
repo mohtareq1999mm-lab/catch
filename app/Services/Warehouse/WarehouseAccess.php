@@ -38,7 +38,7 @@ class WarehouseAccess
         }
 
         // Global permission crosses warehouses.
-        if ($permission === 'manage-warehouse') {
+        if ($permission === 'manage-warehouse' || $user->hasPermissionTo('manage-warehouse', 'api')) {
             return true;
         }
 

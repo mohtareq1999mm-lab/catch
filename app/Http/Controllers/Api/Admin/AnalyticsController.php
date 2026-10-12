@@ -54,7 +54,7 @@ class AnalyticsController extends Controller
 
         $data = $this->analyticsService->getDashboardOverview($period);
 
-        return $this->apiResponse('Dashboard retrieved.', 200, true, $data);
+        return $this->apiResponse(__('message.MESSAGE.ANALYTICS_DASHBOARD_RETRIEVED'), 200, true, $data);
     }
 
     public function timeSeries(Request $request)
@@ -72,7 +72,7 @@ class AnalyticsController extends Controller
 
         $data = $this->analyticsService->getTimeSeries($metric, $period, $granularity);
 
-        return $this->apiResponse('Time series retrieved.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.ANALYTICS_TIME_SERIES'), 200, true, [
             'metric' => $metric,
             'period' => $period,
             'granularity' => $granularity,
@@ -86,7 +86,7 @@ class AnalyticsController extends Controller
         $limit = min(max((int) $request->input('limit', 10), 1), 100);
         $data = $this->analyticsService->getTopCustomers($limit);
 
-        return $this->apiResponse('Top customers retrieved.', 200, true, $data);
+        return $this->apiResponse(__('message.MESSAGE.ANALYTICS_TOP_CUSTOMERS'), 200, true, $data);
     }
 
     public function customerSegmentation(Request $request)
@@ -94,7 +94,7 @@ class AnalyticsController extends Controller
         $this->authorizeAdmin($request);
         $data = $this->analyticsService->getCustomerSegmentation();
 
-        return $this->apiResponse('Segmentation retrieved.', 200, true, $data);
+        return $this->apiResponse(__('message.MESSAGE.ANALYTICS_SEGMENTATION'), 200, true, $data);
     }
 
     public function performance(Request $request)
@@ -134,7 +134,7 @@ class AnalyticsController extends Controller
                 });
         }
 
-        return $this->apiResponse('Performance retrieved.', 200, true, [
+        return $this->apiResponse(__('message.MESSAGE.ANALYTICS_PERFORMANCE'), 200, true, [
             'period' => $period,
             'sla_compliance' => $slaData,
             'bottlenecks' => $bottlenecks,
@@ -146,7 +146,7 @@ class AnalyticsController extends Controller
         $this->authorizeAdmin($request);
         $this->analyticsService->clearCache();
 
-        return $this->apiResponse('Analytics cache cleared', 200, true);
+        return $this->apiResponse(__('message.MESSAGE.ANALYTICS_CACHE_CLEARED'), 200, true);
     }
 
     private function getPeriodStart(string $period): \Carbon\Carbon

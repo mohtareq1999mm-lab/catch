@@ -182,7 +182,7 @@ class InvoiceController extends Controller
 
         if ($result['tampered']) {
             return $this->apiResponse(
-                'Invoice verification failed',
+                __('message.ERROR.INVOICE_VERIFICATION_FAILED'),
                 409,
                 false,
                 ['authentic' => false, 'tampered' => true]
@@ -314,7 +314,7 @@ class InvoiceController extends Controller
             );
 
             return $this->apiResponse(
-                'Invoice corrected successfully',
+                __('message.MESSAGE.INVOICE_CORRECTED'),
                 200,
                 true,
                 AdminInvoiceResource::make($correction)
@@ -338,7 +338,7 @@ class InvoiceController extends Controller
             );
 
             return $this->apiResponse(
-                'Invoice cancelled successfully',
+                __('message.MESSAGE.INVOICE_CANCELLED'),
                 200,
                 true,
                 AdminInvoiceResource::make($invoice)

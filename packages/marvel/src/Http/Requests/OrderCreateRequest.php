@@ -68,10 +68,24 @@ class OrderCreateRequest extends FormRequest
             // local in the service layer so existing clients keep working.
             // Controlled values only (local|international); availability
             // (active flow) is validated fail-closed at creation.
+            // Multi-flow: an explicit flow_code (stable identity, preferred)
+            // or flow_id selects ONE flow among the type's flows; when both a
+            // type and a flow are supplied they must match (flow_mismatch).
             'shipping_type' => [
                 'nullable',
                 'string',
                 Rule::in(\App\Services\OrderFlow\OrderFlowService::SUPPORTED_SHIPPING_TYPES),
+            ],
+            'flow_code' => [
+                'nullable',
+                'string',
+                'max:50',
+                'exists:order_flows,code',
+            ],
+            'flow_id' => [
+                'nullable',
+                'integer',
+                'exists:order_flows,id',
             ],
             // Dynamic Flow Inputs (validated against the resolved flow's
             // checkout-required definitions inside OrderService; unknown

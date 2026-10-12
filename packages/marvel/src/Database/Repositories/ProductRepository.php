@@ -140,6 +140,23 @@ class ProductRepository extends BaseRepository
             }
 
             $this->syncRelation($product, $request, $data);
+
+            // Optional initial WMS placement (same transaction: product +
+            // placement commit atomically, failure rolls both back). Runs
+            // AFTER variants so variable products (whose stock lives on
+            // variants, unrepresentable in product-level placements) are
+            // rejected by the service. The service re-locks and re-validates
+            // the location, assigns the creation quantity to the stock
+            // authority exactly once, and records the placement hint.
+            if ($request->filled('location_id')) {
+                app(\App\Services\Inventory\StockOperationService::class)->placeInitialStock(
+                    $product->fresh(),
+                    (int) $request->input('location_id'),
+                    $request->filled('warehouse_id') ? (int) $request->input('warehouse_id') : null,
+                    (int) ($data['quantity'] ?? 0)
+                );
+            }
+
             DB::commit();
             Cache::forget('dashboard_product_analytics');
             return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales');
