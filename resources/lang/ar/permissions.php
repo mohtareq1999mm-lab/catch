@@ -315,4 +315,27 @@ return [
     // التحليلات
     'export-analytics' => 'تصدير التحليلات',
 
+    // حذف المنتجات بالجملة
+    'delete-all-products' => 'حذف جميع المنتجات',
+
+    // المستودع / التنفيذ
+    'view-warehouse' => 'عرض المستودع',
+    'manage-warehouse' => 'إدارة المستودع',
+    'view-location' => 'عرض الموقع',
+    'manage-location' => 'إدارة الموقع',
+    'view-fulfillment' => 'عرض عملية التنفيذ',
+    'manage-fulfillment' => 'إدارة عملية التنفيذ',
+    'picking-execute' => 'تنفيذ الالتقاط',
+    'packing-execute' => 'تنفيذ التغليف',
+    'fulfillment-override' => 'تجاوز التنفيذ',
+    'inventory-adjust' => 'تسوية المخزون',
+    'fulfillment.create' => 'إنشاء عملية تنفيذ',
+    'fulfillment.cancel' => 'إلغاء عملية التنفيذ',
+    'picking.claim' => 'المطالبة بمهمة الالتقاط',
+    'picking.complete' => 'إكمال الالتقاط',
+    'packing.complete' => 'إكمال التغليف',
+    'batch.manage' => 'إدارة الدفعات',
+    'batch.operate' => 'تشغيل الدفعات',
+    'order.cancel-during-fulfillment' => 'إلغاء الطلب أثناء التنفيذ',
+
 ];

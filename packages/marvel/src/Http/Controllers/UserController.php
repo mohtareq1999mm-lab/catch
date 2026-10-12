@@ -1059,17 +1059,19 @@ $userCreated->providers()->updateOrCreate(
         $phoneNumber = $request->phone_number;
         try {
             if (empty($phoneNumber)) {
-                return ['message' => 'ERROR.EMPTY_MOBILE_NUMBER', 'success' => false];
+                // Resolved here (not left as a key): GraphQL surfaces this
+                // array directly, while REST only mines otp_id from it.
+                return ['message' => __('message.ERROR.EMPTY_MOBILE_NUMBER'), 'success' => false];
             }
 
             $otpGateway = $this->getOtpGateway();
             $sendOtpCode = $otpGateway->startVerification($phoneNumber);
             if (!$sendOtpCode->isValid()) {
-                return ['message' => OTP_SEND_FAIL, 'success' => false];
+                return ['message' => __('message.'.OTP_SEND_FAIL), 'success' => false];
             }
             $user = User::where('phone_number', $phoneNumber)->first();
             return [
-                'message' => OTP_SEND_SUCCESSFUL,
+                'message' => __('message.'.OTP_SEND_SUCCESSFUL),
                 'success' => true,
                 'provider' => config('auth.active_otp_gateway'),
                 'otp_id' => $sendOtpCode->getId(),

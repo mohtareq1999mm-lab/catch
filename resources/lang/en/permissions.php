@@ -312,4 +312,27 @@ return [
     // 📊 Analytics
     'export-analytics' => 'Export analytics',
 
+    // Bulk product deletion
+    'delete-all-products' => 'Delete all products',
+
+    // 🏭 Warehouse / WMS
+    'view-warehouse' => 'View warehouse',
+    'manage-warehouse' => 'Manage warehouse',
+    'view-location' => 'View location',
+    'manage-location' => 'Manage location',
+    'view-fulfillment' => 'View fulfillment',
+    'manage-fulfillment' => 'Manage fulfillment',
+    'picking-execute' => 'Execute picking',
+    'packing-execute' => 'Execute packing',
+    'fulfillment-override' => 'Fulfillment override',
+    'inventory-adjust' => 'Adjust inventory',
+    'fulfillment.create' => 'Create fulfillment',
+    'fulfillment.cancel' => 'Cancel fulfillment',
+    'picking.claim' => 'Claim picking task',
+    'picking.complete' => 'Complete picking',
+    'packing.complete' => 'Complete packing',
+    'batch.manage' => 'Manage batches',
+    'batch.operate' => 'Operate batches',
+    'order.cancel-during-fulfillment' => 'Cancel order during fulfillment',
+
 ];
