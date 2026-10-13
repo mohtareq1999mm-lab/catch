@@ -39,7 +39,7 @@ Order matters: 401/403-route → 422 (validation) → 404 (lookup) → 403-scope
 | `status` | body | string | Optional | No | `sometimes\|required\|string\|in:active,inactive,maintenance` (THREE states; no guards here — deactivating under live tasks is allowed at this layer, code-verified absence) | `active`, `inactive`, `maintenance` | Unchanged | None | `"maintenance"` | Lifecycle state |
 | `assigned_to` | body | integer | Optional | Yes | `nullable\|integer\|exists:users,id` | Existing user id or null | Unchanged | None | `7` | Assigned operator |
 | `daily_capacity` | body | integer | Optional | Yes | `nullable\|integer\|min:1` | Integer ≥ 1 or null | Unchanged | None | `200` | Daily throughput cap |
-| `metadata` | body | object | Optional | Yes | `nullable\|array` (unvalidated) | Any object or null | Unchanged | None | `{}` | Free metadata map |
+| `metadata` | body | object | N/A | N/A | NO RULE — silently dropped by `validated()` even when well-formed (the rule was removed in the working tree; code-verified) | Ignored | Untouched | None | `{}` | IGNORED field |
 | `warehouse_id` | body | mixed | N/A | N/A | NO RULE — silently dropped (NOT rejected; code-verified) | Ignored | Untouched | None | `2` | IGNORED field |
 
 No endpoint test found for this action — contracts code-traced.

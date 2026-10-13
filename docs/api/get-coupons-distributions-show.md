@@ -1,12 +1,12 @@
-    # Endpoint Name
+# Endpoint Name
+
+Coupons – Show Distribution Run (`GET /api/v1/coupons/{id}/distributions/{runId}`)
     
-    Coupons – Show Distribution Run (`GET /api/v1/coupons/{id}/distributions/{runId}`)
-    
-    # Description
+# Description
     
     Returns one distribution run scoped to its coupon with a recipient status breakdown.
     
-    # Request
+# Request
     
     ## Request metadata
     
@@ -14,10 +14,10 @@
     | --- | --- |
     | HTTP method | `GET` |
     | Full path | `/api/v1/coupons/{id}/distributions/{runId}` (explicit placeholders with `whereNumber(['id', 'runId'])` — non-numeric segments match NO route → 404 route-miss shape) |
-    | Path composition | `api/v1` prefix + `coupons/{id}/distributions/{runId}` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (NO route name — code-verified unnamed) in `packages/marvel/src/Rest/Routes.php` |
+    | Path composition | `api/v1` prefix + `coupons/{id}/distributions/{runId}` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (NO route name — code-verified unnamed; route middleware `permission:update-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` |
     | Controller action | `App\Http\Controllers\Api\Admin\CouponDistributionAdminController@show(Request $request, int $id, int $runId)` → `authorizeAdmin` (`update-coupon`); scoped `CouponDistributionRun::where('coupon_id', $id)->findOrFail($runId)` — a VALID run id under the WRONG coupon misses identically (cross-coupon reads impossible by construction — code-verified scoping, same pattern as assignment show); miss → 404 translated `COUPON_NOT_FOUND` (explicit catch — the run-miss shares the coupon message, code-verified conflation); then `recipients` grouped `status → count` breakdown (aggregate counts only, no PII — code-verified) |
     | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-    | Permission | `update-coupon` (config key `coupon-distribution.admin_permission`) via inline `authorizeAdmin` |
+    | Permission | `update-coupon` (config key `coupon-distribution.admin_permission`) via route middleware FIRST, then inline `authorizeAdmin` (the inline verbatim abort is now unreachable for permissionless callers while the config matches the route) |
     | Required headers | `Authorization: Bearer <sanctum-token>` |
     | Recommended headers | `Accept: application/json` |
     | Optional headers | `lang: en\|ar` (default `en`) |
@@ -50,7 +50,7 @@
     }
     ```
     
-    # Responses
+# Responses
     
     ## Success: run with breakdown — HTTP 200
     
@@ -93,14 +93,14 @@
     }
     ```
     
-    # Errors
+# Errors
     
     No error-code field; every error below has Error code `None`. No validation, so no `422`.
     
     | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
     | --- | --- | --- | --- | --- | --- | --- | --- |
     | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim, with period) | None | No valid token (code-traced) | See 401 example |
-    | 403 | Authenticated caller lacks the configured permission | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: update-coupon."` (verbatim) | None | Valid token without the permission (code-traced) | See 403 example |
+    | 403 | Authenticated caller lacks the configured permission (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without the permission (code-traced) | See 403 example |
     | 404 | No run for the (`id`, `runId`) pair — unknown run, unknown coupon, or right run under the wrong coupon (all identical; the run-miss shares the COUPON message) | `{status: integer, message: string, success: boolean}` | None | Translated `ERROR.COUPON_NOT_FOUND`: `en` → `"Coupon not found"` | None | Unmatched pair (code-traced conflation) | See 404 example |
     | 404 | Non-numeric `{id}` or `{runId}` matches NO route (`whereNumber` pair) | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape) | None | Non-numeric segment (code-verified — unlike the collection sibling, which lacks the constraint) | See 404-constraint example |
     | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
@@ -114,11 +114,11 @@
     }
     ```
     
-    403 example (verbatim):
-    
+    403 example:
+
     ```json
     {
-      "message": "Forbidden. Missing required permission: update-coupon.",
+      "message": "User does not have the required permissions.",
       "status": false
     }
     ```

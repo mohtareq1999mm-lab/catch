@@ -14,10 +14,10 @@ Dry-runs coupon capacity rules and returns verdicts without persisting anything.
 | --- | --- |
 | HTTP method | `POST` |
 | Full path | `/api/v1/coupons/validate-configuration` |
-| Path composition | `api/v1` prefix + `coupons/validate-configuration` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.validate-config`) in `packages/marvel/src/Rest/Routes.php` (two segments after `coupons`, so no collision with `coupons/{coupon}`) |
+| Path composition | `api/v1` prefix + `coupons/validate-configuration` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.validate-config`, route middleware `permission:view-coupons|update-coupon|create-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` (two segments after `coupons`, so no collision with `coupons/{coupon}`) |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponConfigurationController@validateConfiguration` → `authorizeAdmin` (view OR update OR create coupon permission — same triple fallback as the rules endpoint); then inline `$request->validate(...)` (→ 422); then PURE computation over three hard rules (public single-use, assigned multi-use guidance, limiter sanity) — nothing is read from or written to the database (code-verified side-effect-free) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via the inline `authorizeAdmin` (same triple fallback; abort messages verbatim with periods) |
+| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via route middleware FIRST, then the inline `authorizeAdmin` (same triple fallback; the inline verbatim abort is now unreachable for permissionless callers since the sets match) |
 | Required headers | `Authorization: Bearer <sanctum-token>`, `Content-Type: application/json` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -128,7 +128,7 @@ No error-code field; every error below has Error code `None`. Business-rule viol
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token (`abort(401, 'Unauthenticated.')` — with period) | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller holds NONE of `view-coupons`/`update-coupon`/`create-coupon` | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-coupons."` (verbatim) | None | Valid token without any of the three (code-traced) | See 403 example |
+| 403 | Authenticated caller holds NONE of `view-coupons`/`update-coupon`/`create-coupon` (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without any of the three (code-traced) | See 403 example |
 | 422 | Inline `$request->validate` fails (missing/invalid `coupon_type`, `limiter: 0`, non-integer quotas) | `{message: string, status: boolean, errors: object}` (Handler validation shape — NOT the verdict shape) | None | Laravel default | Field → messages | Invalid body (code-traced) | See 422 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
@@ -145,7 +145,7 @@ No error-code field; every error below has Error code `None`. Business-rule viol
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: view-coupons.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

@@ -221,6 +221,8 @@ return [
         'already_placed' => 'Product #:product is already placed at location #:location under warehouse :warehouse.',
         'insufficient' => 'Insufficient transferable stock at location #:location: available :available, requested :quantity.',
         'transfer_altered' => 'Transfer altered authoritative stock; aborted.',
+        'transfer_open_task' => 'Cannot transfer from location #:location: open picking tasks reference this placement. Complete, skip, or reallocate them first.',
+        'transfer_open_commitment' => 'Cannot transfer from location #:location: an unpicked fulfillment commitment references this placement. Create picking tasks and reallocate them elsewhere first, then transfer.',
     ],
 
     // Warehouses + locations
@@ -251,6 +253,7 @@ return [
         'delete_children' => 'Cannot delete location: it has child locations assigned. Reassign or remove them first.',
         'delete_stock' => 'Cannot delete location: location contains active inventory. Transfer or clear stock first.',
         'delete_tasks' => 'Cannot delete location: there are active picking tasks associated with it.',
+        'delete_history' => 'Cannot delete location: it has picking history. Deactivate it instead to preserve the audit trail.',
     ],
 
     // Order cancellation adapter

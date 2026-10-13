@@ -208,6 +208,9 @@ class ShipmentService
             $fresh = $shipment->fresh();
             $this->syncOrderMirror($fresh);
 
+            app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                ->announce((int) $fresh->order_id, 'shipped', $fresh->fulfillment_id !== null ? (int) $fresh->fulfillment_id : null);
+
             return $fresh;
         });
     }
@@ -296,6 +299,9 @@ class ShipmentService
 
             $fresh = $shipment->fresh();
             $this->syncOrderMirror($fresh);
+
+            app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                ->announce((int) $fresh->order_id, 'delivered', $fresh->fulfillment_id !== null ? (int) $fresh->fulfillment_id : null);
 
             return $fresh;
         });
@@ -450,6 +456,9 @@ class ShipmentService
 
             $fresh = $shipment->fresh();
             $this->syncOrderMirror($fresh);
+
+            app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                ->announce((int) $fresh->order_id, 'shipment_' . $newStatus, $fresh->fulfillment_id !== null ? (int) $fresh->fulfillment_id : null);
 
             return $fresh;
         });

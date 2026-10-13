@@ -14,10 +14,10 @@ Returns a computed capacity explainer for one coupon id with assignment aggregat
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/coupons/{id}/usage-info` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route → 404 fixed shape) |
-| Path composition | `api/v1` prefix + `coupons/{id}/usage-info` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.usage-info`) in `packages/marvel/src/Rest/Routes.php` (two segments after `coupons`, so no collision with `coupons/{coupon}` show) |
+| Path composition | `api/v1` prefix + `coupons/{id}/usage-info` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.usage-info`, route middleware `permission:view-coupons|update-coupon|create-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` (two segments after `coupons`, so no collision with `coupons/{coupon}` show) |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponConfigurationController@getUsageInfo(Request $request, $couponId)` → `authorizeAdmin` (triple-permission fallback); then `Coupon::with(['assignments', 'couponUsages'])->findOrFail($couponId)` — NO try/catch, so a miss throws `ModelNotFoundException` → `Handler` 404 FIXED string (code-verified — NOT the translated coupon message); then pure aggregation (`isPublic()` = no assignment rows; `remaining = max(0, limiter - used)`; unlimited when limiter null; multi-use = any assignment with `max_uses > 1`; public usage counted from `couponUsages`) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via inline `authorizeAdmin` |
+| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via route middleware FIRST, then inline `authorizeAdmin` (same triple fallback; the inline verbatim abort is now unreachable for permissionless callers since the sets match) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -102,7 +102,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim, with period) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller holds NONE of the three permissions | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-coupons."` (verbatim) | None | Valid token without any of the three (code-traced) | See 403 example |
+| 403 | Authenticated caller holds NONE of the three permissions (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without any of the three (code-traced) | See 403 example |
 | 404 | No coupon with `{id}` (`findOrFail` escapes — no translated coupon message here) | `{message: string, status: boolean}` (Handler shape) | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id (code-traced) | See 404 example |
 | 404 | Non-numeric `{id}` matches NO route (`whereNumber`) | `{message: string, status: boolean}` | None | `"Not Found"` (NOT the fixed resource string — route-miss shape) | None | Non-numeric segment | See 404-constraint example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
@@ -120,7 +120,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: view-coupons.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

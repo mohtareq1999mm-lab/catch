@@ -198,6 +198,13 @@ class BatchPickingService
                 $this->transitions->transition($lockedFulfillment, 'picking', ['reason' => 'batch_created']);
             }
 
+            // Converge each order (batch spans one flow/stage by scope, but
+            // may span orders): after-commit, idempotent.
+            $sync = app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class);
+            foreach ($lockedFulfillments->pluck('order_id')->unique()->all() as $orderId) {
+                $sync->announce((int) $orderId, 'picking_started');
+            }
+
             Log::info('Batch picking created', [
                 'batch_id' => $batch->id,
                 'batch_number' => $batchNumber,
@@ -366,17 +373,32 @@ class BatchPickingService
     /**
      * Record picked quantity for a task. Direct quantity entry (no scan),
      * sharing confirm()'s state/claim authority (P4-6 guard parity).
+     *
+     * Idempotent replay: an op_seq already applied returns the current
+     * state without double-counting (confirm() parity for device retries).
      */
     public function recordPick(
         PickingTask $task,
         float $quantity,
         ?string $notes = null,
         ?int $userId = null,
-        bool $override = false
+        bool $override = false,
+        ?int $opSeq = null
     ): PickingTask {
-        return DB::transaction(function () use ($task, $quantity, $notes, $userId, $override) {
+        return DB::transaction(function () use ($task, $quantity, $notes, $userId, $override, $opSeq) {
             // Phase 8: lock + validate against REMAINING (not just required).
             $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
+
+            $opSeq = (int) ($opSeq ?? 0);
+
+            // Idempotent replay: op_seq already applied → return current state.
+            if ($opSeq > 0 && $opSeq <= (int) $locked->op_seq) {
+                Log::info('Record pick replay ignored', [
+                    'task_id' => $locked->id, 'op_seq' => $opSeq, 'user_id' => $userId,
+                ]);
+
+                return $locked->fresh();
+            }
 
             // P4-6: never mutate terminal tasks; claimed tasks require the
             // claimant (or an explicit override) — same authority as confirm.
@@ -407,10 +429,11 @@ class BatchPickingService
             $task = $locked;
             $newTotal = (float) $task->quantity_picked + $quantity;
 
-            // Update task
+            // Update task (op_seq advances like confirm(): replay watermark).
             $updates = [
                 'quantity_picked' => $newTotal,
                 'status' => $newTotal >= $task->quantity_to_pick ? 'picked' : 'picking',
+                'op_seq' => max($opSeq, (int) $locked->op_seq),
             ];
 
             if ($newTotal >= $task->quantity_to_pick) {
@@ -590,9 +613,11 @@ class BatchPickingService
             ->where('status', 'picking')
             ->get();
 
+        $sync = app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class);
         foreach ($candidates as $fulfillment) {
             if (!isset($incompleteByFulfillment[$fulfillment->id])) {
                 $this->transitions->transition($fulfillment, 'picked', ['reason' => 'batch_completed']);
+                $sync->announce((int) $fulfillment->order_id, 'picked', (int) $fulfillment->id);
             }
         }
     }

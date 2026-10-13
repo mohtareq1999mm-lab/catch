@@ -12,6 +12,7 @@ use App\Events\Coupons\CustomerMetricsUpdated;
 use App\Events\Coupons\UserAddressChanged;
 use App\Events\DigitalProductsDelivered;
 use App\Events\FrontendCacheInvalidation;
+use App\Events\Fulfillment\FulfillmentProgressed;
 use App\Events\InvoiceCreated;
 use App\Events\AssignedCouponConsumed;
 use App\Events\CouponAssigned;
@@ -178,6 +179,10 @@ class EventServiceProvider extends ServiceProvider
             ReleaseFulfillmentOnPayment::class,
             MarkCouponClaimRedeemed::class,
             \App\Listeners\RecordPaymentSuccessInTimeline::class,
+            // Converge the order when payment lands after warehouse progress
+            // (e.g. COD paid after delivery): maybeCompleteOrder inside the
+            // sync recovers the delivered step; otherwise a harmless no-op.
+            \App\Listeners\SyncOrderWithFulfillmentProgress::class,
         ],
         OrderShipped::class => [
             \App\Listeners\RecordOrderShippedInTimeline::class,
@@ -257,6 +262,12 @@ class EventServiceProvider extends ServiceProvider
         ],
         FrontendCacheInvalidation::class => [
             DispatchFrontendCacheInvalidation::class,
+        ],
+        // Fulfillment milestones converge the order through the authoritative
+        // Order Flow service (convergent nudges; illegal steps are logged
+        // skips, never forced). See FulfillmentOrderSyncService matrix.
+        FulfillmentProgressed::class => [
+            \App\Listeners\SyncOrderWithFulfillmentProgress::class,
         ],
     ];
 

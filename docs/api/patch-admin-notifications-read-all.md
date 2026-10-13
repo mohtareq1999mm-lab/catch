@@ -79,7 +79,7 @@ The implementation has no machine-readable error-code field; every error below h
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Guest call (no authenticated user): the route-level Spatie gate runs before constructor `auth:sanctum` and throws `notLoggedIn` → 401 with the translated message (NOT generic `"Unauthenticated"`) | `{message: string, status: boolean}` (Handler shape; note boolean `status`, unlike the success envelope) | None | Translated `ERROR.USER_NOT_LOGGED_IN`: `en` → `"User is not logged in."`, `ar` → `"المستخدم غير مسجل الدخول."` (message code-verified via middleware order + Handler branch; tests assert status only) | None | Any request without an authenticated user; verified by `test_unauthenticated_user_cannot_mark_all_as_read` expecting 401 | See 401 example |
+| 401 | Missing/invalid token: route-level `auth:sanctum` (working-tree addition) runs before the Spatie gate and throws `AuthenticationException` → 401 with the generic message (NOT the translated Spatie text) | `{message: string, status: boolean}` (Handler shape; note boolean `status`, unlike the success envelope) | None | `"Unauthenticated"` via the `AuthenticationException` branch (message code-verified via middleware order + Handler branch; tests assert status only) | None | Any request without a valid token; verified by `test_unauthenticated_user_cannot_mark_all_as_read` expecting 401 | See 401 example |
 | 403 | Authenticated caller lacks the `manage-notifications` permission (same Spatie middleware) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` via `Handler::messageForSpatieUnauthorized` (no permission-name suffix: `display_permission_in_exception` is `false`): `en` → `"User does not have the required permissions."`, `ar` → `"لا يمتلك المستخدم الصلاحيات المطلوبة."` | None | Valid token + user without `manage-notifications`; verified by `test_admin_with_view_only_cannot_mark_all_as_read` expecting 403 | See 403 example |
 | 405 | Any HTTP method other than `PATCH` on `/api/v1/admin/notifications/read-all` (only `Route::patch` is registered) | `{message: string, status: boolean}` | None | `"Method Not Allowed"` via `MethodNotAllowedHttpException` branch of `Handler` | None | E.g. `GET`, `POST`, `PUT`, `DELETE` to the same URI (code-traced; note the sibling E2E file's `postJson` read-all calls target a different prefix and are unrelated to this route) | See 405 example |
 | 500 | Unexpected failure (any exception in the count/update), rendered by the generic branch of `Handler` (the method has no try/catch) | `{message: string, status: boolean}` | None | The exception message when `app.debug` is true, else `"Internal Server Error"` | None | Persistence failure (code-traced, no test) | See 500 example |
@@ -90,7 +90,7 @@ There is no throttle on this group, hence no 429 contract.
 
 ```json
 {
-  "message": "User is not logged in.",
+  "message": "Unauthenticated",
   "status": false
 }
 ```

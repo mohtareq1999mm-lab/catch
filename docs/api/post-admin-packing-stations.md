@@ -39,7 +39,7 @@ Order matters: 401/403-route → 422 (validation) → 422 (default resolution) �
 | `status` | body | string | Optional | Yes | `nullable\|string\|in:active,inactive,maintenance` (THREE states — code-verified) | `active`, `inactive`, `maintenance` | `"active"` | None | `"active"` | Lifecycle state |
 | `assigned_to` | body | integer | Optional | Yes | `nullable\|integer\|exists:users,id` (any existing user — cross-warehouse membership unchecked; code-verified absence) | Existing user id | `null` | None | `7` | Assigned operator |
 | `daily_capacity` | body | integer | Optional | Yes | `nullable\|integer\|min:1` | Integer ≥ 1 | `null` | None | `200` | Daily throughput cap |
-| `metadata` | body | object | Optional | Yes | `nullable\|array` (unvalidated passthrough) | Any object or null | `null` | None | `{}` | Free metadata map |
+| `metadata` | body | object | N/A | N/A | NO RULE — silently dropped by `validated()` even when well-formed (the rule was removed in the working tree; the column is still fillable but unreachable via this endpoint — code-verified) | Ignored | Untouched | None | `{}` | IGNORED field |
 
 No endpoint test found for this action — contracts code-traced.
 

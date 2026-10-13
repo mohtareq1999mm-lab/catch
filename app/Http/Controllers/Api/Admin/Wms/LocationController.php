@@ -198,8 +198,14 @@ class LocationController extends WmsAdminController
      * Safe deletion guards:
      * 1. Blocks if location has child locations.
      * 2. Blocks if location holds active physical inventory (quantity > 0 or allocated_hint > 0).
-     * 3. Blocks if active picking tasks target this location.
-     * 4. Atomic transaction deletes zero-stock placement records and removes the location.
+     * 3. Blocks if OPEN picking tasks (pending/assigned/picking — the real
+     *    open set owned by OrderPickingService/BatchPickingService/
+     *    PickingExecutionService) target this location's placements.
+     * 4. Blocks if ANY picking task (including terminal picked/skipped/
+     *    cancelled history) references this location's placements: the
+     *    product_location_id FK on picking_tasks is RESTRICT, and history
+     *    is audit trail — deactivate instead of deleting.
+     * 5. Atomic transaction deletes zero-stock placement records and removes the location.
      */
     public function destroy(int $id): JsonResponse
     {
@@ -231,9 +237,12 @@ class LocationController extends WmsAdminController
             );
         }
 
-        // 3. Guard against active picking tasks linked to this location
-        $hasActiveTasks = PickingTask::whereIn('product_location_id', $location->productLocations()->pluck('id'))
-            ->whereIn('status', ['pending', 'claimed'])
+        $placementIds = $location->productLocations()->pluck('id');
+
+        // 3. Guard against open picking tasks linked to this location.
+        // Real open set: pending/assigned/picking (never 'claimed' — no such status).
+        $hasActiveTasks = $placementIds->isNotEmpty() && PickingTask::whereIn('product_location_id', $placementIds)
+            ->whereIn('status', ['pending', 'assigned', 'picking'])
             ->exists();
 
         if ($hasActiveTasks) {
@@ -244,11 +253,46 @@ class LocationController extends WmsAdminController
             );
         }
 
-        // 4. Safely delete within a transaction
-        DB::transaction(function () use ($location) {
-            $location->productLocations()->delete();
-            $location->delete();
-        });
+        // 4. Guard against picking history (any status): FK RESTRICT on
+        // picking_tasks.product_location_id would 500 — refuse cleanly and
+        // point the operator at deactivation (history-preserving path).
+        $hasHistory = $placementIds->isNotEmpty() && PickingTask::whereIn('product_location_id', $placementIds)
+            ->exists();
+
+        if ($hasHistory) {
+            return $this->apiResponse(
+                __('wms.location.delete_history'),
+                422,
+                false
+            );
+        }
+
+        // 5. Safely delete within a transaction, rechecking task guards
+        // under lock: a task may have pinned a placement between the
+        // pre-checks above and this write (TOCTOU) — the locked recheck is
+        // authoritative and keeps the FK RESTRICT 500 unreachable.
+        try {
+            DB::transaction(function () use ($location, $placementIds) {
+                $lockedIds = $location->productLocations()->lockForUpdate()->pluck('id');
+                $raced = $lockedIds->isNotEmpty() && PickingTask::whereIn('product_location_id', $lockedIds)
+                    ->lockForUpdate()
+                    ->first() !== null;
+                if ($raced) {
+                    throw new \RuntimeException(__('wms.location.delete_history'));
+                }
+                $location->productLocations()->delete();
+                $location->delete();
+            });
+        } catch (\RuntimeException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Final backstop: FK RESTRICT (MySQL 1451) on
+            // picking_tasks.product_location_id — refuse cleanly, never 500.
+            if (($e->errorInfo[1] ?? null) === 1451) {
+                return $this->apiResponse(__('wms.location.delete_history'), 422, false);
+            }
+            throw $e;
+        }
 
         return $this->apiResponse(__('message.MESSAGE.WMS_LOCATION_DELETED'), 200, true);
     }

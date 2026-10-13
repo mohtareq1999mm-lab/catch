@@ -14,10 +14,10 @@ Returns one governorate by id with its cities eager-loaded in a governorate enve
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/governorates/{id}/cities` |
-| Path composition | `api/v1` prefix + `governorates/{id}/cities` custom `Route::get` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with route middleware `auth:sanctum` ONLY (no permission pipe — code-verified; two segments after `governorates`, so no collision with show) |
+| Path composition | `api/v1` prefix + `governorates/{id}/cities` custom `Route::get` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with route middleware `['auth:sanctum', 'permission:view-governorate']` (the permission was added to the working tree after the initial doc — code-verified; two segments after `governorates`, so no collision with show) |
 | Controller action | `Marvel\Http\Controllers\GovernorateController@cities` → `findById($governorate, ['cities'])`; miss → `NOT_FOUND` 404; hit → `apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, GovernorateResource::make($governorateModel))` |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` |
-| Permission | None. No permission middleware on this route and the constructor gates only `index/show/store/update/destroy` — any authenticated user can call it (code-verified) |
+| Permission | Required once: `view-governorate` via route middleware (the constructor gates only `index/show/store/update/destroy`, so the route middleware alone decides) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -83,11 +83,12 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Gover
 
 # Errors
 
-No error-code field; every error below has Error code `None`. No validation or permission check, so no `403`/`422`.
+No error-code field; every error below has Error code `None`. No validation, so no `422`.
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (code-traced; no guest test for this sub-route) | See 401 example |
+| 403 | Authenticated caller lacks `view-governorate` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Valid token without `view-governorate` (code-traced) | See 403 example |
 | 404 | No governorate with `{id}` | `{status: integer, message: string, success: boolean}` | None | `en` → `"Not found"` (generic) | None | Unknown id (code-traced) | See 404 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
@@ -96,6 +97,15 @@ No error-code field; every error below has Error code `None`. No validation or p
 ```json
 {
   "message": "Unauthenticated",
+  "status": false
+}
+```
+
+403 example:
+
+```json
+{
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

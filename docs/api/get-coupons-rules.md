@@ -14,10 +14,10 @@ Returns the static targeting rule catalog and grammar for the admin builder with
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/coupons/rules` |
-| Path composition | `api/v1` prefix + `coupons/rules` custom `Route::get(...)->name('api.admin.coupons.rules')` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with NO route-level permission middleware (route-inventory confirms group middleware only). Registered BEFORE `apiResource('coupons', ...)` precisely so `rules` is not captured as `coupons/{coupon}` show (source comment verified — removing/reordering it would shadow this endpoint behind the show action) |
+| Path composition | `api/v1` prefix + `coupons/rules` custom `Route::get(...)->name('api.admin.coupons.rules')` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with route middleware `permission:view-coupons|update-coupon|create-coupon` (working-tree addition — runs BEFORE the inline check, so permissionless callers now get the translated Spatie 403 below; the inline verbatim abort is unreachable when the sets match). Registered BEFORE `apiResource('coupons', ...)` precisely so `rules` is not captured as `coupons/{coupon}` show (source comment verified — removing/reordering it would shadow this endpoint behind the show action) |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponRulesController@show` (constructor `auth:sanctum` + manual `abort(401)` belt-and-braces) → inline authorization: `view-coupons` OR `update-coupon` OR `create-coupon` (via `hasPermissionTo`, else `can`, else admin-type WITHOUT `hasPermissionTo` passes — three-tier fallback, code-verified); failure → `abort(403, 'Forbidden. Missing required permission: view-coupons.')` (verbatim message through `Handler`'s `HttpException` branch); success → static `CouponRuleMetadata::all()` + `grammar()` (no customer data read — fully static, code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via the inline check (NOT a middleware — enforced in-method; code-verified triple fallback) |
+| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via route middleware FIRST, then the inline check (same triple fallback; the inline verbatim abort is now unreachable for permissionless callers since the sets match) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -92,7 +92,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token (manual `abort(401, 'Unauthenticated.')` — WITH trailing period, unlike the Handler shape) | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim abort message with period) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller holds NONE of `view-coupons`/`update-coupon`/`create-coupon` (all three fallback tiers fail) | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-coupons."` (verbatim abort message with period) | None | Valid token without any of the three permissions (code-traced) | See 403 example |
+| 403 | Authenticated caller holds NONE of `view-coupons`/`update-coupon`/`create-coupon` (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without any of the three permissions (code-traced) | See 403 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
 401 example (note the period):
@@ -104,11 +104,11 @@ No error-code field; every error below has Error code `None`. No validation, so 
 }
 ```
 
-403 example (verbatim, with period):
+403 example:
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: view-coupons.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

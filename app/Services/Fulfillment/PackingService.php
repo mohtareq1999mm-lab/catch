@@ -255,6 +255,9 @@ class PackingService
 
             $this->transitions->transition($fulfillment, 'ready_to_ship', ['reason' => 'packing_verified']);
 
+            app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                ->announce((int) $fulfillment->order_id, 'ready_to_ship', (int) $fulfillment->id);
+
             Log::info('Packing verified', [
                 'task_id' => $locked->id,
                 'fulfillment_id' => $locked->fulfillment_id,

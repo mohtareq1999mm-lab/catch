@@ -14,10 +14,10 @@ Returns a paginated run history for one coupon id with a custom meta envelope.
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/coupons/{id}/distributions` (explicit `{id}` placeholder WITHOUT `whereNumber` — non-numeric segments REACH the controller where `findOrFail` misses → 404 translated coupon message, NOT the route-miss shape; code-verified distinction from its `whereNumber` siblings) |
-| Path composition | `api/v1` prefix + `coupons/{id}/distributions` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (NO route name — code-verified unnamed) in `packages/marvel/src/Rest/Routes.php` |
+| Path composition | `api/v1` prefix + `coupons/{id}/distributions` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (NO route name — code-verified unnamed; route middleware `permission:update-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponDistributionAdminController@index(Request $request, int $id)` → `authorizeAdmin` (`update-coupon`); `Coupon::findOrFail($id)` miss → 404 translated `COUPON_NOT_FOUND` (explicit catch — unlike targeting); then `CouponDistributionRun` rows for the coupon ordered `id DESC`, hardcoded `paginate(15)` (NO `limit` parameter is read — `?limit=` is silently ignored; code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | `update-coupon` (config key `coupon-distribution.admin_permission`) via inline `authorizeAdmin` |
+| Permission | `update-coupon` (config key `coupon-distribution.admin_permission`) via route middleware FIRST, then inline `authorizeAdmin` (the inline verbatim abort is now unreachable for permissionless callers while the config matches the route) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -88,7 +88,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim, with period) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller lacks the configured permission | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: update-coupon."` (verbatim) | None | Valid token without the permission (code-traced) | See 403 example |
+| 403 | Authenticated caller lacks the configured permission (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without the permission (code-traced) | See 403 example |
 | 404 | No coupon with `{id}` (explicit catch → translated coupon key) | `{status: integer, message: string, success: boolean}` | None | Translated `ERROR.COUPON_NOT_FOUND`: `en` → `"Coupon not found"` | None | Unknown id, numeric or not (no `whereNumber` here — both reach the controller; code-verified) | See 404 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
@@ -105,7 +105,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: update-coupon.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

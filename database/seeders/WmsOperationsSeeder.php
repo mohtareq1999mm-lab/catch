@@ -86,15 +86,20 @@ class WmsOperationsSeeder extends Seeder
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'api']);
         }
 
-        // 2. Roles
+        // 2. Roles — ADDITIVE grants only (2026-10-13 fix).
+        // This seeder runs LAST in DatabaseSeeder (after PermissionSeeder which
+        // grants super_admin ~270 permissions). Using syncPermissions() here
+        // would REPLACE super_admin's full grant with this 25-perm WMS subset
+        // and lock every admin out of non-WMS endpoints. givePermissionTo()
+        // preserves the existing full grant while ensuring the WMS subset.
         $superAdminRole = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'api']);
-        $superAdminRole->syncPermissions($allPermissions);
+        $superAdminRole->givePermissionTo($allPermissions);
 
         $managerRole = Role::firstOrCreate(
             ['name' => 'warehouse-manager', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Warehouse Manager', 'ar' => 'مدير مستودع']]
         );
-        $managerRole->syncPermissions($allPermissions);
+        $managerRole->givePermissionTo($allPermissions);
 
         $pickerRole = Role::firstOrCreate(
             ['name' => 'picker', 'guard_name' => 'api'],
@@ -200,7 +205,10 @@ class WmsOperationsSeeder extends Seeder
             'warehouse_id' => $warehouse->id,
         ]);
         $admin->syncRoles(['super_admin', 'warehouse-manager']);
-        $admin->syncPermissions($allPermissions);
+        // Additive (see §2): syncPermissions() would wipe the direct
+        // change-order-status.* grants given by AdminOrderOperationsSeeder and
+        // any other direct grants. givePermissionTo() preserves them.
+        $admin->givePermissionTo($allPermissions);
         $adminToken = $admin->createToken('AdminWmsToken')->plainTextToken;
 
         $picker = User::firstOrCreate(
@@ -693,5 +701,11 @@ class WmsOperationsSeeder extends Seeder
         $this->command?->info("  7. Shipment & Dispatch:   Fulfillment ID: {$fulReadyShip->id} (Status: ready_to_ship) -> (POST fulfillments/{$fulReadyShip->id}/shipments, dispatch, deliver)");
         $this->command?->info("  8. Refund Approve/Reject: Refund ID: {$refund->id} (POST admin/refunds/{$refund->id}/approve)");
         $this->command?->info('================================================================');
+
+        // M3: bust Spatie's permission cache so the additive grants above take
+        // effect immediately. PermissionSeeder busts after its own sync, but
+        // this seeder runs LAST in DatabaseSeeder — without this, the new
+        // grants stay invisible until a manual cache clear and gates 403.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

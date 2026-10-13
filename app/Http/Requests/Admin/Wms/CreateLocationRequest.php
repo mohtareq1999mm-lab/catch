@@ -25,7 +25,10 @@ class CreateLocationRequest extends FormRequest
                 ),
             ],
             'name' => ['required', 'string', 'max:255'],
-            'barcode' => ['nullable', 'string', 'max:255'],
+            // DB-unique scan identity (locations.barcode): validate here so a
+            // duplicate 422s instead of 500ing on the UNIQUE constraint.
+            // nullable skips the rule for null (multiple NULLs allowed).
+            'barcode' => ['nullable', 'string', 'max:255', Rule::unique('locations', 'barcode')],
             'type' => ['nullable', 'in:' . implode(',', array_merge(
                 Location::PLACEABLE_TYPES,
                 [Location::TYPE_QUARANTINE, Location::TYPE_DAMAGED, Location::TYPE_RETURNS]

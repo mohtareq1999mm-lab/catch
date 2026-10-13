@@ -14,10 +14,10 @@ Returns read-only, actionable steps toward a desired per-customer usage behavior
 | --- | --- |
 | HTTP method | `POST` |
 | Full path | `/api/v1/coupons/{id}/suggest-fix` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route → 404 fixed route-miss shape) |
-| Path composition | `api/v1` prefix + `coupons/{id}/suggest-fix` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.suggest-fix`) in `packages/marvel/src/Rest/Routes.php` |
+| Path composition | `api/v1` prefix + `coupons/{id}/suggest-fix` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.suggest-fix`, route middleware `permission:view-coupons|update-coupon|create-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponConfigurationController@suggestFix($couponId, Request $request)` (NOTE the reversed parameter order — route param FIRST — works via Laravel's type-hint resolution; code-verified) → `authorizeAdmin` (triple-permission fallback); `findOrFail` miss escapes → 404 fixed string; `desired_behavior` outside the pair → 400 `'Invalid desired behavior.'` + `allowed_values`; otherwise one of FIVE read-only suggestion shapes (nothing is modified — applying a suggestion is a separate call through the referenced assignment APIs; removal is deliberately never recommended since it affects eligibility/claims/history/notifications — code-verified domain rule) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via inline `authorizeAdmin` |
+| Permission | Any ONE of `view-coupons` / `update-coupon` / `create-coupon` via route middleware FIRST, then inline `authorizeAdmin` (same triple fallback; the inline verbatim abort is now unreachable for permissionless callers since the sets match) |
 | Required headers | `Authorization: Bearer <sanctum-token>`, `Content-Type: application/json` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -114,7 +114,7 @@ No error-code field; every error below has Error code `None`. There is deliberat
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim, with period) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller holds NONE of the three permissions | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-coupons."` (verbatim) | None | Valid token without any of the three (code-traced) | See 403 example |
+| 403 | Authenticated caller holds NONE of the three permissions (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without any of the three (code-traced) | See 403 example |
 | 404 | No coupon with `{id}` (`findOrFail` escapes) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id (code-traced) | See 404 example |
 | 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape) | None | Non-numeric segment | See 404-constraint example |
 | 400 | `desired_behavior` missing or outside the pair (strict comparison) | `{status: integer, message: string, success: boolean, data: object}` (extra `data.allowed_values` — code-verified) | None | `"Invalid desired behavior."` (literal) | None | Bad/absent behavior (code-traced) | See 400 example |
@@ -133,7 +133,7 @@ No error-code field; every error below has Error code `None`. There is deliberat
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: view-coupons.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

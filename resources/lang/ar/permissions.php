@@ -338,4 +338,19 @@ return [
     'batch.operate' => 'تشغيل الدفعات',
     'order.cancel-during-fulfillment' => 'إلغاء الطلب أثناء التنفيذ',
 
+    // 💳 المدفوعات
+    'payments.mark_paid' => 'تعليم الطلب كمدفوع',
+    'payments.refund' => 'استرداد المدفوعات',
+    'payments.verify' => 'التحقق من المدفوعات',
+    'payments.reconcile' => 'تسوية المدفوعات',
+
+    // 🧩 توافق الأدوار كصلاحيات
+    'editor' => 'محرر',
+    'store_owner' => 'مالك المتجر',
+    'staff' => 'موظف',
+    'customer' => 'عميل',
+
+    // 📇 جهة اتصال (مفرد)
+    'view-contact' => 'عرض جهة اتصال',
+
 ];

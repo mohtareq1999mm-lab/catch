@@ -22,7 +22,6 @@ class UpdatePackingStationRequest extends FormRequest
             'status' => ['sometimes', 'required', 'string', 'in:active,inactive,maintenance'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'daily_capacity' => ['nullable', 'integer', 'min:1'],
-            'metadata' => ['nullable', 'array'],
         ];
     }
 }

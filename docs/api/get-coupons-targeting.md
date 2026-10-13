@@ -14,10 +14,10 @@ Returns one coupon's targeting row with claim settings or a translated 404 when 
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/coupons/{id}/targeting` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route) |
-| Path composition | `api/v1` prefix + `coupons/{id}/targeting` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.targeting.show`) in `packages/marvel/src/Rest/Routes.php` |
+| Path composition | `api/v1` prefix + `coupons/{id}/targeting` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.targeting.show`, route middleware `permission:view-coupons|update-coupon|create-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponTargetingController@show(Request $request, int $id)` → `authorizeAdmin` (= `authorizeRead`: view OR update OR create coupon permission, triple fallback); `Coupon::findOrFail($id)` with NO try/catch → miss escapes as `ModelNotFoundException` → 404 FIXED string (code-verified); missing targeting row → `apiResponse(COUPON_NO_TARGETING, 404, false)` (translated — the two 404s differ, code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | READ split: any ONE of `view-coupons` / `update-coupon` / `create-coupon` via inline `authorizeRead` (writes demand more — see upsert/destroy docs; the BLOCKER-fix split is source-commented) |
+| Permission | READ split: any ONE of `view-coupons` / `update-coupon` / `create-coupon` via route middleware FIRST, then inline `authorizeRead` (same triple fallback; the inline verbatim abort is now unreachable for permissionless callers since the sets match; writes demand more — see upsert/destroy docs; the BLOCKER-fix split is source-commented) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -88,7 +88,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim, with period) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller holds NONE of the three read permissions | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-coupons."` (verbatim) | None | Valid token without any of the three (code-traced) | See 403 example |
+| 403 | Authenticated caller holds NONE of the three read permissions (route pipe rejects first) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Valid token without any of the three (code-traced) | See 403 example |
 | 404 | No coupon with `{id}` (`findOrFail` escapes — no translated coupon message here) | `{message: string, status: boolean}` (Handler shape) | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id (code-traced) | See 404 example |
 | 404 | Coupon exists but has NO targeting row (backward-compat "always eligible" state) | `{status: integer, message: string, success: boolean}` (ApiResponse shape) | None | Translated `ERROR.COUPON_NO_TARGETING`: `en` → `"This coupon has no targeting configuration."` | None | Untargeted coupon (code-traced) | See 404-targeting example |
 | 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape) | None | Non-numeric segment | See 404-constraint example |
@@ -107,7 +107,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: view-coupons.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

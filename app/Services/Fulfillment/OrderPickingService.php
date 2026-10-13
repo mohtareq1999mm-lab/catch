@@ -75,6 +75,11 @@ class OrderPickingService
                 $this->transitions->transition($lockedFulfillment, 'picking', ['reason' => 'order_picking_started']);
             }
 
+            if (count($tasks) > 0) {
+                app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                    ->announce((int) $lockedFulfillment->order_id, 'picking_started', (int) $lockedFulfillment->id);
+            }
+
             Log::info('Order picking tasks created', [
                 'fulfillment_id' => $fulfillment->id,
                 'tasks' => count($tasks),
@@ -108,9 +113,14 @@ class OrderPickingService
                 );
             }
 
-            return $this->transitions->transition(
+            $picked = $this->transitions->transition(
                 $locked, 'picked', $context + ['reason' => $context['reason'] ?? 'order_picking_completed']
             );
+
+            app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                ->announce((int) $picked->order_id, 'picked', (int) $picked->id);
+
+            return $picked;
         });
     }
 }

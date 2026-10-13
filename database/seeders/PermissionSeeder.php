@@ -203,6 +203,7 @@ class PermissionSeeder extends Seeder
             'export-brand',
             'import-product',
             'export-product',
+            'delete-all-products',
             'export-analytics',
             'create-brand',
             'update-brand',
@@ -299,10 +300,25 @@ class PermissionSeeder extends Seeder
             'create-pickup-location',
             'update-pickup-location',
             'delete-pickup-location',
+
+            // 🧩 Legacy role-as-permission compatibility (verified in code audit
+            // 2026-10-13: hasPermissionTo/User::permission('store_owner'|'staff'|
+            // 'customer'|'editor') and InstallCommand/AdminCreateCommand rely on
+            // these rows existing with guard `api`. They are permissions, NOT
+            // roles — `super_admin` stays a role only and is intentionally NOT
+            // created here (see 2026_09_09 remove_super_admin_permission).)
+            'editor',
+            'store_owner',
+            'staff',
+            'customer',
         ];
 
         $customerPermission = [
             // 👤 Customer
+            // 2026-10-13 M1: `customer` legacy permission row must be granted
+            // to the customer role itself — User::permission('customer') and
+            // InstallCommand parity rely on it (role≠permission in Spatie).
+            'customer',
             'view-profile',
             'update-profile',
             'change-password',
@@ -329,6 +345,10 @@ class PermissionSeeder extends Seeder
 
         $staffAndOnwner = [
             // 👷 Staff / Store Owner
+            // 2026-10-13 M1: `staff` legacy permission must be held by the
+            // staff role — BaseRepository/helpers gate on
+            // hasPermissionTo('staff') (permission, not hasRole).
+            'staff',
             'create-product',
             'update-product',
             'manage-digital-licenses',
@@ -376,6 +396,13 @@ class PermissionSeeder extends Seeder
 
         $onwnerPermission = [
             // 🏪 Store Owner
+            // 2026-10-13 M1: `store_owner` legacy permission must be held by
+            // the seeded `owner` role — the runtime role is `owner` (D9-3) but
+            // legacy gates check hasPermissionTo('store_owner') /
+            // User::permission('store_owner') (StoreNoticeRepository,
+            // BaseRepository, helpers). Without this, owner users fail those
+            // gates and vendor broadcasts resolve empty.
+            'store_owner',
             'create-shop',
             'update-shop',
             'delete-shop',
@@ -395,6 +422,10 @@ class PermissionSeeder extends Seeder
 
         $editorPermission = [
             // ✏️ Editor
+            // 2026-10-13 M1: `editor` legacy permission must be held by the
+            // editor role — CmsPageController gates on
+            // hasPermissionTo('editor') (permission, not hasRole).
+            'editor',
             'create-cms-page',
             'update-cms-page',
             'delete-cms-page',
@@ -445,6 +476,7 @@ class PermissionSeeder extends Seeder
             'export-brand',
             'import-product',
             'export-product',
+            'delete-all-products',
             'export-analytics',
             'create-brand',
             'update-brand',
@@ -575,18 +607,115 @@ class PermissionSeeder extends Seeder
         // other role sync in this seeder, syncPermissions REPLACES the
         // role's grant set: custom grants outside the seeded set are revoked
         // on reseed by design — custom grants belong on custom roles.
+        // 2026-10-13: the granular `change-order-status.*` set (created by
+        // OrderFlowService::syncTargetStatusPermissions / OrderStatusPermissionSeeder)
+        // is merged here as well. Without this, re-running ONLY this seeder
+        // would REVOKE the granular grants from super_admin (sync replaces),
+        // breaking PATCH orders/{id}/status for every admin until the
+        // OrderStatusPermissionSeeder runs again.
         $wmsPermissionNames = $this->seedWarehouseRoles();
+        $granularPermissionNames = $this->ensureTargetStatusPermissions();
         $roleSuperAdmin->syncPermissions(array_merge(
             $permissionsData,
             Permission::whereIn('name', $wmsPermissionNames)
                 ->where('guard_name', 'api')
                 ->get()
+                ->all(),
+            Permission::whereIn('name', $granularPermissionNames)
+                ->where('guard_name', 'api')
+                ->get()
                 ->all()
         ));
-        $roleOwner->syncPermissions($onwnerPermission);
-        $roleStaff->syncPermissions($staffAndOnwner);
-        $roleCustomer->syncPermissions($customerPermission);
-        $roleEditor->syncPermissions($editorPermission);
+        // 2026-10-13 M2: staff holds `update-order-status`, so it must keep
+        // the full granular set on reseed-only runs (same revoke bug as
+        // super_admin — OrderFlowService::userCanTransitionTo requires the
+        // granular target permission). Owner/customer/editor do NOT hold the
+        // general gate, so they keep only whatever granular rows they already
+        // hold (preserve, never wipe manually granted ones, never over-grant).
+        $roleStaff->syncPermissions(array_merge(
+            $staffAndOnwner,
+            $granularPermissionNames
+        ));
+        $roleOwner->syncPermissions(array_merge(
+            $onwnerPermission,
+            $this->existingGranularForRole($roleOwner)
+        ));
+        $roleCustomer->syncPermissions(array_merge(
+            $customerPermission,
+            $this->existingGranularForRole($roleCustomer)
+        ));
+        $roleEditor->syncPermissions(array_merge(
+            $editorPermission,
+            $this->existingGranularForRole($roleEditor)
+        ));
+
+        // Bust Spatie's permission cache so newly created rows (e.g.
+        // delete-all-products) take effect immediately — otherwise the new
+        // row stays invisible until a cache clear and gates keep 403ing.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /**
+     * Granular `change-order-status.*` preservation for super_admin.
+     *
+     * The granular set is owned by OrderFlowService::syncTargetStatusPermissions()
+     * (and bridged additively by OrderStatusPermissionSeeder). This seeder runs
+     * BEFORE OrderStatusPermissionSeeder in DatabaseSeeder, so on a fresh seed
+     * the rows may not exist yet — and on a reseed-only run this seeder must
+     * NOT revoke them. Strategy: best-effort ensure via the service when its
+     * tables exist, then always merge any existing `change-order-status.%`
+     * rows from the DB. Returns permission names (possibly empty, never throws).
+     *
+     * @return array<int, string>
+     */
+    private function ensureTargetStatusPermissions(): array
+    {
+        $names = [];
+
+        try {
+            if (class_exists(\App\Services\OrderFlow\OrderFlowService::class)) {
+                $names = (array) app(\App\Services\OrderFlow\OrderFlowService::class)->syncTargetStatusPermissions();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            $names = [];
+        }
+
+        try {
+            $existing = Permission::query()
+                ->where('guard_name', 'api')
+                ->where('name', 'like', 'change-order-status.%')
+                ->pluck('name')
+                ->all();
+            $names = array_values(array_unique(array_merge($names, $existing)));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return $names;
+    }
+
+    /**
+     * Existing granular `change-order-status.*` rows already held by a role.
+     * Used to preserve (never wipe) manually granted granular targets on
+     * reseed-only runs for roles that do NOT own the full granular set
+     * (owner/customer/editor). Never throws; returns names (possibly empty).
+     *
+     * @return array<int, string>
+     */
+    private function existingGranularForRole(mixed $role): array
+    {
+        try {
+            return $role->permissions()
+                ->where('guard_name', 'api')
+                ->where('permissions.name', 'like', 'change-order-status.%')
+                ->pluck('permissions.name')
+                ->all();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return [];
+        }
     }
 
     /**

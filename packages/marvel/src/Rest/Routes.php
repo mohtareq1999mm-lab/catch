@@ -202,13 +202,13 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
 
     //======================== countries ========================/
     Route::apiResource('countries', CountryController::class)->middleware('permission:view-country|create-country|update-country|delete-country');
-    Route::get('countries/{id}/governorates', [CountryController::class, 'governorates'])->middleware('auth:sanctum');
+    Route::get('countries/{id}/governorates', [CountryController::class, 'governorates'])->middleware(['auth:sanctum', 'permission:view-country']);
     Route::post('countries/change-status', [CountryController::class, 'bulkStatus'])->middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::UPDATE_COUNTRY]);
 
     //======================== governorates ========================/
     Route::put('governorates/change-status', [GovernorateController::class, 'bulkStatus'])->middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::UPDATE_GOVERNORATE]);
     Route::put('governorates/{id}/fast-shipping', [GovernorateController::class, 'toggleFastShipping'])->middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::UPDATE_GOVERNORATE]);
-    Route::get('governorates/{id}/cities', [GovernorateController::class, 'cities'])->middleware('auth:sanctum');
+    Route::get('governorates/{id}/cities', [GovernorateController::class, 'cities'])->middleware(['auth:sanctum', 'permission:view-governorate']);
     Route::apiResource('governorates', GovernorateController::class)->middleware('permission:view-governorate|create-governorate|update-governorate|delete-governorate');
 
     //======================== cities ========================/
@@ -277,7 +277,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     //============================= flash sale ========================/
     Route::put('flash-sale/reorder', [FlashSaleController::class, 'reorder'])->middleware('permission:update-flash-sale');
     Route::apiResource('flash-sale', FlashSaleController::class)->middleware('permission:view-flash-sale|create-flash-sale|update-flash-sale|delete-flash-sale');
-    Route::get('product-flash-sale-info', [FlashSaleController::class, 'getFlashSaleInfoByProductID']);
+    Route::get('product-flash-sale-info', [FlashSaleController::class, 'getFlashSaleInfoByProductID'])->middleware('permission:view-flash-sale|view-products');
 
     //============================= faqs ========================/
     Route::put('faqs/reorder', [FaqsController::class, 'reorder'])->middleware('permission:update-faq');
@@ -296,18 +296,23 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::get('coupons/rules', [\App\Http\Controllers\Api\Admin\CouponRulesController::class, 'show'])->name('api.admin.coupons.rules');
     Route::apiResource('coupons', CouponController::class);
     // Admin coupon configuration helpers
+    // Route middleware mirrors each controller's in-controller decision
+    // (read: view|update|create; write: update|create; distribute: update).
     Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-        Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config');
-        Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info');
-        Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix');
-        Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show');
-        Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert');
-        Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy');
+        Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config')->middleware('permission:view-coupons|update-coupon|create-coupon');
+        Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info')->middleware('permission:view-coupons|update-coupon|create-coupon');
+        Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix')->middleware('permission:view-coupons|update-coupon|create-coupon');
+        Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show')->middleware('permission:view-coupons|update-coupon|create-coupon');
+        Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert')->middleware('permission:update-coupon|create-coupon');
+        Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy')->middleware('permission:update-coupon|create-coupon');
         // Coupon distribution (RabbitMQ event backbone): manual runs + status.
         // Permission: update-coupon (in-controller, explicit + documented).
-        Route::post('{id}/distribute', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'distribute'])->whereNumber('id');
-        Route::get('{id}/distributions', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'index'])->whereNumber('id');
-        Route::get('{id}/distributions/{runId}', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'show'])->whereNumber(['id', 'runId']);
+        // NOTE: the controller reads config('coupon-distribution.admin_permission',
+        // default 'update-coupon') — if that config ever changes, update the
+        // hardcoded route middleware below to match.
+        Route::post('{id}/distribute', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'distribute'])->whereNumber('id')->middleware('permission:update-coupon');
+        Route::get('{id}/distributions', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'index'])->whereNumber('id')->middleware('permission:update-coupon');
+        Route::get('{id}/distributions/{runId}', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'show'])->whereNumber(['id', 'runId'])->middleware('permission:update-coupon');
     });
 
     //============================= wishlists ========================/
@@ -429,11 +434,11 @@ Route::middleware(['auth:sanctum', 'throttle:analytics', 'permission:' . \Marvel
 
 
 Route::group(['prefix' => 'admin', 'controller' => NotificationController::class], function () {
-    Route::middleware('permission:' . \Marvel\Enums\Permission::VIEW_NOTIFICATIONS, 'lang')->group(function () {
+    Route::middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::VIEW_NOTIFICATIONS, 'lang'])->group(function () {
         Route::get('notifications', 'index');
         Route::get('notifications/unread', 'unread');
     });
-    Route::middleware('permission:' . \Marvel\Enums\Permission::MANAGE_NOTIFICATIONS, 'lang')->group(function () {
+    Route::middleware(['auth:sanctum', 'permission:' . \Marvel\Enums\Permission::MANAGE_NOTIFICATIONS, 'lang'])->group(function () {
         Route::patch('notifications/{id}/read', 'markAsRead');
         Route::patch('notifications/read-all', 'markAllAsRead');
         Route::delete('notifications/{id}', 'destroy');
@@ -485,7 +490,7 @@ Route::prefix('invoices')->group(function () {
     });
 });
 
-Route::prefix('admin/analytics/export')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+Route::prefix('admin/analytics/export')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'permission:export-analytics'])->group(function () {
     Route::post('orders', [AnalyticsExportController::class, 'exportOrders'])->name('api.admin.analytics.export.orders');
     Route::post('customer-ltv', [AnalyticsExportController::class, 'exportCustomerLTV'])->name('api.admin.analytics.export.ltv');
     Route::post('performance', [AnalyticsExportController::class, 'exportPerformance'])->name('api.admin.analytics.export.performance');

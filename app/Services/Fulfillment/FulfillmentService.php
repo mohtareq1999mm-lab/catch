@@ -115,6 +115,12 @@ class FulfillmentService
             'idempotency_key' => $idempotencyKey,
         ]);
 
+        // Converge the order (e.g. pending → processing) through the
+        // authoritative Order Flow service. After-commit event: a rollback
+        // discards it; replays converge idempotently.
+        app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+            ->announce((int) $fulfillment->order_id, 'released', (int) $fulfillment->id);
+
         return $fulfillment;
     }
 

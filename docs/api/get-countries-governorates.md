@@ -14,10 +14,10 @@ Returns one country by id with its governorates eager-loaded in a country envelo
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/countries/{id}/governorates` |
-| Path composition | `api/v1` prefix + `countries/{id}/governorates` custom `Route::get` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with route middleware `auth:sanctum` ONLY (no permission pipe — code-verified; does not collide with `countries/{country}` show because segment counts differ: 2 vs 1) |
+| Path composition | `api/v1` prefix + `countries/{id}/governorates` custom `Route::get` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with route middleware `['auth:sanctum', 'permission:view-country']` (the permission was added to the working tree after the initial doc — code-verified; does not collide with `countries/{country}` show because segment counts differ: 2 vs 1) |
 | Controller action | `Marvel\Http\Controllers\CountryController@governorates` → `findById($country, ['governorates'])`; miss → `COUNTRY_NOT_FOUND` 404; hit → `apiResponse(GOVERNORATES_FETCHED_SUCCESSFULLY, 200, true, CountryResource::make($countryModel))` |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + route) |
-| Permission | None. No permission middleware on this route and the constructor gates only `index/show/store/update/destroy` — any authenticated user can call it (code-verified) |
+| Permission | Required once: `view-country` via route middleware (the constructor gates only `index/show/store/update/destroy`, so the route middleware alone decides) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -80,11 +80,12 @@ Returned via `ApiResponse::apiResponse(GOVERNORATES_FETCHED_SUCCESSFULLY, 200, t
 
 # Errors
 
-No error-code field; every error below has Error code `None`. No validation or permission check, so no `403`/`422`.
+No error-code field; every error below has Error code `None`. No validation, so no `422`.
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (code-traced; no guest test found for this sub-route) | See 401 example |
+| 403 | Authenticated caller lacks `view-country` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Valid token without `view-country` (code-traced) | See 403 example |
 | 404 | No country with `{id}` | `{status: integer, message: string, success: boolean}` | None | `en` → `"Country not found"` | None | Unknown id (code-traced) | See 404 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
@@ -93,6 +94,15 @@ No error-code field; every error below has Error code `None`. No validation or p
 ```json
 {
   "message": "Unauthenticated",
+  "status": false
+}
+```
+
+403 example:
+
+```json
+{
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

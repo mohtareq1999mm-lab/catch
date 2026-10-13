@@ -138,8 +138,13 @@ class WmsOrderCancellationTest extends TestCase
 
         // Same warehouse, no granular perm → 403, order untouched.
         $plain = $this->user($this->warehouseA->id, ['view-fulfillment']);
+        $before = $order->fresh()->status;
+        // Release converges the order via the flow service; lock that here
+        // so a future release-sync breakage fails loudly instead of hiding
+        // behind the untouched assertion below.
+        $this->assertSame('processing', $before);
         $this->cancelHttp($plain, $order->id)->assertStatus(403);
-        $this->assertSame('pending', $order->fresh()->status);
+        $this->assertSame($before, $order->fresh()->status);
         $this->assertSame('pending', Fulfillment::where('order_id', $order->id)->first()->status);
     }
 
@@ -154,7 +159,11 @@ class WmsOrderCancellationTest extends TestCase
         $this->releaseFor($order, $this->warehouseA->id, 'reason-1');
 
         $this->cancelHttp($this->canceller(), $order->id, [])->assertStatus(422);
-        $this->assertSame('pending', $order->fresh()->status);
+        // Refused validation leaves the (synced) state untouched.
+        $this->assertSame('processing', $order->fresh()->status);
+        // NOTE: release now converges the order pending → processing via the
+        // authoritative flow service; the untouched-subject is the synced
+        // state, not the legacy pending.
     }
 
     // ---------- happy path + cascade ----------
@@ -204,8 +213,10 @@ class WmsOrderCancellationTest extends TestCase
 
         // Actor homed in B with the perm: order fulfills from A → 403.
         $foreign = $this->canceller($this->warehouseB->id);
+        $before = $order->fresh()->status;
+        $this->assertSame('processing', $before);
         $this->cancelHttp($foreign, $order->id)->assertStatus(403);
-        $this->assertSame('pending', $order->fresh()->status);
+        $this->assertSame($before, $order->fresh()->status);
         $this->assertSame('pending', Fulfillment::where('order_id', $order->id)->first()->status);
     }
 

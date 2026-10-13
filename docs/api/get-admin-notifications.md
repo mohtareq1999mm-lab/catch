@@ -14,7 +14,7 @@ Returns the caller's paginated notifications, newest first, with locale-resolved
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/notifications` |
-| Path composition | `api` prefix (from `RouteServiceProvider` mapping of `routes/api.php`) + `v1/admin` prefix + `notifications` from the `Route::group(['prefix' => 'admin', 'controller' => NotificationController::class])` block in `routes/api.php`, inside the route-level `permission:view-notifications` + `lang` group (note: NO `auth:sanctum` at route level — authentication comes from the controller constructor; route middleware executes BEFORE constructor middleware per `Route::gatherMiddleware`, so guests hit the Spatie gate first — code-verified order) |
+| Path composition | `api` prefix (from `RouteServiceProvider` mapping of `routes/api.php`) + `v1/admin` prefix + `notifications` from the `Route::group(['prefix' => 'admin', 'controller' => NotificationController::class])` block in `routes/api.php`, inside the route-level `auth:sanctum` + `permission:view-notifications` + `lang` group (`auth:sanctum` added at route level in the working tree — guests now hit it first and get plain `"Unauthenticated"`, not the translated Spatie message) |
 | Controller action | `Marvel\Http\Controllers\NotificationController@index` (queries the caller's own `notifications()` morph relation — other users' rows are unreachable by construction) |
 | Authentication | Required via constructor `auth:sanctum`, but the route-level Spatie `permission:view-notifications` middleware runs FIRST, so a guest receives the Spatie 401 below, not the generic one |
 | Permission | Required: `view-notifications` via route middleware |
@@ -105,7 +105,7 @@ The implementation has no machine-readable error-code field; every error below h
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Guest call (no authenticated user): the route-level Spatie `permission:view-notifications` middleware runs BEFORE constructor `auth:sanctum` (verified order in `Route::gatherMiddleware`) and throws `notLoggedIn`, which `Handler` renders with 401 — hence the translated message below, NOT generic `"Unauthenticated"` | `{message: string, status: boolean}` (Handler shape; note boolean `status`, unlike the success envelope) | None | Translated `ERROR.USER_NOT_LOGGED_IN` via `Handler::messageForSpatieUnauthorized`: `en` → `"User is not logged in."`, `ar` → `"المستخدم غير مسجل الدخول."` (message code-verified via middleware order + Handler branch; tests assert status only) | None | Any request without an authenticated user; verified by `test_unauthenticated_user_cannot_access_notifications` expecting 401 | See 401 example |
+| 401 | Missing/invalid token: route-level `auth:sanctum` (working-tree addition) runs before the Spatie gate and throws `AuthenticationException` → 401 with the generic message (NOT the translated Spatie text) | `{message: string, status: boolean}` (Handler shape; note boolean `status`, unlike the success envelope) | None | `"Unauthenticated"` via the `AuthenticationException` branch (message code-verified via middleware order + Handler branch; tests assert status only) | None | Any request without a valid token; verified by `test_unauthenticated_user_cannot_access_notifications` expecting 401 | See 401 example |
 | 403 | Authenticated caller lacks the `view-notifications` permission (same Spatie middleware) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` via `Handler::messageForSpatieUnauthorized` (no permission-name suffix: `display_permission_in_exception` is `false`): `en` → `"User does not have the required permissions."`, `ar` → `"لا يمتلك المستخدم الصلاحيات المطلوبة."` | None | Valid token + user without `view-notifications`; verified by `test_non_admin_cannot_access_notifications` and `test_admin_without_view_permission_cannot_fetch_notifications`, both expecting 403 | See 403 example |
 | 405 | `POST`, `PUT`, `PATCH`, or `DELETE` on the bare `/api/v1/admin/notifications` path (`DELETE` routes to the sibling destroy-all endpoint, so only `POST`/`PUT`/`PATCH` 405) | `{message: string, status: boolean}` | None | `"Method Not Allowed"` via `MethodNotAllowedHttpException` branch of `Handler` | None | `POST`/`PUT`/`PATCH` to the exact URI (code-traced) | See 405 example |
 | 500 | Unexpected failure (any exception), rendered by the generic branch of `Handler` (the method has no try/catch) | `{message: string, status: boolean}` | None | The exception message when `app.debug` is true, else `"Internal Server Error"` | None | Query failure (code-traced, no test) | See 500 example |
@@ -116,7 +116,7 @@ There is no throttle on this group, hence no 429 contract.
 
 ```json
 {
-  "message": "User is not logged in.",
+  "message": "Unauthenticated",
   "status": false
 }
 ```

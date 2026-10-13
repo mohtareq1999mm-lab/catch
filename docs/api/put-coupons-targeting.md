@@ -14,10 +14,10 @@ Creates or replaces one coupon's targeting row under fail-closed tree validation
 | --- | --- |
 | HTTP method | `PUT` (only `PUT` is registered — `PATCH` on this path → 405; code-verified) |
 | Full path | `/api/v1/coupons/{id}/targeting` (explicit `{id}` placeholder with `whereNumber('id')`) |
-| Path composition | `api/v1` prefix + `coupons/{id}/targeting` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.targeting.upsert`) in `packages/marvel/src/Rest/Routes.php` |
+| Path composition | `api/v1` prefix + `coupons/{id}/targeting` from the `Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.coupons.targeting.upsert`, route middleware `permission:update-coupon|create-coupon` — working-tree addition that runs BEFORE the inline check) in `packages/marvel/src/Rest/Routes.php` |
 | Controller action | `App\Http\Controllers\Api\Admin\CouponTargetingController@upsert(UpsertTargetingRequest $request, int $id)` → `authorizeWrite` (update-coupon OR create-coupon — view-only FAILS here; the source-commented BLOCKER fix); `findOrFail` miss escapes → 404 fixed; `RuleTreeValidator::validate` fail-closed (`unknown → reject_422`, per the catalog grammar) → 422 `COULD_NOT_UPDATE_THE_RESOURCE` with `data.errors`; then transactional `updateOrCreate` + `CouponTargetingChanged` event + discovery-cache invalidation (side effects — a new targeting version re-opens distribution evaluation, code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group + constructor + manual check) |
-| Permission | WRITE split: `update-coupon` OR `create-coupon` via inline `authorizeWrite` (view-only is NOT enough — code-verified, source-commented; type=admin WITHOUT an explicit permission is also NOT enough for writes, unlike reads) |
+| Permission | WRITE split: `update-coupon` OR `create-coupon` via route middleware FIRST, then inline `authorizeWrite` (same BLOCKER-fix split; the inline verbatim abort is now unreachable for permissionless callers since the sets match; view-only is NOT enough — code-verified, source-commented; type=admin WITHOUT an explicit permission is also NOT enough for writes, unlike reads) |
 | Required headers | `Authorization: Bearer <sanctum-token>`, `Content-Type: application/json` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -103,7 +103,7 @@ No error-code field; every error below has Error code `None`.
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (verbatim, with period) | None | No valid token (code-traced) | See 401 example |
-| 403 | Authenticated caller lacks BOTH `update-coupon` and `create-coupon` (view-only fails WRITES — the BLOCKER fix; admin-type without explicit permission also fails) | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: update-coupon."` (verbatim — note `update-coupon`, not `view-coupons`) | None | View-only or permissionless token (code-traced) | See 403 example |
+| 403 | Authenticated caller lacks BOTH `update-coupon` and `create-coupon` (route pipe rejects first; view-only fails WRITES — the BLOCKER fix; admin-type without explicit permission also fails) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | View-only or permissionless token (code-traced) | See 403 example |
 | 404 | No coupon with `{id}` (`findOrFail` escapes) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id with valid body (code-traced) | See 404 example |
 | 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape) | None | Non-numeric segment | See 404-constraint example |
 | 405 | `PATCH`/`POST` on this path (only `PUT` registered) | `{message: string, status: boolean}` | None | `"Method Not Allowed"` | None | Wrong method (code-traced) | See 405 example |
@@ -124,7 +124,7 @@ No error-code field; every error below has Error code `None`.
 
 ```json
 {
-  "message": "Forbidden. Missing required permission: update-coupon.",
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

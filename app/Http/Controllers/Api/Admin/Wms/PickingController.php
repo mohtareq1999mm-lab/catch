@@ -95,7 +95,7 @@ class PickingController extends WmsAdminController
         $task = PickingTask::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($this->taskWarehouseId($task), 'picking-execute', true);
 
-        $task->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']);
+        $task->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']);
 
         return $this->apiResponse(
             __('wms.picking.fetched_one'),
@@ -152,7 +152,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.claimed'),
             200,
             true,
-            PickingTaskDetailResource::make($claimed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
+            PickingTaskDetailResource::make($claimed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
         );
     }
 
@@ -185,7 +185,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.released'),
             200,
             true,
-            PickingTaskDetailResource::make($released->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
+            PickingTaskDetailResource::make($released->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
         );
     }
 
@@ -219,7 +219,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.confirmed'),
             200,
             true,
-            PickingTaskDetailResource::make($confirmed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
+            PickingTaskDetailResource::make($confirmed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
         );
     }
 
@@ -237,7 +237,8 @@ class PickingController extends WmsAdminController
                 (float) $request->validated('quantity'),
                 $request->validated('notes'),
                 $this->actorId(),
-                $this->resolveOverride($request)
+                $this->resolveOverride($request),
+                $request->validated('op_seq')
             );
         } catch (\Exception $e) {
             // The service signals business refusals with base \Exception;
@@ -250,7 +251,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.recorded'),
             200,
             true,
-            PickingTaskDetailResource::make($recorded->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
+            PickingTaskDetailResource::make($recorded->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
         );
     }
 
@@ -274,7 +275,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.skipped'),
             200,
             true,
-            PickingTaskDetailResource::make($skipped->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
+            PickingTaskDetailResource::make($skipped->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
         );
     }
 
@@ -299,7 +300,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.reallocated'),
             200,
             true,
-            PickingTaskDetailResource::make($moved->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation']))
+            PickingTaskDetailResource::make($moved->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
         );
     }
 

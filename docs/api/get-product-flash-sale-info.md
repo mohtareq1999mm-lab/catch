@@ -4,7 +4,7 @@ Flash Sale – Product Flash Sale Info (`GET /api/v1/product-flash-sale-info`)
 
 # Description
 
-Returns the raw flash-sale models attached to one product id with no permission check.
+Returns the raw flash-sale models attached to one product id behind a viewing permission.
 
 # Request
 
@@ -14,10 +14,10 @@ Returns the raw flash-sale models attached to one product id with no permission 
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/product-flash-sale-info` |
-| Path composition | `api/v1` prefix + `product-flash-sale-info` custom `Route::get` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with NO route-level permission middleware (route-inventory confirms group middleware only: `api, auth:sanctum, throttle:admin, lang` — code-verified) and NO constructor gate covers `getFlashSaleInfoByProductID` (gates list only `index/show/store/update/reorder/destroy`) |
+| Path composition | `api/v1` prefix + `product-flash-sale-info` custom `Route::get` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group with route middleware `permission:view-flash-sale\|view-products` (working-tree addition — code-verified) and NO constructor gate covers `getFlashSaleInfoByProductID` (gates list only `index/show/store/update/destroy`) |
 | Controller action | `Marvel\Http\Controllers\FlashSaleController@getFlashSaleInfoByProductID` → `Product::find($request->id)` (plain `find` — NO exception, NO SoftDeletes bypass question answered in code; miss → `null` → empty array, still 200); hit → `$product->flash_sales` (BelongsToMany) returned DIRECTLY as `data` — NOT wrapped in `FlashSaleResource` (raw model attributes, exact keys **Unverified in source**); the `catch (MarvelException)` + `throw new MarvelException(SOMETHING_WENT_WRONG)` pair only converts `MarvelException`s (nearly dead — `find` throws nothing) |
 | Authentication | Required. Sanctum bearer token via the GROUP `auth:sanctum` (the route itself declares no auth — the group supplies it; an unauthenticated call still 401s, code-verified via inventory) |
-| Permission | None. No permission middleware on this route and no constructor gate covers this method — any authenticated user (even with zero flash-sale permissions) can call it (code-verified) |
+| Permission | Any ONE of `view-flash-sale` / `view-products` via route middleware (added to the working tree after the initial doc — code-verified; no constructor gate covers this method, so the route pipe alone decides) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Optional headers | `lang: en\|ar` (default `en`) |
@@ -88,15 +88,23 @@ No error-code field; every error below has Error code `None`. There is deliberat
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 401 | Missing/invalid token (group `auth:sanctum`) | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (code-traced via inventory middleware) | See 401 example |
+| 403 | Authenticated caller holds NEITHER `view-flash-sale` NOR `view-products` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Valid token without either permission (code-traced) | See 403 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
-
-There is deliberately NO 403 row (no permission check exists — any authenticated caller succeeds).
 
 401 example:
 
 ```json
 {
   "message": "Unauthenticated",
+  "status": false
+}
+```
+
+403 example:
+
+```json
+{
+  "message": "User does not have the required permissions.",
   "status": false
 }
 ```

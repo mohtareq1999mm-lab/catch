@@ -321,7 +321,7 @@ class WmsShipmentTest extends TestCase
         $this->assertSame('shipped', $f2->fresh()->status);
     }
 
-    public function test_shipment_commands_leave_order_lifecycle_untouched(): void
+    public function test_shipment_commands_converge_order_lifecycle_without_completion(): void
     {
         $dispatcher = $this->dispatcher();
         $fulfillment = $this->readyFulfillment('i1');
@@ -334,10 +334,16 @@ class WmsShipmentTest extends TestCase
         $this->actingAs($dispatcher, 'sanctum')
             ->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
 
-        // Fulfillment moves (ready_to_ship → shipped → delivered); the order
-        // row lifecycle is untouched by shipment commands here (COD pending
-        // order: completion rule correctly does not fire).
+        // Fulfillment moves (ready_to_ship → shipped → delivered). Shipment
+        // commands now converge the order through the authoritative Order
+        // Flow service (dispatch → shipped, deliver → out_for_delivery for
+        // this unpaid COD order); the payment-owned completion step still
+        // does not fire while unpaid, and the fulfillment mirror + inventory
+        // state stay untouched.
         $this->assertSame('delivered', $fulfillment->fresh()->status);
-        $this->assertSame($orderBefore, $fulfillment->order()->first()->only(['status', 'fulfillment_status', 'inventory_state']));
+        $orderAfter = $fulfillment->order()->first()->only(['status', 'fulfillment_status', 'inventory_state']);
+        $this->assertSame('out_for_delivery', $orderAfter['status']);
+        $this->assertSame($orderBefore['fulfillment_status'], $orderAfter['fulfillment_status']);
+        $this->assertSame($orderBefore['inventory_state'], $orderAfter['inventory_state']);
     }
 }

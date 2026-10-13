@@ -278,6 +278,41 @@ class StockOperationService
                     );
                 }
 
+                // E-guard: an open picking task (pending/assigned/picking)
+                // pins this placement for its operator. Draining the hint
+                // underneath active work is refused — complete, skip, or
+                // reallocate the task first, then transfer. Checked here
+                // (inside the write transaction, before locks) so the
+                // refusal never leaves a half-moved placement pair.
+                $hasOpenTask = \App\Models\Fulfillment\PickingTask::query()
+                    ->where('product_location_id', $source->id)
+                    ->whereIn('status', ['pending', 'assigned', 'picking'])
+                    ->exists();
+                if ($hasOpenTask) {
+                    throw new \InvalidArgumentException(
+                        __('wms.stock.transfer_open_task', ['location' => $sourceLocationId])
+                    );
+                }
+
+                // E-guard (pre-task window): a fulfillment item with remaining
+                // quantity pinned to this placement is an outstanding picking
+                // commitment even before its task exists (task creation copies
+                // item.product_location_id verbatim). Draining it sends the
+                // picker to an empty bin. Refused while the fulfillment is
+                // still pre-pick-complete (pending/picking); picked+ means
+                // the goods are in hand and the bin is free. Recovery: create
+                // tasks, reallocate them elsewhere, then transfer.
+                $hasOpenCommitment = \App\Models\Fulfillment\FulfillmentItem::query()
+                    ->where('product_location_id', $source->id)
+                    ->whereColumn('quantity_picked', '<', 'quantity')
+                    ->whereHas('fulfillment', fn ($q) => $q->whereIn('status', ['pending', 'picking']))
+                    ->exists();
+                if ($hasOpenCommitment) {
+                    throw new \InvalidArgumentException(
+                        __('wms.stock.transfer_open_commitment', ['location' => $sourceLocationId])
+                    );
+                }
+
                 if ((int) $source->warehouse_id !== $sourceWarehouseId) {
                     throw new \InvalidArgumentException(
                         __('wms.stock.already_placed', ['product' => $product->id, 'location' => $sourceLocationId, 'warehouse' => $source->warehouse_id])
@@ -297,6 +332,38 @@ class StockOperationService
                 if ($available < $quantity) {
                     throw new \InvalidArgumentException(
                         __('wms.stock.insufficient', ['location' => $sourceLocationId, 'available' => $available, 'quantity' => $quantity])
+                    );
+                }
+
+                // Post-lock revalidation of the E-guard above: a task may
+                // have pinned this placement between the pre-check and the
+                // row locks. The locked read is authoritative.
+                $stillOpen = \App\Models\Fulfillment\PickingTask::query()
+                    ->where('product_location_id', $source->id)
+                    ->whereIn('status', ['pending', 'assigned', 'picking'])
+                    ->lockForUpdate()
+                    ->first();
+                if ($stillOpen !== null) {
+                    throw new \InvalidArgumentException(
+                        __('wms.stock.transfer_open_task', ['location' => $sourceLocationId])
+                    );
+                }
+
+                // Post-lock revalidation of the pre-task commitment guard: a
+                // fulfillment item may have been pinned (creation/assignment)
+                // between the pre-check and the row locks. Unlocked snapshot
+                // read — deliberately no new lock edge (see design note); the
+                // locked task recheck above is the backstop for the racing
+                // task-creation case, and any residual hint-level race cannot
+                // move central stock (hints only).
+                $stillCommitted = \App\Models\Fulfillment\FulfillmentItem::query()
+                    ->where('product_location_id', $source->id)
+                    ->whereColumn('quantity_picked', '<', 'quantity')
+                    ->whereHas('fulfillment', fn ($q) => $q->whereIn('status', ['pending', 'picking']))
+                    ->exists();
+                if ($stillCommitted) {
+                    throw new \InvalidArgumentException(
+                        __('wms.stock.transfer_open_commitment', ['location' => $sourceLocationId])
                     );
                 }
 

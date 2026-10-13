@@ -335,4 +335,19 @@ return [
     'batch.operate' => 'Operate batches',
     'order.cancel-during-fulfillment' => 'Cancel order during fulfillment',
 
+    // 💳 Payments (F-1: distinct financial gates)
+    'payments.mark_paid' => 'Mark order as paid',
+    'payments.refund' => 'Refund payment',
+    'payments.verify' => 'Verify payment',
+    'payments.reconcile' => 'Reconcile payments',
+
+    // 🧩 Legacy role-as-permission compatibility (hasPermissionTo/store_owner etc.)
+    'editor' => 'Editor',
+    'store_owner' => 'Store owner',
+    'staff' => 'Staff',
+    'customer' => 'Customer',
+
+    // 📇 Contact (singular — seeded, no middleware enforces it today)
+    'view-contact' => 'View contact',
+
 ];
