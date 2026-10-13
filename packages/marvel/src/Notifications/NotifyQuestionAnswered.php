@@ -55,7 +55,16 @@ class NotifyQuestionAnswered extends Notification implements ShouldQueue
         }
 
         return (new MailMessage)
-            ->markdown('emails.question.answered', ['question' => $this->question, 'url' => $url, 'product' => $product]);
+            ->markdown('emails.question.answered', [
+                'question' => $this->question,
+                'url' => $url,
+                'product' => $product,
+                // The question carries the asker's content language; the
+                // blade renders the matching template (OTP-mail precedent).
+                'locale' => in_array($this->question->language ?? null, ['ar', 'en'], true)
+                    ? $this->question->language
+                    : config('app.locale'),
+            ]);
     }
 
     /**

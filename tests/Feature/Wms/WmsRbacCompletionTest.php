@@ -62,7 +62,7 @@ class WmsRbacCompletionTest extends TestCase
             $method = array_intersect($route->methods(), ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
             $method = reset($method) ?: 'GET';
             $uri = '/' . ltrim($route->uri(), '/');
-            $uri = str_replace(['{id}', '{orderId}', '{order}'], '1', $uri);
+            $uri = str_replace(['{id}', '{orderId}', '{order}', '{location}'], '1', $uri);
             // Required query filters for list endpoints.
             if (str_contains($uri, 'admin/packages') && !str_contains($uri, '?')) {
                 $uri .= str_ends_with($uri, '/1') ? '' : '?fulfillment_id=1';
@@ -80,14 +80,20 @@ class WmsRbacCompletionTest extends TestCase
     {
         $routes = $this->wmsRoutes();
 
-        // P9-2 (14) + P9-3/P9-4 fulfillments (7) + fulfillment-items (1) +
-        // picking-tasks (8) + batches (10) + P9-6 packing (15) + P9-7 (1) +
-        // P9-8 shipments (6) + pre-existing order shipment (2) = 64.
-        $this->assertCount(64, $routes);
+        // P9-2 (16: warehouses 8 + locations 8 incl. stock-receipts) +
+        // P9-3/P9-4 fulfillments (7) + fulfillment-items (1) +
+        // picking-tasks (8) + batches (11 incl. complete) + P9-6 packing
+        // (15) + P9-7 (1) + P9-8 shipments (6) + stock-transfers (1) +
+        // pre-existing order shipment (2) = 68. Any route addition must
+        // update this inventory deliberately — never silently.
+        $this->assertCount(68, $routes);
 
         $names = array_column($routes, 'name');
         foreach ([
             'api.admin.batches.refresh-progress',
+            'api.admin.batches.complete',
+            'api.admin.locations.stock-receipts',
+            'api.admin.stock-transfers',
             'api.admin.packing-tasks.pack', 'api.admin.packing-tasks.verify',
             'api.admin.packages.void', 'api.admin.orders.cancel',
             'api.admin.fulfillments.shipments.store',
@@ -96,12 +102,40 @@ class WmsRbacCompletionTest extends TestCase
         ] as $expected) {
             $this->assertContains($expected, $names);
         }
+
+        // URI-prefix backstop: the inventory filter above is controller-name
+        // based, so a future WMS-URI route under a different controller
+        // namespace would escape it. Any route under a WMS URI prefix must
+        // be a member of this inventoried set (the two order-shipment names
+        // are the only approved non-Wms-controller members).
+        $inventoried = array_fill_keys($names, true);
+        foreach (Route::getRoutes() as $route) {
+            $uri = $route->uri();
+            $isWmsUri = str_starts_with($uri, 'api/v1/admin/warehouses')
+                || str_starts_with($uri, 'api/v1/admin/locations')
+                || str_starts_with($uri, 'api/v1/admin/batches')
+                || str_starts_with($uri, 'api/v1/admin/fulfillments')
+                || str_starts_with($uri, 'api/v1/admin/fulfillment-items')
+                || str_starts_with($uri, 'api/v1/admin/packing-tasks')
+                || str_starts_with($uri, 'api/v1/admin/packing-stations')
+                || str_starts_with($uri, 'api/v1/admin/packages')
+                || str_starts_with($uri, 'api/v1/admin/picking-tasks')
+                || str_starts_with($uri, 'api/v1/admin/shipments')
+                || str_starts_with($uri, 'api/v1/admin/stock-transfers');
+            if ($isWmsUri) {
+                $this->assertArrayHasKey(
+                    $route->getName() ?? '',
+                    $inventoried,
+                    "WMS-URI route outside the inventory: {$route->methods()[0]} {$uri}"
+                );
+            }
+        }
     }
 
     public function test_every_wms_route_requires_authentication(): void
     {
         // Throttle is proven present by middleware audit below; bypass it
-        // here so the 64-request sweep measures auth, not rate limits.
+        // here so the 68-request sweep measures auth, not rate limits.
         $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
 
         foreach ($this->wmsRoutes() as $route) {
@@ -169,6 +203,8 @@ class WmsRbacCompletionTest extends TestCase
         }
 
         // Every permission introduced for P9-5..P9-8 must gate ≥1 route.
+        // inventory-adjust gates the stock receipt/transfer surface (added
+        // after P9-9 with its own docs/translations/service/tests).
         foreach ([
             'packing-execute', 'packing.complete',
             'order.cancel-during-fulfillment',
@@ -177,15 +213,15 @@ class WmsRbacCompletionTest extends TestCase
             'view-fulfillment', 'manage-fulfillment',
             'fulfillment.create', 'fulfillment.cancel',
             'view-warehouse', 'manage-warehouse', 'view-location', 'manage-location',
+            'inventory-adjust',
         ] as $bound) {
             $this->assertArrayHasKey($bound, $gated, "Seeded permission {$bound} gates no route");
         }
 
         // Documented unbound by design: picking.claim / picking.complete are
         // reserved granular claims for a future tightening of the P9-4
-        // picking surface (closed phases stay frozen); inventory-adjust has
-        // no HTTP surface by design (inventory keeps zero HTTP writers).
-        foreach (['picking.claim', 'picking.complete', 'inventory-adjust'] as $reserved) {
+        // picking surface (closed phases stay frozen).
+        foreach (['picking.claim', 'picking.complete'] as $reserved) {
             $this->assertArrayNotHasKey($reserved, $gated, "{$reserved} unexpectedly bound");
             $this->assertNotNull(
                 Permission::where('name', $reserved)->where('guard_name', 'api')->first(),

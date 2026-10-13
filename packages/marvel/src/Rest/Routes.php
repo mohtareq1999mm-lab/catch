@@ -573,6 +573,20 @@ Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:a
 // Fulfillment Phase 9 (P9-3): Fulfillment admin surface. Command routes only —
 // no generic status mutation. Lifecycle authority stays in FulfillmentService;
 // object-level warehouse scope is enforced in-controller via WmsAdminController.
+
+Route::get('/enum-types', function () {
+    return response()->json(
+        [
+            'discount-type' => \Marvel\Enums\DiscountType::getValues(),
+            'coupon-type' => \Marvel\Enums\CouponType::getValues(),
+            'product-type' => \Marvel\Enums\ProductType::getValues(),
+            'promotion-type' => \Marvel\Enums\PromotionType::getValues(),
+            'promotion-mount-type' => \Marvel\Enums\PromotionMountType::getValues(),
+            'flash-sale-type' => \Marvel\Enums\FlashSaleType::getValues(),
+        ],
+        200
+    );
+});
 Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.fulfillments.index');
     Route::post('/release', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'release'])->middleware('permission:fulfillment.create')->name('api.admin.fulfillments.release');
@@ -608,6 +622,7 @@ Route::prefix('admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:adm
     Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'assign'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.assign');
     Route::post('{id}/start', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'start'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.start');
     Route::post('{id}/refresh-progress', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'refreshProgress'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.refresh-progress');
+    Route::post('{id}/complete', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'complete'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.complete');
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'cancel'])->whereNumber('id')->middleware('permission:batch.manage')->name('api.admin.batches.cancel');
     Route::post('{id}/retry', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'retry'])->whereNumber('id')->middleware('permission:batch.manage')->name('api.admin.batches.retry');
 });
@@ -629,7 +644,11 @@ Route::prefix('admin/packing-tasks')->middleware(['api', 'auth:sanctum', 'thrott
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'cancel'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.packing-tasks.cancel');
 });
 Route::prefix('admin/packing-stations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'stations'])->middleware('permission:view-fulfillment')->name('api.admin.packing-stations.index');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packing-stations.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'store'])->middleware('permission:manage-warehouse')->name('api.admin.packing-stations.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.packing-stations.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'update'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.packing-stations.update');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.packing-stations.destroy');
 });
 Route::prefix('admin/packages')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packages.index');
@@ -667,17 +686,3 @@ Route::prefix('admin')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->g
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without
 // auth or throttle). Test payments use the gateway sandbox directly.
 
-
-Route::get('/enum-types', function () {
-    return response()->json(
-        [
-            'discount-type' => \Marvel\Enums\DiscountType::getValues(),
-            'coupon-type' => \Marvel\Enums\CouponType::getValues(),
-            'product-type' => \Marvel\Enums\ProductType::getValues(),
-            'promotion-type' => \Marvel\Enums\PromotionType::getValues(),
-            'promotion-mount-type' => \Marvel\Enums\PromotionMountType::getValues(),
-            'flash-sale-type' => \Marvel\Enums\FlashSaleType::getValues(),
-        ],
-        200
-    );
-});

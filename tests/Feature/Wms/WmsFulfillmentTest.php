@@ -703,4 +703,29 @@ class WmsFulfillmentTest extends TestCase
         $this->assertSame($stockBefore, [(float) $product->stock_quantity, (float) $product->reserved_quantity]);
         $this->assertSame(0, \App\Models\Shipment::where('order_id', $order->id)->count());
     }
+
+    public function test_bulk_release_processes_multiple_orders_and_returns_summary(): void
+    {
+        $order1 = $this->makeOrder();
+        $order2 = $this->makeOrder();
+        $operator = $this->operator();
+
+        $response = $this->actingAs($operator, 'sanctum')->postJson(
+            '/api/v1/admin/fulfillments/release',
+            [
+                'order_ids' => [$order1->id, $order2->id, 999999],
+                'warehouse_id' => $this->warehouseA->id,
+            ]
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.summary.total', 3)
+            ->assertJsonPath('data.summary.released_count', 2)
+            ->assertJsonPath('data.summary.failed_count', 1);
+
+        $this->assertCount(2, $response->json('data.released'));
+        $this->assertCount(1, $response->json('data.failed'));
+        $this->assertSame(999999, $response->json('data.failed.0.order_id'));
+    }
 }

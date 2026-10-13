@@ -14,10 +14,10 @@ class ReleaseFulfillmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Existence is resolved in-controller (firstOrFail → 404): a
-            // missing order is a missing resource, never a 422 business
-            // refusal. Validation only guards shape here.
-            'order_id' => ['required', 'integer'],
+            // Single or bulk support: either a single order_id or an array of order_ids.
+            'order_id' => ['required_without:order_ids', 'integer'],
+            'order_ids' => ['required_without:order_id', 'array', 'min:1', 'max:100'],
+            'order_ids.*' => ['integer', 'min:1'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             // Domain idempotency key. The `auto-release-order-*` namespace is
             // reserved for the automatic payment/COD release mechanism and

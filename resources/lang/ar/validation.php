@@ -266,6 +266,9 @@ return [
         'details' => 'التفاصيل',
         'inputs.*' => 'المدخلات',
         'values.*' => 'القيم',
+        'values.*.value' => 'قيمة الخاصية',
+        'values.*.value.en' => 'قيمة الخاصية بالإنجليزية',
+        'values.*.value.ar' => 'قيمة الخاصية بالعربية',
         // Checkout / tracking / devices / notifications / flows (API coverage)
         'order_number' => 'رقم الطلب',
         'currency_code' => 'رمز العملة',

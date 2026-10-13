@@ -37,9 +37,15 @@ class WarehouseAccess
             return false;
         }
 
-        // Global permission crosses warehouses.
-        if ($permission === 'manage-warehouse' || $user->hasPermissionTo('manage-warehouse', 'api')) {
-            return true;
+        // Global permission crosses warehouses. Fail-closed: a missing
+        // permission row (e.g. minimal test seeders) denies instead of
+        // throwing PermissionDoesNotExist out of the authorization boundary.
+        try {
+            if ($permission === 'manage-warehouse' || $user->hasPermissionTo('manage-warehouse', 'api')) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // Fall through to the home-warehouse check (fail-closed).
         }
 
         // Otherwise the operation must be warehouse-scoped to home.

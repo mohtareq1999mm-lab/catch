@@ -19,7 +19,8 @@ class ConfirmPickRequest extends FormRequest
             // replay protection. All business validation lives in
             // PickingExecutionService::confirm.
             'location' => ['required', 'string', 'max:255'],
-            'product' => ['required', 'string', 'max:255'],
+            // Accepts product ID (integer) or barcode/SKU (string).
+            'product' => ['required'],
             'quantity' => ['required', 'numeric', 'gt:0'],
             'op_seq' => ['nullable', 'integer', 'min:0'],
             'override' => ['sometimes', 'boolean'],

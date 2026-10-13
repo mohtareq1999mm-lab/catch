@@ -47,18 +47,11 @@ class BarcodeResolver
             return ['kind' => 'location', 'id' => $location->id, 'label' => $location->code];
         }
 
-        // WHAT — product / variant SKU (exact match).
-        $product = Product::where('sku', $code)->first();
-        if ($product) {
-            return ['kind' => 'product', 'id' => $product->id, 'label' => (string) $product->sku];
-        }
-        $variant = ProductVariant::where('sku', $code)->first();
-        if ($variant) {
-            return [
-                'kind' => 'variant', 'id' => $variant->id,
-                'label' => (string) $variant->sku,
-                'product_id' => $variant->product_id ?? null,
-            ];
+        // WHAT — product / variant SKU (exact match), or primary key ID if numeric.
+        try {
+            return $this->resolveProduct($code);
+        } catch (UnknownBarcodeException) {
+            // Continue down to fulfillment / package / order
         }
 
         // WHICH FULFILLMENT / WHICH ORDER / WHICH PACKAGE.
@@ -73,6 +66,44 @@ class BarcodeResolver
         $order = Order::where('order_number', $code)->first();
         if ($order) {
             return ['kind' => 'order', 'id' => $order->id, 'label' => (string) $order->order_number];
+        }
+
+        throw new UnknownBarcodeException($code);
+    }
+
+    /**
+     * Resolve WHAT specifically: by SKU or by primary key ID.
+     *
+     * @return array{kind: string, id: int|string, label: string}
+     *
+     * @throws UnknownBarcodeException
+     */
+    public function resolveProduct(string $code): array
+    {
+        $code = trim($code);
+        if ($code === '') {
+            throw new UnknownBarcodeException('empty');
+        }
+
+        $product = Product::where('sku', $code)->first();
+        if (!$product && ctype_digit($code)) {
+            $product = Product::find((int) $code);
+        }
+        if ($product) {
+            return ['kind' => 'product', 'id' => $product->id, 'label' => (string) $product->sku];
+        }
+
+        $variant = ProductVariant::where('sku', $code)->first();
+        if (!$variant && ctype_digit($code)) {
+            $variant = ProductVariant::find((int) $code);
+        }
+        if ($variant) {
+            return [
+                'kind' => 'variant',
+                'id' => $variant->id,
+                'label' => (string) $variant->sku,
+                'product_id' => $variant->product_id ?? null,
+            ];
         }
 
         throw new UnknownBarcodeException($code);

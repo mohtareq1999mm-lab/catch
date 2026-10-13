@@ -242,6 +242,9 @@ return [
         'details' => 'details',
         'inputs.*' => 'inputs',
         'values.*' => 'values',
+        'values.*.value' => 'attribute value',
+        'values.*.value.en' => 'attribute value (English)',
+        'values.*.value.ar' => 'attribute value (Arabic)',
         // Checkout / tracking / devices / notifications / flows (API coverage)
         'order_number' => 'order number',
         'currency_code' => 'currency code',

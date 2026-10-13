@@ -22,13 +22,25 @@ class SendPasswordResetEmailJob implements ShouldQueue
     public function __construct(
         public string $email,
         public string $token,
+        // Captured at dispatch (request locale). Queued rendering must not
+        // depend on the worker's ambient locale (Octane leak class).
+        public string $locale = '',
     ) {
         $this->onQueue(config('queue.queues.medium'));
+        if ($this->locale === '') {
+            $this->locale = app()->getLocale();
+        }
     }
 
     public function handle(): void
     {
-        Mail::to($this->email)->send(new ForgetPassword($this->token));
+        $previous = app()->getLocale();
+        app()->setLocale(in_array($this->locale, ['ar', 'en'], true) ? $this->locale : config('app.locale'));
+        try {
+            Mail::to($this->email)->send(new ForgetPassword($this->token));
+        } finally {
+            app()->setLocale($previous);
+        }
     }
 
     public function failed(\Throwable $e): void

@@ -222,21 +222,43 @@ class WmsRbacFoundationTest extends TestCase
         $warehouses = array_values(array_filter($names, fn ($n) => str_starts_with($n, 'api.admin.warehouses.')));
         $locations = array_values(array_filter($names, fn ($n) => str_starts_with($n, 'api.admin.locations.')));
         $this->assertCount(8, $warehouses, 'warehouses surface stays exactly 8 routes');
-        $this->assertCount(6, $locations, 'locations surface stays exactly 6 routes');
+        // Locations grew 6 → 8 after P9-2 (destroy + stock-receipts, each
+        // with own permission gate and tests). Any further growth must be
+        // deliberate — the exact-count completion inventory below is the
+        // detector for the wider surface.
+        $this->assertCount(8, $locations, 'locations surface stays exactly 8 routes');
 
-        foreach ($names as $name) {
-            $this->assertDoesNotMatchRegularExpression(
-                '/^api\.admin\.(fulfillment|picking|packing|batch|shipment)(\.|$)/',
-                $name,
-                "later-phase route must not exist: {$name}"
-            );
-        }
-        foreach (collect(Route::getRoutes())->map(fn ($r) => $r->uri())->all() as $uri) {
-            $this->assertDoesNotMatchRegularExpression(
-                '#^api/v1/admin/(fulfillment|picking|packing|batch|shipment)(/|$)#',
-                $uri,
-                "later-phase URI must not exist: {$uri}"
-            );
+        // The P9-2-era negative loops below were retired: phases P9-3..P9-8
+        // intentionally introduced the fulfillment / picking / packing /
+        // batch / shipment surfaces (each with auth + permission + throttle
+        // + warehouse scope and dedicated tests). The exact-count detector
+        // for the whole surface is
+        // WmsRbacCompletionTest::test_wms_surface_inventory_is_complete.
+        // This test pins the approved phase surfaces by name instead.
+        foreach ([
+            'api.admin.fulfillments.index',
+            'api.admin.fulfillments.release',
+            'api.admin.fulfillments.show',
+            'api.admin.fulfillments.cancel',
+            'api.admin.fulfillments.assign',
+            'api.admin.fulfillments.create-tasks',
+            'api.admin.fulfillments.complete-picking',
+            'api.admin.batches.index',
+            'api.admin.batches.store',
+            'api.admin.batches.show',
+            'api.admin.batches.assign',
+            'api.admin.batches.start',
+            'api.admin.batches.complete',
+            'api.admin.batches.refresh-progress',
+            'api.admin.batches.cancel',
+            'api.admin.batches.retry',
+            'api.admin.picking-tasks.index',
+            'api.admin.picking-tasks.claim',
+            'api.admin.picking-tasks.confirm',
+            'api.admin.locations.stock-receipts',
+            'api.admin.stock-transfers',
+        ] as $approved) {
+            $this->assertContains($approved, $names, "approved WMS route missing: {$approved}");
         }
 
         $this->assertContains('api.admin.orders.shipment.show', $names);
@@ -266,7 +288,7 @@ class WmsRbacFoundationTest extends TestCase
                 }
             }
         }
-        $this->assertSame(14, $checked, 'all 14 P9-2 routes carry exactly one permission each');
+        $this->assertSame(16, $checked, 'all 16 warehouse/location routes carry exactly one permission each');
     }
 
     public function test_permission_alone_does_not_grant_cross_warehouse_scope(): void

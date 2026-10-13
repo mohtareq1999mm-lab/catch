@@ -202,7 +202,7 @@ class PickingController extends WmsAdminController
                 $task,
                 [
                     'location' => (string) $request->validated('location'),
-                    'product' => (string) $request->validated('product'),
+                    'product' => (int) $request->validated('product'),
                     'quantity' => (float) $request->validated('quantity'),
                     'op_seq' => (int) ($request->validated('op_seq') ?? 0),
                 ],

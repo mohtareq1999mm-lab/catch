@@ -149,7 +149,11 @@ class PickingExecutionService
             }
 
             // Validate WHAT.
-            $product = $this->barcodes->resolve((string) ($scan['product'] ?? ''));
+            try {
+                $product = $this->barcodes->resolveProduct((string) ($scan['product'] ?? ''));
+            } catch (\App\Exceptions\UnknownBarcodeException) {
+                $product = $this->barcodes->resolve((string) ($scan['product'] ?? ''));
+            }
             $this->assertScannedProduct($locked, $item, $product, $scan, $userId);
 
             // P4-7: execution-time placement revalidation. The location may

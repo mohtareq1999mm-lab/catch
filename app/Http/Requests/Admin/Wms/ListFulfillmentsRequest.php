@@ -18,6 +18,7 @@ class ListFulfillmentsRequest extends FormRequest
             'order_id' => ['nullable', 'integer', 'exists:orders,id'],
             'status' => ['nullable', 'in:pending,picking,picked,packing,ready_to_ship,shipped,delivered,cancelled'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
+            'batch_id' => ['nullable', 'integer', 'exists:fulfillment_batches,id'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ];
     }

@@ -5,7 +5,10 @@ namespace Database\Seeders;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\FulfillmentItem;
 use App\Models\Fulfillment\Location;
+use App\Models\Fulfillment\Package;
+use App\Models\Fulfillment\PackageItem;
 use App\Models\Fulfillment\PackingStation;
+use App\Models\Fulfillment\PackingTask;
 use App\Models\Fulfillment\PickingTask;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
@@ -16,6 +19,9 @@ use Illuminate\Support\Facades\Hash;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\OrderProduct;
 use Marvel\Database\Models\Product;
+use Marvel\Database\Models\Refund;
+use Marvel\Database\Models\RefundPolicy;
+use Marvel\Database\Models\RefundReason;
 use Marvel\Database\Models\Role;
 use Marvel\Database\Models\User;
 use Marvel\Enums\ProductType;
@@ -26,110 +32,127 @@ class WmsOperationsSeeder extends Seeder
     public function run(): void
     {
         $this->command?->info('================================================================');
-        $this->command?->info('  Starting WMS Fulfillment & Inventory Operations Seeder');
+        $this->command?->info('  Setting up Complete WMS, Order Flow & Operations Dataset');
         $this->command?->info('================================================================');
 
-        // 1. Seed & Ensure all WMS Permissions
-        $wmsPermissions = [
+        // 1. All Required Permissions
+        $allPermissions = [
+            // Warehouse & Locations
             'view-warehouse',
             'manage-warehouse',
             'view-location',
             'manage-location',
+            'inventory-adjust',
+
+            // Fulfillments
             'view-fulfillment',
             'manage-fulfillment',
             'fulfillment.create',
             'fulfillment.cancel',
+            'fulfillment-override',
+
+            // Picking & Batches
             'picking-execute',
             'picking.claim',
             'picking.complete',
-            'packing-execute',
-            'packing.complete',
             'batch.manage',
             'batch.operate',
-            'fulfillment-override',
-            'inventory-adjust',
-            'order.cancel-during-fulfillment',
+
+            // Packing & Packages
+            'packing-execute',
+            'packing.complete',
+
+            // Shipments
             'view-shipment',
             'create-shipment',
             'update-shipment',
+
+            // Orders & Flows
             'view-orders',
             'view-order',
             'update-order-status',
+            'view-order-flows',
+            'create-order-flows',
+            'update-order-flows',
+            'manage-order-flow-inputs',
+            'order.cancel-during-fulfillment',
+
+            // Refunds
+            'view-refunds',
+            'payments.refund',
         ];
 
-        foreach ($wmsPermissions as $perm) {
+        foreach ($allPermissions as $perm) {
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'api']);
         }
 
-        // 2. Ensure Warehouse Roles
+        // 2. Roles
+        $superAdminRole = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'api']);
+        $superAdminRole->syncPermissions($allPermissions);
+
         $managerRole = Role::firstOrCreate(
             ['name' => 'warehouse-manager', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Warehouse Manager', 'ar' => 'مدير مستودع']]
         );
-        $managerRole->syncPermissions($wmsPermissions);
+        $managerRole->syncPermissions($allPermissions);
 
         $pickerRole = Role::firstOrCreate(
             ['name' => 'picker', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Picker', 'ar' => 'عامل التقاط']]
         );
         $pickerRole->syncPermissions([
-            'view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute', 'picking.claim'
+            'view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute', 'picking.claim',
         ]);
 
-        $superAdminRole = Role::where('name', 'super_admin')->first();
-        if ($superAdminRole) {
-            $superAdminRole->givePermissionTo($wmsPermissions);
-        }
-
-        // 3. Create or Update Default Warehouse
+        // 3. Default Warehouse
         $warehouse = Warehouse::firstOrCreate(
             ['code' => 'MAIN'],
             [
-                'name' => 'Main Distribution Hub',
+                'name' => 'المخزن الرئيسي (Cairo Hub)',
                 'status' => 'active',
                 'is_default' => true,
-                'address' => '123 Logistics Way',
+                'address' => 'شارع اللوجستيات 10، مدينة نصر',
                 'city' => 'Cairo',
-                'country' => 'Egypt',
+                'country' => 'EG',
                 'metadata' => ['capacity' => 20000, 'contact' => '+201000000000'],
             ]
         );
         $warehouse->update(['is_default' => true, 'status' => 'active']);
 
-        // 4. Create Standard Placeable Locations
+        // 4. Standard Active Locations
         $locationsSetup = [
             [
                 'code' => 'REC-01',
                 'barcode' => 'LOC-REC-01',
-                'name' => 'Receiving Dock 01',
+                'name' => 'منطقة الاستلام (Receiving)',
                 'type' => Location::TYPE_RECEIVING,
                 'priority' => 20,
             ],
             [
                 'code' => 'A-01-01',
                 'barcode' => 'LOC-A-01-01',
-                'name' => 'Aisle A - Rack 01 - Shelf 01',
+                'name' => 'ممر A - رف 1 - خانة 1',
                 'type' => Location::TYPE_STORAGE,
                 'priority' => 10,
             ],
             [
                 'code' => 'A-01-02',
                 'barcode' => 'LOC-A-01-02',
-                'name' => 'Aisle A - Rack 01 - Shelf 02',
+                'name' => 'ممر A - رف 1 - خانة 2',
                 'type' => Location::TYPE_STORAGE,
                 'priority' => 9,
             ],
             [
                 'code' => 'PICK-01',
                 'barcode' => 'LOC-PICK-01',
-                'name' => 'Fast Picking Bay 01',
+                'name' => 'منطقة اللم السريع (Fast Pick)',
                 'type' => Location::TYPE_PICKING,
                 'priority' => 15,
             ],
             [
                 'code' => 'PACK-01',
                 'barcode' => 'LOC-PACK-01',
-                'name' => 'Packing Staging 01',
+                'name' => 'منطقة تجهيز التغليف (Packing)',
                 'type' => Location::TYPE_PACKING,
                 'priority' => 5,
             ],
@@ -148,18 +171,19 @@ class WmsOperationsSeeder extends Seeder
                     'type' => $locData['type'],
                     'status' => Location::STATUS_ACTIVE,
                     'priority' => $locData['priority'],
-                    'metadata' => ['dimensions' => '2m x 1m x 1m'],
                 ]
             );
+            $locations[$locData['code']]->update(['status' => Location::STATUS_ACTIVE]);
         }
 
         // 5. Packing Station
-        PackingStation::firstOrCreate(
+        $station = PackingStation::firstOrCreate(
             ['warehouse_id' => $warehouse->id, 'code' => 'PACK-STATION-01'],
-            ['name' => 'Main Packing Station 1', 'status' => 'active']
+            ['name' => 'طاولة التغليف رقم 1', 'status' => 'active']
         );
+        $station->update(['status' => 'active']);
 
-        // 6. Setup Admin Users & assign to Warehouse
+        // 6. Users: Admin, Picker, Customer
         $admin = User::firstOrCreate(
             ['email' => 'admin@gmail.com'],
             [
@@ -175,48 +199,39 @@ class WmsOperationsSeeder extends Seeder
             'is_active' => true,
             'warehouse_id' => $warehouse->id,
         ]);
-        $admin->givePermissionTo($wmsPermissions);
+        $admin->syncRoles(['super_admin', 'warehouse-manager']);
+        $admin->syncPermissions($allPermissions);
         $adminToken = $admin->createToken('AdminWmsToken')->plainTextToken;
 
-        // Demo admin
-        $demoAdmin = User::where('email', 'admin@demo.com')->first();
-        if ($demoAdmin) {
-            $demoAdmin->update(['warehouse_id' => $warehouse->id]);
-            $demoAdmin->givePermissionTo($wmsPermissions);
-        }
-
-        // Dedicated Picker User
         $picker = User::firstOrCreate(
             ['email' => 'picker@wms.com'],
             [
-                'name' => 'Ahmed WMS Picker',
+                'name' => 'أحمد (عامل اللم بالمخزن)',
                 'password' => Hash::make('password123'),
                 'type' => 'staff',
                 'is_active' => true,
+                'warehouse_id' => $warehouse->id,
             ]
         );
-        $picker->update(['warehouse_id' => $warehouse->id]);
-        $picker->assignRole('picker');
+        $picker->syncRoles(['picker']);
 
-        // Customer for orders
         $customer = User::firstOrCreate(
-            ['email' => 'wms.customer@example.com'],
+            ['email' => 'customer@wms.com'],
             [
-                'name' => 'WMS Test Customer',
+                'name' => 'محمد العميل التجريبي',
                 'password' => Hash::make('password123'),
                 'type' => 'customer',
                 'is_active' => true,
-                'phone_number' => '+201011112222',
+                'phone_number' => '+201099887766',
             ]
         );
 
-        // 7. Physical Simple Products for WMS
+        // 7. Products (Physical)
         $productAlpha = Product::firstOrCreate(
             ['sku' => 'WMS-ALPHA-101'],
             [
-                'name' => ['en' => 'WMS Premium Headset Alpha', 'ar' => 'سماعة ميم بريميوم ألفا'],
-                'slug' => 'wms-premium-headset-alpha',
-                'description' => ['en' => 'High-fidelity audio headset for warehouse testing', 'ar' => 'سماعة عالية الدقة لتجارب المستودع'],
+                'name' => ['en' => 'WMS Wireless Headset Alpha', 'ar' => 'سماعة وايرلس ألفا'],
+                'slug' => 'wms-wireless-headset-alpha',
                 'price' => 150.00,
                 'stock_quantity' => 100,
                 'quantity' => 100,
@@ -224,76 +239,75 @@ class WmsOperationsSeeder extends Seeder
                 'item_type' => 'PHYSICAL',
                 'status' => 1,
                 'in_stock' => 1,
-                'has_discount' => 0,
-                'has_flash_sale' => 0,
             ]
         );
 
         $productBeta = Product::firstOrCreate(
             ['sku' => 'WMS-BETA-102'],
             [
-                'name' => ['en' => 'WMS Wireless Mouse Beta', 'ar' => 'ماوس لاسلكي بيتا'],
-                'slug' => 'wms-wireless-mouse-beta',
-                'description' => ['en' => 'Ergonomic wireless mouse for warehouse testing', 'ar' => 'ماوس لاسلكي مريح لتجارب المستودع'],
+                'name' => ['en' => 'WMS Smart Mouse Beta', 'ar' => 'ماوس ذكي بيتا'],
+                'slug' => 'wms-smart-mouse-beta',
                 'price' => 75.00,
-                'stock_quantity' => 60,
-                'quantity' => 60,
+                'stock_quantity' => 100,
+                'quantity' => 100,
                 'product_type' => ProductType::SIMPLE,
                 'item_type' => 'PHYSICAL',
                 'status' => 1,
                 'in_stock' => 1,
-                'has_discount' => 0,
-                'has_flash_sale' => 0,
             ]
         );
 
-        // 8. Initial Stock Placements in Locations
-        // Placement 1: Product Alpha in Storage A-01-01
-        $placementAlphaStorage = ProductLocation::firstOrCreate(
+        $productGamma = Product::firstOrCreate(
+            ['sku' => 'WMS-GAMMA-103'],
             [
-                'product_id' => $productAlpha->id,
-                'location_id' => $locations['A-01-01']->id,
-            ],
-            [
-                'warehouse_id' => $warehouse->id,
+                'name' => ['en' => 'WMS Mechanical Keyboard Gamma', 'ar' => 'كيبورد ميكانيكي جاما'],
+                'slug' => 'wms-mechanical-keyboard-gamma',
+                'price' => 200.00,
+                'stock_quantity' => 50,
                 'quantity' => 50,
-                'allocated_hint' => 0,
+                'product_type' => ProductType::SIMPLE,
+                'item_type' => 'PHYSICAL',
+                'status' => 1,
+                'in_stock' => 1,
             ]
         );
 
-        // Placement 2: Product Alpha in Fast Pick Bay PICK-01
+        // 8. Product Placements (Shelves stock in ProductLocations)
+        // Alpha in PICK-01 (50 units) & A-01-01 (50 units)
         $placementAlphaPick = ProductLocation::firstOrCreate(
-            [
-                'product_id' => $productAlpha->id,
-                'location_id' => $locations['PICK-01']->id,
-            ],
-            [
-                'warehouse_id' => $warehouse->id,
-                'quantity' => 50,
-                'allocated_hint' => 0,
-            ]
+            ['product_id' => $productAlpha->id, 'location_id' => $locations['PICK-01']->id],
+            ['warehouse_id' => $warehouse->id, 'quantity' => 50, 'allocated_hint' => 0]
         );
 
-        // Placement 3: Product Beta in Storage A-01-02
+        $placementAlphaStorage = ProductLocation::firstOrCreate(
+            ['product_id' => $productAlpha->id, 'location_id' => $locations['A-01-01']->id],
+            ['warehouse_id' => $warehouse->id, 'quantity' => 50, 'allocated_hint' => 0]
+        );
+
+        // Beta in A-01-02 (60 units)
         $placementBetaStorage = ProductLocation::firstOrCreate(
-            [
-                'product_id' => $productBeta->id,
-                'location_id' => $locations['A-01-02']->id,
-            ],
-            [
-                'warehouse_id' => $warehouse->id,
-                'quantity' => 60,
-                'allocated_hint' => 0,
-            ]
+            ['product_id' => $productBeta->id, 'location_id' => $locations['A-01-02']->id],
+            ['warehouse_id' => $warehouse->id, 'quantity' => 60, 'allocated_hint' => 0]
         );
 
-        // 9. Orders and Fulfillments Setup
+        // Gamma placement on A-01-01 (20 units) -> available for manual assign-placement!
+        $placementGamma = ProductLocation::firstOrCreate(
+            ['product_id' => $productGamma->id, 'location_id' => $locations['A-01-01']->id],
+            ['warehouse_id' => $warehouse->id, 'quantity' => 20, 'allocated_hint' => 0]
+        );
+
+        // Order Flow & Statuses
         $flow = OrderFlow::first();
         $processingStatus = OrderStatus::where('code', 'processing')->first();
+        $completedStatus = OrderStatus::where('code', 'completed')->first();
 
-        // ── Order 1: Ready for POST admin/fulfillments/release ──────────
-        $orderRelease = Order::firstOrCreate(
-            ['order_number' => 'ORD-WMS-RELEASE-001'],
+        // ==============================================================
+        //  SCENARIOS FOR TESTING EVERY WMS ENDPOINT
+        // ==============================================================
+
+        // ── SCENARIO 1: Order Paid Online Ready for Release ───────────
+        $orderPaid = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-PAID-001'],
             [
                 'user_id' => $customer->id,
                 'name' => $customer->name,
@@ -302,6 +316,8 @@ class WmsOperationsSeeder extends Seeder
                 'status' => 'processing',
                 'order_status' => 'order-processing',
                 'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+                'payment_method' => 'online',
+                'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
                 'fulfillment_status' => 'pending',
                 'shipment_status' => Order::SHIPMENT_STATUS_PENDING,
                 'flow_id' => $flow?->id,
@@ -313,11 +329,14 @@ class WmsOperationsSeeder extends Seeder
                 'address' => ['street_address' => '10 Nile Corniche', 'city' => 'Cairo', 'country' => 'Egypt'],
             ]
         );
-
+        $orderPaid->update([
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+        ]);
         OrderProduct::firstOrCreate(
-            ['order_id' => $orderRelease->id, 'product_id' => $productAlpha->id],
+            ['order_id' => $orderPaid->id, 'product_id' => $productAlpha->id],
             [
-                'product_name' => 'WMS Premium Headset Alpha',
+                'product_name' => 'WMS Wireless Headset Alpha',
                 'product_sku' => $productAlpha->sku,
                 'product_quantity' => 2,
                 'product_price' => 150.00,
@@ -325,9 +344,53 @@ class WmsOperationsSeeder extends Seeder
             ]
         );
 
-        // ── Order 2: Fulfillment in Pending status (Ready for Assign, Create-Tasks, Cancel) ──
-        $orderFulfillmentPending = Order::firstOrCreate(
-            ['order_number' => 'ORD-WMS-FUL-PENDING-002'],
+        // ── SCENARIO 2: Order Cash On Delivery (COD) Ready for Release ──
+        $orderCod = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-COD-002'],
+            [
+                'user_id' => $customer->id,
+                'name' => $customer->name,
+                'user_email' => $customer->email,
+                'user_phone' => $customer->phone_number,
+                'status' => 'processing',
+                'order_status' => 'order-processing',
+                'payment_status' => Order::PAYMENT_STATUS_PENDING,
+                'payment_method' => 'cod',
+                'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+                'fulfillment_status' => 'pending',
+                'shipment_status' => Order::SHIPMENT_STATUS_PENDING,
+                'flow_id' => $flow?->id,
+                'current_status_id' => $processingStatus?->id,
+                'price' => 75.00,
+                'total_price' => 75.00,
+                'currency_code' => 'EGP',
+                'base_currency_code' => 'EGP',
+                'address' => ['street_address' => '25 Tahrir St', 'city' => 'Cairo', 'country' => 'Egypt'],
+            ]
+        );
+        $orderCod->update([
+            'payment_method' => 'cod',
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+        ]);
+        OrderProduct::firstOrCreate(
+            ['order_id' => $orderCod->id, 'product_id' => $productBeta->id],
+            [
+                'product_name' => 'WMS Smart Mouse Beta',
+                'product_sku' => $productBeta->sku,
+                'product_quantity' => 1,
+                'product_price' => 75.00,
+                'product_total_price' => 75.00,
+            ]
+        );
+
+        // Also fix legacy seed orders (like Order #2) so release passes for any test order
+        Order::whereIn('id', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])->update([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+        ]);
+
+        // ── SCENARIO 3: Fulfillment Item With NO Placement (To Test assign-placement) ─
+        $orderNeedPlacement = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-NEED-PLACEMENT-003'],
             [
                 'user_id' => $customer->id,
                 'name' => $customer->name,
@@ -336,43 +399,89 @@ class WmsOperationsSeeder extends Seeder
                 'status' => 'processing',
                 'order_status' => 'order-processing',
                 'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
-                'fulfillment_status' => 'pending',
-                'shipment_status' => Order::SHIPMENT_STATUS_PENDING,
+                'flow_id' => $flow?->id,
+                'current_status_id' => $processingStatus?->id,
+                'price' => 200.00,
+                'total_price' => 200.00,
+                'currency_code' => 'EGP',
+                'base_currency_code' => 'EGP',
+                'address' => ['street_address' => '15 Dokki St', 'city' => 'Giza', 'country' => 'Egypt'],
+            ]
+        );
+        $orderProductGamma = OrderProduct::firstOrCreate(
+            ['order_id' => $orderNeedPlacement->id, 'product_id' => $productGamma->id],
+            [
+                'product_name' => 'WMS Mechanical Keyboard Gamma',
+                'product_sku' => $productGamma->sku,
+                'product_quantity' => 1,
+                'product_price' => 200.00,
+                'product_total_price' => 200.00,
+            ]
+        );
+        $fulNeedPlacement = Fulfillment::firstOrCreate(
+            ['fulfillment_number' => 'FUL-NEED-PLACEMENT-003'],
+            [
+                'order_id' => $orderNeedPlacement->id,
+                'warehouse_id' => $warehouse->id,
+                'warehouse_code' => $warehouse->code,
+                'warehouse_name' => $warehouse->name,
+                'status' => 'pending',
+            ]
+        );
+        $itemNeedPlacement = FulfillmentItem::firstOrCreate(
+            ['fulfillment_id' => $fulNeedPlacement->id, 'order_item_id' => $orderProductGamma->id],
+            [
+                'product_id' => $productGamma->id,
+                'quantity' => 1.00,
+                'quantity_picked' => 0.00,
+                'status' => 'pending',
+                'product_location_id' => null, // 👈 Explicitly NULL for assign-placement test!
+                'notes' => 'Location allocation pending manual placement',
+            ]
+        );
+
+        // ── SCENARIO 4: Fulfillment Ready For Picking Execution (Scanner Test) ────
+        $orderReadyPick = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-READY-PICK-004'],
+            [
+                'user_id' => $customer->id,
+                'name' => $customer->name,
+                'user_email' => $customer->email,
+                'user_phone' => $customer->phone_number,
+                'status' => 'processing',
+                'order_status' => 'order-processing',
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
                 'flow_id' => $flow?->id,
                 'current_status_id' => $processingStatus?->id,
                 'price' => 150.00,
                 'total_price' => 150.00,
                 'currency_code' => 'EGP',
                 'base_currency_code' => 'EGP',
-                'address' => ['street_address' => '20 Tahrir St', 'city' => 'Cairo', 'country' => 'Egypt'],
+                'address' => ['street_address' => '30 Ramses St', 'city' => 'Cairo', 'country' => 'Egypt'],
             ]
         );
-
-        $orderProduct2 = OrderProduct::firstOrCreate(
-            ['order_id' => $orderFulfillmentPending->id, 'product_id' => $productAlpha->id],
+        $orderProductPick = OrderProduct::firstOrCreate(
+            ['order_id' => $orderReadyPick->id, 'product_id' => $productAlpha->id],
             [
-                'product_name' => 'WMS Premium Headset Alpha',
+                'product_name' => 'WMS Wireless Headset Alpha',
                 'product_sku' => $productAlpha->sku,
                 'product_quantity' => 1,
                 'product_price' => 150.00,
                 'product_total_price' => 150.00,
             ]
         );
-
-        $fulfillmentPending = Fulfillment::firstOrCreate(
-            ['fulfillment_number' => 'FUL-PENDING-002'],
+        $fulReadyPick = Fulfillment::firstOrCreate(
+            ['fulfillment_number' => 'FUL-READY-PICK-004'],
             [
-                'order_id' => $orderFulfillmentPending->id,
+                'order_id' => $orderReadyPick->id,
                 'warehouse_id' => $warehouse->id,
                 'warehouse_code' => $warehouse->code,
                 'warehouse_name' => $warehouse->name,
                 'status' => 'pending',
-                'priority' => 0,
             ]
         );
-
-        $fulfillmentItemPending = FulfillmentItem::firstOrCreate(
-            ['fulfillment_id' => $fulfillmentPending->id, 'order_item_id' => $orderProduct2->id],
+        $itemReadyPick = FulfillmentItem::firstOrCreate(
+            ['fulfillment_id' => $fulReadyPick->id, 'order_item_id' => $orderProductPick->id],
             [
                 'product_id' => $productAlpha->id,
                 'quantity' => 1.00,
@@ -382,93 +491,207 @@ class WmsOperationsSeeder extends Seeder
             ]
         );
 
-        // ── Order 3: Fulfillment in Picking status with active Picking Task ──────────
-        $orderFulfillmentPicking = Order::firstOrCreate(
-            ['order_number' => 'ORD-WMS-FUL-PICKING-003'],
+        // ── SCENARIO 5 & 6: Two Fulfillments Ready for Batch (Wave Picking) ────
+        $orderBatchA = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-BATCH-A-005'],
             [
                 'user_id' => $customer->id,
                 'name' => $customer->name,
                 'user_email' => $customer->email,
-                'user_phone' => $customer->phone_number,
                 'status' => 'processing',
                 'order_status' => 'order-processing',
                 'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
-                'fulfillment_status' => 'processing',
-                'shipment_status' => Order::SHIPMENT_STATUS_PENDING,
+                'flow_id' => $flow?->id,
+                'current_status_id' => $processingStatus?->id,
+                'price' => 150.00,
+                'total_price' => 150.00,
+                'currency_code' => 'EGP',
+                'base_currency_code' => 'EGP',
+                'address' => ['street_address' => 'Batch Area 1', 'city' => 'Cairo'],
+            ]
+        );
+        $opBatchA = OrderProduct::firstOrCreate(
+            ['order_id' => $orderBatchA->id, 'product_id' => $productAlpha->id],
+            ['product_name' => 'Alpha', 'product_sku' => $productAlpha->sku, 'product_quantity' => 1, 'product_price' => 150.00, 'product_total_price' => 150.00]
+        );
+        $fulBatchA = Fulfillment::firstOrCreate(
+            ['fulfillment_number' => 'FUL-BATCH-A-005'],
+            ['order_id' => $orderBatchA->id, 'warehouse_id' => $warehouse->id, 'warehouse_code' => $warehouse->code, 'warehouse_name' => $warehouse->name, 'status' => 'pending']
+        );
+        FulfillmentItem::firstOrCreate(
+            ['fulfillment_id' => $fulBatchA->id, 'order_item_id' => $opBatchA->id],
+            ['product_id' => $productAlpha->id, 'quantity' => 1, 'quantity_picked' => 0, 'status' => 'pending', 'product_location_id' => $placementAlphaPick->id]
+        );
+
+        $orderBatchB = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-BATCH-B-006'],
+            [
+                'user_id' => $customer->id,
+                'name' => $customer->name,
+                'user_email' => $customer->email,
+                'status' => 'processing',
+                'order_status' => 'order-processing',
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
                 'flow_id' => $flow?->id,
                 'current_status_id' => $processingStatus?->id,
                 'price' => 75.00,
                 'total_price' => 75.00,
                 'currency_code' => 'EGP',
                 'base_currency_code' => 'EGP',
-                'address' => ['street_address' => '50 Abbasia Sq', 'city' => 'Cairo', 'country' => 'Egypt'],
+                'address' => ['street_address' => 'Batch Area 2', 'city' => 'Cairo'],
             ]
         );
-
-        $orderProduct3 = OrderProduct::firstOrCreate(
-            ['order_id' => $orderFulfillmentPicking->id, 'product_id' => $productBeta->id],
-            [
-                'product_name' => 'WMS Wireless Mouse Beta',
-                'product_sku' => $productBeta->sku,
-                'product_quantity' => 1,
-                'product_price' => 75.00,
-                'product_total_price' => 75.00,
-            ]
+        $opBatchB = OrderProduct::firstOrCreate(
+            ['order_id' => $orderBatchB->id, 'product_id' => $productBeta->id],
+            ['product_name' => 'Beta', 'product_sku' => $productBeta->sku, 'product_quantity' => 1, 'product_price' => 75.00, 'product_total_price' => 75.00]
+        );
+        $fulBatchB = Fulfillment::firstOrCreate(
+            ['fulfillment_number' => 'FUL-BATCH-B-006'],
+            ['order_id' => $orderBatchB->id, 'warehouse_id' => $warehouse->id, 'warehouse_code' => $warehouse->code, 'warehouse_name' => $warehouse->name, 'status' => 'pending']
+        );
+        FulfillmentItem::firstOrCreate(
+            ['fulfillment_id' => $fulBatchB->id, 'order_item_id' => $opBatchB->id],
+            ['product_id' => $productBeta->id, 'quantity' => 1, 'quantity_picked' => 0, 'status' => 'pending', 'product_location_id' => $placementBetaStorage->id]
         );
 
-        $fulfillmentPicking = Fulfillment::firstOrCreate(
-            ['fulfillment_number' => 'FUL-PICKING-003'],
+        // ── SCENARIO 7: Fulfillment Picked & Ready For Packing & Packages ────
+        $orderReadyPack = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-READY-PACK-007'],
             [
-                'order_id' => $orderFulfillmentPicking->id,
-                'warehouse_id' => $warehouse->id,
-                'warehouse_code' => $warehouse->code,
-                'warehouse_name' => $warehouse->name,
-                'status' => 'picking',
-                'priority' => 1,
-                'assigned_to' => $picker->id,
-                'picking_started_at' => now(),
+                'user_id' => $customer->id,
+                'name' => $customer->name,
+                'user_email' => $customer->email,
+                'status' => 'processing',
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+                'flow_id' => $flow?->id,
+                'current_status_id' => $processingStatus?->id,
+                'price' => 150.00,
+                'total_price' => 150.00,
+                'currency_code' => 'EGP',
+                'base_currency_code' => 'EGP',
+                'address' => ['street_address' => 'Packing Zone 7', 'city' => 'Cairo'],
             ]
         );
+        $opPack = OrderProduct::firstOrCreate(
+            ['order_id' => $orderReadyPack->id, 'product_id' => $productAlpha->id],
+            ['product_name' => 'Alpha', 'product_sku' => $productAlpha->sku, 'product_quantity' => 1, 'product_price' => 150.00, 'product_total_price' => 150.00]
+        );
+        $fulReadyPack = Fulfillment::firstOrCreate(
+            ['fulfillment_number' => 'FUL-READY-PACK-007'],
+            ['order_id' => $orderReadyPack->id, 'warehouse_id' => $warehouse->id, 'warehouse_code' => $warehouse->code, 'warehouse_name' => $warehouse->name, 'status' => 'picked']
+        );
+        $fulReadyPack->update(['status' => 'picked']);
+        $itemReadyPack = FulfillmentItem::firstOrCreate(
+            ['fulfillment_id' => $fulReadyPack->id, 'order_item_id' => $opPack->id],
+            ['product_id' => $productAlpha->id, 'quantity' => 1, 'quantity_picked' => 1, 'status' => 'picked', 'product_location_id' => $placementAlphaPick->id]
+        );
+        $itemReadyPack->update(['quantity_picked' => 1, 'status' => 'picked']);
 
-        $fulfillmentItemPicking = FulfillmentItem::firstOrCreate(
-            ['fulfillment_id' => $fulfillmentPicking->id, 'order_item_id' => $orderProduct3->id],
+        // ── SCENARIO 8: Fulfillment Ready to Ship (Ready for Shipment create & dispatch) ─
+        $orderReadyShip = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-READY-SHIP-008'],
             [
-                'product_id' => $productBeta->id,
-                'quantity' => 1.00,
-                'quantity_picked' => 0.00,
-                'status' => 'picking',
-                'product_location_id' => $placementBetaStorage->id,
+                'user_id' => $customer->id,
+                'name' => $customer->name,
+                'user_email' => $customer->email,
+                'status' => 'processing',
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+                'flow_id' => $flow?->id,
+                'current_status_id' => $processingStatus?->id,
+                'price' => 75.00,
+                'total_price' => 75.00,
+                'currency_code' => 'EGP',
+                'base_currency_code' => 'EGP',
+                'address' => ['street_address' => 'Shipping St', 'city' => 'Cairo'],
             ]
         );
+        $opShip = OrderProduct::firstOrCreate(
+            ['order_id' => $orderReadyShip->id, 'product_id' => $productBeta->id],
+            ['product_name' => 'Beta', 'product_sku' => $productBeta->sku, 'product_quantity' => 1, 'product_price' => 75.00, 'product_total_price' => 75.00]
+        );
+        $fulReadyShip = Fulfillment::firstOrCreate(
+            ['fulfillment_number' => 'FUL-READY-SHIP-008'],
+            ['order_id' => $orderReadyShip->id, 'warehouse_id' => $warehouse->id, 'warehouse_code' => $warehouse->code, 'warehouse_name' => $warehouse->name, 'status' => 'ready_to_ship']
+        );
+        $fulReadyShip->update(['status' => 'ready_to_ship']);
+        $itemReadyShip = FulfillmentItem::firstOrCreate(
+            ['fulfillment_id' => $fulReadyShip->id, 'order_item_id' => $opShip->id],
+            ['product_id' => $productBeta->id, 'quantity' => 1, 'quantity_picked' => 1, 'status' => 'packed', 'product_location_id' => $placementBetaStorage->id]
+        );
 
-        $pickingTask = PickingTask::firstOrCreate(
+        // Package for Ready-To-Ship fulfillment
+        $packageReadyShip = Package::firstOrCreate(
+            ['fulfillment_id' => $fulReadyShip->id, 'package_number' => 'PKG-READY-SHIP-008'],
+            ['status' => 'sealed', 'weight' => 0.5, 'barcode' => 'PKG-READY-SHIP-008']
+        );
+        PackageItem::firstOrCreate(
+            ['package_id' => $packageReadyShip->id, 'fulfillment_item_id' => $itemReadyShip->id],
+            ['quantity' => 1]
+        );
+
+        // ── SCENARIO 9: Refund Request for Testing Approve / Reject ───
+        $orderRefund = Order::firstOrCreate(
+            ['order_number' => 'ORD-WMS-REFUND-009'],
             [
-                'fulfillment_item_id' => $fulfillmentItemPicking->id,
-                'product_location_id' => $placementBetaStorage->id,
-            ],
+                'user_id' => $customer->id,
+                'name' => $customer->name,
+                'user_email' => $customer->email,
+                'status' => 'completed',
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+                'flow_id' => $flow?->id,
+                'current_status_id' => $completedStatus?->id,
+                'price' => 150.00,
+                'total_price' => 150.00,
+                'currency_code' => 'EGP',
+                'base_currency_code' => 'EGP',
+            ]
+        );
+        $refundPolicy = RefundPolicy::firstOrCreate(
+            ['slug' => 'standard-policy'],
+            ['title' => 'Standard 14 Days Policy', 'description' => 'Standard refund policy', 'status' => 1]
+        );
+        $refundReason = RefundReason::firstOrCreate(
+            ['slug' => 'damaged-item'],
+            ['name' => 'المنتج تالف أو به عيب صناعة']
+        );
+        $refund = Refund::firstOrCreate(
+            ['order_id' => $orderRefund->id],
             [
+                'user_id' => $customer->id,
+                'amount' => 150.00,
+                'currency' => 'EGP',
+                'title' => 'طلب استرجاع سماعة ألفا',
+                'description' => 'السماعة لا تعمل بالشكل المطلوب',
                 'status' => 'pending',
-                'quantity_to_pick' => 1.00,
-                'quantity_picked' => 0.00,
-                'sequence' => 1,
+                'refund_policy_id' => $refundPolicy->id,
+                'refund_reason_id' => $refundReason->id,
             ]
         );
 
+        // ==============================================================
+        //  CLI SUMMARY REPORT FOR DEVELOPER & FRONTEND TEAM
+        // ==============================================================
         $this->command?->info('');
-        $this->command?->info('  [OK] WMS Seeding Completed Successfully!');
+        $this->command?->info('  [SUCCESS] All Testing Scenarios Seeded Successfully!');
         $this->command?->info('----------------------------------------------------------------');
-        $this->command?->info("  Admin Credentials:        admin@gmail.com / password123");
+        $this->command?->info("  Admin Login:              admin@gmail.com / password123");
         $this->command?->info("  Admin Bearer Token:       {$adminToken}");
-        $this->command?->info("  Warehouse ID:             {$warehouse->id} ({$warehouse->code})");
-        $this->command?->info("  Receiving Location ID:    {$locations['REC-01']->id} ({$locations['REC-01']->code})");
-        $this->command?->info("  Storage Location A ID:    {$locations['A-01-01']->id} ({$locations['A-01-01']->code})");
-        $this->command?->info("  Storage Location B ID:    {$locations['A-01-02']->id} ({$locations['A-01-02']->code})");
-        $this->command?->info("  Fast Pick Location ID:    {$locations['PICK-01']->id} ({$locations['PICK-01']->code})");
-        $this->command?->info("  Product Alpha ID:         {$productAlpha->id} ({$productAlpha->sku})");
-        $this->command?->info("  Product Beta ID:          {$productBeta->id} ({$productBeta->sku})");
-        $this->command?->info("  Order to Release:         ID: {$orderRelease->id} (Order Number: {$orderRelease->order_number})");
-        $this->command?->info("  Fulfillment Pending ID:   {$fulfillmentPending->id} (Item: {$fulfillmentItemPending->id})");
-        $this->command?->info("  Fulfillment Picking ID:   {$fulfillmentPicking->id} (Item: {$fulfillmentItemPicking->id}, Task: {$pickingTask->id})");
+        $this->command?->info("  Default Warehouse ID:     {$warehouse->id} ({$warehouse->code})");
+        $this->command?->info("  Packing Station ID:       {$station->id} ({$station->code})");
+        $this->command?->info("  Location Picking (Barcode): LOC-PICK-01 (ID: {$locations['PICK-01']->id})");
+        $this->command?->info("  Location Storage (Barcode): LOC-A-01-01 (ID: {$locations['A-01-01']->id})");
+        $this->command?->info("  Product Alpha SKU:        {$productAlpha->sku} (ID: {$productAlpha->id})");
+        $this->command?->info("  Product Gamma Placement:  Placement ID: {$placementGamma->id} (Product ID: {$productGamma->id})");
+        $this->command?->info('----------------------------------------------------------------');
+        $this->command?->info('  READY TEST SCENARIOS:');
+        $this->command?->info("  1. Release (Online Paid): Order ID: {$orderPaid->id} (POST admin/fulfillments/release)");
+        $this->command?->info("  2. Release (COD Cash):    Order ID: {$orderCod->id} (POST admin/fulfillments/release)");
+        $this->command?->info("  3. Assign-Placement:      Fulfillment ID: {$fulNeedPlacement->id} | Item ID: {$itemNeedPlacement->id} -> assign to placement_id: {$placementGamma->id}");
+        $this->command?->info("  4. Picking Scanner Test:  Fulfillment ID: {$fulReadyPick->id} | Item ID: {$itemReadyPick->id}");
+        $this->command?->info("  5. Batch (Wave) Test:     Fulfillment IDs: [{$fulBatchA->id}, {$fulBatchB->id}] -> (POST admin/batches)");
+        $this->command?->info("  6. Packing & Package:     Fulfillment ID: {$fulReadyPack->id} (Status: picked) -> (create-packing-task, packages, seal, verify)");
+        $this->command?->info("  7. Shipment & Dispatch:   Fulfillment ID: {$fulReadyShip->id} (Status: ready_to_ship) -> (POST fulfillments/{$fulReadyShip->id}/shipments, dispatch, deliver)");
+        $this->command?->info("  8. Refund Approve/Reject: Refund ID: {$refund->id} (POST admin/refunds/{$refund->id}/approve)");
         $this->command?->info('================================================================');
     }
 }

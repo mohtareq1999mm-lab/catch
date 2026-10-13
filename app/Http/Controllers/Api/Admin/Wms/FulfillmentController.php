@@ -9,6 +9,8 @@ use App\Http\Requests\Admin\Wms\ReleaseFulfillmentRequest;
 use App\Http\Resources\Wms\FulfillmentDetailResource;
 use App\Http\Resources\Wms\FulfillmentResource;
 use App\Models\Fulfillment\Fulfillment;
+use App\Models\Fulfillment\FulfillmentBatch;
+use App\Models\Fulfillment\FulfillmentItem;
 use App\Models\Fulfillment\Package;
 use App\Models\Fulfillment\PackingTask;
 use App\Models\Fulfillment\PickingTask;
@@ -66,6 +68,20 @@ class FulfillmentController extends WmsAdminController
             }
         }
 
+        // Batch-membership filter: fulfillments contributing at least one
+        // picking task to the given batch. The batch row is scope-checked
+        // (anti-enumeration: 404 on foreign-warehouse batches for readers).
+        $batchId = $request->validated('batch_id');
+        if ($batchId !== null) {
+            $batch = FulfillmentBatch::whereKey((int) $batchId)->firstOrFail();
+            $this->authorizeWarehouseScope($batch->warehouse_id, 'view-fulfillment', true);
+            $itemIds = PickingTask::where('batch_id', $batch->id)->distinct()->pluck('fulfillment_item_id');
+            $fulfillmentIds = $itemIds->isNotEmpty()
+                ? FulfillmentItem::whereIn('id', $itemIds->all())->distinct()->pluck('fulfillment_id')
+                : collect();
+            $query->whereIn('id', $fulfillmentIds->isNotEmpty() ? $fulfillmentIds->all() : [0]);
+        }
+
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
         $page = FulfillmentResource::collection(
             $query->withCount(['items', 'shipments'])->paginate($perPage)
@@ -110,6 +126,67 @@ class FulfillmentController extends WmsAdminController
             Warehouse::whereKey($explicitWarehouseId)->firstOrFail();
         }
         $this->authorizeWarehouseScope($targetWarehouseId, 'fulfillment.create');
+
+        // Bulk release flow when order_ids is provided.
+        if (isset($data['order_ids']) && is_array($data['order_ids'])) {
+            $orderIds = array_values(array_unique(array_map('intval', $data['order_ids'])));
+            $released = [];
+            $failed = [];
+
+            foreach ($orderIds as $orderId) {
+                $order = Order::find($orderId);
+                if (! $order) {
+                    $failed[] = [
+                        'order_id' => $orderId,
+                        'reason' => __('wms.fulfillment.order_not_found', ['order' => $orderId]),
+                    ];
+                    continue;
+                }
+
+                try {
+                    $fulfillment = $this->fulfillments->releaseForOrder(
+                        $order,
+                        $explicitWarehouseId,
+                        null
+                    );
+                    $released[] = [
+                        'order_id' => $orderId,
+                        'fulfillment_id' => $fulfillment->id,
+                        'fulfillment_number' => $fulfillment->fulfillment_number,
+                        'status' => $fulfillment->status,
+                        'items_count' => $fulfillment->items()->count(),
+                    ];
+                } catch (\RuntimeException $e) {
+                    $failed[] = [
+                        'order_id' => $orderId,
+                        'reason' => $e->getMessage(),
+                    ];
+                } catch (QueryException $e) {
+                    $failed[] = [
+                        'order_id' => $orderId,
+                        'reason' => $e->getMessage(),
+                    ];
+                }
+            }
+
+            return $this->apiResponse(
+                __('wms.fulfillment.bulk_processed', [
+                    'released' => count($released),
+                    'failed' => count($failed),
+                ]),
+                200,
+                true,
+                [
+                    'released' => $released,
+                    'failed' => $failed,
+                    'summary' => [
+                        'total' => count($orderIds),
+                        'released_count' => count($released),
+                        'failed_count' => count($failed),
+                    ],
+                ]
+            );
+        }
 
         $order = Order::whereKey($data['order_id'])->firstOrFail();
         $idempotencyKey = $data['idempotency_key'] ?? null;

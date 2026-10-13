@@ -1,10 +1,10 @@
 @component('mail::message')
-# Password Reset Token
+# {{ __('Password Reset Token') }}
 
-Please copy the below token to reset your password.
+{{ __('Please copy the below token to reset your password.') }}
 
 ```{{$token}}```
 
-Thanks,<br>
+{{ __('Thanks,') }}<br>
 {{ config('app.name') }}
 @endcomponent

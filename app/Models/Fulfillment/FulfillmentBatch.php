@@ -15,6 +15,7 @@ class FulfillmentBatch extends Model
     protected $fillable = [
         'warehouse_id',
         'batch_number',
+        'idempotency_key',
         'status',
         'type',
         'assigned_to',
