@@ -707,6 +707,7 @@ Route::prefix('admin/products')->middleware(['api', 'auth:sanctum', 'throttle:ad
 // Operation-status resolution for Case-C retries (same read permission).
 Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('overview', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'overview'])->middleware('permission:view-location')->name('api.admin.inventory.overview');
+    Route::get('operations', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operations'])->middleware('permission:view-location')->name('api.admin.inventory.operations.index');
     Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:view-location')->name('api.admin.inventory.operations.show');
 });
 
