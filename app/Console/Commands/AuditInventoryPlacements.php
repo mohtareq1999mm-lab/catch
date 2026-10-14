@@ -78,6 +78,14 @@ class AuditInventoryPlacements extends Command
         }
 
         $this->line('Scope: '.($warehouseId === null ? 'global (all warehouses)' : "warehouse #{$warehouseId} (global aggregate checks skipped)"));
+        $this->line(sprintf(
+            'Checks: %d clean, %d findings, %d skipped, %d error',
+            $findings['status_counts'][self::STATUS_CLEAN],
+            $findings['status_counts'][self::STATUS_FINDINGS],
+            $findings['status_counts'][self::STATUS_SKIPPED],
+            $findings['status_counts'][self::STATUS_ERROR],
+        ));
+        $this->line('Counts: '.$findings['total_findings_note']);
         foreach ($findings['checks'] as $check) {
             $label = match ($check['status']) {
                 self::STATUS_CLEAN => 'CLEAN',
@@ -100,14 +108,15 @@ class AuditInventoryPlacements extends Command
         $this->info(match ($findings['status']) {
             self::STATUS_CLEAN => 'Placement audit clean — every required check ran with no discrepancies.',
             self::STATUS_FINDINGS => "Placement audit found {$findings['total_findings']} finding(s) — business decision required, nothing was repaired.",
-            default => 'Placement audit could not complete reliably — see ERROR checks above; do not treat this as clean.',
+            default => 'Placement audit could not complete reliably — see ERROR checks above'
+                .($findings['overall_note'] ? ' ('.$findings['overall_note'].')' : '').'; do not treat this as clean.',
         });
 
         return $findings['status'] === self::STATUS_CLEAN ? self::SUCCESS : self::FAILURE;
     }
 
     /**
-     * @return array{status:string, scope:string, warehouse_id:?int, total_findings:int, total_findings_note:string, status_counts:array<string,int>, checks:array<int,array{key:string,status:string,count:int,message:string,samples:array<int,array<string,mixed>>,note?:string}>}
+     * @return array{status:string, scope:string, warehouse_id:?int, total_findings:int, total_findings_note:string, status_counts:array<string,int>, overall_note:?string, checks:array<int,array{key:string,status:string,count:int,message:string,samples:array<int,array<string,mixed>>,note?:string,blocking?:bool}>}
      */
     public function audit(?int $warehouseId = null): array
     {
@@ -148,9 +157,7 @@ class AuditInventoryPlacements extends Command
             $total += (int) $check['count'];
         }
 
-        $status = $statusCounts[self::STATUS_ERROR] > 0 || $statusCounts[self::STATUS_FINDINGS] > 0
-            ? ($statusCounts[self::STATUS_ERROR] > 0 && $statusCounts[self::STATUS_FINDINGS] === 0 ? self::STATUS_ERROR : self::STATUS_FINDINGS)
-            : self::STATUS_CLEAN;
+        ['status' => $status, 'overall_note' => $note] = $this->overallStatus($checks);
 
         return [
             'status' => $status,
@@ -159,8 +166,45 @@ class AuditInventoryPlacements extends Command
             'total_findings' => $total,
             'total_findings_note' => 'Sums per-check counts; one database row may appear in several checks, so this is not a distinct-row count.',
             'status_counts' => $statusCounts,
+            'overall_note' => $note,
             'checks' => $checks,
         ];
+    }
+
+    /**
+     * Fail-closed priority: errors first, then findings, then blocking skips
+     * (required invariants left unevaluated by missing schema).
+     * Scope-limitation skips (blocking=false) never block clean.
+     *
+     * @param array<int,array{status:string,blocking?:bool}> $checks
+     * @return array{status:string, overall_note:?string}
+     */
+    protected function overallStatus(array $checks): array
+    {
+        $hasError = false;
+        $hasFindings = false;
+        $blockingSkips = [];
+        foreach ($checks as $check) {
+            if ($check['status'] === self::STATUS_ERROR) {
+                $hasError = true;
+            } elseif ($check['status'] === self::STATUS_FINDINGS) {
+                $hasFindings = true;
+            } elseif ($check['status'] === self::STATUS_SKIPPED && ($check['blocking'] ?? false)) {
+                $blockingSkips[] = $check['key'] ?? '?';
+            }
+        }
+
+        if ($hasError) {
+            return ['status' => self::STATUS_ERROR, 'overall_note' => null];
+        }
+        if ($hasFindings) {
+            return ['status' => self::STATUS_FINDINGS, 'overall_note' => null];
+        }
+        if (count($blockingSkips) > 0) {
+            return ['status' => self::STATUS_ERROR, 'overall_note' => 'Required checks left unevaluated: '.implode(', ', $blockingSkips).'. Do not treat as clean.'];
+        }
+
+        return ['status' => self::STATUS_CLEAN, 'overall_note' => null];
     }
 
     /**
@@ -211,16 +255,15 @@ class AuditInventoryPlacements extends Command
     private function checkAggregateDrift(\Closure $scope, ?int $warehouseId): array
     {
         if ($warehouseId !== null) {
-            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: authority is global, scope is per-warehouse'];
+            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: authority is global, scope is per-warehouse', 'blocking' => false];
         }
 
-        $rows = $scope(DB::table('product_locations')
-            ->selectRaw('product_id, product_variant_id, SUM(quantity) as placed')
-            ->groupBy('product_id', 'product_variant_id'))->get();
-
-        // Batched authority fetch (no per-SKU queries).
-        $variantIds = $rows->whereNotNull('product_variant_id')->pluck('product_variant_id')->unique()->values();
-        $productIds = $rows->whereNull('product_variant_id')->pluck('product_id')->unique()->values();
+        // Two passes keep memory bounded: first collect distinct authority IDs
+        // (small key sets), then compare per-SKU groups in chunks.
+        $idRows = $scope(DB::table('product_locations')
+            ->selectRaw('DISTINCT product_id, product_variant_id'))->get();
+        $variantIds = $idRows->whereNotNull('product_variant_id')->pluck('product_variant_id')->unique()->values();
+        $productIds = $idRows->whereNull('product_variant_id')->pluck('product_id')->unique()->values();
         $variantStocks = $variantIds->isEmpty() ? collect()
             : DB::table('product_variants')->whereIn('id', $variantIds)->pluck('stock_quantity', 'id');
         $productStocks = $productIds->isEmpty() ? collect()
@@ -228,39 +271,49 @@ class AuditInventoryPlacements extends Command
 
         $samples = [];
         $count = 0;
-        foreach ($rows as $row) {
-            if ($row->product_variant_id !== null) {
-                if (!$variantStocks->has($row->product_variant_id)) {
-                    continue; // missing authority is owned by invalid_refs
-                }
-                $authority = $variantStocks->get($row->product_variant_id);
-            } else {
-                if (!$productStocks->has($row->product_id)) {
-                    continue;
-                }
-                $authority = $productStocks->get($row->product_id);
-            }
+        $scope(DB::table('product_locations')
+            ->selectRaw('product_id, product_variant_id, SUM(quantity) as placed')
+            ->groupBy('product_id', 'product_variant_id')
+            ->orderBy('product_id')->orderBy('product_variant_id'))
+            ->chunk(1000, function ($rows) use (&$samples, &$count, $variantStocks, $productStocks) {
+                foreach ($rows as $row) {
+                    if ($row->product_variant_id !== null) {
+                        if (!$variantStocks->has($row->product_variant_id)) {
+                            continue; // missing authority is owned by invalid_refs
+                        }
+                        $authority = $variantStocks->get($row->product_variant_id);
+                    } else {
+                        if (!$productStocks->has($row->product_id)) {
+                            continue;
+                        }
+                        $authority = $productStocks->get($row->product_id);
+                    }
 
-            if (abs((float) $row->placed - (float) $authority) > 0.0001) {
-                $count++;
-                if (count($samples) < 10) {
-                    $samples[] = [
-                        'product_id' => (int) $row->product_id,
-                        'product_variant_id' => $row->product_variant_id !== null ? (int) $row->product_variant_id : null,
-                        'placed_sum' => (float) $row->placed,
-                        'authority_stock' => (float) $authority,
-                    ];
+                    if (abs((float) $row->placed - (float) $authority) > 0.0001) {
+                        $count++;
+                        if (count($samples) < 10) {
+                            $samples[] = [
+                                'product_id' => (int) $row->product_id,
+                                'product_variant_id' => $row->product_variant_id !== null ? (int) $row->product_variant_id : null,
+                                'placed_sum' => (float) $row->placed,
+                                'authority_stock' => (float) $authority,
+                            ];
+                        }
+                    }
                 }
-            }
-        }
+            });
 
-        return ['count' => $count, 'samples' => $samples, 'message' => 'One count per drifting SKU group. Remediation: receive/transfer/adjust through StockOperationService; never write authority from hints.'];
+        return ['count' => $count, 'samples' => $samples, 'message' => 'One count per drifting SKU group; samples capped at 10. Remediation: receive/transfer/adjust through StockOperationService; never write authority from hints.'];
     }
 
     /**
      * Authority stock with NO placement rows. Starts from the authority tables
      * (products / product_variants), closing the false-CLEAN gap where drift
      * detection — which starts from placement groups — cannot see these SKUs.
+     *
+     * A mismatched-parent placement (product_id=A, variant of B) counts as a
+     * placement for variant B, suppressing an unplaced finding there; the SKU
+     * still surfaces under variant_parent_mismatch, so nothing is hidden.
      *
      * Excluded by verified domain rule: DIGITAL products (hold no physical
      * stock; see StockOperationService D1) and soft-deleted products (history,
@@ -273,11 +326,11 @@ class AuditInventoryPlacements extends Command
     private function checkUnplacedStock(\Closure $scope, ?int $warehouseId): array
     {
         if ($warehouseId !== null) {
-            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: placement coverage is global, scope is per-warehouse'];
+            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: placement coverage is global, scope is per-warehouse', 'blocking' => false];
         }
 
         if (!Schema::hasColumn('products', 'item_type')) {
-            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: products.item_type column missing, digital exclusion unavailable'];
+            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: products.item_type column missing, digital exclusion unavailable', 'blocking' => true];
         }
 
         $physical = function ($query) {
@@ -335,18 +388,17 @@ class AuditInventoryPlacements extends Command
                     ->whereColumn('product_locations.product_variant_id', 'product_variants.id');
             })->count();
 
-        $samples = [];
-        foreach ($simpleRows as $r) {
-            $samples[] = ['type' => 'simple'] + (array) $r;
-        }
-        foreach ($variantRows as $r) {
-            $samples[] = ['type' => 'variant'] + (array) $r;
-        }
+        // Fair sampling: simple and variant findings each keep up to 5 samples
+        // so a large simple backlog can never starve variant evidence.
+        $samples = array_merge(
+            array_slice(array_map(fn ($r) => ['type' => 'simple'] + (array) $r, $simpleRows->all()), 0, 5),
+            array_slice(array_map(fn ($r) => ['type' => 'variant'] + (array) $r, $variantRows->all()), 0, 5),
+        );
 
         return [
             'count' => $simpleCount + $variantCount,
-            'samples' => array_slice($samples, 0, 10),
-            'message' => 'Authority SKUs with positive stock and zero placement rows. Remediation: receive into a bin via POST locations/{id}/stock-receipts; digital and soft-deleted SKUs are excluded by rule.',
+            'samples' => $samples,
+            'message' => 'Authority SKUs with positive stock and zero placement rows (samples: up to 5 simple + 5 variant). Remediation: receive into a bin via POST locations/{id}/stock-receipts; digital and soft-deleted SKUs are excluded by rule.',
         ];
     }
 
@@ -388,7 +440,7 @@ class AuditInventoryPlacements extends Command
         return [
             'count' => (int) $scope(DB::table('product_locations')->whereColumn('allocated_hint', '>', 'quantity'))->count(),
             'samples' => $rows->map(fn ($r) => (array) $r)->all(),
-            'message' => 'allocated_hint is informational only and never decides sellability; overflow is a data defect, not a reservation.',
+            'message' => 'allocated_hint is informational only and never decides sellability; overflow is a data defect, not a reservation. Samples capped at 10.',
         ];
     }
 
@@ -400,15 +452,24 @@ class AuditInventoryPlacements extends Command
      */
     private function checkDuplicates(\Closure $scope): array
     {
-        $groups = $scope(DB::table('product_locations')
+        $count = 0;
+        $samples = [];
+        $scope(DB::table('product_locations')
             ->selectRaw('product_id, COALESCE(product_variant_id, 0) as variant_key, location_id, COUNT(*) as dup_rows')
             ->groupBy('product_id', 'variant_key', 'location_id')
-            ->havingRaw('COUNT(*) > 1'))->get();
+            ->havingRaw('COUNT(*) > 1')
+            ->orderBy('product_id')->orderBy('location_id'))
+            ->chunk(1000, function ($groups) use (&$count, &$samples) {
+                $count += count($groups);
+                foreach ($groups->take(max(0, 10 - count($samples))) as $g) {
+                    $samples[] = (array) $g;
+                }
+            });
 
         return [
-            'count' => count($groups),
-            'samples' => $groups->take(10)->map(fn ($r) => (array) $r)->all(),
-            'message' => 'Count is duplicate groups; each sample carries its row count (dup_rows). Remediation is a business decision (merge/split), never silent deletion.',
+            'count' => $count,
+            'samples' => $samples,
+            'message' => 'Count is duplicate groups (samples capped at 10); each sample carries its row count (dup_rows). Remediation is a business decision (merge/split), never silent deletion.',
         ];
     }
 
@@ -429,7 +490,7 @@ class AuditInventoryPlacements extends Command
                 ->join('locations', 'locations.id', '=', 'product_locations.location_id')
                 ->whereColumn('product_locations.warehouse_id', '!=', 'locations.warehouse_id'))->count(),
             'samples' => $rows->map(fn ($r) => (array) $r)->all(),
-            'message' => 'Denormalized placement warehouse disagrees with its location (locations are warehouse-immutable). Fail closed; never silently re-home.',
+            'message' => 'Denormalized placement warehouse disagrees with its location (locations are warehouse-immutable). Fail closed; never silently re-home. Samples capped at 10.',
         ];
     }
 
@@ -477,7 +538,7 @@ class AuditInventoryPlacements extends Command
             $samples[] = ['type' => 'missing_location'] + (array) $r;
         }
 
-        return ['count' => $missingProducts + $missingVariants + $missingLocations, 'samples' => $samples, 'message' => 'Count is total orphan rows (products + variants + locations).'];
+        return ['count' => $missingProducts + $missingVariants + $missingLocations, 'samples' => $samples, 'message' => 'Count is total orphan rows (products + variants + locations); samples capped at 5 per kind.'];
     }
 
     /**
@@ -521,7 +582,7 @@ class AuditInventoryPlacements extends Command
                         });
                 }))->count(),
             'samples' => $rows->map(fn ($r) => (array) $r)->all(),
-            'message' => 'Only live hints (quantity>0 or hint>0) are flagged; zero-quantity history on dead bins is not a finding.',
+            'message' => 'Only live hints (quantity>0 or hint>0) are flagged; zero-quantity history on dead bins is not a finding. Samples capped at 10.',
         ];
     }
 
@@ -533,7 +594,7 @@ class AuditInventoryPlacements extends Command
     private function checkNonPhysical(\Closure $scope): array
     {
         if (!Schema::hasColumn('products', 'item_type')) {
-            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: products.item_type column missing, digital exclusion unavailable'];
+            return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: products.item_type column missing, digital exclusion unavailable', 'blocking' => true];
         }
 
         $rows = $scope(DB::table('product_locations')
@@ -555,7 +616,7 @@ class AuditInventoryPlacements extends Command
                         ->orWhere('product_locations.allocated_hint', '>', 0);
                 }))->count(),
             'samples' => $rows->map(fn ($r) => (array) $r)->all(),
-            'message' => '',
+            'message' => 'Digital lines hold no physical stock (D1): a live placement on a digital product is a data defect. Samples capped at 10.',
         ];
     }
 
@@ -575,7 +636,7 @@ class AuditInventoryPlacements extends Command
                 ->join('product_variants', 'product_variants.id', '=', 'product_locations.product_variant_id')
                 ->whereColumn('product_variants.product_id', '!=', 'product_locations.product_id'))->count(),
             'samples' => $rows->map(fn ($r) => (array) $r)->all(),
-            'message' => 'Placement SKU identity contradicts the variant parentage; sibling-variant bins hold other goods.',
+            'message' => 'Placement SKU identity contradicts the variant parentage; sibling-variant bins hold other goods. Samples capped at 10.',
         ];
     }
 }
