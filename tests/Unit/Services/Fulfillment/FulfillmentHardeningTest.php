@@ -28,6 +28,8 @@ class FulfillmentHardeningTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-1', 'name' => 'Main', 'status' => 'active', 'is_default' => true,
@@ -123,9 +125,12 @@ class FulfillmentHardeningTest extends TestCase
     public function test_batch_rejects_mixed_stages(): void
     {
         $f1 = app(FulfillmentService::class)->releaseForOrder($this->makeOrder(), $this->warehouse->id, 'hard-s1');
-        $o2 = $this->makeOrder(['status' => 'processing']);
-        // Committed+paid order at a different stage must not batch with pending.
+        $o2 = $this->makeOrder();
+        // Release converges o2's order to processing via the flow service;
+        // completing it (paid online order) creates a genuine stage split:
+        // processing vs completed must not batch together.
         $f2 = app(FulfillmentService::class)->releaseForOrder($o2, $this->warehouse->id, 'hard-s2');
+        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $o2->id);
 
         $this->expectException(\RuntimeException::class);
         app(BatchPickingService::class)->createBatchFromFulfillments(collect([$f1, $f2]), $this->warehouse->id);

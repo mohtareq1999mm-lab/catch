@@ -156,6 +156,77 @@ class PlacementAssignmentTest extends TestCase
         $this->assertNull($item->refresh()->product_location_id);
     }
 
+    public function test_wrong_variant_rejected(): void
+    {
+        $parent = Product::create([
+            'name' => 'VP', 'slug' => 'vp-' . uniqid(), 'sku' => 'SKU-VP',
+            'price' => 100, 'product_type' => 'variable', 'status' => true,
+            'in_stock' => true, 'stock_quantity' => 0, 'reserved_quantity' => 0,
+        ]);
+        $variantA = \Marvel\Database\Models\ProductVariant::create([
+            'product_id' => $parent->id, 'sku' => 'VP-A-' . uniqid(), 'price' => 100,
+            'stock_quantity' => 10, 'reserved_quantity' => 0, 'in_stock' => true,
+        ]);
+        $variantB = \Marvel\Database\Models\ProductVariant::create([
+            'product_id' => $parent->id, 'sku' => 'VP-B-' . uniqid(), 'price' => 100,
+            'stock_quantity' => 10, 'reserved_quantity' => 0, 'in_stock' => true,
+        ]);
+        $binA = $this->placeableLocation($this->warehouse, 'VA-01');
+        $binB = $this->placeableLocation($this->warehouse, 'VB-01');
+        $placementA = ProductLocation::create([
+            'product_id' => $parent->id, 'product_variant_id' => $variantA->id,
+            'location_id' => $binA->id, 'warehouse_id' => $this->warehouse->id,
+            'quantity' => 10, 'allocated_hint' => 0,
+        ]);
+        $placementB = ProductLocation::create([
+            'product_id' => $parent->id, 'product_variant_id' => $variantB->id,
+            'location_id' => $binB->id, 'warehouse_id' => $this->warehouse->id,
+            'quantity' => 10, 'allocated_hint' => 0,
+        ]);
+
+        $customer = User::factory()->create(['type' => 'customer']);
+        $order = Order::create([
+            'user_id' => $customer->id, 'name' => 'V', 'user_email' => $customer->email,
+            'user_phone' => '010', 'status' => 'pending',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            'fulfillment_status' => 'pending',
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'price' => 200, 'total_price' => 200,
+            'currency_code' => 'EGP', 'base_currency_code' => 'EGP',
+            'fulfillment_type' => 'delivery', 'payment_method' => 'online',
+            'address' => ['city' => 'Cairo'],
+        ]);
+        $orderItem = $order->orderItems()->create([
+            'product_id' => $parent->id, 'product_variant_id' => $variantA->id,
+            'product_name' => 'VP', 'product_sku' => $variantA->sku, 'product_quantity' => 2,
+            'product_price' => 100, 'product_total_price' => 200,
+        ]);
+        $fulfillment = \App\Models\Fulfillment\Fulfillment::create([
+            'order_id' => $order->id, 'warehouse_id' => $this->warehouse->id,
+            'fulfillment_number' => 'FUL-VA-' . uniqid(), 'status' => 'pending',
+        ]);
+        $item = FulfillmentItem::create([
+            'fulfillment_id' => $fulfillment->id, 'order_item_id' => $orderItem->id,
+            'product_id' => $parent->id, 'product_variant_id' => $variantA->id,
+            'product_location_id' => null, 'quantity' => 2, 'quantity_picked' => 0,
+            'status' => 'pending',
+        ]);
+
+        // Same parent, sibling variant bin → refused (one SKU per bin).
+        try {
+            app(FulfillmentService::class)->assignPlacement($item, $placementB->id);
+            $this->fail('sibling-variant placement must be rejected');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('different variant', $e->getMessage());
+        }
+        $this->assertNull($item->refresh()->product_location_id);
+
+        // Own variant bin → assigned, authority untouched.
+        $assigned = app(FulfillmentService::class)->assignPlacement($item, $placementA->id);
+        $this->assertEquals($placementA->id, (int) $assigned->product_location_id);
+        $this->assertSame(10, (int) $variantA->fresh()->stock_quantity);
+    }
+
     public function test_inactive_location_rejected(): void
     {
         $item = $this->nullItemFulfillment('place-4');

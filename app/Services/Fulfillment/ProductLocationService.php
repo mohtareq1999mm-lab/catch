@@ -11,29 +11,40 @@ use Illuminate\Support\Facades\Log;
 class ProductLocationService
 {
     /**
-     * Verify placement hints against central stock.
+     * Verify placement hints against central stock (SKU-level).
      * Phase 12: MONITOR, never a throwing gate (locked decision). Hints are
      * last-known placement; legitimate flows (returns, receiving) transiently
      * exceed central stock before it is updated. Returns drift status.
      */
-    public function syncWithStock(int $productId): bool
+    public function syncWithStock(int $productId, ?int $variantId = null): bool
     {
-        return DB::transaction(function () use ($productId) {
-            // Lock product row
-            $product = Product::where('id', $productId)
-                ->lockForUpdate()
-                ->firstOrFail();
+        return DB::transaction(function () use ($productId, $variantId) {
+            if ($variantId !== null) {
+                $authority = \Marvel\Database\Models\ProductVariant::where('id', $variantId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $totalInLocations = ProductLocation::where('product_id', $productId)
+                    ->where('product_variant_id', $variantId)
+                    ->sum('quantity');
+            } else {
+                // Lock product row
+                $authority = Product::where('id', $productId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            // Get total in locations
-            $totalInLocations = ProductLocation::where('product_id', $productId)
-                ->sum('quantity');
+                // Get total in locations for the SIMPLE SKU only (NULL variant).
+                $totalInLocations = ProductLocation::where('product_id', $productId)
+                    ->whereNull('product_variant_id')
+                    ->sum('quantity');
+            }
 
-            $stockQuantity = $product->stock_quantity;
+            $stockQuantity = $authority->stock_quantity;
 
             // Validate invariant
             if ($totalInLocations > $stockQuantity) {
                 Log::warning('Product location quantity exceeds stock (drift monitor)', [
                     'product_id' => $productId,
+                    'product_variant_id' => $variantId,
                     'stock_quantity' => $stockQuantity,
                     'total_in_locations' => $totalInLocations,
                 ]);
@@ -43,6 +54,7 @@ class ProductLocationService
 
             Log::info('Product location sync validated', [
                 'product_id' => $productId,
+                'product_variant_id' => $variantId,
                 'stock_quantity' => $stockQuantity,
                 'total_in_locations' => $totalInLocations,
             ]);
@@ -52,7 +64,7 @@ class ProductLocationService
     }
 
     /**
-     * Allocate product from best available locations.
+     * Allocate product from best available locations (SKU-level).
      * Phase 7: allocation reads PLACEMENT HINTS from active, placeable
      * locations only (quarantine/damaged/returns/inactive excluded). It never
      * mutates central inventory and never decides sellability.
@@ -60,11 +72,18 @@ class ProductLocationService
     public function allocateFromLocations(
         int $productId,
         float $requiredQuantity,
-        ?int $warehouseId = null
+        ?int $warehouseId = null,
+        ?int $variantId = null
     ): array {
         $query = ProductLocation::where('product_locations.product_id', $productId)
             ->whereHas('location', fn ($q) => $q->placeable())
             ->hasStock();
+
+        if ($variantId === null) {
+            $query->whereNull('product_locations.product_variant_id');
+        } else {
+            $query->where('product_locations.product_variant_id', $variantId);
+        }
 
         if ($warehouseId) {
             $query->where('product_locations.warehouse_id', $warehouseId);
@@ -121,9 +140,51 @@ class ProductLocationService
      * Suggest placement hints for a warehouse (§14 system suggestion).
      * Thin alias so pickers/retry paths read through one entry point.
      */
-    public function suggestForWarehouse(int $productId, float $requiredQuantity, int $warehouseId): array
+    public function suggestForWarehouse(int $productId, float $requiredQuantity, int $warehouseId, ?int $variantId = null): array
     {
-        return $this->allocateFromLocations($productId, $requiredQuantity, $warehouseId);
+        return $this->allocateFromLocations($productId, $requiredQuantity, $warehouseId, $variantId);
+    }
+
+    /**
+     * Occupied-location policy (single shared enforcement point): one
+     * SKU per location. Refuses when the location already hosts a
+     * DIFFERENT SKU (different product OR different variant of the same
+     * parent) with live quantity (quantity > 0 or allocated_hint > 0).
+     * Zero-quantity rows are retained history and do not occupy.
+     *
+     * Backward compat: $variantId defaults to null (simple SKU).
+     *
+     * Must be called INSIDE the caller's write transaction BEFORE any
+     * write: locks the location row first so concurrent claimants of
+     * different SKUs serialize (no check-then-act race), and a refusal
+     * persists nothing.
+     *
+     * @throws \InvalidArgumentException with wms.stock.location_occupied.
+     */
+    public function assertLocationVacantFor(int $locationId, int $productId, ?int $variantId = null): Location
+    {
+        $location = Location::query()->whereKey($locationId)->lockForUpdate()->firstOrFail();
+
+        $occupant = ProductLocation::query()
+            ->where('location_id', $location->id)
+            ->where(function ($q) {
+                $q->where('quantity', '>', 0)->orWhere('allocated_hint', '>', 0);
+            })
+            ->get()
+            ->first(fn (ProductLocation $p) => (int) $p->product_id !== $productId || ((int) ($p->product_variant_id ?? 0) !== (int) ($variantId ?? 0)));
+
+        if ($occupant) {
+            // Labels stay raw IDs: the lang string already prefixes `#`
+            // (file convention `#:occupant`). Variant SKUs append `:Vn`
+            // only when a variant is actually present.
+            $occupantLabel = $occupant->product_variant_id ? "{$occupant->product_id}:V{$occupant->product_variant_id}" : "{$occupant->product_id}";
+            $requestLabel = $variantId ? "{$productId}:V{$variantId}" : "{$productId}";
+            throw new \InvalidArgumentException(
+                __('wms.stock.location_occupied', ['location' => $locationId, 'occupant' => $occupantLabel, 'product' => $requestLabel])
+            );
+        }
+
+        return $location;
     }
 
     /**
@@ -175,8 +236,9 @@ class ProductLocationService
                 'reason' => $reason,
             ]);
 
-            // Sync with stock
-            $this->syncWithStock($productLocation->product_id);
+            // Sync with stock (SKU-level: monitor the placement's own SKU,
+            // simple rows only against the parent authority).
+            $this->syncWithStock($productLocation->product_id, $productLocation->product_variant_id !== null ? (int) $productLocation->product_variant_id : null);
         });
     }
 }

@@ -8,6 +8,7 @@ use App\Http\Resources\Wms\LocationResource;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\PickingTask;
 use App\Models\Fulfillment\Warehouse;
+use App\Services\Fulfillment\LocationEmptyService;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +25,7 @@ class LocationController extends WmsAdminController
 {
     public function __construct(
         private WarehouseAccess $access,
+        private LocationEmptyService $emptyService,
     ) {}
 
     /**
@@ -98,7 +100,9 @@ class LocationController extends WmsAdminController
             __('wms.location.fetched_one'),
             200,
             true,
-            LocationResource::make($location)
+            // Detail view carries live placements (2 queries, no N+1) so
+            // the Admin sees what sits in the bin without extra calls.
+            LocationResource::make($location->loadMissing('productLocations.product'))
         );
     }
 
@@ -295,5 +299,59 @@ class LocationController extends WmsAdminController
         }
 
         return $this->apiResponse(__('message.MESSAGE.WMS_LOCATION_DELETED'), 200, true);
+    }
+
+    /**
+     * DELETE /api/v1/admin/locations/{location}/products
+     * Alias: DELETE /api/v1/admin/wms/locations/{location}/products
+     *
+     * Empty a Location of its eligible placement hints while keeping the
+     * Location itself intact (status/type/warehouse untouched).
+     *
+     * - Auth via sanctum + permission:manage-location (route middleware).
+     * - Object-level warehouse scope enforced here (403 on cross-warehouse).
+     * - Missing location → 404 via firstOrFail.
+     * - Unsafe (physical stock / open tasks / open commitments / picking
+     *   history) → 422 with a translated wms.location.empty_* message.
+     * - Success (including already-empty idempotent replay) → 200 with a
+     *   truthful {location_id, warehouse_id, removed, removed_ids,
+     *   remaining} payload. Central stock is never touched.
+     */
+    public function emptyProducts(int $location): JsonResponse
+    {
+        $loc = Location::whereKey($location)->firstOrFail();
+        $this->authorizeWarehouseScope($loc->warehouse_id, 'manage-location');
+
+        try {
+            $result = $this->emptyService->empty($loc);
+        } catch (\InvalidArgumentException $e) {
+            // Business refusal: same envelope as destroy() guards
+            // (422 + success:false), never a raw exception.
+            return $this->apiResponse($e->getMessage(), 422, false);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Final backstop: FK RESTRICT (MySQL 1451) on
+            // picking_tasks.product_location_id — refuse cleanly, never 500.
+            if (($e->errorInfo[1] ?? null) === 1451) {
+                return $this->apiResponse(__('wms.location.empty_history'), 422, false);
+            }
+            throw $e;
+        }
+
+        $message = ((int) ($result['removed'] ?? 0)) > 0
+            ? __('wms.location.emptied')
+            : __('wms.location.already_empty');
+
+        return $this->apiResponse(
+            $message,
+            200,
+            true,
+            [
+                'location_id' => (int) $result['location_id'],
+                'warehouse_id' => (int) $result['warehouse_id'],
+                'removed' => (int) $result['removed'],
+                'removed_ids' => array_values($result['removed_ids'] ?? []),
+                'remaining' => (int) ($result['remaining'] ?? 0),
+            ]
+        );
     }
 }

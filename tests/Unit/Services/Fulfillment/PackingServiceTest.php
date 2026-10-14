@@ -32,6 +32,8 @@ class PackingServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->service = app(\App\Services\Fulfillment\PackingService::class);
 

@@ -13,6 +13,8 @@ class StockOperationResource extends JsonResource
 
         return [
             'product_id' => $result['product_id'] ?? null,
+            'product_variant_id' => $result['product_variant_id'] ?? null,
+            'sku' => $result['sku'] ?? null,
             'warehouse_id' => $result['warehouse_id'] ?? null,
             'stock_quantity' => isset($result['stock_quantity']) ? (int) $result['stock_quantity'] : null,
             'reserved_quantity' => isset($result['reserved_quantity']) ? (int) $result['reserved_quantity'] : null,

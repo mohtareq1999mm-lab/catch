@@ -32,6 +32,8 @@ class BatchPickingServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->service = new BatchPickingService(new FulfillmentTransition(), new \App\Services\Warehouse\WarehouseService());
 

@@ -202,7 +202,10 @@ class PickingController extends WmsAdminController
                 $task,
                 [
                     'location' => (string) $request->validated('location'),
-                    'product' => (int) $request->validated('product'),
+                    // Raw string: the resolver accepts SKU/barcode strings
+                    // AND numeric IDs (ctype_digit fallback). An (int) cast
+                    // here destroys string SKUs ('SKU-1' → 0 → 422).
+                    'product' => (string) $request->validated('product'),
                     'quantity' => (float) $request->validated('quantity'),
                     'op_seq' => (int) ($request->validated('op_seq') ?? 0),
                 ],
@@ -353,7 +356,7 @@ class PickingController extends WmsAdminController
             __('wms.picking.placement_assigned'),
             200,
             true,
-            FulfillmentItemResource::make($assigned->fresh())
+            FulfillmentItemResource::make($assigned->fresh()->loadMissing('productLocation.location'))
         );
     }
 

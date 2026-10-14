@@ -22,6 +22,13 @@ class FulfillmentLifecycleTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
+    }
+
     private function makeWarehouse(): Warehouse
     {
         return Warehouse::create([

@@ -23,6 +23,8 @@ class ProductLocationServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->service = new ProductLocationService();
 

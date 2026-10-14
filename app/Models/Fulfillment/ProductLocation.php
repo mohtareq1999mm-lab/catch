@@ -5,11 +5,13 @@ namespace App\Models\Fulfillment;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Marvel\Database\Models\Product;
+use Marvel\Database\Models\ProductVariant;
 
 class ProductLocation extends Model
 {
     protected $fillable = [
         'product_id',
+        'product_variant_id',
         'location_id',
         'warehouse_id',
         'quantity',
@@ -26,6 +28,15 @@ class ProductLocation extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * SKU-level identity: NULL = simple product row, NOT NULL = variant row.
+     * Authority mirrors OrderReservationService::lockStockRow.
+     */
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
     }
 
     public function location(): BelongsTo
@@ -51,5 +62,13 @@ class ProductLocation extends Model
     public function scopeForWarehouse($query, int $warehouseId)
     {
         return $query->where('warehouse_id', $warehouseId);
+    }
+
+    public function scopeForSku($query, int $productId, ?int $variantId)
+    {
+        // S4: explicit null check (IDs are never 0, but !== null is correct).
+        return $variantId !== null
+            ? $query->where('product_id', $productId)->where('product_variant_id', $variantId)
+            : $query->where('product_id', $productId)->whereNull('product_variant_id');
     }
 }

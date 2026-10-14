@@ -263,14 +263,20 @@ class FulfillmentService
         int $warehouseId
     ): void {
         $productId = $orderItem->product_id;
+        // SKU identity: modern order_items carry product_variant_id (ProductVariant).
+        // Legacy variation_option_id (Variation) does NOT exist on order_products —
+        // reading it always yields null and silently drops variant identity.
+        $variantId = $orderItem->product_variant_id ?? null;
+        $variantId = $variantId !== null ? (int) $variantId : null;
         $quantity = $orderItem->product_quantity ?? $orderItem->order_quantity ?? 0;
 
-        // Allocate from locations
+        // Allocate from locations (SKU-level: variant placements only).
         try {
             $allocations = $this->productLocationService->allocateFromLocations(
                 $productId,
                 $quantity,
-                $warehouseId
+                $warehouseId,
+                $variantId
             );
 
             // Create fulfillment item for each allocation. NOTE: this must
@@ -281,7 +287,7 @@ class FulfillmentService
                     'fulfillment_id' => $fulfillment->id,
                     'order_item_id' => $orderItem->id,
                     'product_id' => $productId,
-                    'product_variant_id' => $orderItem->variation_option_id,
+                    'product_variant_id' => $variantId,
                     'product_location_id' => $allocation['product_location_id'],
                     'quantity' => $allocation['allocated'],
                     'quantity_picked' => 0,
@@ -295,6 +301,7 @@ class FulfillmentService
             Log::log($level, 'Failed to allocate location for fulfillment item', [
                 'fulfillment_id' => $fulfillment->id,
                 'product_id' => $productId,
+                'product_variant_id' => $variantId,
                 'quantity' => $quantity,
                 'error' => $e->getMessage(),
             ]);
@@ -303,7 +310,7 @@ class FulfillmentService
                 'fulfillment_id' => $fulfillment->id,
                 'order_item_id' => $orderItem->id,
                 'product_id' => $productId,
-                'product_variant_id' => $orderItem->variation_option_id,
+                'product_variant_id' => $variantId,
                 'product_location_id' => null,
                 'quantity' => $quantity,
                 'quantity_picked' => 0,
@@ -553,6 +560,14 @@ class FulfillmentService
 
             if ((int) $target->product_id !== (int) $locked->product_id) {
                 throw new \RuntimeException(__('wms.fulfillment.placement_product'));
+            }
+            // SKU identity: the target bin must hold the item's exact SKU —
+            // assigning a Black-S item to a Black-L bin sends the picker to
+            // the wrong goods. NULL-safe on both sides (simple SKUs).
+            $itemVariant = $locked->product_variant_id !== null ? (int) $locked->product_variant_id : null;
+            $targetVariant = $target->product_variant_id !== null ? (int) $target->product_variant_id : null;
+            if ($itemVariant !== $targetVariant) {
+                throw new \RuntimeException(__('wms.fulfillment.placement_variant'));
             }
             if ((int) $target->warehouse_id !== (int) $fulfillment->warehouse_id) {
                 throw new \RuntimeException(__('wms.fulfillment.placement_warehouse'));

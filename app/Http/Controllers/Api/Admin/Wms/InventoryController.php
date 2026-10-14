@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Api\Admin\Wms;
 
 use App\Http\Requests\Admin\Wms\ReceiveStockRequest;
 use App\Http\Requests\Admin\Wms\TransferStockRequest;
+use App\Http\Resources\Wms\ProductPlacementsResource;
 use App\Http\Resources\Wms\StockOperationResource;
 use App\Services\Inventory\StockOperationService;
+use App\Services\Warehouse\WarehouseAccess;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * Inventory intake + relocation HTTP adapter.
@@ -24,6 +28,7 @@ class InventoryController extends WmsAdminController
 {
     public function __construct(
         private StockOperationService $stock,
+        private WarehouseAccess $access,
     ) {}
 
     /**
@@ -50,6 +55,7 @@ class InventoryController extends WmsAdminController
                 (int) $data['quantity'],
                 $data['reference'] ?? null,
                 $data['idempotency_key'] ?? null,
+                isset($data['product_variant_id']) && $data['product_variant_id'] !== null ? (int) $data['product_variant_id'] : null,
             );
         } catch (ModelNotFoundException $e) {
             throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException(__('wms.stock.product_not_found'), $e);
@@ -100,6 +106,7 @@ class InventoryController extends WmsAdminController
                 (int) $data['quantity'],
                 $data['reference'] ?? null,
                 $data['idempotency_key'] ?? null,
+                isset($data['product_variant_id']) && $data['product_variant_id'] !== null ? (int) $data['product_variant_id'] : null,
             );
         } catch (ModelNotFoundException $e) {
             throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException(__('wms.stock.product_not_found'), $e);
@@ -114,6 +121,202 @@ class InventoryController extends WmsAdminController
             [
                 'operation' => (new StockOperationResource($outcome['result']))->toArray($request),
                 'replayed' => $outcome['replayed'],
+            ]
+        );
+    }
+
+    /**
+     * GET /api/v1/admin/products/{product}/placements
+     *
+     * Read model: one product with ALL its location placements (the
+     * multi-location contract). Catalog data is global; placements are
+     * confined to the actor's warehouse scope (global holders may pass
+     * ?warehouse_id to narrow). Empty placement set → 200 with [].
+     *
+     * Variant-aware: each placement carries its SKU identity
+     * (product_variant_id NULL = simple row). ?product_variant_id narrows
+     * to one SKU; variants expose attributes/SKU/stock via the resource.
+     * Backward compat: existing product/placements fields unchanged.
+     */
+    public function productPlacements(Request $request, int $product): JsonResponse
+    {
+        try {
+            $model = \Marvel\Database\Models\Product::whereKey($product)->with('variations.attributeProducts.attributeValue.attribute')->firstOrFail();
+        } catch (ModelNotFoundException $e) {
+            throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException(__('wms.stock.product_not_found'), $e);
+        }
+
+        if (auth()->user()->can('manage-warehouse')) {
+            $scope = (int) $request->get('warehouse_id', 0) ?: null;
+            if ($scope !== null) {
+                $this->authorizeWarehouseScope($scope, 'view-location', true);
+            }
+        } else {
+            $scope = $this->access->warehouseIdFor(auth()->user());
+            if ($scope === null) {
+                throw new AuthorizationException('Forbidden warehouse operation.');
+            }
+        }
+
+        $variantFilter = $request->get('product_variant_id', null);
+        $variantFilter = $variantFilter !== null && $variantFilter !== '' ? (int) $variantFilter : null;
+        if ($variantFilter !== null) {
+            // M5: missing variant → 404 (variant_not_found), wrong-parent →
+            // 422 (variant_mismatch). Previously both mapped to 422.
+            $variant = \Marvel\Database\Models\ProductVariant::whereKey($variantFilter)->first();
+            if (!$variant) {
+                throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException(__('wms.stock.variant_not_found'));
+            }
+            if ((int) $variant->product_id !== (int) $model->id) {
+                $this->unprocessable(__('wms.stock.variant_mismatch', ['variant' => $variantFilter, 'product' => $model->id]));
+            }
+        }
+
+        $query = \App\Models\Fulfillment\ProductLocation::query()
+            ->where('product_id', $model->id)
+            ->with(['location', 'variant.attributeProducts.attributeValue.attribute'])
+            ->orderBy('id');
+        if ($scope !== null) {
+            $query->where('warehouse_id', $scope);
+        }
+        if ($variantFilter !== null) {
+            $query->where('product_variant_id', $variantFilter);
+        }
+
+        return $this->apiResponse(
+            __('wms.stock.placements_fetched'),
+            200,
+            true,
+            (new ProductPlacementsResource([
+                'product' => $model,
+                'placements' => $query->get(),
+            ]))->toArray($request)
+        );
+    }
+
+    /**
+     * GET /api/v1/admin/inventory/overview
+     *
+     * SKU-level stats without double-counting parent aggregates:
+     * - total_sku_units: SUM(stock_quantity) over stock-owning entities only
+     *   (simple products WITHOUT variants + every variant row). Variable
+     *   parents are excluded (their stock lives on variants).
+     * - active_bins: COUNT(active locations) in scope.
+     * - today_transactions: COUNT(completed inventory_operations TODAY,
+     *   app timezone) in scope.
+     *
+     * Scope (M4 — explicit): stock totals are GLOBAL authority sums (products
+     * and variants carry no warehouse column; placement hints are NOT summed
+     * because hints drift from authority by design). Bins/transactions ARE
+     * warehouse-scoped. totals_scope is always 'global' so scoped callers
+     * cannot mistake the totals for per-warehouse levels.
+     *
+     * Scope: actor warehouse unless manage-warehouse (+ optional
+     * ?warehouse_id narrow, 404 anti-enumeration on foreign scope).
+     */
+    public function overview(Request $request): JsonResponse
+    {
+        if (auth()->user()->can('manage-warehouse')) {
+            $scope = (int) $request->get('warehouse_id', 0) ?: null;
+            if ($scope !== null) {
+                $this->authorizeWarehouseScope($scope, 'view-location', true);
+            }
+        } else {
+            $scope = $this->access->warehouseIdFor(auth()->user());
+            if ($scope === null) {
+                throw new AuthorizationException('Forbidden warehouse operation.');
+            }
+        }
+
+        $simpleUnits = \Marvel\Database\Models\Product::query()
+            ->whereDoesntHave('variations')
+            ->sum('stock_quantity');
+
+        $variantUnits = \Marvel\Database\Models\ProductVariant::query()->sum('stock_quantity');
+
+        $binsQuery = \App\Models\Fulfillment\Location::query()->where('status', \App\Models\Fulfillment\Location::STATUS_ACTIVE);
+        if ($scope !== null) {
+            $binsQuery->where('warehouse_id', $scope);
+        }
+
+        $txQuery = \App\Models\Inventory\InventoryOperation::query()->where('status', \App\Models\Inventory\InventoryOperation::STATUS_COMPLETED)
+            ->whereDate('created_at', today());
+        if ($scope !== null) {
+            $txQuery->where('warehouse_id', $scope);
+        }
+
+        return $this->apiResponse(
+            __('wms.stock.overview_fetched'),
+            200,
+            true,
+            [
+                'total_sku_units' => (int) $simpleUnits + (int) $variantUnits,
+                'simple_units' => (int) $simpleUnits,
+                'variant_units' => (int) $variantUnits,
+                'totals_scope' => 'global',
+                'active_bins' => (int) (clone $binsQuery)->count(),
+                'today_transactions' => (int) (clone $txQuery)->count(),
+                'warehouse_id' => $scope,
+            ]
+        );
+    }
+
+    /**
+     * GET /api/v1/admin/inventory/operations/{key}
+     *
+     * Case-C resolution: after a timeout or lost response on a keyed
+     * receipt/transfer, the client fetches the key to learn whether the
+     * operation committed (completed + stored result), is still running
+     * (processing → wait and re-poll, do NOT start a second attempt
+     * elsewhere), or never arrived / rolled back (404 → safe to retry,
+     * preferably with the same key and the identical payload).
+     *
+     * Failed attempts leave no ledger row (the ledger write shares the
+     * operation transaction, so a 422 refusal rolls it back): 404 also
+     * means "conclusively failed without committing", after which the
+     * frontend may submit a new attempt — ideally with a fresh key per
+     * destination so each attempt stays individually auditable.
+     *
+     * Read-only (permission:view-location); warehouse-scoped like the
+     * placements read (404 anti-enumeration for foreign rows).
+     */
+    public function operationStatus(string $key): JsonResponse
+    {
+        $key = trim($key);
+
+        $operation = $key === ''
+            ? null
+            : \App\Models\Inventory\InventoryOperation::query()
+                ->where('idempotency_key', $key)
+                ->first();
+
+        if (!$operation) {
+            throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException(__('wms.stock.operation_not_found'));
+        }
+
+        if (!auth()->user()->can('manage-warehouse')) {
+            $home = $this->access->warehouseIdFor(auth()->user());
+            if ($home === null || (int) ($operation->warehouse_id ?? 0) !== $home) {
+                throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException(__('wms.stock.operation_not_found'));
+            }
+        }
+
+        return $this->apiResponse(
+            __('wms.stock.operation_fetched'),
+            200,
+            true,
+            [
+                'key' => $operation->idempotency_key,
+                'operation' => $operation->operation,
+                'status' => $operation->status,
+                'product_id' => (int) $operation->product_id,
+                'product_variant_id' => $operation->product_variant_id !== null ? (int) $operation->product_variant_id : null,
+                'warehouse_id' => $operation->warehouse_id !== null ? (int) $operation->warehouse_id : null,
+                'source_location_id' => $operation->source_location_id !== null ? (int) $operation->source_location_id : null,
+                'destination_location_id' => $operation->destination_location_id !== null ? (int) $operation->destination_location_id : null,
+                'quantity' => (float) $operation->quantity,
+                'reference' => $operation->reference,
+                'result' => $operation->result,
             ]
         );
     }

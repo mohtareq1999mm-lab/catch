@@ -8,6 +8,7 @@ use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
 use Marvel\Database\Models\Order;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -254,6 +255,20 @@ class ReturnService
                 );
             }
 
+            // Occupied-location policy, SKU-level (single shared guard): a
+            // location hosting a DIFFERENT live SKU refuses the restock
+            // BEFORE the central restore below, so the refusal persists
+            // nothing. The SKU comes from the return line identity (order
+            // item first, fulfillment-item allocation copy as fallback):
+            // variant goods must return to their variant hint row, never the
+            // simple row of the same parent. Empty the location or restock
+            // into a vacant/compatible bin instead.
+            $variantId = $returnItem->orderItem?->product_variant_id
+                ?? $returnItem->fulfillmentItem?->product_variant_id
+                ?? null;
+            $variantId = $variantId !== null ? (int) $variantId : null;
+            $this->productLocationService->assertLocationVacantFor($locationId, (int) $returnItem->product_id, $variantId);
+
             // Phase 12: central restore FIRST, placement hint second — the
             // authority moves before its projection, so the drift monitor
             // never observes an inconsistent intermediate state.
@@ -265,17 +280,50 @@ class ReturnService
                 );
             }
 
-            $productLocation = ProductLocation::firstOrCreate(
-                [
-                    'product_id' => $returnItem->product_id,
-                    'location_id' => $locationId,
-                    'warehouse_id' => $returnItem->returnRequest->warehouse_id,
-                ],
-                [
-                    'quantity' => 0,
-                    'allocated_hint' => 0,
-                ]
-            );
+            // SKU-scoped placement hint (mirrors lockedPlacement): the lookup
+            // keys on the SKU pair, never the warehouse — a warehouse-
+            // mismatched history row must collide (fail closed below), not
+            // duplicate. NULL variant needs explicit null handling.
+            try {
+                $placementQuery = ProductLocation::query()
+                    ->where('product_id', $returnItem->product_id)
+                    ->where('location_id', $locationId);
+                if ($variantId === null) {
+                    $placementQuery->whereNull('product_variant_id');
+                } else {
+                    $placementQuery->where('product_variant_id', $variantId);
+                }
+                $productLocation = $placementQuery->first();
+                if (!$productLocation) {
+                    $productLocation = ProductLocation::query()->create([
+                        'product_id' => $returnItem->product_id,
+                        'product_variant_id' => $variantId,
+                        'location_id' => $locationId,
+                        'warehouse_id' => $returnItem->returnRequest->warehouse_id,
+                        'quantity' => 0,
+                        'allocated_hint' => 0,
+                    ]);
+                }
+            } catch (QueryException $e) {
+                // Narrow backstop: the SKU pair UNIQUE (1062) fired — reload
+                // the winner instead of 500ing. Anything else is rethrown.
+                if (!is_array($e->errorInfo ?? null) || (($e->errorInfo[1] ?? null) !== 1062)) {
+                    throw $e;
+                }
+                $productLocation = ProductLocation::query()
+                    ->where('product_id', $returnItem->product_id)
+                    ->where('location_id', $locationId)
+                    ->when($variantId === null, fn ($q) => $q->whereNull('product_variant_id'), fn ($q) => $q->where('product_variant_id', $variantId))
+                    ->firstOrFail();
+            }
+
+            // Denorm guard: an existing row pinned to another warehouse means
+            // corrupt history — fail closed, never silently re-home it.
+            if ((int) $productLocation->warehouse_id !== $requestWarehouseId) {
+                throw new \RuntimeException(
+                    __('wms.stock.already_placed', ['product' => $returnItem->product_id, 'location' => $locationId, 'warehouse' => $productLocation->warehouse_id])
+                );
+            }
 
             $this->productLocationService->updateLocationQuantity(
                 $productLocation->id,

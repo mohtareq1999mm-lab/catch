@@ -224,6 +224,13 @@ class PickingExecutionService
             if ((int) $target->product_id !== (int) $item->product_id) {
                 throw new \RuntimeException(__('wms.picking.reallocate_product'));
             }
+            // SKU identity (one SKU per bin): the target must hold the
+            // item's exact variant — sibling-variant bins hold other goods.
+            $itemVariant = $item->product_variant_id !== null ? (int) $item->product_variant_id : null;
+            $targetVariant = $target->product_variant_id !== null ? (int) $target->product_variant_id : null;
+            if ($itemVariant !== $targetVariant) {
+                throw new \RuntimeException(__('wms.picking.reallocate_variant'));
+            }
             if ((int) $target->warehouse_id !== (int) $fulfillment->warehouse_id) {
                 throw new \RuntimeException(__('wms.picking.reallocate_warehouse'));
             }

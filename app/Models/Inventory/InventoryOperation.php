@@ -22,6 +22,7 @@ class InventoryOperation extends Model
         'idempotency_key',
         'operation',
         'product_id',
+        'product_variant_id',
         'warehouse_id',
         'source_location_id',
         'destination_location_id',

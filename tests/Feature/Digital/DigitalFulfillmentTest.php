@@ -388,7 +388,10 @@ class DigitalFulfillmentTest extends TestCase
                 $this->assertSame($order->id, $payload['resource_id']);
                 $this->assertStringContainsString('Digital product ready', $payload['title']['en']);
                 $this->assertStringContainsString('منتجك الرقمي جاهز', $payload['title']['ar']);
-                $this->assertStringContainsString($order->order_number, $payload['message']['en']);
+                // Production orders.order_number is varchar(20): assert the
+                // persisted value the notification actually carries, not the
+                // over-wide in-memory fixture.
+                $this->assertStringContainsString((string) $order->fresh()->order_number, $payload['message']['en']);
 
                 return true;
             }

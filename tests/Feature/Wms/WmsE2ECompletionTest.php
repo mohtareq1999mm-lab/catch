@@ -177,10 +177,11 @@ class WmsE2ECompletionTest extends TestCase
         $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/verify", [])->assertStatus(200);
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
 
-        // Ship → deliver. Fulfillment + shipment converge; the ORDER stays
-        // pending because COD payment is still outstanding — completing an
-        // unpaid order is a finance act (payments.mark_paid, F-1) outside
-        // WMS scope, and the completion invariant correctly refuses it.
+        // Ship → deliver. Fulfillment + shipment converge; the ORDER walks
+        // its logistics steps (→ out_for_delivery) while payment stays
+        // outstanding — completing an unpaid order is a finance act
+        // (payments.mark_paid, F-1) outside WMS scope, so completed and
+        // delivered stay out of reach until mark-paid.
         $shipmentId = $auth()->postJson(
             "/api/v1/admin/fulfillments/{$fulfillmentId}/shipments", ['courier' => 'COD-Post']
         )->assertStatus(201)->json('data.id');
@@ -188,7 +189,8 @@ class WmsE2ECompletionTest extends TestCase
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
         $this->assertSame('delivered', $fulfillment->fresh()->status);
         $this->assertSame('delivered', Shipment::find($shipmentId)->status);
-        $this->assertSame('pending', $order->fresh()->status);
+        $this->assertSame('out_for_delivery', $order->fresh()->status);
+        $this->assertSame(Order::PAYMENT_STATUS_PENDING, $order->fresh()->payment_status);
 
         $this->assertEquals(100, (float) $this->product->fresh()->stock_quantity);
     }

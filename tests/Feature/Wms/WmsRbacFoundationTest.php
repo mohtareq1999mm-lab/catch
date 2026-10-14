@@ -223,10 +223,13 @@ class WmsRbacFoundationTest extends TestCase
         $locations = array_values(array_filter($names, fn ($n) => str_starts_with($n, 'api.admin.locations.')));
         $this->assertCount(8, $warehouses, 'warehouses surface stays exactly 8 routes');
         // Locations grew 6 → 8 after P9-2 (destroy + stock-receipts, each
-        // with own permission gate and tests). Any further growth must be
+        // with own permission gate and tests), then 8 → 9 with the
+        // empty-location surface (DELETE products, conventional URI; the
+        // contract-alias URI lives under api.admin.wms.* and is inventoried
+        // in the completion test). Any further growth must be
         // deliberate — the exact-count completion inventory below is the
         // detector for the wider surface.
-        $this->assertCount(8, $locations, 'locations surface stays exactly 8 routes');
+        $this->assertCount(9, $locations, 'locations surface stays exactly 9 routes');
 
         // The P9-2-era negative loops below were retired: phases P9-3..P9-8
         // intentionally introduced the fulfillment / picking / packing /
@@ -288,7 +291,7 @@ class WmsRbacFoundationTest extends TestCase
                 }
             }
         }
-        $this->assertSame(16, $checked, 'all 16 warehouse/location routes carry exactly one permission each');
+        $this->assertSame(17, $checked, 'all 17 warehouse/location routes carry exactly one permission each');
     }
 
     public function test_permission_alone_does_not_grant_cross_warehouse_scope(): void

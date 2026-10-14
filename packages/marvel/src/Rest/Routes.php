@@ -573,6 +573,15 @@ Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'activate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.activate');
     Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'deactivate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.deactivate');
     Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.destroy');
+    // Empty-location: remove eligible placement hints, keep the bin itself.
+    // Conventional URI (matches the admin/locations surface above).
+    Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.locations.products.destroy');
+});
+// Empty-location contract URI (mission-specified): same handler, WMS prefix.
+// Both URIs share LocationController@emptyProducts + manage-location so the
+// exact proposed contract is verified present without forking behavior.
+Route::prefix('admin/wms/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.wms.locations.products.destroy');
 });
 
 // Fulfillment Phase 9 (P9-3): Fulfillment admin surface. Command routes only —
@@ -687,6 +696,18 @@ Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:a
 });
 Route::prefix('admin')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::post('stock-transfers', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'transfer'])->middleware('permission:inventory-adjust')->name('api.admin.stock-transfers');
+});
+// Multi-location read model: one product with all its placements.
+// Read-only (permission:view-location); write paths above are untouched.
+Route::prefix('admin/products')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('{product}/placements', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'productPlacements'])->whereNumber('product')->middleware('permission:view-location')->name('api.admin.products.placements');
+});
+// SKU-level inventory overview (no double-counting): simple products without
+// variants + every variant row. Read-only (permission:view-location).
+// Operation-status resolution for Case-C retries (same read permission).
+Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('overview', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'overview'])->middleware('permission:view-location')->name('api.admin.inventory.overview');
+    Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:view-location')->name('api.admin.inventory.operations.show');
 });
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without
 // auth or throttle). Test payments use the gateway sandbox directly.

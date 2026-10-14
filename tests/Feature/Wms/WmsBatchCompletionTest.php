@@ -266,7 +266,7 @@ class WmsBatchCompletionTest extends TestCase
         $this->assertSame(2, FulfillmentBatch::find($batchId)->pickingTasks()->count());
     }
 
-    public function test_refresh_progress_leaves_orders_inventory_shipments_untouched(): void
+    public function test_refresh_progress_converges_order_without_touching_stock_or_shipments(): void
     {
         [$f1, $f2] = $this->releasePair('u');
         $operator = $this->batchOperator();
@@ -281,7 +281,17 @@ class WmsBatchCompletionTest extends TestCase
 
         $this->refreshHttp($operator, $batchId)->assertStatus(200);
 
-        $this->assertSame($orderBefore, $f1->order()->first()->only(['status', 'fulfillment_status', 'inventory_state']));
+        // Refresh advances fully-picked fulfillments via the transition
+        // owner; the order converges through the authoritative Order Flow
+        // service (both fulfillments picked → packed), while central stock,
+        // reservations, and shipments stay untouched (no stock moves, no
+        // labels created by picking progress).
+        $this->assertSame('picked', $f1->fresh()->status);
+        $this->assertSame('picked', $f2->fresh()->status);
+        $orderAfter = $f1->order()->first()->only(['status', 'fulfillment_status', 'inventory_state']);
+        $this->assertSame('packed', $orderAfter['status']);
+        $this->assertSame($orderBefore['fulfillment_status'], $orderAfter['fulfillment_status']);
+        $this->assertSame($orderBefore['inventory_state'], $orderAfter['inventory_state']);
         $this->assertSame($stockBefore, [(float) $this->product->fresh()->stock_quantity, (float) $this->product->fresh()->reserved_quantity]);
         $this->assertSame($shipmentsBefore, \App\Models\Shipment::count());
     }

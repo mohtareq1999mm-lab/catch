@@ -62,7 +62,7 @@ class WmsRbacCompletionTest extends TestCase
             $method = array_intersect($route->methods(), ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
             $method = reset($method) ?: 'GET';
             $uri = '/' . ltrim($route->uri(), '/');
-            $uri = str_replace(['{id}', '{orderId}', '{order}', '{location}'], '1', $uri);
+            $uri = str_replace(['{id}', '{orderId}', '{order}', '{location}', '{product}'], '1', $uri);
             // Required query filters for list endpoints.
             if (str_contains($uri, 'admin/packages') && !str_contains($uri, '?')) {
                 $uri .= str_ends_with($uri, '/1') ? '' : '?fulfillment_id=1';
@@ -83,10 +83,15 @@ class WmsRbacCompletionTest extends TestCase
         // P9-2 (16: warehouses 8 + locations 8 incl. stock-receipts) +
         // P9-3/P9-4 fulfillments (7) + fulfillment-items (1) +
         // picking-tasks (8) + batches (11 incl. complete) + P9-6 packing
-        // (15) + P9-7 (1) + P9-8 shipments (6) + stock-transfers (1) +
-        // pre-existing order shipment (2) = 68. Any route addition must
-        // update this inventory deliberately — never silently.
-        $this->assertCount(68, $routes);
+        // (19: packing-tasks 7 incl. cancel + create-packing-task 1 +
+        // stations 5 + packages 6 incl. void) + P9-7 (1) + P9-8 shipments
+        // (6) + stock-transfers (1) + product placements read (1) +
+        // inventory overview read (1) + empty-location surface (2:
+        // conventional + contract-alias URIs, parallel in-scope addition
+        // with dedicated tests) + pre-existing order shipment (2) = 76.
+        // Any route addition must update this inventory deliberately —
+        // never silently.
+        $this->assertCount(76, $routes);
 
         $names = array_column($routes, 'name');
         foreach ([
@@ -94,6 +99,10 @@ class WmsRbacCompletionTest extends TestCase
             'api.admin.batches.complete',
             'api.admin.locations.stock-receipts',
             'api.admin.stock-transfers',
+            'api.admin.products.placements',
+            'api.admin.inventory.overview',
+            'api.admin.locations.products.destroy',
+            'api.admin.wms.locations.products.destroy',
             'api.admin.packing-tasks.pack', 'api.admin.packing-tasks.verify',
             'api.admin.packages.void', 'api.admin.orders.cancel',
             'api.admin.fulfillments.shipments.store',
@@ -121,7 +130,10 @@ class WmsRbacCompletionTest extends TestCase
                 || str_starts_with($uri, 'api/v1/admin/packages')
                 || str_starts_with($uri, 'api/v1/admin/picking-tasks')
                 || str_starts_with($uri, 'api/v1/admin/shipments')
-                || str_starts_with($uri, 'api/v1/admin/stock-transfers');
+                || str_starts_with($uri, 'api/v1/admin/stock-transfers')
+                || str_starts_with($uri, 'api/v1/admin/products')
+                || str_starts_with($uri, 'api/v1/admin/inventory')
+                || str_starts_with($uri, 'api/v1/admin/wms/locations');
             if ($isWmsUri) {
                 $this->assertArrayHasKey(
                     $route->getName() ?? '',
@@ -135,7 +147,7 @@ class WmsRbacCompletionTest extends TestCase
     public function test_every_wms_route_requires_authentication(): void
     {
         // Throttle is proven present by middleware audit below; bypass it
-        // here so the 68-request sweep measures auth, not rate limits.
+        // here so the 76-request sweep measures auth, not rate limits.
         $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
 
         foreach ($this->wmsRoutes() as $route) {

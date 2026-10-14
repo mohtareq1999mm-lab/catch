@@ -44,6 +44,9 @@ class WmsEndToEndTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions below are English: pin locale (production
+        // default is Arabic per .env DEFAULT_LANGUAGE).
+        app()->setLocale('en');
 
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -201,9 +204,11 @@ class WmsEndToEndTest extends TestCase
         $this->assertSame('delivered', Shipment::find($shipmentId)->status);
 
         // Order Flow completion: paid + completed + all delivered → delivered.
+        // The completion emits PaymentSucceeded, whose sync converges the
+        // order straight to delivered (all fulfillments already delivered).
         app(\App\Services\General\OrderService::class)
             ->changeOrderStatus(null, 'completed', $order->id);
-        $this->assertSame('completed', $order->fresh()->status);
+        $this->assertSame('delivered', $order->fresh()->status);
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
         $this->assertSame('delivered', $order->fresh()->status);
 
@@ -315,7 +320,9 @@ class WmsEndToEndTest extends TestCase
         $this->assertSame(1, Fulfillment::where('order_id', $order->id)->count());
 
         // Foreign-homed operator probing fulfillment + shipment rows → 404.
-        $foreign = $this->operator($other->id);
+        // NOTE: scoped permissions only — manage-warehouse is global by
+        // design (WarehouseAccess) and would legitimately see across.
+        $foreign = $this->user($other->id, ['view-fulfillment']);
         $this->actingAs($foreign, 'sanctum')
             ->getJson("/api/v1/admin/fulfillments/{$first->id}")->assertStatus(404);
         $this->actingAs($foreign, 'sanctum')
