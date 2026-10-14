@@ -25,6 +25,7 @@ class PickingTaskDetailResource extends JsonResource
                     'fulfillment_number' => $this->fulfillmentItem->fulfillment->fulfillment_number,
                     'warehouse_id' => $this->fulfillmentItem->fulfillment->warehouse_id,
                     'status' => $this->fulfillmentItem->fulfillment->status,
+                    'assigned_to' => $this->fulfillmentItem->fulfillment->assigned_to,
                 ]
             ),
             'location' => $this->whenLoaded('productLocation', function () {

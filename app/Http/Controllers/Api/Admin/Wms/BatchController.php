@@ -65,6 +65,10 @@ class BatchController extends WmsAdminController
             }
         }
 
+        if ($request->validated('mine')) {
+            $query->where('assigned_to', $this->actorId());
+        }
+
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
 
         return $this->apiResponse(

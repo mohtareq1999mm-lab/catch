@@ -17,6 +17,7 @@ class ListBatchesRequest extends FormRequest
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'status' => ['nullable', 'in:pending,assigned,picking,completed,cancelled'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
+            'mine' => ['nullable', 'boolean'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ];
     }

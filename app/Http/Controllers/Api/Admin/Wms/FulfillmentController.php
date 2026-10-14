@@ -68,6 +68,10 @@ class FulfillmentController extends WmsAdminController
             }
         }
 
+        if ($request->validated('mine')) {
+            $query->where('assigned_to', $this->actorId());
+        }
+
         // Batch-membership filter: fulfillments contributing at least one
         // picking task to the given batch. The batch row is scope-checked
         // (anti-enumeration: 404 on foreign-warehouse batches for readers).

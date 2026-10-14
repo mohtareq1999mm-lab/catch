@@ -709,6 +709,7 @@ Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::get('overview', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'overview'])->middleware('permission:view-location')->name('api.admin.inventory.overview');
     Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:view-location')->name('api.admin.inventory.operations.show');
 });
+
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without
 // auth or throttle). Test payments use the gateway sandbox directly.
 

@@ -18,6 +18,7 @@ class ListPickingTasksRequest extends FormRequest
             'batch_id' => ['nullable', 'integer', 'exists:fulfillment_batches,id'],
             'fulfillment_id' => ['nullable', 'integer', 'exists:fulfillments,id'],
             'status' => ['nullable', 'in:pending,assigned,picking,picked,skipped,cancelled'],
+            'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'mine' => ['nullable', 'boolean'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ];

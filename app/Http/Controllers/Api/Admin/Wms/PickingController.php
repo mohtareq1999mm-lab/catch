@@ -49,7 +49,9 @@ class PickingController extends WmsAdminController
      */
     public function index(ListPickingTasksRequest $request): JsonResponse
     {
-        $query = PickingTask::query()->orderByDesc('id');
+        $query = PickingTask::query()
+            ->with(['fulfillmentItem.fulfillment.assignedUser', 'batch.assignedUser'])
+            ->orderByDesc('id');
         $this->applyWarehouseScope($query, $request);
 
         $batchId = $request->validated('batch_id');
@@ -73,8 +75,22 @@ class PickingController extends WmsAdminController
             }
         }
 
+        $assignedTo = $request->validated('assigned_to');
+        if ($assignedTo !== null) {
+            $assignedId = (int) $assignedTo;
+            $query->where(function ($q) use ($assignedId) {
+                $q->whereHas('fulfillmentItem.fulfillment', fn ($f) => $f->where('assigned_to', $assignedId))
+                  ->orWhereHas('batch', fn ($b) => $b->where('assigned_to', $assignedId));
+            });
+        }
+
         if ($request->validated('mine')) {
-            $query->where('claimed_by', $this->actorId());
+            $userId = $this->actorId();
+            $query->where(function ($q) use ($userId) {
+                $q->where('claimed_by', $userId)
+                  ->orWhereHas('fulfillmentItem.fulfillment', fn ($f) => $f->where('assigned_to', $userId))
+                  ->orWhereHas('batch', fn ($b) => $b->where('assigned_to', $userId));
+            });
         }
 
         $perPage = min((int) ($request->validated('limit') ?? 15), 100);
@@ -95,7 +111,11 @@ class PickingController extends WmsAdminController
         $task = PickingTask::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($this->taskWarehouseId($task), 'picking-execute', true);
 
-        $task->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']);
+        $task->loadMissing([
+            'fulfillmentItem.fulfillment.assignedUser',
+            'batch.assignedUser',
+            'productLocation.location',
+        ]);
 
         return $this->apiResponse(
             __('wms.picking.fetched_one'),

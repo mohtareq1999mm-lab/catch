@@ -57,6 +57,11 @@ class PickingTask extends Model
         return $this->belongsTo(ProductLocation::class);
     }
 
+    public function claimedUser(): BelongsTo
+    {
+        return $this->belongsTo(\Marvel\Database\Models\User::class, 'claimed_by');
+    }
+
     public function remainingQuantity(): float
     {
         return $this->quantity_to_pick - $this->quantity_picked;
