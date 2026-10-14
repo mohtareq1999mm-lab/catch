@@ -86,12 +86,13 @@ class WmsRbacCompletionTest extends TestCase
         // (19: packing-tasks 7 incl. cancel + create-packing-task 1 +
         // stations 5 + packages 6 incl. void) + P9-7 (1) + P9-8 shipments
         // (6) + stock-transfers (1) + product placements read (1) +
-        // inventory overview read (1) + empty-location surface (2:
-        // conventional + contract-alias URIs, parallel in-scope addition
-        // with dedicated tests) + pre-existing order shipment (2) = 76.
+        // inventory overview read (1) + operation-status read (1) +
+        // empty-location surface (2: conventional + contract-alias URIs,
+        // parallel in-scope addition with dedicated tests) +
+        // pre-existing order shipment (2) = 77.
         // Any route addition must update this inventory deliberately —
         // never silently.
-        $this->assertCount(76, $routes);
+        $this->assertCount(77, $routes);
 
         $names = array_column($routes, 'name');
         foreach ([
@@ -101,6 +102,7 @@ class WmsRbacCompletionTest extends TestCase
             'api.admin.stock-transfers',
             'api.admin.products.placements',
             'api.admin.inventory.overview',
+            'api.admin.inventory.operations.show',
             'api.admin.locations.products.destroy',
             'api.admin.wms.locations.products.destroy',
             'api.admin.packing-tasks.pack', 'api.admin.packing-tasks.verify',
@@ -147,7 +149,7 @@ class WmsRbacCompletionTest extends TestCase
     public function test_every_wms_route_requires_authentication(): void
     {
         // Throttle is proven present by middleware audit below; bypass it
-        // here so the 76-request sweep measures auth, not rate limits.
+        // here so the 77-request sweep measures auth, not rate limits.
         $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
 
         foreach ($this->wmsRoutes() as $route) {

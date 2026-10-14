@@ -347,6 +347,18 @@ class PickingExecutionService
                 'placement_product_id' => $placement->product_id,
             ]);
         }
+        // SKU identity: the pinned bin must still hold the item's exact
+        // variant (sibling-variant bins hold other goods). Placement
+        // identity columns are write-once via app code; this is the
+        // fail-closed backstop for any out-of-band drift.
+        $itemVariant = $item->product_variant_id !== null ? (int) $item->product_variant_id : null;
+        $placementVariant = $placement->product_variant_id !== null ? (int) $placement->product_variant_id : null;
+        if ($itemVariant !== $placementVariant) {
+            $this->reject($task, $scan, $userId, 'stale_placement', [
+                'expected_variant_id' => $item->product_variant_id,
+                'placement_variant_id' => $placement->product_variant_id,
+            ]);
+        }
 
         $location = Location::whereKey($placement->location_id)->first();
         // Mirror scopePlaceable: active + (null or placeable type).

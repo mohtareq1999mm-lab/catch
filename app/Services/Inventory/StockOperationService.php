@@ -470,9 +470,11 @@ class StockOperationService
 
     /**
      * Idempotency shell: UNIQUE(idempotency_key) is the final backstop.
-     * Completed keys replay their stored result; a duplicate insert that
-     * loses the race reloads the winner when completed, else 409s.
-     * Keyless calls execute once with no ledger row.
+     * Completed keys replay their stored result (same payload only);
+     * a duplicate insert that loses the race reloads the winner once it
+     * commits (InnoDB blocks the loser on the uncommitted unique until
+     * the winner commits or rolls back), else 409s with an actionable
+     * message. Keyless calls execute once with no ledger row.
      *
      * Payload binding (Case C): a key is bound to the exact operation
      * payload that first completed under it (operation, product, variant,

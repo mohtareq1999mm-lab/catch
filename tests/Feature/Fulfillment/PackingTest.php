@@ -30,6 +30,8 @@ class PackingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-1', 'name' => 'Main', 'status' => 'active', 'is_default' => true,

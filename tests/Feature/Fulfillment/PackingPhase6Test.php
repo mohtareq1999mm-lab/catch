@@ -45,6 +45,8 @@ class PackingPhase6Test extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-1', 'name' => 'Main', 'status' => 'active', 'is_default' => true,
@@ -572,9 +574,8 @@ class PackingPhase6Test extends TestCase
 
     // ---------------- Boundaries ----------------
 
-    public function test_full_packing_flow_leaves_order_and_inventory_untouched(): void
+    public function test_full_packing_flow_converges_order_without_touching_inventory(): void
     {
-        $orderStatusBefore = $this->fulfillment->order()->first()->status;
         $stockBefore = (float) $this->product->refresh()->stock_quantity;
         $reservedBefore = (float) $this->product->refresh()->reserved_quantity;
 
@@ -583,7 +584,10 @@ class PackingPhase6Test extends TestCase
         $this->packing()->verifyPacking($task);
 
         $this->assertEquals('ready_to_ship', $this->fulfillment->refresh()->status);
-        $this->assertEquals($orderStatusBefore, $this->fulfillment->order()->first()->refresh()->status);
+        // Packing completion converges the order through the authoritative
+        // Order Flow sync (fulfillment ready_to_ship → order packed), while
+        // central stock and reservations stay untouched.
+        $this->assertEquals('packed', $this->fulfillment->order()->first()->refresh()->status);
         $this->assertEquals($stockBefore, (float) $this->product->refresh()->stock_quantity);
         $this->assertEquals($reservedBefore, (float) $this->product->refresh()->reserved_quantity);
     }
