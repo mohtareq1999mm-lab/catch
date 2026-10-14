@@ -14,6 +14,7 @@ class Kernel extends ConsoleKernel
      */
     protected $commands = [
         \App\Console\Commands\CancelUnpaidOrders::class,
+        \App\Console\Commands\AuditInventoryPlacements::class,
         \App\Console\Commands\ExpireCouponReservations::class,
         \App\Console\Commands\ExpireCouponClaims::class,
         \App\Console\Commands\MigrateInventoryReservations::class,

@@ -37,6 +37,8 @@ class ShipmentPhase8GovernanceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-9', 'name' => 'Main 9', 'status' => 'active', 'is_default' => true,

@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\Admin\Wms;
 
+use App\Http\Requests\Admin\Wms\ListInventoryOperationsRequest;
 use App\Http\Requests\Admin\Wms\ReceiveStockRequest;
 use App\Http\Requests\Admin\Wms\TransferStockRequest;
+use App\Http\Resources\Wms\InventoryOperationResource;
 use App\Http\Resources\Wms\ProductPlacementsResource;
 use App\Http\Resources\Wms\StockOperationResource;
+use App\Models\Inventory\InventoryOperation;
 use App\Services\Inventory\StockOperationService;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -262,6 +265,88 @@ class InventoryController extends WmsAdminController
     }
 
     /**
+     * GET /api/v1/admin/inventory/operations
+     *
+     * List and filter ledger operations (receipts, transfers, initial placements).
+     * Scoped to actor's warehouse unless user has manage-warehouse.
+     */
+    public function operations(ListInventoryOperationsRequest $request): JsonResponse
+    {
+        $query = InventoryOperation::query()
+            ->with([
+                'product:id,name,sku',
+                'productVariant:id,sku,title',
+                'warehouse:id,name,code',
+                'sourceLocation:id,code,name',
+                'destinationLocation:id,code,name',
+            ])
+            ->orderByDesc('id');
+
+        if (auth()->user()->can('manage-warehouse')) {
+            $scope = (int) $request->validated('warehouse_id', 0) ?: null;
+            if ($scope !== null) {
+                $this->authorizeWarehouseScope($scope, 'view-location', true);
+                $query->where('warehouse_id', $scope);
+            }
+        } else {
+            $scope = $this->access->warehouseIdFor(auth()->user());
+            if ($scope === null) {
+                throw new AuthorizationException('Forbidden warehouse operation.');
+            }
+            $requestedScope = (int) $request->validated('warehouse_id', 0) ?: null;
+            if ($requestedScope !== null && $requestedScope !== $scope) {
+                $this->authorizeWarehouseScope($requestedScope, 'view-location', true);
+            }
+            $query->where('warehouse_id', $scope);
+        }
+
+        if ($request->filled('operation')) {
+            $query->where('operation', $request->validated('operation'));
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->validated('status'));
+        }
+
+        if ($request->filled('product_id')) {
+            $query->where('product_id', $request->validated('product_id'));
+        }
+
+        if ($request->filled('product_variant_id')) {
+            $query->where('product_variant_id', $request->validated('product_variant_id'));
+        }
+
+        if ($request->filled('source_location_id')) {
+            $query->where('source_location_id', $request->validated('source_location_id'));
+        }
+
+        if ($request->filled('destination_location_id')) {
+            $query->where('destination_location_id', $request->validated('destination_location_id'));
+        }
+
+        if ($request->filled('reference')) {
+            $query->where('reference', 'like', '%' . $request->validated('reference') . '%');
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->validated('date_from'));
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->validated('date_to'));
+        }
+
+        $perPage = min((int) ($request->validated('limit') ?? 15), 100);
+
+        return $this->apiResponse(
+            __('wms.stock.operations_fetched'),
+            200,
+            true,
+            InventoryOperationResource::collection($query->paginate($perPage))
+        );
+    }
+
+    /**
      * GET /api/v1/admin/inventory/operations/{key}
      *
      * Case-C resolution: after a timeout or lost response on a keyed
@@ -301,23 +386,19 @@ class InventoryController extends WmsAdminController
             }
         }
 
+        $operation->loadMissing([
+            'product:id,name,sku,product_type',
+            'productVariant.attributeProducts.attributeValue.attribute',
+            'warehouse:id,name,code',
+            'sourceLocation:id,code,name',
+            'destinationLocation:id,code,name',
+        ]);
+
         return $this->apiResponse(
             __('wms.stock.operation_fetched'),
             200,
             true,
-            [
-                'key' => $operation->idempotency_key,
-                'operation' => $operation->operation,
-                'status' => $operation->status,
-                'product_id' => (int) $operation->product_id,
-                'product_variant_id' => $operation->product_variant_id !== null ? (int) $operation->product_variant_id : null,
-                'warehouse_id' => $operation->warehouse_id !== null ? (int) $operation->warehouse_id : null,
-                'source_location_id' => $operation->source_location_id !== null ? (int) $operation->source_location_id : null,
-                'destination_location_id' => $operation->destination_location_id !== null ? (int) $operation->destination_location_id : null,
-                'quantity' => (float) $operation->quantity,
-                'reference' => $operation->reference,
-                'result' => $operation->result,
-            ]
+            (new InventoryOperationResource($operation))->toArray(request())
         );
     }
 }

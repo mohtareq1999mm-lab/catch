@@ -234,6 +234,7 @@ return [
         'idempotency_conflict' => 'Idempotency key :key is already bound to a different stock operation.',
         'idempotency_processing' => 'Stock operation :key is still processing: check its status before retrying.',
         'operation_fetched' => 'Stock operation fetched successfully.',
+        'operations_fetched' => 'Stock operations fetched successfully.',
         'operation_not_found' => 'Stock operation not found.',
     ],
 

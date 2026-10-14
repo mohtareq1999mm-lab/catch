@@ -165,11 +165,18 @@ class ProductLocationService
     {
         $location = Location::query()->whereKey($locationId)->lockForUpdate()->firstOrFail();
 
+        // E1 concurrency backstop (proven 2026-10-14): this MUST be a locking
+        // read. Under REPEATABLE-READ a plain GET uses the txn snapshot, so a
+        // second concurrent receiver blocked on the location lock above still
+        // would not see the winner's committed placement and both would post
+        // different SKUs into one bin. FOR UPDATE forces a current read after
+        // the location lock serializes the claimants.
         $occupant = ProductLocation::query()
             ->where('location_id', $location->id)
             ->where(function ($q) {
                 $q->where('quantity', '>', 0)->orWhere('allocated_hint', '>', 0);
             })
+            ->lockForUpdate()
             ->get()
             ->first(fn (ProductLocation $p) => (int) $p->product_id !== $productId || ((int) ($p->product_variant_id ?? 0) !== (int) ($variantId ?? 0)));
 

@@ -32,6 +32,13 @@ class Phase3ReleaseHardeningTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
+    }
+
     private function makeWarehouse(string $code = 'WH-P3', bool $default = true): Warehouse
     {
         return Warehouse::create([

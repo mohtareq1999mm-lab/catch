@@ -129,10 +129,33 @@ return new class extends Migration
             }
         }
 
+        // Ledger attribution shares the same fate: dropping the operations
+        // column silently unattributed variant receipts/transfers.
+        if (Schema::hasColumn('inventory_operations', 'product_variant_id')) {
+            $opsVariantRows = (int) DB::table('inventory_operations')->whereNotNull('product_variant_id')->count();
+            if ($opsVariantRows > 0) {
+                throw new \RuntimeException(
+                    "Refusing WMS variant rollback: {$opsVariantRows} variant-attributed operation ledger row(s) exist; their SKU attribution would be destroyed."
+                );
+            }
+        }
+
         $driver = Schema::getConnection()->getDriverName();
 
         if ($driver === 'mysql') {
             try { DB::statement('ALTER TABLE product_locations ADD UNIQUE KEY product_locations_product_id_location_id_unique (product_id, location_id)'); } catch (Throwable $e) { Log::warning('WMS variant rollback: pair UNIQUE restore skipped', ['error' => $e->getMessage()]); }
+            // Fail-open tail guard: if the restore above really failed (not
+            // an idempotent retry — the variant column is still present),
+            // abort BEFORE any destructive step instead of dropping SKU
+            // identity underneath an unrestorable pair key.
+            $pairPresent = collect(DB::select('SHOW INDEX FROM product_locations'))
+                ->pluck('Key_name')
+                ->contains('product_locations_product_id_location_id_unique');
+            if (!$pairPresent && Schema::hasColumn('product_locations', 'product_variant_id')) {
+                throw new \RuntimeException(
+                    'Refusing WMS variant rollback: the pair UNIQUE could not be restored; aborting before dropping variant identity.'
+                );
+            }
             try { DB::statement('ALTER TABLE product_locations DROP FOREIGN KEY product_locations_product_variant_id_foreign'); } catch (Throwable $e) { Log::warning('WMS variant rollback: variant FK drop skipped', ['error' => $e->getMessage()]); }
             try { DB::statement('ALTER TABLE product_locations DROP INDEX product_locations_sku_location_unique'); } catch (Throwable $e) { Log::warning('WMS variant rollback: SKU UNIQUE drop skipped', ['error' => $e->getMessage()]); }
             try { DB::statement('ALTER TABLE product_locations DROP INDEX product_locations_variant_id_index'); } catch (Throwable $e) { Log::warning('WMS variant rollback: variant index drop skipped', ['error' => $e->getMessage()]); }

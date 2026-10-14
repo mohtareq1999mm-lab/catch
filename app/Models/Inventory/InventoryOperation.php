@@ -36,4 +36,29 @@ class InventoryOperation extends Model
         'quantity' => 'decimal:2',
         'result' => 'array',
     ];
+
+    public function product(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\Marvel\Database\Models\Product::class, 'product_id');
+    }
+
+    public function productVariant(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\Marvel\Database\Models\ProductVariant::class, 'product_variant_id');
+    }
+
+    public function warehouse(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Fulfillment\Warehouse::class, 'warehouse_id');
+    }
+
+    public function sourceLocation(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Fulfillment\Location::class, 'source_location_id');
+    }
+
+    public function destinationLocation(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Fulfillment\Location::class, 'destination_location_id');
+    }
 }

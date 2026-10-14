@@ -29,6 +29,8 @@ class SingleWarehouseReleaseTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
         $this->whA = \App\Models\Fulfillment\Warehouse::create([
             'code' => 'WH-A', 'name' => 'A', 'status' => 'active', 'is_default' => true,
         ]);

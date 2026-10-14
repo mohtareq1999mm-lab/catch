@@ -231,6 +231,7 @@ return [
         'idempotency_conflict' => 'مفتاح عدم التكرار :key مرتبط بالفعل بعملية مخزون مختلفة.',
         'idempotency_processing' => 'عملية المخزون :key ما زالت قيد المعالجة: تحقق من حالتها قبل إعادة المحاولة.',
         'operation_fetched' => 'تم جلب عملية المخزون بنجاح.',
+        'operations_fetched' => 'تم جلب عمليات المخزون بنجاح.',
         'operation_not_found' => 'عملية المخزون غير موجودة.',
     ],
 

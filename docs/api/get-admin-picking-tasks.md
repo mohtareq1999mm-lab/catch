@@ -4,7 +4,7 @@ Picking Tasks – List Tasks (`GET /api/v1/admin/picking-tasks`)
 
 # Description
 
-Returns a home-scoped picking-task page with batch, fulfillment, and ownership filters.
+Lists picking tasks in reverse-id order inside the caller's warehouse scope with batch/fulfillment/status/mine filters, returning 200 with a paginated flat array.
 
 # Request
 
@@ -13,38 +13,39 @@ Returns a home-scoped picking-task page with batch, fulfillment, and ownership f
 | Property | Value |
 | --- | --- |
 | HTTP method | `GET` |
-| Full path | `/api/v1/admin/picking-tasks` |
-| Path composition | `api/v1` prefix + `admin/picking-tasks/` from the `Route::prefix('admin/picking-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.picking-tasks.index`) in `packages/marvel/src/Rest/Routes.php`. No `lang` in group middleware (same as all WMS families) |
-| Controller action | `App\Http\Controllers\Api\Admin\Wms\PickingController@index(ListPickingTasksRequest $request)` (NO constructor middleware — group supplies auth; NO in-controller permission check, only scope branches): `id DESC` ordering; `applyWarehouseScope` — `manage-warehouse` holders see ALL tasks (optional `warehouse_id` filter through the item→fulfillment chain); everyone else: NULL home → verbatim 403, else home-confined (no foreign-filter 404 here — the filter is simply overridden by home confinement, unlike fulfillments; code-verified difference); then `batch_id` (scoped lookup → 404 on foreign/missing) and `fulfillment_id` (same) narrow further; `status` equality; `mine` (truthy → `claimed_by` = caller); `limit` validated `1`–`100`; plain paginator collection serialized as a FLAT array under `data` (no paginator envelope inside this contract — test-pinned comment) |
-| Authentication | Required. Sanctum bearer token via `auth:sanctum` (group) |
-| Permission | Required: `picking-execute` via the route pipe (a `view-fulfillment`-only caller fails task reads while passing batch reads — the §R permission split is test-locked: `test_task_reads_require_picking_execute_while_batch_reads_ride_on_view`) |
+| Full path | `/api/v1/admin/picking-tasks` (fixed path — no placeholders) |
+| Path composition | `api/v1` prefix + `admin/picking-tasks` custom `Route::get(...)->name('api.admin.picking-tasks.index')` in `packages/marvel/src/Rest/Routes.php` inside the `['api', 'auth:sanctum', 'throttle:admin']` group with route-level `permission:picking-execute` |
+| Controller action | `App\Http\Controllers\Api\Admin\Wms\PickingController@index(ListPickingTasksRequest $request)` → validated filters → `applyWarehouseScope`: `manage-warehouse` holders see everything (optional `?warehouse_id` honored as a plain filter, NO scope authorization on it — code-verified); scoped callers are confined to home (`warehouseIdFor`, null home → 403 catalogue) with `?warehouse_id` probed against scope (`≠ home` → 404 anti-enumeration via `asNotFound: TRUE`, code-verified); `batch_id`/`fulfillment_id` narrow with lookup + scope check (404 anti-enumeration); `status`/`mine` narrow; `limit` caps at 100 (default 15); `orderByDesc('id')` paginated → 200 `PickingTaskResource` collection. Pure read (code-verified) |
+| Authentication | Required. Sanctum bearer token via `auth:sanctum` (group; no constructor middleware) |
+| Permission | Required: `picking-execute` (route pipe + scope check — BOTH the same permission; a `view-fulfillment`-only caller gets 200 on batch reads but 403 here — test-authored permission split) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Supported request formats | No body is read; `Content-Type` is irrelevant |
-| Rate limit | `throttle:admin`: 400 requests/minute per authenticated user id (or per IP for guests) |
-| Route name | `api.admin.picking-tasks.index` (explicit named route) |
+| Rate limit | `throttle:admin`: 400 requests/minute per user id (or IP for guests), per `App\Providers\AppServiceProvider::boot` (code-verified) |
+| Route name | `api.admin.picking-tasks.index` (explicit named route; `route:list` verified; name-pinned in `WmsRbacFoundationTest`) |
+
+Order matters: 401 → 403-route → 422-validation → 403-homeless / 404-scope-filter → 404-batch/fulfillment (TOCTOU race only — see below) → 200.
 
 ## Request inputs
 
-`ListPickingTasksRequest` runs before the body (`authorize: true` — the gates above already ran).
+`ListPickingTasksRequest` runs before the action (`authorize: true`). Unknown `batch_id`/`fulfillment_id`/`warehouse_id` fail at VALIDATION (`exists` rules → 422 with `errors` map); the in-action `firstOrFail` 404s below fire only for TOCTOU races where the row vanishes after validation (code-verified split).
 
 | Field | Location | Data type | Required | Nullable | Rules | Allowed values | Default | Conditional rules | Example | Meaning |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Authorization` | header | string | Required | No | Bearer Sanctum token enforced by `auth:sanctum` | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller (also the scope key + `mine` identity) |
-| `Accept` | header | string | Recommended, not strictly required | No | Content negotiation only | `application/json` | None | None | `application/json` | Requests a JSON response |
-| `warehouse_id` | query | integer | Optional | Yes | `nullable\|integer\|exists:warehouses,id` (global: optional filter; scoped: silently overridden by home confinement — code-verified) | Existing warehouse id | None (global: no filter; scoped: home) | None | `1` | Warehouse filter |
-| `batch_id` | query | integer | Optional | Yes | `nullable\|integer\|exists:fulfillment_batches,id` + SCOPE-CHECKED lookup (foreign/missing → 404, code-verified) | Existing batch id visible to the caller | None (no filter) | None | `3` | Batch filter |
-| `fulfillment_id` | query | integer | Optional | Yes | `nullable\|integer\|exists:fulfillments,id` + SCOPE-CHECKED lookup (foreign/missing → 404) | Existing fulfillment id visible to the caller | None (no filter) | None | `1` | Fulfillment filter |
-| `status` | query | string | Optional | Yes | `nullable\|in:pending,assigned,picking,picked,skipped,cancelled` (SIX states — code-verified closed set) | The six states | None (no filter) | None | `assigned` | Status filter (test-verified combined with `fulfillment_id`) |
-| `mine` | query | boolean-ish | Optional | Yes | `nullable\|boolean` (truthy → caller-claimed only; test-verified exact-id proof) | Truthy values | None (no filter) | None | `1` | Self-claimed filter |
-| `limit` | query | integer | Optional | Yes | `nullable\|integer\|min:1\|max:100` | `1`–`100` | `15` | None | `15` | Page size |
+| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller (also the scope key) |
+| `warehouse_id` | query | integer | Optional | Yes | `nullable\|integer\|exists:warehouses,id` (unknown ids 422 HERE at validation) | Warehouse id or omitted | `null` | Globals: plain filter; scoped: probed (`≠ home` → 404) | `4` | Narrows listing to one warehouse |
+| `batch_id` | query | integer | Optional | Yes | `nullable\|integer\|exists:fulfillment_batches,id` | Batch id or omitted | `null` | Non-null → lookup + scope check (404 anti-enumeration) | `9` | Narrows listing to one batch |
+| `fulfillment_id` | query | integer | Optional | Yes | `nullable\|integer\|exists:fulfillments,id` | Fulfillment id or omitted | `null` | Non-null → lookup + scope check (404 anti-enumeration) | `12` | Narrows listing to one fulfillment |
+| `status` | query | string | Optional | Yes | `nullable\|in:pending,assigned,picking,picked,skipped,cancelled` | One status or omitted | `null` | None | `assigned` | Narrows listing to one status |
+| `mine` | query | boolean | Optional | Yes | `nullable\|boolean` | Truthy or omitted | `null`/falsy | Truthy → `claimed_by = actorId` | `1` | Only tasks claimed by the caller (test-authored) |
+| `limit` | query | integer | Optional | Yes | `nullable\|integer\|min:1\|max:100` | `1`–`100` | `15` | None | `50` | Page size |
 
 ## Request examples
 
 ```json
 {
   "method": "GET",
-  "url": "/api/v1/admin/picking-tasks?fulfillment_id=1&status=assigned",
+  "url": "/api/v1/admin/picking-tasks?status=assigned&mine=1",
   "headers": {
     "Authorization": "Bearer 1|abcdef123456",
     "Accept": "application/json"
@@ -54,16 +55,32 @@ Returns a home-scoped picking-task page with batch, fulfillment, and ownership f
 
 # Responses
 
-## Success: scoped page returned — HTTP 200 (FLAT array payload)
+## Success: tasks listed — HTTP 200 (flat paginated array)
 
-Returned via `ApiResponse::apiResponse('Picking tasks fetched successfully.', 200, true, PickingTaskResource::collection($paginator))` (literal message; FLAT array — the test comment pins "no paginator envelope inside this contract"). Verified by `test_task_index_scopes_to_home_and_supports_filters` (200 + `success: true`, NO Warehouse-B leakage with existence control, `mine` exact-id proof, combined-filter fragment proof — all `getJson`).
+Returned via `ApiResponse::apiResponse(__('wms.picking.fetched_many'), 200, true, PickingTaskResource::collection($paginated))`. The resource collection serializes as a FLAT array under `data` (no paginator envelope inside this contract — test-commented, test-authored). Scoping proof: Warehouse B tasks exist yet never leak into a Warehouse A listing (test-authored).
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
 | `status` | integer | Always present | Mirrors the HTTP status | Always `200` on success |
-| `message` | string | Always present | Literal (untranslated) | Always `"Picking tasks fetched successfully."` |
+| `message` | string | Always present | Translated `wms.picking.fetched_many` | `en` → `"Picking tasks fetched successfully."` (verified in `resources/lang/en/wms.php:147`) |
 | `success` | boolean | Always present | Outcome flag | Always `true` on success |
-| `data` | array | Always present (possibly empty) | FLAT `PickingTaskResource` rows (NOT an envelope — code-verified + test-pinned) | Row: `id`, `batch_id`, `fulfillment_item_id`, `order_id`, `product_location_id`, `quantity_to_pick`, `quantity_picked`, `remaining` (computed float), `status`, `sequence` (int/null), `claimed_by`, `claimed_at`, `claim_expires_at`, `picked_at`, `created_at`, `updated_at` |
+| `data` | array | Always present on success | Task rows, newest first | Flat `PickingTaskResource[]` (possibly `[]`) |
+| `data[].id` | integer | Per row | Task id | — |
+| `data[].batch_id` | integer/null | Per row | Owning batch | `null` for order-flow tasks |
+| `data[].fulfillment_item_id` | integer | Per row | Fulfillment item | — |
+| `data[].order_id` | integer | Per row | Order id | — |
+| `data[].product_location_id` | integer/null | Per row | Pinned placement | — |
+| `data[].quantity_to_pick` | string (decimal) | Per row | Required quantity | `decimal:2` cast serializes as e.g. `"2.00"` (code-verified) |
+| `data[].quantity_picked` | string (decimal) | Per row | Picked so far | `decimal:2` cast serializes as e.g. `"0.00"` (code-verified) |
+| `data[].remaining` | number | Per row | `quantity_to_pick − quantity_picked` | Computed float |
+| `data[].status` | string | Per row | Task status | `pending`/`assigned`/`picking`/`picked`/`skipped`/`cancelled` |
+| `data[].sequence` | integer/null | Per row | Batch sequence | — |
+| `data[].claimed_by` | integer/null | Per row | Claimant user id | — |
+| `data[].claimed_at` | string/null | Per row | Claim time | ISO-8601 |
+| `data[].claim_expires_at` | string/null | Per row | Lease expiry | ISO-8601 |
+| `data[].picked_at` | string/null | Per row | Completion time | ISO-8601 |
+| `data[].created_at` | string/null | Per row | Creation time | ISO-8601 |
+| `data[].updated_at` | string/null | Per row | Update time | ISO-8601 |
 
 ```json
 {
@@ -72,22 +89,22 @@ Returned via `ApiResponse::apiResponse('Picking tasks fetched successfully.', 20
   "success": true,
   "data": [
     {
-      "id": 1,
+      "id": 7,
       "batch_id": null,
-      "fulfillment_item_id": 11,
-      "order_id": 42,
-      "product_location_id": 31,
-      "quantity_to_pick": 2,
-      "quantity_picked": 0,
-      "remaining": 2.0,
+      "fulfillment_item_id": 3,
+      "order_id": 11,
+      "product_location_id": 5,
+      "quantity_to_pick": "2.00",
+      "quantity_picked": "0.00",
+      "remaining": 2,
       "status": "assigned",
       "sequence": 1,
       "claimed_by": 7,
-      "claimed_at": "2026-01-01T00:00:00+00:00",
-      "claim_expires_at": null,
+      "claimed_at": "2026-10-14T10:00:00+00:00",
+      "claim_expires_at": "2026-10-14T10:15:00+00:00",
       "picked_at": null,
-      "created_at": "2026-01-01T00:00:00+00:00",
-      "updated_at": "2026-01-01T00:00:00+00:00"
+      "created_at": "2026-10-14T09:00:00+00:00",
+      "updated_at": "2026-10-14T10:00:00+00:00"
     }
   ]
 }
@@ -95,22 +112,23 @@ Returned via `ApiResponse::apiResponse('Picking tasks fetched successfully.', 20
 
 # Errors
 
-No error-code field; every error below has Error code `None`.
+No error-code field; every error below has Error code `None`. Validation failures use the VALIDATION envelope (`errors` map); all other errors use the EXCEPTION envelope `{message, status: false}` (code-verified via `Handler`).
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing, invalid, revoked, or expired Sanctum token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | Any request without a valid token (verified by `test_unauthenticated_reads_return_401` on index + show) | See 401 example |
-| 403 | Authenticated caller lacks `picking-execute` (route pipe — `view-fulfillment` alone fails task reads while passing batch reads) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Viewer without the permission (verified by the §R split test → 403 on index + show) | See 403 example |
-| 403 | NULL-home holder (fail-closed listing) | `{message: string, status: boolean}` | None | `"Forbidden warehouse operation."` (verbatim WITH period) | None | Null-home caller (code-traced; same helper as every WMS index) | See 403-scope example |
-| 404 | Scoped `batch_id`/`fulfillment_id` filter targets a FOREIGN or missing row (scope-checked lookups, NOT empty pages) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Foreign filter id (code-traced; same `asNotFound` path as show) | See 404 example |
-| 422 | `ListPickingTasksRequest` fails (unknown ids, off-list `status`, `limit` outside 1–100) | `{message: string, status: boolean, errors: object}` | None | Laravel default | Field → messages | Invalid query (code-traced) | See 422 example |
-| 429 | Exceeding `throttle:admin` (400/min per user id or IP) | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded for the caller key | See 429 example |
+| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (WITH period, `message.ERROR.UNAUTHENTICATED` — Handler:170, code-verified) | None | No valid token (test-authored 401 on this URI) | See 401 example |
+| 403 | Authenticated caller lacks `picking-execute` (route pipe) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | E.g. `view-fulfillment`-only viewer (test-authored 403 on this URI) | See 403 example |
+| 403 | Scoped caller with NO home warehouse (fail-closed; controller verbatim discarded by Handler — code-verified) | `{message: string, status: boolean}` | None | `"This action is unauthorized."` (`message.ERROR.UNAUTHORIZED_ACTION`) | None | Homeless staffer (code-traced) | See 403-scope example |
+| 404 | Scoped caller probing a foreign `?warehouse_id` (anti-enumeration, `asNotFound: TRUE` — code-verified) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (`message.ERROR.RESOURCE_NOT_FOUND`) | None | Cross-warehouse filter probe (pattern test-authored on sibling reads) | See 404-scope example |
+| 404 | `batch_id`/`fulfillment_id` row vanished post-validation (TOCTOU race; unknown ids 422 at validation instead — code-verified split) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Raced lookup miss (code-traced) | See 404 example |
+| 422 | Filter validation failure (`exists`/`in`/`min`/`max` rules) | `{message: string, status: boolean, errors: object}` (WITH `errors` map) | None | `"The given data was invalid."` (`message.ERROR.INVALID_DATA`) | Per-field arrays | E.g. unknown `warehouse_id`/`batch_id`/`fulfillment_id`, bad `status`, `limit > 100` (code-traced) | See 422-validation example |
+| 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
-401 example:
+401 example (`message.ERROR.UNAUTHENTICATED`, WITH period):
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```
@@ -124,16 +142,16 @@ No error-code field; every error below has Error code `None`.
 }
 ```
 
-403-scope example (null home — verbatim WITH period):
+403-scope example (catalogue text — the controller verbatim is discarded by the Handler, code-verified):
 
 ```json
 {
-  "message": "Forbidden warehouse operation.",
+  "message": "This action is unauthorized.",
   "status": false
 }
 ```
 
-404 example (foreign filter — NOT an empty page):
+404-scope example (fixed string, anti-enumeration):
 
 ```json
 {
@@ -142,11 +160,20 @@ No error-code field; every error below has Error code `None`.
 }
 ```
 
-422 example:
+404 example:
 
 ```json
 {
-  "message": "The selected status is invalid.",
+  "message": "Resource Not Found",
+  "status": false
+}
+```
+
+422-validation example (WITH `errors` map):
+
+```json
+{
+  "message": "The given data was invalid.",
   "status": false,
   "errors": {
     "status": ["The selected status is invalid."]

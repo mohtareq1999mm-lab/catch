@@ -4,7 +4,7 @@ Picking Tasks – Confirm Pick (`POST /api/v1/admin/picking-tasks/{id}/confirm`)
 
 # Description
 
-Confirms a scanner pick with replay-safe sequencing and additive quantities, returning 200.
+Confirms a scanned pick (WHERE + WHAT + HOW MUCH validated, quantities advanced, op_seq replay-safe), returning 200 with task detail.
 
 # Request
 
@@ -13,36 +13,36 @@ Confirms a scanner pick with replay-safe sequencing and additive quantities, ret
 | Property | Value |
 | --- | --- |
 | HTTP method | `POST` |
-| Full path | `/api/v1/admin/picking-tasks/{id}/confirm` (explicit `{id}` placeholder with `whereNumber('id')`) |
+| Full path | `/api/v1/admin/picking-tasks/{id}/confirm` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route) |
 | Path composition | `api/v1` prefix + `admin/picking-tasks/{id}/confirm` custom `Route::post(...)->name('api.admin.picking-tasks.confirm')` in `packages/marvel/src/Rest/Routes.php` inside the `['api', 'auth:sanctum', 'throttle:admin']` group with route-level `permission:picking-execute` |
-| Controller action | `App\Http\Controllers\Api\Admin\Wms\PickingController@confirm(ConfirmPickRequest $request, int $id)` → `whereKey->firstOrFail` (miss → 404 fixed; validation ran FIRST — code-verified order); `authorizeWarehouseScope(task-chain-warehouse, 'picking-execute')` (verbatim-403 path — cross-warehouse confirms mutate NOTHING, test-verified); then `execution->confirm` with the scanner payload (`location`/`product` cast to string, `quantity` to float, `op_seq` default 0) + server-derived actor + override resolution — ALL business validation lives in the service (source-commented): unclaimed-without-override → 422 NOTHING mutated (test-verified); wrong location / over-pick / unknown barcode (`UnknownBarcodeException`) → 422 (test-verified triple); `RuntimeException` family (incl. BOTH scan exception types) → 422 live. PROGRESS semantics (test-verified): partial confirms keep `picking` with additive quantities; SAME `op_seq` replays to the SAME result with NO duplicate mutation (idempotent-by-sequence); completing confirms flip to `picked` AND mirror onto the fulfillment item |
+| Controller action | `App\Http\Controllers\Api\Admin\Wms\PickingController@confirm(ConfirmPickRequest $request, int $id)` → validated scan payload → `whereKey->firstOrFail` (miss → 404 fixed); `authorizeWarehouseScope(task→item→fulfillment warehouse, 'picking-execute', asNotFound: FALSE)` (cross-warehouse → 403 catalogue with picked quantity provably `0`, test-authored); then `PickingExecutionService::confirm(task, scan, actorId, override)` — `RuntimeException` (incl. `PickingValidationException` + `UnknownBarcodeException`) → 422 (code-verified). Scan semantics (code-verified): `location` stays a RAW string (barcode/code); `product` stays a RAW string (numeric IDs AND SKU/barcode strings accepted — an `(int)` cast here would destroy string SKUs, controller-commented); `quantity` → `(float)`; `op_seq` → `(int)`, default `0`. Op_seq replay (`0 < op_seq ≤ locked op_seq`) returns current state with NO mutation (test-authored). Completion (`newTotal ≥ quantity_to_pick`) → `picked` + `picked_at`, else `picking`; the fulfillment item's `quantity_picked` increments (test-authored). `override` intent WITHOUT `fulfillment-override` → 403 (code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group; no constructor middleware) |
-| Permission | Required: `picking-execute` via the route pipe (no constructor/inline check exists besides the override sub-gate) |
+| Permission | Required: `picking-execute` via the route pipe + scope check (override additionally needs `fulfillment-override`) |
 | Required headers | `Authorization: Bearer <sanctum-token>`, `Content-Type: application/json` |
 | Recommended headers | `Accept: application/json` |
-| Supported request formats | `application/json` (scanner payload) |
-| Rate limit | `throttle:admin`: 400 requests/minute |
-| Route name | `api.admin.picking-tasks.confirm` (explicit named route) |
+| Supported request formats | `application/json` |
+| Rate limit | `throttle:admin`: 400 requests/minute per user id (or IP for guests), per `App\Providers\AppServiceProvider::boot` (code-verified) |
+| Route name | `api.admin.picking-tasks.confirm` (explicit named route; `route:list` verified; name-pinned in `WmsRbacFoundationTest`) |
 
-Order matters: 401/403-route → 422 (validation) → 404 (lookup) → 403-scope → 200/403-override/422-engine.
+Order matters: 401 → 403-route → 422-validation → 404-lookup → 403-scope → 403-override → 422-scan/business → 200.
 
 ## Request inputs
 
-`ConfirmPickRequest` runs before the body (`authorize: true` — the gates above already ran). Scanner-shape rules only; every semantic lives service-side.
+`ConfirmPickRequest` runs before the action (`authorize: true`). All business validation lives in the service (request comment — code-verified).
 
 | Field | Location | Data type | Required | Nullable | Rules | Allowed values | Default | Conditional rules | Example | Meaning |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller (claimant-checked service-side) |
+| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller (must hold the claim unless overriding) |
 | `id` | path | integer | Required | No | `whereNumber('id')` + `int $id` | Task id manageable by the caller | None | None | `1` | Identifies the picking task |
-| `location` | body | string | Required | No | `required\|string\|max:255` (WHERE-scan: location barcode/code — matched service-side, NOT validated here) | Any string | None | None | `"PA-LOC-01"` | Scanned location |
-| `product` | body | string | Required | No | `required\|string\|max:255` (WHAT-scan: product or variant SKU — matched service-side) | Any string | None | None | `"SKU-PICK-1"` | Scanned product |
-| `quantity` | body | number | Required | No | `required\|numeric\|gt:0` (strictly positive; over-pick refused service-side — test-verified) | Any number > 0 | None | None | `1` | Picked amount (ADDITIVE across confirms — never idempotent-by-flag except `op_seq` replay) |
-| `op_seq` | body | integer | Optional | Yes | `nullable\|integer\|min:0` (device op sequence for REPLAY protection — same seq replays to the same result, test-verified) | Integer ≥ 0 | `0` | None | `1` | Scanner sequence number |
-| `override` | body | boolean | Optional | No | `sometimes\|boolean` (truthy WITHOUT `fulfillment-override` permission → 403 via `resolveOverride`; same sub-gate as claim — code-verified shared helper) | Truthy values | `false` | None | `false` | Override intent |
+| `location` | body | string | Required | No | `required\|string\|max:255` (unknown/wrong values 422 at the SERVICE, not validation) | Location barcode/code | None | None | `"PA-LOC-01"` | WHERE the picker scanned (test-authored fixture values) |
+| `product` | body | mixed | Required | No | `required` (any type; numeric ID or SKU/barcode string — resolved by the service) | Product id, SKU, or barcode | None | None | `"SKU-PICK-1"` | WHAT was scanned (test-authored fixture values) |
+| `quantity` | body | number | Required | No | `required\|numeric\|gt:0` | `> 0` | None | `> remaining` → 422 at the service | `1` | HOW MUCH was picked (test-authored partial/complete progression) |
+| `op_seq` | body | integer | Optional | Yes | `nullable\|integer\|min:0` | `≥ 0` | `0` (no replay protection) | Already-applied value → idempotent 200 replay | `2` | Device op sequence (test-authored replay proof) |
+| `override` | body/query | boolean-ish | Optional | No | `sometimes\|boolean` + `$request->boolean()`; true WITHOUT `fulfillment-override` → 403 | Truthy values | `false` | None | `true` | Bypass claimant/scan guards (requires the override permission) |
 
 ## Request examples
 
-Valid scanner confirm (test-verified call):
+Test-authored call shape:
 
 ```json
 {
@@ -57,23 +57,23 @@ Valid scanner confirm (test-verified call):
     "location": "PA-LOC-01",
     "product": "SKU-PICK-1",
     "quantity": 1,
-    "op_seq": 1
+    "op_seq": 2
   }
 }
 ```
 
 # Responses
 
-## Success: pick confirmed — HTTP 200 (additive progress, mirrored quantities)
+## Success: pick confirmed — HTTP 200 (DETAIL resource, quantities advanced)
 
-Returned via `ApiResponse::apiResponse('Pick confirmed successfully.', 200, true, PickingTaskDetailResource::make($detail))` (literal message). Verified: partial 200 staying `picking` with `quantity_picked: 1`; same-`op_seq` replay 200 with UNCHANGED quantity (no duplicate mutation); completing 200 flipping `picked` AND mirroring `fulfillmentItem.quantity_picked` (all `postJson`).
+Returned via `ApiResponse::apiResponse(__('wms.picking.confirmed'), 200, true, PickingTaskDetailResource…)` — translated at the call site (`en` → `"Pick confirmed successfully."`, verified in `resources/lang/en/wms.php:152`). Test-authored: partial → `picking` + `quantity_picked`; replay → 200 with `quantity_picked` provably unchanged (`scan_log`/`op_seq` effects not asserted); completing → `picked` + item incremented.
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
-| `status` | integer | Always present | Mirrors the HTTP status | Always `200` on success (partials, replays, completions alike) |
-| `message` | string | Always present | Literal (untranslated) | Always `"Pick confirmed successfully."` |
+| `status` | integer | Always present | Mirrors the HTTP status | Always `200` on success (including op_seq replays) |
+| `message` | string | Always present | Literal text | Always `"Pick confirmed successfully."` |
 | `success` | boolean | Always present | Outcome flag | Always `true` on success |
-| `data` | object | Always present on success | Fresh `PickingTaskDetailResource` (progress state as of this confirm) | Full detail keys (see show doc) |
+| `data` | object | Always present on success | Fresh `PickingTaskDetailResource` | Full detail keys (see show doc); `scan_log` gains a `confirm` entry |
 
 ```json
 {
@@ -83,9 +83,10 @@ Returned via `ApiResponse::apiResponse('Pick confirmed successfully.', 200, true
   "data": {
     "id": 1,
     "status": "picking",
-    "quantity_to_pick": 2,
-    "quantity_picked": 1,
-    "remaining": 1.0,
+    "quantity_to_pick": "2.00",
+    "quantity_picked": "1.00",
+    "remaining": 1,
+    "claimed_by": 7,
     "op_seq": 1,
     "scan_log": [],
     "notes": null
@@ -95,26 +96,25 @@ Returned via `ApiResponse::apiResponse('Pick confirmed successfully.', 200, true
 
 # Errors
 
-No error-code field; every error below has Error code `None`.
+No error-code field; every error below has Error code `None`. Validation failures use the VALIDATION envelope (`errors` map); scan/business refusals use the EXCEPTION envelope `{message, status: false}` (code-verified). Scan-failure messages share ONE template — `"Picking validation failed: :reason."` (`wms.picking.validation_failed`, verified in `resources/lang/en/wms.php:169`) — with a stable machine-code reason (`task_not_claimed`, `task_claimed_by_other`, `wrong_location`, `wrong_product`, `stale_placement`, `invalid_quantity`; code-verified `reject()` call sites; only the sentence is translated).
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (code-traced) | See 401 example |
+| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (WITH period, code-verified) | None | No valid token (code-traced) | See 401 example |
 | 403 | Authenticated caller lacks `picking-execute` (route pipe) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Valid token without the permission (code-traced) | See 403 example |
-| 403 | Out-of-scope `picking-execute` holder at the SCOPE layer (verbatim, NOTHING mutated) | `{message: string, status: boolean}` | None | `"Forbidden warehouse operation."` (verbatim WITH period) | None | Cross-warehouse confirm (verified → 403 + zero-quantity proof) | See 403-scope example |
-| 403 | `override` intent WITHOUT `fulfillment-override` permission (shared `resolveOverride` sub-gate — never silent elevation) | `{message: string, status: boolean}` | None | `"Override requires fulfillment-override permission."` (verbatim WITH period) | None | Unauthorized override (same helper as claim — code-verified) | See 403-override example |
-| 404 | No task with `{id}` (post-validation lookup miss) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id with valid body (code-traced) | See 404 example |
-| 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape) | None | Non-numeric segment | See 404-constraint example |
-| 405 | `PUT`/`PATCH`/`GET` on this path (only `POST` registered) | `{message: string, status: boolean}` | None | `"Method Not Allowed"` | None | Wrong method (code-traced) | See 405 example |
-| 422 | `ConfirmPickRequest` fails (missing/non-positive `quantity`, missing scans) | `{message: string, status: boolean, errors: object}` | None | Laravel default | Field → messages | Invalid body (code-traced) | See 422-validation example |
-| 422 | Service scan/business refusal (unclaimed-without-override, wrong location, over-pick, unknown barcode — ALL with NOTHING mutated; code-verified) | `{message: string, status: boolean}` (NO `errors` map — `unprocessable()`-thrown `HttpException`) | None | Live engine text (exact strings engine-dependent) | None | Refused scan (unclaimed + wrong-location + over-pick + unknown-barcode ALL verified → 422 with zero-mutation proofs) | See 422-engine example |
+| 403 | Out-of-scope `picking-execute` holder at the SCOPE layer (controller verbatim discarded — code-verified) | `{message: string, status: boolean}` | None | `"This action is unauthorized."` (`message.ERROR.UNAUTHORIZED_ACTION`) | None | Cross-warehouse confirm (test-authored 403 with picked quantity provably `0`) | See 403-scope example |
+| 403 | `override` intent WITHOUT `fulfillment-override` permission (controller verbatim discarded — code-verified) | `{message: string, status: boolean}` | None | `"This action is unauthorized."` (`message.ERROR.UNAUTHORIZED_ACTION`) | None | Unauthorized override (code-traced) | See 403-override example |
+| 404 | No task with `{id}` (lookup miss) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id (code-traced) | See 404 example |
+| 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | Framework passthrough (ILLUSTRATIVE `"Not Found"` — NOT live-verified) | None | Non-numeric segment | See 404-constraint example |
+| 422 | Body validation failure | `{message: string, status: boolean, errors: object}` (WITH `errors` map) | None | `"The given data was invalid."` (`message.ERROR.INVALID_DATA`) | Per-field arrays | Missing `location`/`product`/`quantity`, `quantity ≤ 0`, `op_seq < 0` (code-traced) | See 422-validation example |
+| 422 | Scan/business refusal (unclaimed task, foreign claim, wrong location/product, stale placement, bad quantity, unknown barcode) | `{message: string, status: boolean}` (NO `errors` map) | None | `"Picking validation failed: <reason>."` or `"Unknown barcode: <code>."` (`wms.barcode.unknown`, verified in `resources/lang/en/wms.php:286`; code capped at 200 chars — code-verified) | None | Test-authored: unclaimed → 422 untouched; wrong location → 422; over-pick → 422; unknown barcode → 422 | See 422-scan example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
-401 example:
+401 example (`message.ERROR.UNAUTHENTICATED`, WITH period):
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```
@@ -128,20 +128,20 @@ No error-code field; every error below has Error code `None`.
 }
 ```
 
-403-scope example (verbatim, nothing mutated):
+403-scope example (catalogue text, code-verified):
 
 ```json
 {
-  "message": "Forbidden warehouse operation.",
+  "message": "This action is unauthorized.",
   "status": false
 }
 ```
 
-403-override example (verbatim WITH period):
+403-override example (catalogue text, code-verified):
 
 ```json
 {
-  "message": "Override requires fulfillment-override permission.",
+  "message": "This action is unauthorized.",
   "status": false
 }
 ```
@@ -155,7 +155,7 @@ No error-code field; every error below has Error code `None`.
 }
 ```
 
-404-constraint example:
+404-constraint example (ILLUSTRATIVE — NOT live-verified):
 
 ```json
 {
@@ -164,32 +164,23 @@ No error-code field; every error below has Error code `None`.
 }
 ```
 
-405 example:
+422-validation example (WITH `errors` map):
 
 ```json
 {
-  "message": "Method Not Allowed",
-  "status": false
-}
-```
-
-422-validation example:
-
-```json
-{
-  "message": "The quantity field must be greater than 0.",
+  "message": "The given data was invalid.",
   "status": false,
   "errors": {
-    "quantity": ["The quantity field must be greater than 0."]
+    "quantity": ["The quantity must be greater than 0."]
   }
 }
 ```
 
-422-engine example (live text, no map):
+422-scan example (machine-code reason, no map):
 
 ```json
 {
-  "message": "Live scan/business refusal text (exact string engine-dependent)",
+  "message": "Picking validation failed: wrong_location.",
   "status": false
 }
 ```

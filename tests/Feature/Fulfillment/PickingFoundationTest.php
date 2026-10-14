@@ -37,6 +37,8 @@ class PickingFoundationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Message assertions are English (production default is Arabic).
+        app()->setLocale('en');
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-1', 'name' => 'Main', 'status' => 'active', 'is_default' => true,
@@ -154,10 +156,9 @@ class PickingFoundationTest extends TestCase
         $this->assertEquals('picked', $again->status);
     }
 
-    public function test_p41_packing_gate_reachable_and_order_untouched(): void
+    public function test_p41_packing_gate_reachable_and_order_converges(): void
     {
         $fulfillment = $this->releasedFulfillment(2, 'p41-5');
-        $orderStatusBefore = $fulfillment->order()->first()->status;
         [$task] = $this->orderPicking()->createTasksForFulfillment($fulfillment);
         $this->engine()->claim($task, $this->picker->id);
         $this->engine()->confirm($task, $this->scan(2, 1), $this->picker->id);
@@ -166,8 +167,10 @@ class PickingFoundationTest extends TestCase
         $packingTask = app(PackingService::class)->createPackingTaskFromFulfillment($fulfillment->refresh());
         $this->assertNotNull($packingTask->id);
         $this->assertEquals('packing', $fulfillment->refresh()->status);
-        // Order Flow untouched by the whole picking pipeline.
-        $this->assertEquals($orderStatusBefore, $fulfillment->order()->first()->refresh()->status);
+        // Picking completion converges the order through the authoritative
+        // Order Flow sync (all picked → packed), while the packing gate stays
+        // reachable on the fulfillment itself.
+        $this->assertEquals('packed', $fulfillment->order()->first()->refresh()->status);
     }
 
     // ---------------- P4-2: batch creation correctness ----------------

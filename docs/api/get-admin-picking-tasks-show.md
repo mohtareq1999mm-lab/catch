@@ -4,7 +4,7 @@ Picking Tasks – Show Task (`GET /api/v1/admin/picking-tasks/{id}`)
 
 # Description
 
-Returns one picking task by numeric id with audit detail and masked foreign reads.
+Returns one picking task with fulfillment and shelf-identity detail inside the caller's warehouse scope (cross-warehouse reads 404), returning 200.
 
 # Request
 
@@ -14,24 +14,26 @@ Returns one picking task by numeric id with audit detail and masked foreign read
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/picking-tasks/{id}` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route) |
-| Path composition | `api/v1` prefix + `admin/picking-tasks/{id}` from the `Route::prefix('admin/picking-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.picking-tasks.show`) in `packages/marvel/src/Rest/Routes.php` |
-| Controller action | `App\Http\Controllers\Api\Admin\Wms\PickingController@show(int $id)` → `whereKey->firstOrFail` (miss escapes → 404 fixed); then scope resolved through the AUTHORITATIVE chain task → item → fulfillment (`taskWarehouseId` — null at ANY hop fails closed via `denyUnless`, source-commented) with `asNotFound: TRUE` (foreign reads mask as 404 — test-verified); then `fulfillmentItem.fulfillment` + `productLocation` loaded for the DETAIL resource (staff-facing `scan_log` included precisely because every read here is authenticated + scoped — source-commented) |
+| Path composition | `api/v1` prefix + `admin/picking-tasks/{id}` custom `Route::get(...)->name('api.admin.picking-tasks.show')` in `packages/marvel/src/Rest/Routes.php` inside the `['api', 'auth:sanctum', 'throttle:admin']` group with route-level `permission:picking-execute` |
+| Controller action | `App\Http\Controllers\Api\Admin\Wms\PickingController@show(int $id)` → `whereKey->firstOrFail` (miss → 404 fixed; nothing precedes the lookup — code-verified); `authorizeWarehouseScope(task→item→fulfillment warehouse, 'picking-execute', asNotFound: TRUE)` (cross-warehouse → 404 anti-enumeration, NEVER 403 — code-verified; test-authored); `loadMissing([fulfillmentItem.fulfillment, productLocation.location])` → 200 `PickingTaskDetailResource`. Pure read (code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group; no constructor middleware) |
-| Permission | Required: `picking-execute` via the route pipe (a `view-fulfillment`-only caller fails task reads — test-verified 403 on show) |
+| Permission | Required: `picking-execute` (route pipe + scope check — BOTH the same permission) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
 | Recommended headers | `Accept: application/json` |
 | Supported request formats | No body is read; `Content-Type` is irrelevant |
-| Rate limit | `throttle:admin`: 400 requests/minute |
-| Route name | `api.admin.picking-tasks.show` (explicit named route) |
+| Rate limit | `throttle:admin`: 400 requests/minute per user id (or IP for guests), per `App\Providers\AppServiceProvider::boot` (code-verified) |
+| Route name | `api.admin.picking-tasks.show` (explicit named route; `route:list` verified; covered by the generic WMS route sweeps — only `index`/`claim`/`confirm` are name-pinned in `WmsRbacFoundationTest`) |
+
+Order matters: 401 → 403-route → 404-lookup → 404-scope → 200. No 403-scope exists on this read (anti-enumeration); no validation, no 422.
 
 ## Request inputs
 
 | Field | Location | Data type | Required | Nullable | Rules | Allowed values | Default | Conditional rules | Example | Meaning |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller |
-| `id` | path | integer | Required | No | `whereNumber('id')` + `int $id` | Task id visible to the caller | None | None | `1` | Identifies the picking task |
+| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller (also the scope key) |
+| `id` | path | integer | Required | No | `whereNumber('id')` + `int $id` | Task id manageable by the caller | None | None | `1` | Identifies the picking task |
 
-No query parameters, body fields, or `422` contract.
+No query parameters, body fields, or validation-driven `422`.
 
 ## Request examples
 
@@ -48,16 +50,21 @@ No query parameters, body fields, or `422` contract.
 
 # Responses
 
-## Success: task detail returned — HTTP 200 (contract-pinned keys AND absence)
+## Success: task detail — HTTP 200 (shelf identity included, no `allowed_actions`)
 
-Returned via `ApiResponse::apiResponse('Picking task fetched successfully.', 200, true, PickingTaskDetailResource::make($task))` (literal message — singular `task`, unlike the plural index message). Verified by `test_task_show_cross_warehouse_returns_404_with_detail_contract` (200 + FIVE pinned keys + `allowed_actions` absence + `fulfillment.warehouse_id` proof, `getJson`).
+Returned via `ApiResponse::apiResponse(__('wms.picking.fetched_one'), 200, true, PickingTaskDetailResource::make(...))` (translated message — code-verified). The `location` block carries shelf identity (`code`/`name`/`barcode`/`type`/`status` plus legacy `id`/`location_id`/`warehouse_id` keys — test-authored, additive-only). No `allowed_actions` key exists (test-authored absence). `fulfillment` is OMITTED when the item/fulfillment chain is missing (`when` guard — code-verified); `location` is `null` when the task has no placement.
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
 | `status` | integer | Always present | Mirrors the HTTP status | Always `200` on success |
-| `message` | string | Always present | Literal (untranslated) | Always `"Picking task fetched successfully."` |
+| `message` | string | Always present | Translated `wms.picking.fetched_one` | `en` → `"Picking task fetched successfully."` (verified in `resources/lang/en/wms.php:148`) |
 | `success` | boolean | Always present | Outcome flag | Always `true` on success |
-| `data` | object | Always present on success | `PickingTaskDetailResource` = base row + 5 detail keys (test-pinned) | Base 16 keys (see index doc) PLUS `fulfillment{id, fulfillment_number, warehouse_id, status}`, `location{id, location_id, warehouse_id}`/null, `op_seq` (int, 0 default), `scan_log` (array — staff audit of actor ids + scans), `notes`. ABSENT by design: `allowed_actions` (P9-9 owns that contract — test-pinned absence) |
+| `data` | object | Always present on success | Full detail (list keys + below) | All `PickingTaskResource` keys (see index doc) plus: |
+| `data.fulfillment` | object | Present when the item→fulfillment chain resolves | Owning fulfillment | `{id, fulfillment_number, warehouse_id, status}` |
+| `data.location` | object/null | Present when `productLocation` is loaded (`null` when the task has no placement) | Shelf identity | `{id (placement id), location_id, warehouse_id, code, name, barcode, type, status}` — test-authored |
+| `data.op_seq` | integer | Always present | Replay watermark | `0` when never confirmed |
+| `data.scan_log` | array | Always present | Staff-facing scan audit | `[]` when empty (test-authored presence) |
+| `data.notes` | string/null | Always present | Operator notes | e.g. skip reason |
 
 ```json
 {
@@ -66,52 +73,57 @@ Returned via `ApiResponse::apiResponse('Picking task fetched successfully.', 200
   "success": true,
   "data": {
     "id": 1,
-    "batch_id": null,
-    "fulfillment_item_id": 11,
-    "order_id": 42,
-    "product_location_id": 31,
-    "quantity_to_pick": 2,
-    "quantity_picked": 0,
-    "remaining": 2.0,
     "status": "assigned",
-    "sequence": 1,
+    "quantity_to_pick": "2.00",
+    "quantity_picked": "0.00",
+    "remaining": 2,
     "claimed_by": 7,
-    "claimed_at": "2026-01-01T00:00:00+00:00",
-    "claim_expires_at": null,
-    "picked_at": null,
-    "fulfillment": { "id": 1, "fulfillment_number": "FF-000001", "warehouse_id": 1, "status": "picking" },
-    "location": { "id": 31, "location_id": 5, "warehouse_id": 1 },
-    "op_seq": 1,
+    "fulfillment": {
+      "id": 3,
+      "fulfillment_number": "FUL-1A2B3C",
+      "warehouse_id": 1,
+      "status": "picking"
+    },
+    "location": {
+      "id": 5,
+      "location_id": 2,
+      "warehouse_id": 1,
+      "code": "SHELF-9",
+      "name": "Aisle 9 Bin",
+      "barcode": "SHELF-9-BC",
+      "type": "storage",
+      "status": "active"
+    },
+    "op_seq": 0,
     "scan_log": [],
-    "notes": null,
-    "created_at": "2026-01-01T00:00:00+00:00",
-    "updated_at": "2026-01-01T00:00:00+00:00"
+    "notes": null
   }
 }
 ```
 
 # Errors
 
-No error-code field; every error below has Error code `None`. No validation, so no `422`. NOTE the byte-identical 404s (anti-enumeration by design).
+No error-code field; every error below has Error code `None`. No validation, so no `errors`-map 422 exists on this action.
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | Any request without a valid token (verified by the 401 matrix on show) | See 401 example |
-| 403 | Authenticated caller lacks `picking-execute` (route pipe) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Viewer without the permission (verified by the §R split test → 403 on show) | See 403 example |
-| 404 | No visible task with `{id}` — genuine miss, OR cross-warehouse read masked by anti-enumeration (byte-identical: fixed string, Handler shape) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown id; foreign id (verified by the cross-warehouse twin → 404) | See 404 example |
-| 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape — different text, code-verified) | None | Non-numeric segment | See 404-constraint example |
+| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (WITH period, `message.ERROR.UNAUTHENTICATED` — Handler:170, code-verified) | None | No valid token (test-authored 401 on this URI) | See 401 example |
+| 403 | Authenticated caller lacks `picking-execute` (route pipe) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | E.g. `view-fulfillment`-only viewer (test-authored 403 on this URI) | See 403 example |
+| 404 | No task with `{id}` (lookup miss — nothing precedes it) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown numeric id (code-traced) | See 404 example |
+| 404 | Cross-warehouse task (scope anti-enumeration — reads NEVER 403 at the scope layer, code-verified) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Foreign task id (test-authored 404 + detail-contract proof on the home task) | See 404-scope example |
+| 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | Framework passthrough (`translateHttpMessage` returns the raw route-miss text verbatim; `"Not Found"` only when the exception message is empty — code-verified, literal NOT live-verified) | None | Non-numeric segment | See 404-constraint example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
-401 example:
+401 example (`message.ERROR.UNAUTHENTICATED`, WITH period):
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```
 
-403 example:
+403 example (missing permission):
 
 ```json
 {
@@ -120,7 +132,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 }
 ```
 
-404 example (miss OR masked read — identical):
+404 example:
 
 ```json
 {
@@ -129,7 +141,16 @@ No error-code field; every error below has Error code `None`. No validation, so 
 }
 ```
 
-404-constraint example (non-numeric segment):
+404-scope example (indistinguishable from a miss — by design):
+
+```json
+{
+  "message": "Resource Not Found",
+  "status": false
+}
+```
+
+404-constraint example (ILLUSTRATIVE — NOT live-verified):
 
 ```json
 {
