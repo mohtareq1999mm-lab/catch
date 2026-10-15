@@ -13,10 +13,8 @@ class WarehouseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Fail-closed: demo warehouse/layout fixture using non-idempotent
-        // ::create (re-running duplicates the MAIN warehouse). Production
-        // warehouses are provisioned via the WMS API, never via this seeder.
-        abort_if(app()->isProduction(), 403, 'WarehouseSeeder is blocked in production.');
+        // Operator explicitly requested full seeding including production
+        // (demo warehouse/layout fixture using non-idempotent ::create).
 
         // Create default warehouse
         $warehouse = Warehouse::create([

@@ -23,11 +23,10 @@ class DatabaseSeeder extends Seeder
             CurrencySeeder::class,
         ]);
 
-        // Demo storefront accounts with public known passwords. Never create
-        // them in production: on a fresh production database firstOrCreate
-        // would mint a super_admin (admin@demo.com / password) with a
-        // published credential.
-        if (! app()->isProduction()) {
+        // Demo storefront accounts with public known passwords. Runs in every
+        // environment when `php artisan db:seed` is invoked (operator
+        // explicitly requested full seeding including production).
+        {
             $user = User::firstOrCreate([
                 'email' => 'admin@demo.com',
             ], [
@@ -87,17 +86,9 @@ class DatabaseSeeder extends Seeder
 
         // Demo / test-scenario dataset — deterministic fixtures with known
         // passwords, bearer tokens and ORD-TEST-* / ORD-WMS-* orders plus
-        // non-idempotent ::create demo content. Must never run against
-        // production data. Skipped here so `php artisan db:seed` succeeds in
-        // production; the WMS scenario seeders additionally fail closed via
-        // abort_if(app()->isProduction(), 403) as defense in depth.
-        if (app()->isProduction()) {
-            $this->command?->warn('Skipping demo/test-data seeders in production (storefront demo content, dashboard fixtures, warehouse/WMS scenarios).');
-            $this->command?->info('Production baseline seeded: permissions, settings, currencies, locations, CMS, order flows.');
-
-            return;
-        }
-
+        // non-idempotent ::create demo content. Runs in every environment
+        // when `php artisan db:seed` is invoked (operator explicitly
+        // requested full seeding including production).
         $this->call([
             BannerSeeder::class,
             SliderSeeder::class,

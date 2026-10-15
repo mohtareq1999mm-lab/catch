@@ -30,10 +30,9 @@ class DashboardDataSeeder extends Seeder
 
     public function run(): void
     {
-        // Fail-closed: this seeder fabricates ~150 fake customers plus
-        // hundreds of fake orders, transactions, refunds and carts for
-        // dashboard analytics. It must never run against production data.
-        abort_if(app()->isProduction(), 403, 'DashboardDataSeeder is blocked in production.');
+        // Operator explicitly requested full seeding including production
+        // (fabricates ~150 fake customers plus hundreds of fake orders,
+        // transactions, refunds and carts in the seeded database).
 
         $this->command?->info('Seeding dashboard data...');
 

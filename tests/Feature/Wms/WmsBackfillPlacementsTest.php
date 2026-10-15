@@ -106,12 +106,15 @@ class WmsBackfillPlacementsTest extends TestCase
     public function test_dry_run_writes_nothing(): void
     {
         $path = $this->mappingFile($this->mappingRow());
+        $activityBefore = \Spatie\Activitylog\Models\Activity::count();
         // Valid row dry-run: exit 0 proves full validation passed.
         $this->assertSame(0, $this->runBackfill($path));
 
         $this->assertSame(0, ProductLocation::count());
         $this->assertSame(80, (int) $this->simple->fresh()->stock_quantity);
         $this->assertSame(5, (int) $this->simple->fresh()->reserved_quantity);
+        // The rollback probe discards the audit row too (sync DB write).
+        $this->assertSame($activityBefore, \Spatie\Activitylog\Models\Activity::count());
     }
 
     public function test_apply_records_hint_and_preserves_authority(): void

@@ -31,10 +31,8 @@ class WmsOperationsSeeder extends Seeder
 {
     public function run(): void
     {
-        // Fail-closed: this seeder creates deterministic WMS test scenarios
-        // (test users, known passwords, bearer token, ORD-WMS-* orders) and
-        // must never run against production data.
-        abort_if(app()->isProduction(), 403, 'WmsOperationsSeeder is blocked in production.');
+        // Operator explicitly requested full seeding including production
+        // (`db:seed` runs every seeder in all environments).
 
         $this->command?->info('================================================================');
         $this->command?->info('  Setting up Complete WMS, Order Flow & Operations Dataset');

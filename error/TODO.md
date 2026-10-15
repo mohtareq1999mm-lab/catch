@@ -81,6 +81,7 @@
 
 ### I18N — Validation & translations
 - [x] I18N-001 Lang inventory (resources/lang/{en,ar} 14 files each + ar.json) — PASS
+- [x] I18N-002a Constant-resolution audit — PASS: 327/328 defines resolve both locales (1 miss = Excel locale, non-user-facing, verified usage). No raw-key leaks in constants contract.
 - [ ] I18N-002 en/ar message audit per endpoint + raw-key search — IN PROGRESS
 - [ ] I18N-003 Automated translation checklist — NOT STARTED
 

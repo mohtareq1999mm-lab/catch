@@ -152,3 +152,7 @@
 - NotificationTest 38/38 untouched-green; CouponsProductionHarden 38+6 fail -> 44/44 across 5 fix layers.
 - Deepest: same pattern as batch-7 (stale created_at/design premise translated forward); duplicate-block proven at the exact branch via live reservation fixture.
 - Pusher flake root-caused to DDL-poisoned transactions, not app randomness. Lesson: first-run-on-fresh-schema is a distinct state — pre-create test-only tables to keep it clean.
+
+## Iter-023 — translation constant-resolution audit (read-only, no DB)
+- Method: 4 script iterations converging on faithful Laravel semantics (group/item split + Arr::get exact-first). v1-v3 false alarms (326/1 misses) caught by cross-checking direct greps — methodology fixed before any finding was filed.
+- Result: 327/328 resolve both locales; sole miss is Excel-only. Verdict recorded: no raw-key leaks in constants contract. ar.json + placeholder consistency remain open.
