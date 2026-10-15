@@ -52,7 +52,13 @@ class VariantLifecycleGateTest extends TestCase
         $this->assertEmpty(array_intersect([$a->id, $b->id], $idsAfter), 'old variant IDs must be gone if wipe-and-recreate runs');
     }
 
-    public function test_placements_cascade_on_variant_wipe(): void
+    /**
+     * Gate 2 + Option-C guard: placements are now PROTECTED references —
+     * an ordinary product update that supplies variants must refuse with
+     * 422 and leave both variants and placement hints intact (previously
+     * this silently wiped placements via the CASCADE FK).
+     */
+    public function test_placements_are_protected_from_variant_wipe(): void
     {
         [$p, $a] = $this->variableProduct();
         $w = Warehouse::create(['code' => 'WH-VG', 'name' => 'VG', 'status' => 'active', 'is_default' => true]);
@@ -64,9 +70,18 @@ class VariantLifecycleGateTest extends TestCase
         $request = new \Illuminate\Http\Request([
             'variants' => [['price' => 100, 'quantity' => 10, 'attribute_values' => []]],
         ]);
-        $repo->updateProduct($request, $p->id);
+        try {
+            $repo->updateProduct($request, $p->id);
+            $blocked = false;
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $blocked = $e->getStatusCode() === 422;
+        } catch (\Throwable) {
+            $blocked = false;
+        }
 
-        $this->assertSame(0, ProductLocation::where('product_variant_id', $a->id)->count());
+        $this->assertTrue($blocked, 'protected placements must refuse variant replacement with 422');
+        $this->assertSame(1, ProductLocation::where('product_variant_id', $a->id)->count());
+        $this->assertNotNull(ProductVariant::find($a->id), 'original variant row must survive the refused wipe');
     }
 
     public function test_fulfillment_history_blocks_variant_delete(): void

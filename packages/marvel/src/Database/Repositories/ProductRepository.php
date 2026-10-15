@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\AttributeProduct;
 use Marvel\Database\Models\Availability;
 use Marvel\Database\Models\FlashSale;
+use Marvel\Database\Models\OrderProduct;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 use Marvel\Database\Models\Resource;
@@ -207,7 +208,23 @@ class ProductRepository extends BaseRepository
             $product->update($data);
 
             if (!empty($variants)) {
-                ProductVariant::where('product_id', $product->id)->delete();
+                $this->assertVariantsReplaceable($product);
+
+                try {
+                    ProductVariant::where('product_id', $product->id)->delete();
+                } catch (\Illuminate\Database\QueryException $e) {
+                    // Concurrency backstop: a protected reference (e.g. a new
+                    // fulfillment/order row) pinned between the locked checks
+                    // above and this delete trips the RESTRICT FK (MySQL
+                    // 1451). Fail closed with the same actionable 422 instead
+                    // of leaking an SQL exception as HTTP 500. Anything else
+                    // is rethrown untouched.
+                    if (($e->errorInfo[1] ?? null) !== 1451) {
+                        throw $e;
+                    }
+
+                    throw new HttpException(422, self::VARIANTS_PROTECTED_MESSAGE);
+                }
 
                 $this->addVariants(
                     $product,
@@ -232,6 +249,58 @@ class ProductRepository extends BaseRepository
         } catch (Exception $e) {
             DB::rollBack();
             throw new HttpException(500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Stable client-facing refusal when current variants cannot be replaced.
+     * Plain string by repository convention (cf. image-upload 422 below):
+     * never leaks SQLSTATE/table names to API clients.
+     */
+    private const VARIANTS_PROTECTED_MESSAGE = 'Cannot replace variants: existing variants are referenced by orders, fulfillments, or placements.';
+
+    /**
+     * Option C guard: refuse destructive variant replacement while current
+     * variant rows carry protected references.
+     *
+     * Runs inside the caller's update transaction BEFORE any delete, holding
+     * row locks on the current variant rows so concurrent placement intake
+     * for those SKUs serializes behind this transaction instead of slipping
+     * in between the checks and the delete. New fulfillment/order rows that
+     * still win the race trip the RESTRICT FK, which the caller converts to
+     * the same 422 (fail closed, never HTTP 500).
+     *
+     * Protection policy (evidence in FK dump 2026-10-1x, fresh-install
+     * `catch_gate1_fresh`):
+     * - fulfillment_items.product_variant_id RESTRICT → refuse (history).
+     * - order_products.product_variant_id SET NULL → refuse (silent
+     *   unattribution of paid order lines).
+     * - product_locations.product_variant_id CASCADE, any row (live or
+     *   zero-qty history) → refuse (silent placement/history destruction).
+     * - variant reserved_quantity > 0 → refuse (active inventory state).
+     * - inventory_operations.product_variant_id nullOnDelete → allowed
+     *   (explicit schema-accepted unattribution); cart/wishlist/promotion
+     *   refs (transient shopper state) → allowed.
+     *
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpException (422)
+     */
+    private function assertVariantsReplaceable(Product $product): void
+    {
+        $variantIds = ProductVariant::where('product_id', $product->id)
+            ->lockForUpdate()
+            ->pluck('id');
+
+        if ($variantIds->isEmpty()) {
+            return;
+        }
+
+        $protected = \App\Models\Fulfillment\FulfillmentItem::whereIn('product_variant_id', $variantIds)->exists()
+            || OrderProduct::whereIn('product_variant_id', $variantIds)->exists()
+            || \App\Models\Fulfillment\ProductLocation::whereIn('product_variant_id', $variantIds)->exists()
+            || ProductVariant::whereIn('id', $variantIds)->where('reserved_quantity', '>', 0)->exists();
+
+        if ($protected) {
+            throw new HttpException(422, self::VARIANTS_PROTECTED_MESSAGE);
         }
     }
 
