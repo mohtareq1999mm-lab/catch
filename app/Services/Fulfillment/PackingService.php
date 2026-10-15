@@ -200,6 +200,13 @@ class PackingService
                 'notes' => $notes,
             ]);
 
+            FulfillmentItem::where('fulfillment_id', $locked->fulfillment_id)
+                ->where('status', '!=', 'cancelled')
+                ->update([
+                    'status' => 'packed',
+                    'packed_at' => now(),
+                ]);
+
             // Fulfillment stays `packing` until verification: `packed` is a
             // task-level state only (Phase 6 ghost-state removal).
 
@@ -252,6 +259,13 @@ class PackingService
                 'verified_at' => now(),
                 'notes' => $notes ?? $locked->notes,
             ]);
+
+            FulfillmentItem::where('fulfillment_id', $fulfillment->id)
+                ->where('status', '!=', 'cancelled')
+                ->update([
+                    'status' => 'packed',
+                    'packed_at' => now(),
+                ]);
 
             $this->transitions->transition($fulfillment, 'ready_to_ship', ['reason' => 'packing_verified']);
 
@@ -565,6 +579,16 @@ class PackingService
                 ],
             );
 
+            $alreadyPacked = PackageItem::where('fulfillment_item_id', $item->id)
+                ->whereHas('package', fn ($q) => $q->where('status', '!=', Package::STATUS_VOIDED))
+                ->sum('quantity');
+            $picked = (float) $item->quantity_picked;
+            $isFullyPacked = ((float) $alreadyPacked) >= $picked;
+            $item->update([
+                'status' => $isFullyPacked ? 'packed' : 'packing',
+                'packed_at' => $isFullyPacked ? now() : $item->packed_at,
+            ]);
+
             Log::info('Package item added', [
                 'package_id' => $lockedPackage->id,
                 'fulfillment_item_id' => $item->id,
@@ -635,6 +659,13 @@ class PackingService
                 'status' => Package::STATUS_VOIDED,
                 'notes' => trim($reason),
             ]);
+
+            foreach ($locked->items as $pi) {
+                $fItem = $pi->fulfillmentItem;
+                if ($fItem && $fItem->status === 'packed') {
+                    $fItem->update(['status' => 'picked']);
+                }
+            }
 
             Log::warning('Package voided', [
                 'package_id' => $locked->id,

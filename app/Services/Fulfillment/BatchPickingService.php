@@ -448,6 +448,12 @@ class BatchPickingService
 
             // Update fulfillment item
             $task->fulfillmentItem->increment('quantity_picked', $quantity);
+            $freshItem = $task->fulfillmentItem->fresh();
+            $itemComplete = (float) $freshItem->quantity_picked >= (float) $freshItem->quantity;
+            $freshItem->update([
+                'status' => $itemComplete ? 'picked' : 'picking',
+                'picked_at' => $itemComplete ? now() : $freshItem->picked_at,
+            ]);
 
             // Update batch progress for batch tasks (order-flow tasks carry
             // batch_id NULL and have no batch to advance). P5-2: single

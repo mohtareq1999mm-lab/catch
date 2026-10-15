@@ -233,7 +233,14 @@ class ProductService
     {
         $query = Product::query()
             ->active()
-            ->search('slug', $slug, app()->getLocale())
+            ->where(function ($builder) use ($slug) {
+                if (is_numeric($slug)) {
+                    $builder->where('id', (int) $slug)
+                            ->orWhere('slug', $slug);
+                } else {
+                    $builder->search('slug', $slug, app()->getLocale());
+                }
+            })
             ->with(array_merge($this->productRelations(), [
                 'banners',
                 'sliders',

@@ -75,6 +75,11 @@ class PickingExecutionService
                 'claim_expires_at' => now()->addMinutes($leaseMinutes),
             ]);
 
+            $fItem = $locked->fulfillmentItem;
+            if ($fItem && $fItem->status === 'pending') {
+                $fItem->update(['status' => 'picking']);
+            }
+
             Log::info('Picking task claimed', [
                 'task_id' => $locked->id, 'user_id' => $userId, 'override' => $override,
             ]);
@@ -199,6 +204,12 @@ class PickingExecutionService
             ]);
 
             $item->increment('quantity_picked', $quantity);
+            $freshItem = $item->fresh();
+            $itemComplete = (float) $freshItem->quantity_picked >= (float) $freshItem->quantity;
+            $freshItem->update([
+                'status' => $itemComplete ? 'picked' : 'picking',
+                'picked_at' => $itemComplete ? now() : $freshItem->picked_at,
+            ]);
 
             Log::info('Pick confirmed', [
                 'task_id' => $locked->id, 'user_id' => $userId, 'quantity' => $quantity,

@@ -18,7 +18,7 @@ class FulfillmentItemResource extends JsonResource
             'product_location_id' => $this->product_location_id,
             'quantity' => $this->quantity,
             'quantity_picked' => $this->quantity_picked,
-            'status' => $this->status,
+            'status' => $this->resolveItemStatus(),
             'picked_at' => $this->picked_at?->toIso8601String(),
             'packed_at' => $this->packed_at?->toIso8601String(),
             // Current placement at a glance: the Admin frontend identifies
@@ -47,5 +47,26 @@ class FulfillmentItemResource extends JsonResource
                 ];
             }),
         ];
+    }
+
+    private function resolveItemStatus(): string
+    {
+        if ($this->status !== null && $this->status !== 'pending') {
+            return $this->status;
+        }
+
+        if ($this->packed_at !== null) {
+            return 'packed';
+        }
+
+        if ((float) $this->quantity_picked >= (float) $this->quantity && (float) $this->quantity > 0) {
+            return 'picked';
+        }
+
+        if ((float) $this->quantity_picked > 0) {
+            return 'picking';
+        }
+
+        return $this->status ?? 'pending';
     }
 }

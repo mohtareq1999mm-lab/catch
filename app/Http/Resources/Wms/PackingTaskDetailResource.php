@@ -41,7 +41,7 @@ class PackingTaskDetailResource extends JsonResource
                     'product_location_id' => $item->product_location_id,
                     'quantity' => (float) $item->quantity,
                     'quantity_picked' => (float) $item->quantity_picked,
-                    'status' => $item->status,
+                    'status' => $this->resolveItemStatus($item),
                     'product' => $item->relationLoaded('product') ? $this->formatProduct($item->product) : null,
                     'variant' => $item->relationLoaded('productVariant') ? $this->formatVariant($item->productVariant) : null,
                     'location' => $item->relationLoaded('productLocation') && $item->productLocation ? [
@@ -59,5 +59,26 @@ class PackingTaskDetailResource extends JsonResource
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function resolveItemStatus($item): string
+    {
+        if ($item->status !== null && $item->status !== 'pending') {
+            return $item->status;
+        }
+
+        if (in_array($this->status, ['packed', 'verified'], true) || $item->packed_at !== null) {
+            return 'packed';
+        }
+
+        if ((float) $item->quantity_picked >= (float) $item->quantity && (float) $item->quantity > 0) {
+            return 'picked';
+        }
+
+        if ((float) $item->quantity_picked > 0) {
+            return 'picking';
+        }
+
+        return $item->status ?? 'pending';
     }
 }

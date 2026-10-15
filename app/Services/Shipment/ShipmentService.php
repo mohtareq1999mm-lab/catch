@@ -210,6 +210,10 @@ class ShipmentService
 
             if ($fulfillment !== null && $fulfillment->status === 'ready_to_ship') {
                 $this->fulfillmentTransitions->transition($fulfillment, 'shipped', ['reason' => 'shipment_dispatched']);
+
+                FulfillmentItem::where('fulfillment_id', $fulfillment->id)
+                    ->where('status', '!=', 'cancelled')
+                    ->update(['status' => 'shipped']);
             }
 
             $fresh = $shipment->fresh();
