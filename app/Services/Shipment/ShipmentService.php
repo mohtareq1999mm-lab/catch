@@ -60,6 +60,7 @@ class ShipmentService
             if ($fulfillmentId) {
                 $lockedFulfillment = Fulfillment::whereKey($fulfillmentId)->lockForUpdate()->firstOrFail();
                 $this->assertFulfillmentCreatable($lockedFulfillment);
+                app(\App\Services\Warehouse\WarehouseWorkflowService::class)->assertShipmentAllowedFor($lockedFulfillment);
                 $this->assertNoActiveShipment($fulfillmentId);
                 $data['order_id'] = $data['order_id'] ?? $lockedFulfillment->order_id;
             }
@@ -135,6 +136,12 @@ class ShipmentService
                     __('wms.shipment.create_status', ['id' => $locked->id, 'status' => $locked->status])
                 );
             }
+
+            // Q-05: when shipping disabled in the pinned workflow version,
+            // prevent new shipment creation. Existing shipments keep their
+            // lifecycle (dispatch/deliver paths untouched). Fail-closed
+            // before any mutation so retries leave state consistent.
+            app(\App\Services\Warehouse\WarehouseWorkflowService::class)->assertShipmentAllowedFor($locked);
 
             $this->assertNoActiveShipment($locked->id);
 

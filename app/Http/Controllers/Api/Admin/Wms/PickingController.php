@@ -127,13 +127,24 @@ class PickingController extends WmsAdminController
 
     /**
      * POST /api/v1/admin/fulfillments/{id}/create-tasks
+     *
+     * WMS-PICK-001: empty results never succeed. The service throws on
+     * invalid state / empty fulfillment / awaiting placement / no remaining
+     * work (422 below); non-empty results are created or idempotently reused
+     * tasks. No silent success with data:[].
      */
     public function createTasks(int $id): JsonResponse
     {
         $fulfillment = Fulfillment::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($fulfillment->warehouse_id, 'picking-execute');
 
-        $tasks = $this->orderPicking->createTasksForFulfillment($fulfillment);
+        try {
+            $tasks = $this->orderPicking->createTasksForFulfillment($fulfillment);
+        } catch (\App\Exceptions\WmsConflictException $e) {
+            $this->conflict($e->getMessage());
+        } catch (\RuntimeException $e) {
+            $this->unprocessable($e->getMessage());
+        }
 
         return $this->apiResponse(
             __('wms.picking.ready'),
@@ -165,6 +176,13 @@ class PickingController extends WmsAdminController
                 $this->resolveOverride($request)
             );
         } catch (\RuntimeException $e) {
+            // Race backstop: the row turned terminal under lock after the
+            // read above — still a 422 business refusal, never a 409 and
+            // never a silent claim on completed work. Checked on fresh state.
+            $freshStatus = PickingTask::whereKey($task->id)->value('status');
+            if (in_array($freshStatus, ['picked', 'skipped', 'cancelled'], true)) {
+                $this->unprocessable($e->getMessage());
+            }
             $this->conflict($e->getMessage());
         }
 
@@ -184,9 +202,9 @@ class PickingController extends WmsAdminController
         $task = PickingTask::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($this->taskWarehouseId($task), 'picking-execute');
 
-        // Defensive read gate: the service releases claims on any status,
-        // which would wipe claim state off completed work. Terminal tasks
-        // refuse here; the service still owns the claimant check.
+        // Defensive read gate: terminal tasks refuse here (422); the service
+        // owns the claimant check AND the authoritative terminal guard
+        // (WMS-RELEASE-001) for races between this read and the row lock.
         if (!in_array($task->status, ['pending', 'assigned', 'picking'], true)) {
             $this->unprocessable(__('wms.picking.release_terminal', ['id' => $task->id, 'status' => $task->status]));
         }
@@ -198,6 +216,13 @@ class PickingController extends WmsAdminController
                 $this->resolveOverride($request)
             );
         } catch (\RuntimeException $e) {
+            // Race backstop: the row turned terminal under lock after the
+            // read above — still a 422 business refusal, never a 403 and
+            // never a silent resurrection. Checked on fresh state (locale-proof).
+            $freshStatus = PickingTask::whereKey($task->id)->value('status');
+            if (in_array($freshStatus, ['picked', 'skipped', 'cancelled'], true)) {
+                $this->unprocessable($e->getMessage());
+            }
             throw new AuthorizationException($e->getMessage(), $e);
         }
 

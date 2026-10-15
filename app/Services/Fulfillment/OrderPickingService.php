@@ -32,11 +32,32 @@ class OrderPickingService
             // open-task check-then-create deterministic (second caller blocks
             // until the first commits, then reuses the committed task).
             $lockedFulfillment = Fulfillment::whereKey($fulfillment->id)->lockForUpdate()->firstOrFail();
+
+            if (!in_array($lockedFulfillment->status, ['pending', 'picking'], true)) {
+                throw new \RuntimeException(
+                    __('wms.fulfillment.invalid_transition', [
+                        'from' => $lockedFulfillment->status,
+                        'to' => 'picking',
+                        'id' => $lockedFulfillment->id,
+                    ])
+                );
+            }
+
             $tasks = [];
+            // PICK-OBS: items without a location allocation are skipped by
+            // design (manual assign-placement required) — counted here so an
+            // empty result is diagnosable as "awaiting placement" instead of
+            // looking like a silent failure. No response/state change.
+            $skippedUnallocated = 0;
+            $skippedItemIds = [];
+            $totalItems = 0;
 
             foreach ($lockedFulfillment->items()->orderBy('id')->get() as $item) {
                 $lockedItem = FulfillmentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
+                $totalItems++;
                 if ($lockedItem->product_location_id === null) {
+                    $skippedUnallocated++;
+                    $skippedItemIds[] = $lockedItem->id;
                     continue; // manual assignment required (allocation fallback)
                 }
                 $remaining = (float) $lockedItem->quantity - (float) $lockedItem->quantity_picked;
@@ -83,7 +104,48 @@ class OrderPickingService
             Log::info('Order picking tasks created', [
                 'fulfillment_id' => $fulfillment->id,
                 'tasks' => count($tasks),
+                'skipped_unallocated' => $skippedUnallocated,
+                'skipped_item_ids' => $skippedItemIds,
             ]);
+
+            // Partial omission diagnosability: some items remain without
+            // placement while others produced tasks. The 200 carries the
+            // created subset (envelope preserved); this warning names the
+            // remainder so operators know to assign-placement for the rest.
+            if (count($tasks) > 0 && $skippedUnallocated > 0) {
+                Log::warning('Order picking created partial tasks; remaining items await manual placement (assign-placement)', [
+                    'fulfillment_id' => $fulfillment->id,
+                    'order_id' => $lockedFulfillment->order_id,
+                    'skipped_unallocated' => $skippedUnallocated,
+                    'skipped_item_ids' => $skippedItemIds,
+                ]);
+            }
+
+            // WMS-PICK-001: never return an empty success. An empty result
+            // means no pickable work exists — surface it as a domain refusal
+            // (422 at the adapter) with an actionable reason instead of
+            // "Picking tasks ready." with data:[].
+            if (count($tasks) === 0) {
+                if ($totalItems === 0) {
+                    throw new \RuntimeException(
+                        __('wms.picking.empty', ['id' => $lockedFulfillment->id])
+                    );
+                }
+                if ($skippedUnallocated > 0) {
+                    Log::warning('Order picking refused: items await manual placement (assign-placement)', [
+                        'fulfillment_id' => $fulfillment->id,
+                        'order_id' => $lockedFulfillment->order_id,
+                        'skipped_unallocated' => $skippedUnallocated,
+                        'skipped_item_ids' => $skippedItemIds,
+                    ]);
+                    throw new \RuntimeException(
+                        __('wms.picking.awaiting_placement', ['id' => $lockedFulfillment->id, 'count' => $skippedUnallocated])
+                    );
+                }
+                throw new \RuntimeException(
+                    __('wms.picking.no_tasks', ['id' => $lockedFulfillment->id])
+                );
+            }
 
             return $tasks;
         });

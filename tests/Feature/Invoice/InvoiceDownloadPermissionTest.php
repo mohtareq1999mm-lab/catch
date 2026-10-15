@@ -355,6 +355,10 @@ class InvoiceDownloadPermissionTest extends TestCase
 
     public function test_permission_record_exists_in_database(): void
     {
+        // Relative baseline: migrated/seeded databases already hold
+        // permissions. Intent preserved: the record exists exactly once
+        // (name+guard scoped no-duplicate check) and carries name/guard.
+        $baseline = DB::table('permissions')->count();
         $permission = $this->createPermission(PermissionEnum::VIEW_INVOICE_DOWNLOAD);
 
         $this->assertDatabaseHas('permissions', [
@@ -362,7 +366,11 @@ class InvoiceDownloadPermissionTest extends TestCase
             'guard_name' => self::GUARD,
         ]);
 
-        $this->assertDatabaseCount('permissions', 1);
+        $this->assertDatabaseCount('permissions', $baseline + 1);
+        $this->assertSame(1, DB::table('permissions')
+            ->where('name', PermissionEnum::VIEW_INVOICE_DOWNLOAD)
+            ->where('guard_name', self::GUARD)
+            ->count());
         $this->assertSame(PermissionEnum::VIEW_INVOICE_DOWNLOAD, $permission->name);
         $this->assertSame(self::GUARD, $permission->guard_name);
     }

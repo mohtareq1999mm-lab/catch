@@ -14,7 +14,7 @@ Returns period-scoped order counts, revenue, pending actions, and recent orders 
 | --- | --- |
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/tracking/dashboard` |
-| Path composition | `api` prefix (from `RouteServiceProvider` mapping of `routes/api.php`) + `v1/admin/tracking` prefix + `dashboard` from `routes/api.php:220` inside the `['api', 'auth:sanctum', 'throttle:admin']` group (note: NO `lang` middleware here, unlike the Marvel groups — the `lang` header has no effect and all messages are literal English) |
+| Path composition | `api` prefix (from `RouteServiceProvider` mapping of `routes/api.php`) + `v1/admin/tracking` prefix + `dashboard` from `routes/api.php:231` (group at `:230`) inside the `['api', 'auth:sanctum', 'throttle:admin']` group (note: NO `lang` middleware here, unlike the Marvel groups — the `lang` header has no effect and all messages are literal English) |
 | Controller action | `App\Http\Controllers\Api\Admin\AdminOrderTrackingController@dashboard` (application layer — not Marvel; uses the Marvel `ApiResponse` trait envelope `{status, message, success, data?}`) |
 | Authentication | Required twice: `auth:sanctum` constructor middleware, plus an in-method `authorizeAdmin` guard that aborts 401 when no user is present (unreachable after the middleware — defense-in-depth) |
 | Permission | Required: `view-orders` via in-method `authorizeAdmin` (NOT route middleware): passes when the user `hasPermissionTo('view-orders')` (Spatie) or `can('view-orders')` (gate); otherwise falls back to the legacy admin-type rule — a `type === 'admin'` (or `role === 'admin'`) user WITHOUT the permission is still DENIED when the permissions system is available (`abort(403)`), and allowed ONLY when the permission check itself cannot run (e.g. missing table, test seeding without permission cache). The method itself performs no further check |
@@ -53,7 +53,7 @@ Valid request fetching this week's dashboard:
 
 ## Success: tracking dashboard — HTTP 200
 
-Returned via `ApiResponse::apiResponse('Dashboard retrieved successfully.', 200, true, [...])` — message is a literal English string (no translation lookup applies). Verified by `admin_can_view_dashboard` (`OrderTrackingTest`: permission-less `type = 'admin'` user — proving the legacy fallback path — `?period=today` → 200, `success: true`, structure `data: [overview, status_breakdown, recent_orders, pending_actions, revenue]`; uses `getJson`, matching this route — no test fix needed). There is exactly one success contract.
+Returned via `ApiResponse::apiResponse(__('message.MESSAGE.DASHBOARD_RETRIEVED_SUCCESSFULLY'), 200, true, [...])` (`en` → `'Dashboard retrieved successfully.'`, verified in `resources/lang/en/message.php:590` — wire-identical to the former literal claim). Verified by `admin_can_view_dashboard` (`OrderTrackingTest`: permission-less `type = 'admin'` user — proving the legacy fallback path — `?period=today` → 200, `success: true`, structure `data: [overview, status_breakdown, recent_orders, pending_actions, revenue]`; uses `getJson`, matching this route — no test fix needed). There is exactly one success contract.
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
@@ -126,8 +126,8 @@ The implementation has no machine-readable error-code field; every error below h
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing, invalid, revoked, or expired Sanctum token (`auth:sanctum` constructor middleware rejects before the method runs; the in-method `abort(401, 'Unauthenticated.')` is unreachable behind it) | `{message: string, status: boolean}` (Handler shape; note boolean `status`, unlike the success envelope) | None | `"Unauthenticated"` via `AuthenticationException` branch of `App\Exceptions\Handler` (no endpoint-specific 401 test exists — the tracking suite's 401 test targets the different `general/orders/{id}/track` route; code-traced through the shared path) | None | Any request without a valid `Authorization: Bearer` token | See 401 example |
-| 403 | Caller fails `authorizeAdmin`: no `view-orders` permission (via Spatie or gate) AND no usable legacy admin-type fallback — rendered from `abort(403, 'Forbidden. Missing required permission: view-orders.')` via `Handler`'s `HttpException` branch, which uses the abort message verbatim (code-verified — NOT the translated Spatie message, NOT a validation shape) | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-orders."` (literal abort string, English-only — no `lang` middleware on this group) | None | Authenticated non-admin without `view-orders` (code-traced — no endpoint-specific 403 test exists) | See 403 example |
+| 401 | Missing, invalid, revoked, or expired Sanctum token (`auth:sanctum` constructor middleware rejects before the method runs; the in-method `abort(401, 'Unauthenticated.')` is unreachable behind it) | `{message: string, status: boolean}` (Handler shape; note boolean `status`, unlike the success envelope) | None | `"Unauthenticated."` (WITH period) via `AuthenticationException` branch of `App\Exceptions\Handler` (no endpoint-specific 401 test exists — the tracking suite's 401 test targets the different `general/orders/{id}/track` route; code-traced through the shared path) | None | Any request without a valid `Authorization: Bearer` token | See 401 example |
+| 403 | Caller fails `authorizeAdmin`: no `view-orders` permission (via Spatie or gate) AND no usable legacy admin-type fallback — rendered from `abort(403, 'Forbidden. Missing required permission: view-orders.')` via `Handler::translateHttpMessage` → catalogue `message.ERROR.FORBIDDEN_PERMISSION` (`en` identical to the abort string; NOT the Spatie `PERMISSION_MISSING_*` message) | `{message: string, status: boolean}` | None | `"Forbidden. Missing required permission: view-orders."` (English-only at runtime — no `lang` middleware on this group) | None | Authenticated non-admin without `view-orders` (code-traced — no endpoint-specific 403 test exists) | See 403 example |
 | 405 | Any HTTP method other than `GET` on `/api/v1/admin/tracking/dashboard` (only `Route::get` is registered) | `{message: string, status: boolean}` | None | `"Method Not Allowed"` via `MethodNotAllowedHttpException` branch of `Handler` | None | E.g. `POST`, `PUT`, `PATCH`, `DELETE` to the same URI (code-traced) | See 405 example |
 | 429 | Exceeding `throttle:admin` (400/min per user id or IP) | `{success: boolean, message: string, data: null}` (rate-limiter shape; note `success`/`data` keys instead of the Handler `status` shape) | None | `__('message.too_many_requests')`: `en` → `"Too many requests. Please try again later."`, `ar` → `"طلبات كثيرة جدًا. يرجى المحاولة لاحقًا."` | None | Rate limit exceeded for the caller key | See 429 example |
 | 500 | Unexpected failure (any exception escaping the method), rendered by the generic branch of `Handler` | `{message: string, status: boolean}` | None | The exception message when `app.debug` is true, else `"Internal Server Error"` | None | Query/serialization failure (code-traced, no test) | See 500 example |
@@ -136,7 +136,7 @@ The implementation has no machine-readable error-code field; every error below h
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```

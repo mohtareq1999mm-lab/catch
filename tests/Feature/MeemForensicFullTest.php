@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
@@ -206,9 +207,16 @@ class MeemForensicFullTest extends TestCase
                 $table->timestamps();
             });
         }
-        // Ensure settings has at least one row and faqs has correct columns
+        // Ensure settings has at least one row and faqs has correct columns.
+        // Schema-tolerant: test schemas carry a `language` column on
+        // `settings`, live/older schemas do not (verified: no app code reads
+        // settings.language) — only include the key when the column exists.
         if (Schema::hasTable('settings') && DB::table('settings')->count()===0) {
-            DB::table('settings')->insert(['language'=>'en','options'=>json_encode([]),'created_at'=>now(),'updated_at'=>now()]);
+            $settingsRow = ['options'=>json_encode([]),'created_at'=>now(),'updated_at'=>now()];
+            if (Schema::hasColumn('settings', 'language')) {
+                $settingsRow['language'] = 'en';
+            }
+            DB::table('settings')->insert($settingsRow);
         }
         if (Schema::hasTable('faqs') && !Schema::hasColumn('faqs','deleted_at')) {
             try { Schema::table('faqs', function (Blueprint $table) { $table->softDeletes(); }); } catch (\Throwable $e) {}
@@ -673,9 +681,16 @@ class MeemForensicFullTest extends TestCase
     {
         $user1 = $this->makeUser('u1-'.Str::random(5).'@example.com');
         $user2 = $this->makeUser('u2-'.Str::random(5).'@example.com');
-        // create order for user1
+        // create order for user1 (flow_id/current_status_id are NOT NULL with FKs
+        // → use real rows; the subject under test is the cross-user READ path).
+        // Fail loudly (not via opaque SQLSTATE) when the catalog is empty.
+        $flowId = DB::table('order_flows')->value('id');
+        $this->assertNotNull($flowId, 'order_flows catalog must not be empty');
+        $statusId = DB::table('order_statuses')->where('code', 'pending')->value('id')
+            ?? DB::table('order_statuses')->value('id');
+        $this->assertNotNull($statusId, 'order_statuses catalog must not be empty');
         $orderId = DB::table('orders')->insertGetId([
-            'user_id'=>$user1->id,'status'=>'pending','total_price'=>100,'created_at'=>now(),'updated_at'=>now()
+            'user_id'=>$user1->id,'flow_id'=>$flowId,'current_status_id'=>$statusId,'status'=>'pending','total_price'=>100,'created_at'=>now(),'updated_at'=>now()
         ]);
         Sanctum::actingAs($user2);
         $res = $this->getJson('/api/v1/general/orders/'.$orderId);
@@ -721,7 +736,12 @@ class MeemForensicFullTest extends TestCase
     {
         $user = $this->makeUser('cod-'.Str::random(5).'@example.com');
         Sanctum::actingAs($user);
-        $orderId = DB::table('orders')->insertGetId(['user_id'=>$user->id,'status'=>'pending','total_price'=>100,'created_at'=>now(),'updated_at'=>now()]);
+        $flowId = DB::table('order_flows')->value('id');
+        $this->assertNotNull($flowId, 'order_flows catalog must not be empty');
+        $statusId = DB::table('order_statuses')->where('code', 'pending')->value('id')
+            ?? DB::table('order_statuses')->value('id');
+        $this->assertNotNull($statusId, 'order_statuses catalog must not be empty');
+        $orderId = DB::table('orders')->insertGetId(['user_id'=>$user->id,'flow_id'=>$flowId,'current_status_id'=>$statusId,'status'=>'pending','total_price'=>100,'created_at'=>now(),'updated_at'=>now()]);
         $res = $this->postJson("/api/v1/general/checkout/cod/{$orderId}/mark-paid");
         // should be 403 without permission
         $res->assertStatus(403);
@@ -1015,10 +1035,20 @@ class MeemForensicFullTest extends TestCase
         $res->assertJsonStructure(['discount-type','coupon-type']);
     }
 
-    public function test_check_card_payment(): void
+    public function test_check_card_payment_endpoint_removed_returns_404(): void
     {
+        // Phase-16 removal proof: the PAN-handling test-card endpoint was
+        // deliberately deleted. Guard both layers: (1) no registered route
+        // URI may contain a card-test path (catches resurrection under any
+        // alias); (2) the historic URL 404s over HTTP.
+        foreach (Route::getRoutes() as $route) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                'check-card', $route->uri(), 'PAN test endpoint must stay unregistered');
+            $this->assertStringNotContainsStringIgnoringCase(
+                'test-card', $route->uri(), 'PAN test endpoint must stay unregistered');
+        }
         $res = $this->getJson('/api/v1/check-card-payment');
-        $res->assertStatus(200);
+        $res->assertStatus(404);
     }
 
     // =========================================================================
@@ -1075,6 +1105,9 @@ class MeemForensicFullTest extends TestCase
         $cart = Cart::where('user_id',$user1->id)->first();
         Sanctum::actingAs($user2);
         $res = $this->getJson('/api/v1/cart/'.$cart->id);
-        $res->assertStatus(403);
+        // CartController@show scopes to the caller (where user_id + findOrFail):
+        // foreign carts 404 by design (no existence leak — same convention as
+        // the cross-user orders test above, which expects 404).
+        $res->assertStatus(404);
     }
 }

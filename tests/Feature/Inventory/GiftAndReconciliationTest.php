@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Inventory;
 
+use App\Models\Fulfillment\Warehouse;
 use App\Services\General\CartInventoryService;
 use App\Services\Inventory\OrderReservationService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -39,6 +40,17 @@ class GiftAndReconciliationTest extends TestCase
         config(['payment.order_timeout_hours' => 24]);
 
         $this->createAllTestTables();
+
+        // Fulfillment auto-release (ReleaseFulfillmentOnCodPlacement on
+        // OrderCreated) requires exactly one ACTIVE default warehouse
+        // (WarehouseService::resolveForNewFulfillment throws otherwise).
+        // firstOrCreate by code; enforce active+default in-txn (rolled back).
+        $warehouse = Warehouse::firstOrCreate(
+            ['code' => 'TEST-DEFAULT'],
+            ['name' => 'Test Default', 'status' => 'active', 'is_default' => true]
+        );
+        Warehouse::where('is_default', true)->whereKeyNot($warehouse->getKey())->update(['is_default' => false]);
+        $warehouse->update(['status' => 'active', 'is_default' => true]);
     }
 
     // ------------------------------------------------------------------
@@ -180,9 +192,15 @@ class GiftAndReconciliationTest extends TestCase
         $this->assertEquals(0.0, (float) $giftItem->product_total_price);
         $this->assertEquals($promotion->id, $giftItem->promotion_id);
 
-        // BOTH lines reserved against inventory.
-        $this->assertEquals(1, $normal->refresh()->reserved_quantity);
-        $this->assertEquals(1, $gift['variant']->refresh()->reserved_quantity);
+        // BOTH lines committed against inventory (COD commits at creation:
+        // reserve→commit in the same txn, so reserved returns to 0 while sold
+        // increments and state becomes COMMITTED — the stale premise of
+        // "reserved stays 1" predates commit-at-creation).
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->refresh()->inventory_state);
+        $this->assertEquals(0, $normal->refresh()->reserved_quantity);
+        $this->assertEquals(1, $normal->refresh()->sold_quantity);
+        $this->assertEquals(0, $gift['variant']->refresh()->reserved_quantity);
+        $this->assertEquals(1, $gift['variant']->refresh()->sold_quantity);
 
         // No generated gift CartItem anywhere; cart fully emptied.
         $this->assertEquals(0, CartItem::where('is_gift', true)->count());
@@ -222,17 +240,51 @@ class GiftAndReconciliationTest extends TestCase
     {
         $user = $this->makeUser();
         $normal = $this->makeSimpleProduct(price: 60, stock: 4);
-        $this->addToCart($user, $normal, 1);
-
         $gift = $this->makeVariableProductWithVariant(stock: 2);
         $promotion = $this->makeGiftPromotion($gift['product'], $gift['variant']);
 
-        $this->checkout($user, [
-            'selected_promotion_id' => $promotion->id,
-            'selected_gift_product_id' => $gift['product']->id,
-        ])->assertStatus(200);
-
-        Order::where('user_id', $user->id)->update(['reservation_expires_at' => now()->subMinute()]);
+        // Build a PENDING order holding an ACTIVE reservation directly. Rationale:
+        // COD checkout COMMITS immediately (status → processing), which the
+        // reaper deliberately ignores (pending-only scope — during-fulfillment
+        // cancellation is the admin path). The reserve step itself is covered
+        // by OrderReservationLifecycleTest; what this test owns is
+        // expiry → cancel → release propagation across normal + gift lines.
+        $order = Order::create([
+            'user_id' => $user->id,
+            'name' => 'Gift Expiry',
+            'price' => 60.00,
+            'total_price' => 60.00,
+            'payment_method' => 'cod',
+            'status' => 'pending',
+        ]);
+        DB::table('order_products')->insert([
+            [
+                'order_id' => $order->id,
+                'product_id' => $normal->id,
+                'product_variant_id' => null,
+                'product_name' => $normal->name,
+                'product_price' => 60.00,
+                'product_quantity' => 1,
+                'product_total_price' => 60.00,
+                'promotion_id' => null,
+            ],
+            [
+                'order_id' => $order->id,
+                'product_id' => $gift['product']->id,
+                'product_variant_id' => $gift['variant']->id,
+                'product_name' => $gift['product']->name,
+                'product_price' => 0,
+                'product_quantity' => 1,
+                'product_total_price' => 0,
+                'promotion_id' => $promotion->id,
+            ],
+        ]);
+        $normal->update(['reserved_quantity' => 1]);
+        $gift['variant']->update(['reserved_quantity' => 1]);
+        DB::table('orders')->where('id', $order->id)->update([
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->subMinute(),
+        ]);
 
         $this->artisan('orders:cancel-unpaid')->assertExitCode(0);
 

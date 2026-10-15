@@ -15,7 +15,7 @@ Returns one package with its items inside the caller's warehouse scope (scope re
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/packages/{id}` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route) |
 | Path composition | `api/v1` prefix + `admin/packages/{id}` custom `Route::get(...)->name('api.admin.packages.show')` in `packages/marvel/src/Rest/Routes.php` inside the `['api', 'auth:sanctum', 'throttle:admin']` group with route-level `permission:view-fulfillment` |
-| Controller action | `App\Http\Controllers\Api\Admin\Wms\PackageController@show(int $id)` → `whereKey->firstOrFail` (miss → 404 fixed; nothing precedes the lookup — code-verified); `authorizeWarehouseScope(package→fulfillment warehouse, 'view-fulfillment', asNotFound: TRUE)` (cross-warehouse → 404 anti-enumeration, NEVER 403 — code-verified); `loadMissing('items')` → 200 `PackageDetailResource`. Pure read (code-verified) |
+| Controller action | `App\Http\Controllers\Api\Admin\Wms\PackageController@show(int $id)` → `whereKey->firstOrFail` (miss → 404 fixed; nothing precedes the lookup — code-verified); `authorizeWarehouseScope(package→fulfillment warehouse, 'view-fulfillment', asNotFound: TRUE)` (cross-warehouse → 404 anti-enumeration, NEVER 403 — code-verified); `loadMissing(items.fulfillmentItem.product, items.fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute)` → 200 `PackageDetailResource`. Pure read (code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group; no constructor middleware) |
 | Permission | Required: `view-fulfillment` (route pipe + scope check — BOTH the same permission) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
@@ -52,7 +52,7 @@ No query parameters, body fields, or validation-driven `422`.
 
 ## Success: package detail — HTTP 200 (items included)
 
-Returned via `ApiResponse::apiResponse(__('wms.package.fetched_one'), 200, true, PackageDetailResource::make(...))` — translated at the call site (`en` → `"Package fetched successfully."`, verified in `resources/lang/en/wms.php:138`). `items` is always present here (controller always loads it — code-verified `whenLoaded` satisfied).
+Returned via `ApiResponse::apiResponse(__('wms.package.fetched_one'), 200, true, PackageDetailResource::make(...))` — translated at the call site (`en` → `"Package fetched successfully."`, verified in `resources/lang/en/wms.php:138`). `items` is always present here (controller always loads `items.fulfillmentItem.product` + `productVariant.*` — code-verified `whenLoaded` satisfied) and each line now carries `product`/`variant` enrichment (working-tree addition via `FormatsWmsProductVariant`).
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ Returned via `ApiResponse::apiResponse(__('wms.package.fetched_one'), 200, true,
 | `data` | object | Always present on success | Full detail (list keys + below) | All `PackageResource` keys except `item_count` (detail carries `items` instead — code-verified), plus: |
 | `data.dimensions` | array/null | Always present | Pack dimensions | — |
 | `data.notes` | string/null | Always present | Operator notes | — |
-| `data.items` | array | Always present here | Packed lines | `{id, fulfillment_item_id, order_item_id, quantity (float)}[]` |
+| `data.items` | array | Always present here | Packed lines (enriched — working-tree addition via `FormatsWmsProductVariant`) | `[{id, fulfillment_item_id, order_item_id, quantity (float), product{id, name, sku, product_type, thumbnail}/null, variant{id, sku, price, stock_quantity, attributes[]}/null}]` — `product`/`variant` resolve via `items.fulfillmentItem.product` / `productVariant` (controller always loads both; null when the linked row or relation is absent) |
 | `data.handed_off_at` | string/null | Always present | Handoff time | ISO-8601 |
 
 ```json
@@ -81,7 +81,14 @@ Returned via `ApiResponse::apiResponse(__('wms.package.fetched_one'), 200, true,
     "dimensions": {"length": 30, "width": 20, "height": 10},
     "notes": null,
     "items": [
-      {"id": 9, "fulfillment_item_id": 3, "order_item_id": 5, "quantity": 2}
+      {
+        "id": 9,
+        "fulfillment_item_id": 3,
+        "order_item_id": 5,
+        "quantity": 2.0,
+        "product": {"id": 10, "name": "FP", "sku": "SKU-FUL-1", "product_type": "simple", "thumbnail": null},
+        "variant": null
+      }
     ],
     "sealed_at": "2026-10-14T10:15:00+00:00",
     "handed_off_at": null,

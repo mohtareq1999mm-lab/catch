@@ -38,14 +38,25 @@ class UserControllerTest extends TestCase
             DB::statement('PRAGMA foreign_keys = ON;');
         }
 
-        if (!DB::table('settings')->where('language', 'en')->exists()) {
-            DB::table('settings')->insert([
-                'language' => 'en',
+        // Schema-tolerant settings ensure: the test schema carries a `language`
+        // column on `settings`, but older/live schemas do not (verified: no
+        // app code reads settings.language). Intent preserved: guarantee at
+        // least one settings row exists.
+        $settingsHasLanguage = Schema::hasColumn('settings', 'language');
+        $settingsExists = $settingsHasLanguage
+            ? DB::table('settings')->where('language', 'en')->exists()
+            : DB::table('settings')->exists();
+        if (!$settingsExists) {
+            $settingsRow = [
                 'options' => json_encode([
                     'app_settings' => ['trust' => true],
                     'useMustVerifyEmail' => false]),
                 'created_at' => now(),
-                'updated_at' => now()]);
+                'updated_at' => now()];
+            if ($settingsHasLanguage) {
+                $settingsRow['language'] = 'en';
+            }
+            DB::table('settings')->insert($settingsRow);
         }
 
         $this->beginDatabaseTransaction();

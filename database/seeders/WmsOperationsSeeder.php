@@ -31,6 +31,11 @@ class WmsOperationsSeeder extends Seeder
 {
     public function run(): void
     {
+        // Fail-closed: this seeder creates deterministic WMS test scenarios
+        // (test users, known passwords, bearer token, ORD-WMS-* orders) and
+        // must never run against production data.
+        abort_if(app()->isProduction(), 403, 'WmsOperationsSeeder is blocked in production.');
+
         $this->command?->info('================================================================');
         $this->command?->info('  Setting up Complete WMS, Order Flow & Operations Dataset');
         $this->command?->info('================================================================');
@@ -209,7 +214,11 @@ class WmsOperationsSeeder extends Seeder
         // change-order-status.* grants given by AdminOrderOperationsSeeder and
         // any other direct grants. givePermissionTo() preserves them.
         $admin->givePermissionTo($allPermissions);
-        $adminToken = $admin->createToken('AdminWmsToken')->plainTextToken;
+        // Idempotent token: re-seeding must not leak a new bearer token row
+        // on every run. The printed token is a test credential (see output).
+        $adminToken = $admin->tokens()->where('name', 'AdminWmsToken')->exists()
+            ? '[existing AdminWmsToken kept — no new token issued]'
+            : $admin->createToken('AdminWmsToken')->plainTextToken;
 
         $picker = User::firstOrCreate(
             ['email' => 'picker@wms.com'],
@@ -390,11 +399,6 @@ class WmsOperationsSeeder extends Seeder
                 'product_total_price' => 75.00,
             ]
         );
-
-        // Also fix legacy seed orders (like Order #2) so release passes for any test order
-        Order::whereIn('id', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])->update([
-            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
-        ]);
 
         // ── SCENARIO 3: Fulfillment Item With NO Placement (To Test assign-placement) ─
         $orderNeedPlacement = Order::firstOrCreate(
@@ -676,6 +680,15 @@ class WmsOperationsSeeder extends Seeder
             ]
         );
 
+        // Commit guard at END of run (covers scenarios 1–9: later scenarios
+        // are created after the release scenarios above, and firstOrCreate
+        // never repairs pre-existing rows). Scoped to this seeder's own
+        // ORD-WMS-* numbers — never blanket primary keys, so a re-run cannot
+        // rewrite unrelated real orders.
+        Order::where('order_number', 'like', 'ORD-WMS-%')->update([
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+        ]);
+
         // ==============================================================
         //  CLI SUMMARY REPORT FOR DEVELOPER & FRONTEND TEAM
         // ==============================================================
@@ -683,7 +696,11 @@ class WmsOperationsSeeder extends Seeder
         $this->command?->info('  [SUCCESS] All Testing Scenarios Seeded Successfully!');
         $this->command?->info('----------------------------------------------------------------');
         $this->command?->info("  Admin Login:              admin@gmail.com / password123");
-        $this->command?->info("  Admin Bearer Token:       {$adminToken}");
+        if (str_starts_with((string) $adminToken, '[existing')) {
+            $this->command?->info('  Admin Bearer Token:       (existing AdminWmsToken kept — mint a new one via Sanctum if needed)');
+        } else {
+            $this->command?->info("  Admin Bearer Token:       {$adminToken}");
+        }
         $this->command?->info("  Default Warehouse ID:     {$warehouse->id} ({$warehouse->code})");
         $this->command?->info("  Packing Station ID:       {$station->id} ({$station->code})");
         $this->command?->info("  Location Picking (Barcode): LOC-PICK-01 (ID: {$locations['PICK-01']->id})");

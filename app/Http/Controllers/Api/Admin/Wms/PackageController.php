@@ -67,7 +67,10 @@ class PackageController extends WmsAdminController
         $package = Package::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($this->packageWarehouseId($package), 'view-fulfillment', true);
 
-        $package->loadMissing('items');
+        $package->loadMissing([
+            'items.fulfillmentItem.product',
+            'items.fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+        ]);
 
         return $this->apiResponse(
             __('wms.package.fetched_one'),

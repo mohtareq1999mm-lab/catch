@@ -326,6 +326,7 @@ return [
     'packing-execute' => 'Execute packing',
     'fulfillment-override' => 'Fulfillment override',
     'inventory-adjust' => 'Adjust inventory',
+    'manage-warehouse-workflow' => 'Manage warehouse workflow',
     'fulfillment.create' => 'Create fulfillment',
     'fulfillment.cancel' => 'Cancel fulfillment',
     'picking.claim' => 'Claim picking task',

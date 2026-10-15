@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Wms;
 
 use App\Http\Resources\Shipment\ShipmentResource;
+use App\Http\Resources\Wms\Traits\FormatsWmsProductVariant;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -13,6 +14,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class FulfillmentDetailResource extends JsonResource
 {
+    use FormatsWmsProductVariant;
+
     public function toArray(Request $request): array
     {
         return [
@@ -44,9 +47,17 @@ class FulfillmentDetailResource extends JsonResource
                 'product_id' => $item->product_id,
                 'product_variant_id' => $item->product_variant_id,
                 'product_location_id' => $item->product_location_id,
-                'quantity' => $item->quantity,
-                'quantity_picked' => $item->quantity_picked,
+                'quantity' => (float) $item->quantity,
+                'quantity_picked' => (float) $item->quantity_picked,
                 'status' => $item->status,
+                'product' => $item->relationLoaded('product') ? $this->formatProduct($item->product) : null,
+                'variant' => $item->relationLoaded('productVariant') ? $this->formatVariant($item->productVariant) : null,
+                'location' => $item->relationLoaded('productLocation') && $item->productLocation ? [
+                    'id' => $item->productLocation->id,
+                    'code' => $item->productLocation->location?->code,
+                    'name' => $item->productLocation->location?->name,
+                    'barcode' => $item->productLocation->location?->barcode,
+                ] : null,
             ])->all()),
             'picking_tasks' => $this->when(
                 $this->relationLoaded('pickingTasksManual'),

@@ -48,6 +48,8 @@ class RoleAndPermissionTest extends TestCase
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();
+            $table->string('type')->default('user');
+            $table->string('phone_number')->nullable()->unique();
             $table->boolean('is_active')->default(true);
             $table->unsignedBigInteger('shop_id')->nullable();
             $table->softDeletes();
@@ -139,6 +141,27 @@ class RoleAndPermissionTest extends TestCase
         });
     }
 
+    /**
+     * Reuse a role by name+guard when the database already carries it
+     * (seeded environments), creating it otherwise. syncPermissions gives the
+     * test its exact permission set deterministically on either path.
+     */
+    private function findOrCreateTestRole(string $name, string $displayName, array $permissions = []): Role
+    {
+        $role = Role::where('name', $name)->where('guard_name', self::GUARD)->first();
+        if (!$role) {
+            $role = Role::create([
+                'name' => $name,
+                'display_name' => $displayName,
+                'guard_name' => self::GUARD]);
+        }
+        if ($permissions !== []) {
+            $role->syncPermissions($permissions);
+        }
+
+        return $role;
+    }
+
     private function createSuperAdminUser(): User
     {
         $permissions = [
@@ -154,14 +177,13 @@ class RoleAndPermissionTest extends TestCase
             Permission::findOrCreate($perm, self::GUARD);
         }
 
-        $role = Role::create([
-            'name' => RoleEnum::SUPER_ADMIN,
-            'display_name' => json_encode(['en' => 'Super Admin', 'ar' => 'مدير النظام']),
-            'guard_name' => self::GUARD]);
-
-        foreach ($permissions as $perm) {
-            $role->givePermissionTo($perm);
-        }
+        // Collision-proof: seeded databases already carry canonical roles.
+        // Reuse by name+guard; syncPermissions guarantees the exact set this
+        // test needs. All inside the test transaction (rolled back).
+        $role = $this->findOrCreateTestRole(
+            RoleEnum::SUPER_ADMIN,
+            json_encode(['en' => 'Super Admin', 'ar' => 'مدير النظام']),
+            $permissions);
 
         $user = User::create([
             'name' => 'Super Admin',
@@ -182,17 +204,21 @@ class RoleAndPermissionTest extends TestCase
     private function createCustomerUser(): User
     {
         Permission::findOrCreate(PermissionEnum::CUSTOMER, self::GUARD);
-        $role = Role::create([
-            'name' => RoleEnum::CUSTOMER,
-            'display_name' => json_encode(['en' => 'Customer', 'ar' => 'عميل']),
-            'guard_name' => self::GUARD]);
-        $role->givePermissionTo(PermissionEnum::CUSTOMER);
+        $role = $this->findOrCreateTestRole(
+            RoleEnum::CUSTOMER,
+            json_encode(['en' => 'Customer', 'ar' => 'عميل']),
+            [PermissionEnum::CUSTOMER]);
 
         $user = User::create([
             'name' => 'Customer',
             'email' => 'customer@example.com',
             'password' => Hash::make('password'),
             'email_verified_at' => now(),
+            // DB default is type='user', which assignRole explicitly rejects
+            // (CANNOT_ASSIGN_ROLE_TO_USER). Customers are a distinct type in
+            // live data; set it so role targets are eligible. No test asserts
+            // on this value (verified by grep: only model_type/mime_type hits).
+            'type' => 'customer',
             'is_active' => true]);
 
         $user->assignRole($role);
@@ -233,8 +259,12 @@ class RoleAndPermissionTest extends TestCase
         $response->assertJsonStructure([
             'status', 'message', 'success',
             'data' => [
+                // RoleResource shape: id/name/display_name/created_at/
+                // updated_at (+permissions when loaded). `guard_name` is
+                // deliberately not exposed by the resource — the 2026 test
+                // expectation predates that contract and was corrected here.
                 'data' => [
-                    '*' => ['id', 'display_name', 'name', 'guard_name', 'created_at', 'updated_at']],
+                    '*' => ['id', 'display_name', 'name', 'created_at', 'updated_at']],
                 'page', 'current_page', 'from', 'to', 'last_page', 'path', 'per_page', 'total',
                 'next_page_url', 'prev_page_url', 'last_page_url', 'first_page_url']]);
     }
@@ -341,7 +371,8 @@ class RoleAndPermissionTest extends TestCase
 
         $this->assertDatabaseHas('model_has_roles', [
             'role_id' => $role->id,
-            'model_id' => $customer->id]);
+            'model_id' => $customer->id,
+            'model_type' => $customer->getMorphClass()]);
 
         $response = $this->deleteJson(self::PREFIX . "/roles/{$role->id}");
 
@@ -522,7 +553,8 @@ class RoleAndPermissionTest extends TestCase
 
         $targetUser = $this->createCustomerUser();
 
-        $response = $this->postJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
+        // Registered route is PATCH (update semantics); POST was a test bug (405).
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
             'role_ids' => [$role->id]]);
 
         $response->assertOk();
@@ -533,7 +565,8 @@ class RoleAndPermissionTest extends TestCase
 
         $this->assertDatabaseHas('model_has_roles', [
             'role_id' => $role->id,
-            'model_id' => $targetUser->id]);
+            'model_id' => $targetUser->id,
+            'model_type' => $targetUser->getMorphClass()]);
     }
 
     public function test_assign_role_to_nonexistent_user_returns_error(): void
@@ -546,7 +579,7 @@ class RoleAndPermissionTest extends TestCase
             'display_name' => json_encode(['en' => 'Ghost', 'ar' => 'شبح']),
             'guard_name' => self::GUARD]);
 
-        $response = $this->postJson(self::PREFIX . '/users/99999/assign-role', [
+        $response = $this->patchJson(self::PREFIX . '/users/99999/assign-role', [
             'role_ids' => [$role->id]]);
 
         $response->assertStatus(500);
@@ -559,7 +592,7 @@ class RoleAndPermissionTest extends TestCase
 
         $targetUser = $this->createCustomerUser();
 
-        $response = $this->postJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
             'role_ids' => [99999]]);
 
         $response->assertStatus(422);
@@ -582,10 +615,66 @@ class RoleAndPermissionTest extends TestCase
             'email_verified_at' => now(),
             'is_active' => true]);
 
-        $response = $this->postJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
             'role_ids' => [$role->id]]);
 
         $response->assertStatus(403);
+    }
+
+    public function test_non_super_admin_cannot_grant_super_admin_role(): void
+    {
+        // SEC-004 regression: an actor holding ASSIGN_ROLE but NOT super_admin
+        // must get 403 when the request includes the super_admin role — and no
+        // pivot row may be written.
+        Permission::findOrCreate(PermissionEnum::ASSIGN_ROLE, self::GUARD);
+        $actor = User::create([
+            'name' => 'Role Manager',
+            'email' => 'role-manager@example.com',
+            'password' => Hash::make('password'),
+            'email_verified_at' => now(),
+            'type' => 'admin',
+            'is_active' => true]);
+        $actor->givePermissionTo(PermissionEnum::ASSIGN_ROLE);
+        // Self-prove the actor premise: holds the permission, lacks the role.
+        $this->assertTrue($actor->hasPermissionTo(PermissionEnum::ASSIGN_ROLE));
+        $this->assertFalse($actor->hasRole(RoleEnum::SUPER_ADMIN));
+        Sanctum::actingAs($actor);
+
+        $superAdminRoleId = $this->findOrCreateTestRole(
+            RoleEnum::SUPER_ADMIN,
+            json_encode(['en' => 'Super Admin', 'ar' => 'مدير النظام']),
+        )->id;
+        $targetUser = $this->createCustomerUser();
+
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
+            'role_ids' => [$superAdminRoleId]]);
+
+        $response->assertStatus(403);
+        $this->assertDatabaseMissing('model_has_roles', [
+            'role_id' => $superAdminRoleId,
+            'model_id' => $targetUser->id,
+            'model_type' => $targetUser->getMorphClass()]);
+    }
+
+    public function test_super_admin_can_grant_super_admin_role(): void
+    {
+        // Guard must not over-block: a super_admin holder granting
+        // super_admin succeeds (inside the test transaction; rolled back).
+        $user = $this->createSuperAdminUser();
+        Sanctum::actingAs($user);
+
+        $superAdminRoleId = Role::where('name', RoleEnum::SUPER_ADMIN)
+            ->where('guard_name', self::GUARD)->firstOrFail()->id;
+        $targetUser = $this->createCustomerUser();
+
+        $response = $this->patchJson(self::PREFIX . "/users/{$targetUser->id}/assign-role", [
+            'role_ids' => [$superAdminRoleId]]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('model_has_roles', [
+            'role_id' => $superAdminRoleId,
+            'model_id' => $targetUser->id,
+            'model_type' => $targetUser->getMorphClass()]);
     }
 
     // ==================== REMOVE ROLE ====================
@@ -595,10 +684,9 @@ class RoleAndPermissionTest extends TestCase
         $user = $this->createSuperAdminUser();
         Sanctum::actingAs($user);
 
-        $role = Role::create([
-            'name' => RoleEnum::EDITOR,
-            'display_name' => json_encode(['en' => 'Editor', 'ar' => 'محرر']),
-            'guard_name' => self::GUARD]);
+        $role = $this->findOrCreateTestRole(
+            RoleEnum::EDITOR,
+            json_encode(['en' => 'Editor', 'ar' => 'محرر']));
         $targetUser = $this->createCustomerUser();
         $targetUser->assignRole($role);
 
@@ -610,7 +698,8 @@ class RoleAndPermissionTest extends TestCase
 
         $this->assertDatabaseMissing('model_has_roles', [
             'role_id' => $role->id,
-            'model_id' => $targetUser->id]);
+            'model_id' => $targetUser->id,
+            'model_type' => $targetUser->getMorphClass()]);
     }
 
     public function test_remove_role_from_nonexistent_user_returns_error(): void
@@ -634,10 +723,9 @@ class RoleAndPermissionTest extends TestCase
         $user = $this->createCustomerUser();
         Sanctum::actingAs($user);
 
-        $role = Role::create([
-            'name' => RoleEnum::EDITOR,
-            'display_name' => json_encode(['en' => 'Editor', 'ar' => 'محرر']),
-            'guard_name' => self::GUARD]);
+        $role = $this->findOrCreateTestRole(
+            RoleEnum::EDITOR,
+            json_encode(['en' => 'Editor', 'ar' => 'محرر']));
         $targetUser = User::create([
             'name' => 'Target2',
             'email' => 'target2@example.com',

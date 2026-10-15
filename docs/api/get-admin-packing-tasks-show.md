@@ -15,7 +15,7 @@ Returns one packing task with station detail inside the caller's warehouse scope
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/packing-tasks/{id}` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route) |
 | Path composition | `api/v1` prefix + `admin/packing-tasks/{id}` custom `Route::get(...)->name('api.admin.packing-tasks.show')` in `packages/marvel/src/Rest/Routes.php` inside the `['api', 'auth:sanctum', 'throttle:admin']` group with route-level `permission:view-fulfillment` |
-| Controller action | `App\Http\Controllers\Api\Admin\Wms\PackingController@show(int $id)` → `whereKey->firstOrFail` (miss → 404 fixed; nothing precedes the lookup — code-verified); `authorizeWarehouseScope(task→fulfillment warehouse, 'view-fulfillment', asNotFound: TRUE)` (cross-warehouse → 404 anti-enumeration, NEVER 403 — code-verified; null hop fails closed to deny — code-verified); `loadMissing(packingStation:id,code,name,warehouse_id)` → 200 `PackingTaskDetailResource`. Pure read (code-verified) |
+| Controller action | `App\Http\Controllers\Api\Admin\Wms\PackingController@show(int $id)` → `whereKey->firstOrFail` (miss → 404 fixed; nothing precedes the lookup — code-verified); `authorizeWarehouseScope(task→fulfillment warehouse, 'view-fulfillment', asNotFound: TRUE)` (cross-warehouse → 404 anti-enumeration, NEVER 403 — code-verified; null hop fails closed to deny — code-verified); `loadMissing(packingStation:id,code,name,warehouse_id, fulfillment.items.product, fulfillment.items.productVariant.attributeProducts.attributeValue.attribute, fulfillment.items.productLocation.location)` → 200 `PackingTaskDetailResource`. Pure read (code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group; no constructor middleware) |
 | Permission | Required: `view-fulfillment` (route pipe + scope check — BOTH the same permission) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
@@ -50,9 +50,9 @@ No query parameters, body fields, or validation-driven `422`.
 
 # Responses
 
-## Success: task detail — HTTP 200 (station block included)
+## Success: task detail — HTTP 200 (station + items included)
 
-Returned via `ApiResponse::apiResponse(__('wms.packing.task_fetched'), 200, true, PackingTaskDetailResource::make(...))` — translated at the call site (`en` → `"Packing task fetched successfully."`, verified in `resources/lang/en/wms.php:94`). The `station` block appears only when the relation is loaded (controller always loads it — code-verified); it carries NO station `status` (code-verified absence — `{id, code, name, warehouse_id}` only).
+Returned via `ApiResponse::apiResponse(__('wms.packing.task_fetched'), 200, true, PackingTaskDetailResource::make(...))` — translated at the call site (`en` → `"Packing task fetched successfully."`, verified in `resources/lang/en/wms.php:94`). The `station` block appears only when the relation is loaded (controller always loads it — code-verified); it carries NO station `status` (code-verified absence — `{id, code, name, warehouse_id}` only). The `items` block resolves via `fulfillment.items` (controller always loads `fulfillment.items.product`, `productVariant.*`, `productLocation.location` — code-verified) and is enriched with `product`/`variant`/`location` (working-tree addition).
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
@@ -64,6 +64,7 @@ Returned via `ApiResponse::apiResponse(__('wms.packing.task_fetched'), 200, true
 | `data.dimensions` | array/null | Always present | Pack dimensions | Set at pack time |
 | `data.package_materials` | array/null | Always present | Materials used | Set at pack time |
 | `data.notes` | string/null | Always present | Operator notes | e.g. cancel/verify reason |
+| `data.items` | array/null | Present when `fulfillment` loaded (always here — controller loads `fulfillment.items.*`); null when inner `items` not loaded, key absent when `fulfillment` itself not loaded (resource gates on `whenLoaded('fulfillment')`) | Fulfillment lines for this task | `[{id, order_item_id, product_id, product_variant_id, product_location_id, quantity (float), quantity_picked (float), status, product{id, name, sku, product_type, thumbnail}/null, variant{id, sku, price, stock_quantity, attributes[]}/null, location{id, code, name, barcode}/null}]` (working-tree addition via `FormatsWmsProductVariant`; `location.id` is the `productLocation` pivot id, `code`/`name`/`barcode` come from the nested warehouse `location`) |
 | `data.assigned_at` | string/null | Always present | Assignment time | ISO-8601 |
 | `data.started_at` | string/null | Always present | Start time | ISO-8601 |
 
@@ -88,6 +89,21 @@ Returned via `ApiResponse::apiResponse(__('wms.packing.task_fetched'), 200, true
     "dimensions": null,
     "package_materials": null,
     "notes": null,
+    "items": [
+      {
+        "id": 3,
+        "order_item_id": 5,
+        "product_id": 10,
+        "product_variant_id": null,
+        "product_location_id": 3,
+        "quantity": 2.0,
+        "quantity_picked": 2.0,
+        "status": "picked",
+        "product": {"id": 10, "name": "FP", "sku": "SKU-FUL-1", "product_type": "simple", "thumbnail": null},
+        "variant": null,
+        "location": {"id": 3, "code": "FA-01", "name": "Bin", "barcode": "FA-LOC-01"}
+      }
+    ],
     "assigned_at": "2026-10-14T10:00:00+00:00",
     "started_at": "2026-10-14T10:05:00+00:00",
     "packed_at": null,

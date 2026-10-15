@@ -517,7 +517,11 @@ Schema::create('users', function (Blueprint $table) {
         $product = $this->createProduct([
             'price' => 100.00,
             'has_discount' => true,
-            'discount_type' => 'fixed',
+            // Canonical enum value (DiscountType::FIXED_RATE). The 'fixed'
+            // alias is coerced to '' by the products.discount_type ENUM and
+            // would silently compute percentage math (100x0.85 == 100-15 here,
+            // masking the bug this test guards).
+            'discount_type' => 'fixed_rate',
             'discount_amount' => 15,
         ]);
 
@@ -699,7 +703,9 @@ Schema::create('users', function (Blueprint $table) {
         $product = $this->createProduct([
             'price' => 100.00,
             'has_discount' => true,
-            'discount_type' => 'fixed',
+            // Canonical enum value — see order_item_stores_correct_... above:
+            // 'fixed' is silently coerced by the ENUM and computed 130x0.85.
+            'discount_type' => 'fixed_rate',
             'discount_amount' => 15,
         ]);
         $variant = $this->createVariant($product, ['price' => 130.00]);

@@ -731,6 +731,8 @@ class PermissionSeeder extends Seeder
             'view-fulfillment', 'manage-fulfillment',
             'picking-execute', 'packing-execute',
             'fulfillment-override', 'inventory-adjust',
+            // Q-08: independent warehouse-workflow permission.
+            'manage-warehouse-workflow',
             // Granular operational permissions (§28 — additive, assignable).
             'fulfillment.create', 'fulfillment.cancel',
             'picking.claim', 'picking.complete',

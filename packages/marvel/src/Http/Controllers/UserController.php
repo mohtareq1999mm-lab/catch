@@ -5,8 +5,10 @@ namespace Marvel\Http\Controllers;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -124,7 +126,7 @@ class UserController extends CoreController
             $filterTrash = $request->boolean('trash');
             $active = $request->boolean('active');
             $inActive = $request->boolean('in_active');
-            $limit = $request->limit ? $request->limit : 15;
+            $limit = min(max((int) ($request->limit ?: 15), 1), 100);
             $query = $this->repository->with(['permissions']);
 
             if ($filterTrash) {
@@ -156,8 +158,14 @@ class UserController extends CoreController
                 });
             }
 
-            $orderBy = $request->query('order_by', 'created_at');
-            $sort = $request->query('sort', 'desc');
+            // SEC-009: allowlisted ordering (matches InvoiceController pattern) —
+            // raw `order_by`/`sort` previously flowed straight into orderBy().
+            $allowedOrderBy = ['created_at', 'name', 'email', 'id'];
+            $requestedOrderBy = $request->query('order_by', 'created_at');
+            $orderBy = in_array($requestedOrderBy, $allowedOrderBy, true) ? $requestedOrderBy : 'created_at';
+            // NOTE: `limit` > 100 intentionally clamps to 100 (matches InvoiceController).
+            $requestedSort = $request->query('sort', 'desc');
+            $sort = (is_string($requestedSort) && strtolower($requestedSort) === 'asc') ? 'asc' : 'desc';
             $query = $query->orderBy($orderBy, $sort);
 
             $users = $query->paginate($limit)->withQueryString();
@@ -548,7 +556,9 @@ if (!$user || !Hash::check($request->password, $user->password)) {
             $user = User::where('phone_number', $request->phone_number)->where('is_active', true)->first();
         }
         if (!$user) {
-            return $this->apiResponse(USER_NOT_FOUND, 404, false);
+            // Anti-enumeration (SEC-001): identical success response for
+            // unknown/inactive accounts; no OTP is created or dispatched.
+            return $this->apiResponse(OTP_SENT_SUCCESSFULLY, 200, true, []);
         }
         $data = [];
         if ($request->email) {
@@ -577,9 +587,14 @@ if (!$user || !Hash::check($request->password, $user->password)) {
             'email' => 'required|email',
             'code' => 'required|min:4|max:6',
         ]);
+        $lockoutKey = $this->authVerifyLockoutKey('otp_email', (string) $request->email);
+        if ($this->isAuthVerifyLockedOut($lockoutKey)) {
+            return $this->authVerifyLockoutResponse();
+        }
         $user = User::where('email', $request->email)->where('is_active', true)->first();
 
         if (!$user) {
+            $this->recordAuthVerifyFailure($lockoutKey);
             return $this->apiResponse(USER_NOT_FOUND, 404, false);
         }
 
@@ -591,9 +606,11 @@ if ($user->verifyOneTimePassword($request->code)) {
             $data = [
                 "token" => $user->createToken('auth_token',[],now()->addWeek())->plainTextToken,
             ];
+            $this->clearAuthVerifyFailures($lockoutKey);
             return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, $data);
         }
 
+        $this->recordAuthVerifyFailure($lockoutKey);
         return $this->apiResponse(INVALID_OTP, 400, false);
     }
 
@@ -798,10 +815,17 @@ if ($user->verifyOneTimePassword($request->code)) {
             'otp' => 'required|string',
         ]);
 
+        $lockoutKey = $this->authVerifyLockoutKey('pwd_verify', (string) $request->email);
+        if ($this->isAuthVerifyLockedOut($lockoutKey)) {
+            return $this->authVerifyLockoutResponse();
+        }
+
         if ($this->checkResetToken($request)) {
+            $this->clearAuthVerifyFailures($lockoutKey);
             return $this->apiResponse(TOKEN_IS_VALID, 200, true);
         }
 
+        $this->recordAuthVerifyFailure($lockoutKey);
         return $this->apiResponse(INVALID_TOKEN, 400, false);
     }
 
@@ -841,8 +865,13 @@ if ($user->verifyOneTimePassword($request->code)) {
         ]);
 
         try {
-            return DB::transaction(function () use ($request) {
+            $lockoutKey = $this->authVerifyLockoutKey('pwd_reset', (string) $request->email);
+            if ($this->isAuthVerifyLockedOut($lockoutKey)) {
+                return $this->authVerifyLockoutResponse();
+            }
+            return DB::transaction(function () use ($request, $lockoutKey) {
                 if (!$this->checkResetToken($request)) {
+                    $this->recordAuthVerifyFailure($lockoutKey);
                     return $this->apiResponse(INVALID_TOKEN, 400, false);
                 }
 
@@ -854,6 +883,7 @@ if ($user->verifyOneTimePassword($request->code)) {
 
                 DB::table('password_resets')->where('email', $user->email)->delete();
 
+                $this->clearAuthVerifyFailures($lockoutKey);
                 return $this->apiResponse(PASSWORD_RESET_SUCCESSFUL, 200, true);
             });
         } catch (\Exception $th) {
@@ -1033,6 +1063,52 @@ $userCreated->providers()->updateOrCreate(
         }
     }
 
+    /**
+     * Per-account brute-force guard (SEC-001/SEC-006 hardening).
+     *
+     * Tunables (documented defaults; raise/lower without migration):
+     * max 5 failures, then HTTP 429 for 15 minutes. Counter lives in the
+     * application cache (auto-expires with a sliding window — each failure
+     * re-arms the TTL; per-node unless cache is centralized)
+     * and is cleared on the next success. Keys are sha1-hashed so no PII
+     * lands in the cache store. This complements (never replaces) the
+     * IP-based `throttle:otp` / `throttle:sensitive` route middleware.
+     */
+    private const AUTH_VERIFY_MAX_ATTEMPTS = 5;
+    private const AUTH_VERIFY_LOCKOUT_MINUTES = 15;
+
+    private function authVerifyLockoutKey(string $kind, string $value): string
+    {
+        return 'auth_verify_fail_' . $kind . '_' . sha1(strtolower(trim($value)));
+    }
+
+    private function isAuthVerifyLockedOut(string $key): bool
+    {
+        return (int) Cache::get($key, 0) >= self::AUTH_VERIFY_MAX_ATTEMPTS;
+    }
+
+    private function recordAuthVerifyFailure(string $key): void
+    {
+        Cache::put($key, (int) Cache::get($key, 0) + 1, now()->addMinutes(self::AUTH_VERIFY_LOCKOUT_MINUTES));
+    }
+
+    private function clearAuthVerifyFailures(string $key): void
+    {
+        Cache::forget($key);
+    }
+
+    private function authVerifyLockoutResponse()
+    {
+        // Follows the ApiResponse envelope (status included) so strict
+        // clients keep working; message key matches the route rate-limiters.
+        return response()->json([
+            'status' => 429,
+            'success' => false,
+            'message' => __('message.too_many_requests'),
+            'data' => null,
+        ], 429);
+    }
+
     protected function verifyOtp(Request $request)
     {
         $id = $request->otp_id;
@@ -1114,18 +1190,28 @@ $userCreated->providers()->updateOrCreate(
             if ($request->has("email")) {
                 return $this->verifyLoginOtp($request);
             }
+            $phone = (string) $request->input('phone_number', '');
+            $lockoutKey = $this->authVerifyLockoutKey('otp_phone', $phone);
+            if ($phone !== '' && $this->isAuthVerifyLockedOut($lockoutKey)) {
+                return $this->authVerifyLockoutResponse();
+            }
             if ($request->has("phone_number") && $this->verifyOtp($request)) {
                 $user = User::where('phone_number', $request->phone_number)->first();
                 if (!$user) {
+                    $this->recordAuthVerifyFailure($lockoutKey);
                     return $this->apiResponse(REQUIRED_INFO_MISSING, 404, false);
                 } else {
                     $user = User::where('id', $user->id)->first();
                 }
 
                 $token = $user->createToken('auth_token',[],now()->addWeek())->plainTextToken;
+                $this->clearAuthVerifyFailures($lockoutKey);
 
                 return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, ['token' => $token]);
             } else {
+                if ($phone !== '') {
+                    $this->recordAuthVerifyFailure($lockoutKey);
+                }
                 return $this->apiResponse(OTP_VERIFICATION_FAILED, 400, false);
             }
         } catch (\Throwable $e) {
@@ -1136,11 +1222,14 @@ $userCreated->providers()->updateOrCreate(
     public function updateContact(UpdateContactRequest $request)
     {
         $phoneNumber = $request->phone_number;
-        $user_id = $request->user_id;
+        // SEC-002 self-only: the authenticated caller is authoritative. Any
+        // client-supplied `user_id` is ignored (still accepted as nullable by
+        // UpdateContactRequest for backward compatibility).
+        $user_id = auth()->id();
 
         try {
             if ($this->verifyOtp($request)) {
-                $user = User::find($user_id);
+                $user = User::findOrFail($user_id);
                 $user->profile()->updateOrCreate(
                     ['customer_id' => $user_id],
                     [
@@ -1153,6 +1242,9 @@ $userCreated->providers()->updateOrCreate(
                 ];
             }
             return $this->apiResponse(CONTACT_UPDATE_FAILED, 400, false);
+        } catch (ModelNotFoundException $e) {
+            // Authenticated id vanished mid-request: 404, not a gateway error.
+            throw new MarvelException(NOT_FOUND);
         } catch (\Exception $e) {
             return $this->apiResponse(INVALID_GATEWAY, 422, false);
         }

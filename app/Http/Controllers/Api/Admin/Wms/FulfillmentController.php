@@ -297,7 +297,14 @@ class FulfillmentController extends WmsAdminController
     private function loadDetail(Fulfillment $fulfillment): Fulfillment
     {
         $fulfillment->loadMissing([
-            'order', 'warehouse', 'assignedUser', 'items', 'packingTasks', 'shipments',
+            'order',
+            'warehouse',
+            'assignedUser',
+            'items.product',
+            'items.productVariant.attributeProducts.attributeValue.attribute',
+            'items.productLocation.location',
+            'packingTasks',
+            'shipments',
         ]);
 
         $itemIds = $fulfillment->items->pluck('id');

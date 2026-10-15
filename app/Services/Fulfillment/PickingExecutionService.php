@@ -85,11 +85,22 @@ class PickingExecutionService
 
     /**
      * Release a claim back to the pool (keeps picked progress for resume).
+     *
+     * WMS-RELEASE-001: terminal tasks never reopen. The HTTP adapter
+     * pre-checks open states, but the service is the authoritative boundary —
+     * a concurrent completion between the read and this lock must still
+     * refuse instead of resurrecting picked/skipped/cancelled work to pending.
      */
     public function releaseClaim(PickingTask $task, int $userId, bool $override = false): PickingTask
     {
         return DB::transaction(function () use ($task, $userId, $override) {
             $locked = PickingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
+
+            if (in_array($locked->status, ['picked', 'skipped', 'cancelled'], true)) {
+                throw new \RuntimeException(
+                    __('wms.picking.release_terminal', ['id' => $locked->id, 'status' => $locked->status])
+                );
+            }
 
             if (!$override && (int) $locked->claimed_by !== $userId) {
                 throw new \RuntimeException(__('wms.picking.claimed_other', ['id' => $locked->id]));

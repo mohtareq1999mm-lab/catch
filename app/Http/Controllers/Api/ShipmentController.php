@@ -29,9 +29,12 @@ class       ShipmentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        // Capped pagination (InvoiceController / UserController pattern) —
+        // previously an unbounded `limit` could exhaust memory.
+        $limit = min(max((int) $request->get('limit', 15), 1), 100);
         $shipments = $this->shipmentService->list(
             $request->only(['order_id', 'status', 'courier', 'tracking_number', 'from', 'to']),
-            (int) $request->get('limit', 15),
+            $limit,
         );
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, ShipmentResource::collection($shipments));

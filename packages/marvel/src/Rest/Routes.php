@@ -65,7 +65,7 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 
 /**
- * Authentication Routes - Rate Limited (10/min per IP)
+ * Authentication Routes - Rate Limited (5/min per IP, `throttle:login`)
  * Protects against brute force and credential stuffing
  *
  */
@@ -80,7 +80,9 @@ Route::middleware(['throttle:login', 'lang'])->group(function () {
 });
 // Logout is not rate limited - users should always be able to log out
 Route::post('/logout', [UserController::class, 'logout'])->middleware('auth:sanctum', 'lang');
-Route::get('me', [UserController::class, 'me'])->middleware('auth:sanctum', 'lang');
+// NOTE: the canonical `GET me` route lives in the admin group below
+// (auth:sanctum + throttle:admin + lang). Do not re-add a duplicate here:
+// duplicate method+URI shadows at runtime (route:list shows one winner).
 
 /**
  * Password Reset Routes - Rate Limited (5/min per IP)
@@ -93,8 +95,9 @@ Route::middleware(['throttle:sensitive', 'lang'])->group(function () {
 });
 
 /**
- * OTP Routes - DISABLED
- * Uncomment if you need phone-based authentication
+ * OTP Routes - ACTIVE (phone-based authentication via `throttle:otp`, 3/min per IP).
+ * Previously mislabeled DISABLED while the routes were registered; the comment
+ * now matches the executable code. To disable, remove the group below.
  */
 Route::middleware(['throttle:otp', 'lang'])->group(function () {
     Route::post('/send-otp-code', [UserController::class, 'sendUserOtp']);
@@ -102,21 +105,31 @@ Route::middleware(['throttle:otp', 'lang'])->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'lang'])->group(function () {
-    Route::post('/change-password', [UserController::class, 'changePassword']);
-    Route::post('/update-contact', [UserController::class, 'updateContact']); // for phone number
-    Route::apiResource('address', AddressController::class);
+    Route::post('/change-password', [UserController::class, 'changePassword'])->middleware('throttle:sensitive');
+    // SEC-002: self-only contact update; client `user_id` is accepted but ignored
+    // (backward compat) — the authenticated caller's id is authoritative.
+    Route::post('/update-contact', [UserController::class, 'updateContact'])->middleware('throttle:sensitive'); // for phone number
+    Route::apiResource('address', AddressController::class)->middleware('throttle:authenticated');
 });
 /**
  * ******************************************
  * Available Public Routes
  * ******************************************
  */
+// Public contact inbox only. Every other contact endpoint requires auth (SEC-003:
+// defense in depth — constructor `permission:` checks remain, but bulk-delete and
+// reply are no longer one misconfiguration away from unauthenticated access).
 Route::middleware(["throttle:sensitive", "lang"])->group(function () {
-    Route::post('contacts/{id}/reply', [ContactController::class, 'sendReply']);
     Route::post('contact-us', [ContactController::class, 'store']);
+    // Public `POST /contacts` alias of the inbox (kept: ContactAuthenticationTest
+    // + ContactAuthorizationTest expect unauthenticated 201 here).
+    Route::post('contacts', [ContactController::class, 'store'])->name('contacts.store');
+});
+Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
+    Route::post('contacts/{id}/reply', [ContactController::class, 'sendReply']);
     Route::delete('contacts/delete-all', [ContactController::class, 'deleteAll']);
     Route::delete('contacts/delete-all-read', [ContactController::class, 'deleteAllReadContacts']);
-    Route::apiResource('contacts', ContactController::class)->except(['update']);
+    Route::apiResource('contacts', ContactController::class)->except(['update', 'store']);
 });
 
 Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
@@ -582,6 +595,13 @@ Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:a
 // exact proposed contract is verified present without forking behavior.
 Route::prefix('admin/wms/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.wms.locations.products.destroy');
+});
+
+// Warehouse Workflow (Q-08): global config, independent permission on every route.
+Route::prefix('admin/warehouse-workflow')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'show'])->middleware('permission:manage-warehouse-workflow')->name('api.admin.warehouse-workflow.show');
+    Route::get('/history', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'history'])->middleware('permission:manage-warehouse-workflow')->name('api.admin.warehouse-workflow.history');
+    Route::post('/publish', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'publish'])->middleware('permission:manage-warehouse-workflow')->name('api.admin.warehouse-workflow.publish');
 });
 
 // Fulfillment Phase 9 (P9-3): Fulfillment admin surface. Command routes only —

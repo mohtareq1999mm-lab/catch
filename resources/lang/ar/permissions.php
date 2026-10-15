@@ -329,6 +329,7 @@ return [
     'packing-execute' => 'تنفيذ التغليف',
     'fulfillment-override' => 'تجاوز التنفيذ',
     'inventory-adjust' => 'تسوية المخزون',
+    'manage-warehouse-workflow' => 'إدارة سير عمل المستودع',
     'fulfillment.create' => 'إنشاء عملية تنفيذ',
     'fulfillment.cancel' => 'إلغاء عملية التنفيذ',
     'picking.claim' => 'المطالبة بمهمة الالتقاط',

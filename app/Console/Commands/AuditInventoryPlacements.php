@@ -100,16 +100,24 @@ class AuditInventoryPlacements extends Command
             if (!empty($check['note'])) {
                 $this->line('    ('.$check['note'].')');
             }
-            foreach (array_slice($check['samples'], 0, 5) as $sample) {
+            $shown = array_slice($check['samples'], 0, 5);
+            foreach ($shown as $sample) {
                 $this->line('    - '.json_encode($sample, JSON_UNESCAPED_UNICODE));
             }
+            if (count($check['samples']) > count($shown)) {
+                $this->line(sprintf('    (showing %d of %d sampled, %d total in check)', count($shown), count($check['samples']), $check['count']));
+            }
+        }
+
+        $this->line(sprintf('Total findings: %d', $findings['total_findings']));
+        if (!empty($findings['overall_note'])) {
+            $this->line('('.$findings['overall_note'].')');
         }
 
         $this->info(match ($findings['status']) {
             self::STATUS_CLEAN => 'Placement audit clean — every required check ran with no discrepancies.',
             self::STATUS_FINDINGS => "Placement audit found {$findings['total_findings']} finding(s) — business decision required, nothing was repaired.",
-            default => 'Placement audit could not complete reliably — see ERROR checks above'
-                .($findings['overall_note'] ? ' ('.$findings['overall_note'].')' : '').'; do not treat this as clean.',
+            default => 'Placement audit could not complete reliably — see ERROR checks above; do not treat this as clean.',
         });
 
         return $findings['status'] === self::STATUS_CLEAN ? self::SUCCESS : self::FAILURE;
@@ -195,16 +203,22 @@ class AuditInventoryPlacements extends Command
         }
 
         if ($hasError) {
-            return ['status' => self::STATUS_ERROR, 'overall_note' => null];
-        }
-        if ($hasFindings) {
-            return ['status' => self::STATUS_FINDINGS, 'overall_note' => null];
-        }
-        if (count($blockingSkips) > 0) {
-            return ['status' => self::STATUS_ERROR, 'overall_note' => 'Required checks left unevaluated: '.implode(', ', $blockingSkips).'. Do not treat as clean.'];
+            $status = self::STATUS_ERROR;
+        } elseif ($hasFindings) {
+            $status = self::STATUS_FINDINGS;
+        } elseif (count($blockingSkips) > 0) {
+            $status = self::STATUS_ERROR;
+        } else {
+            $status = self::STATUS_CLEAN;
         }
 
-        return ['status' => self::STATUS_CLEAN, 'overall_note' => null];
+        // Coexisting unevaluated invariants are never dropped from the summary,
+        // whatever the overall status is.
+        $note = count($blockingSkips) > 0
+            ? 'Required checks left unevaluated: '.implode(', ', $blockingSkips).'. Do not treat as clean.'
+            : null;
+
+        return ['status' => $status, 'overall_note' => $note];
     }
 
     /**
@@ -246,7 +260,11 @@ class AuditInventoryPlacements extends Command
      *
      * Starts from placement groups; SKUs with NO placement rows are covered by
      * `unplaced_stock`, not here. Missing authority rows are owned by
-     * `invalid_refs`, not here.
+     * `invalid_refs`, not here (INNER JOIN excludes them by construction).
+     *
+     * Memory-bounded by design: the HAVING clause pushes drift filtering into
+     * the database, so both passes stream only drifting groups (chunked) —
+     * never the full SKU population. No unbounded get(), no giant whereIn().
      *
      * Warehouse-scoped runs SKIP this check: the authority is global while a
      * scoped placed_sum covers one warehouse, so comparing them would
@@ -258,52 +276,55 @@ class AuditInventoryPlacements extends Command
             return ['count' => 0, 'samples' => [], 'status' => self::STATUS_SKIPPED, 'message' => '', 'note' => 'skipped: authority is global, scope is per-warehouse', 'blocking' => false];
         }
 
-        // Two passes keep memory bounded: first collect distinct authority IDs
-        // (small key sets), then compare per-SKU groups in chunks.
-        $idRows = $scope(DB::table('product_locations')
-            ->selectRaw('DISTINCT product_id, product_variant_id'))->get();
-        $variantIds = $idRows->whereNotNull('product_variant_id')->pluck('product_variant_id')->unique()->values();
-        $productIds = $idRows->whereNull('product_variant_id')->pluck('product_id')->unique()->values();
-        $variantStocks = $variantIds->isEmpty() ? collect()
-            : DB::table('product_variants')->whereIn('id', $variantIds)->pluck('stock_quantity', 'id');
-        $productStocks = $productIds->isEmpty() ? collect()
-            : DB::table('products')->whereIn('id', $productIds)->pluck('stock_quantity', 'id');
+        $buildSimple = fn () => $scope(DB::table('product_locations')
+            ->join('products', 'products.id', '=', 'product_locations.product_id')
+            ->whereNull('product_locations.product_variant_id')
+            ->selectRaw('product_locations.product_id, NULL as product_variant_id, SUM(product_locations.quantity) as placed, products.stock_quantity as authority')
+            ->groupBy('product_locations.product_id', 'products.stock_quantity')
+            ->havingRaw('ABS(SUM(product_locations.quantity) - products.stock_quantity) > 0.0001')
+            ->orderBy('product_locations.product_id'));
 
-        $samples = [];
+        $buildVariant = fn () => $scope(DB::table('product_locations')
+            ->join('product_variants', 'product_variants.id', '=', 'product_locations.product_variant_id')
+            ->selectRaw('product_locations.product_id, product_locations.product_variant_id, SUM(product_locations.quantity) as placed, product_variants.stock_quantity as authority')
+            ->groupBy('product_locations.product_id', 'product_locations.product_variant_id', 'product_variants.stock_quantity')
+            ->havingRaw('ABS(SUM(product_locations.quantity) - product_variants.stock_quantity) > 0.0001')
+            ->orderBy('product_locations.product_id')->orderBy('product_locations.product_variant_id'));
+
+        $simpleSamples = [];
+        $variantSamples = [];
         $count = 0;
-        $scope(DB::table('product_locations')
-            ->selectRaw('product_id, product_variant_id, SUM(quantity) as placed')
-            ->groupBy('product_id', 'product_variant_id')
-            ->orderBy('product_id')->orderBy('product_variant_id'))
-            ->chunk(1000, function ($rows) use (&$samples, &$count, $variantStocks, $productStocks) {
-                foreach ($rows as $row) {
-                    if ($row->product_variant_id !== null) {
-                        if (!$variantStocks->has($row->product_variant_id)) {
-                            continue; // missing authority is owned by invalid_refs
-                        }
-                        $authority = $variantStocks->get($row->product_variant_id);
-                    } else {
-                        if (!$productStocks->has($row->product_id)) {
-                            continue;
-                        }
-                        $authority = $productStocks->get($row->product_id);
-                    }
-
-                    if (abs((float) $row->placed - (float) $authority) > 0.0001) {
-                        $count++;
-                        if (count($samples) < 10) {
-                            $samples[] = [
-                                'product_id' => (int) $row->product_id,
-                                'product_variant_id' => $row->product_variant_id !== null ? (int) $row->product_variant_id : null,
-                                'placed_sum' => (float) $row->placed,
-                                'authority_stock' => (float) $authority,
-                            ];
-                        }
-                    }
+        $buildSimple()->chunk(1000, function ($rows) use (&$simpleSamples, &$count) {
+            $count += count($rows);
+            foreach ($rows as $row) {
+                if (count($simpleSamples) >= 5) {
+                    break;
                 }
-            });
+                $simpleSamples[] = [
+                    'product_id' => (int) $row->product_id,
+                    'product_variant_id' => null,
+                    'placed_sum' => (float) $row->placed,
+                    'authority_stock' => (float) $row->authority,
+                ];
+            }
+        });
+        $buildVariant()->chunk(1000, function ($rows) use (&$variantSamples, &$count) {
+            $count += count($rows);
+            foreach ($rows as $row) {
+                if (count($variantSamples) >= 5) {
+                    break;
+                }
+                $variantSamples[] = [
+                    'product_id' => (int) $row->product_id,
+                    'product_variant_id' => (int) $row->product_variant_id,
+                    'placed_sum' => (float) $row->placed,
+                    'authority_stock' => (float) $row->authority,
+                ];
+            }
+        });
+        $samples = array_merge($simpleSamples, $variantSamples);
 
-        return ['count' => $count, 'samples' => $samples, 'message' => 'One count per drifting SKU group; samples capped at 10. Remediation: receive/transfer/adjust through StockOperationService; never write authority from hints.'];
+        return ['count' => $count, 'samples' => $samples, 'message' => 'One count per drifting SKU group (database-filtered, streamed); samples capped at 10. Remediation: receive/transfer/adjust through StockOperationService; never write authority from hints.'];
     }
 
     /**
@@ -456,9 +477,9 @@ class AuditInventoryPlacements extends Command
         $samples = [];
         $scope(DB::table('product_locations')
             ->selectRaw('product_id, COALESCE(product_variant_id, 0) as variant_key, location_id, COUNT(*) as dup_rows')
-            ->groupBy('product_id', 'variant_key', 'location_id')
+            ->groupByRaw('product_id, COALESCE(product_variant_id, 0), location_id')
             ->havingRaw('COUNT(*) > 1')
-            ->orderBy('product_id')->orderBy('location_id'))
+            ->orderByRaw('product_id, COALESCE(product_variant_id, 0), location_id'))
             ->chunk(1000, function ($groups) use (&$count, &$samples) {
                 $count += count($groups);
                 foreach ($groups->take(max(0, 10 - count($samples))) as $g) {

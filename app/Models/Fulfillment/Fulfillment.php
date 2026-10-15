@@ -16,6 +16,7 @@ class Fulfillment extends Model
     protected $fillable = [
         'order_id',
         'warehouse_id',
+        'warehouse_workflow_version_id',
         'fulfillment_number',
         'idempotency_key',
         'status',
@@ -56,7 +57,19 @@ class Fulfillment extends Model
                     $fulfillment->{$snapshot} = $fulfillment->getOriginal($snapshot);
                 }
             }
+
+            // Q-04: workflow version pinned at creation, never rewritten.
+            // Write-once (including NULL legacy): any post-creation change
+            // is reverted to preserve in-progress work under its version.
+            if ($fulfillment->isDirty('warehouse_workflow_version_id') && ! $fulfillment->wasRecentlyCreated) {
+                $fulfillment->warehouse_workflow_version_id = $fulfillment->getOriginal('warehouse_workflow_version_id');
+            }
         });
+    }
+
+    public function workflowVersion(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\WarehouseWorkflowVersion::class, 'warehouse_workflow_version_id');
     }
 
     public function order(): BelongsTo

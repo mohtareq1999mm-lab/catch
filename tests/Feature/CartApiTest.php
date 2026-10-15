@@ -14,8 +14,10 @@ use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\Product;
+use Marvel\Database\Models\Promotion;
 use Marvel\Database\Models\User;
 use Marvel\Enums\ProductType;
+use Marvel\Enums\PromotionType;
 use Tests\Concerns\CreatesTestTables;
 use Tests\TestCase;
 
@@ -706,9 +708,26 @@ $response = $this->postJson(self::PREFIX . '/general/coupons/apply', [
         $this->assertNotNull($cart);
 
         $cartItem = $cart->items()->first();
+        // FK-safe: cart_items.promotion_id references promotions.id — use a
+        // real promotion row (the subject is gift/regular separation, where
+        // 999 was only a marker value, never a real FK target).
+        $promotion = Promotion::create([
+            'name' => 'Gift Marker',
+            'slug' => 'gift-marker-' . Str::random(6),
+            'code' => 'GIFT-' . Str::random(6),
+            'type' => PromotionType::PRICE,
+            'type_amount' => 'percentage',
+            'value' => 10,
+            'discount' => 10,
+            'minimum_order_amount' => 0,
+            'apply_to' => 'all_products',
+            'status' => true,
+            'start_at' => Carbon::yesterday()->format('Y-m-d'),
+            'end_at' => Carbon::tomorrow()->format('Y-m-d'),
+        ]);
         $cartItem->update([
             'is_gift' => true,
-            'promotion_id' => 999,
+            'promotion_id' => $promotion->id,
             'price' => 0,
             'total_price' => 0,
         ]);
@@ -729,7 +748,7 @@ $response = $this->postJson(self::PREFIX . '/general/coupons/apply', [
         $this->assertEquals(1, $giftItem->quantity, 'Gift item quantity unchanged');
         $this->assertEquals(3, $regularItem->quantity, 'Regular item has updated quantity');
         $this->assertEquals(0, $giftItem->price, 'Gift item price still 0');
-        $this->assertEquals(999, $giftItem->promotion_id, 'Gift item promotion preserved');
+        $this->assertEquals($promotion->id, $giftItem->promotion_id, 'Gift item promotion preserved');
     }
 
     // =========================================================================

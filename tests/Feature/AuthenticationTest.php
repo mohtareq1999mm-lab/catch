@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
@@ -119,14 +120,20 @@ class AuthenticationTest extends TestCase
 
     public function test_logout_revokes_token()
     {
+        // Relative baseline: seeded/non-empty databases already hold tokens.
+        // Intent preserved: logout must delete exactly the token it revoked.
+        $baselineTokens = DB::table('personal_access_tokens')->count();
         $token = $this->user->createToken('auth_token')->plainTextToken;
+        $tokenId = (int) explode('|', $token)[0];
 
         $response = $this->withToken($token)->postJson(self::PREFIX . '/logout');
 
         $response->assertStatus(200);
         $response->assertJsonPath('success', true);
 
-        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->assertDatabaseCount('personal_access_tokens', $baselineTokens);
+        // Token-scoped proof (not just the count): THIS token row is gone.
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $tokenId]);
     }
 
     public function test_logout_without_token_returns_401()
@@ -138,11 +145,14 @@ class AuthenticationTest extends TestCase
 
     public function test_token_is_invalid_after_logout()
     {
+        $baselineTokens = DB::table('personal_access_tokens')->count();
         $token = $this->user->createToken('auth_token')->plainTextToken;
+        $tokenId = (int) explode('|', $token)[0];
 
         $this->withToken($token)->postJson(self::PREFIX . '/logout');
 
-        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->assertDatabaseCount('personal_access_tokens', $baselineTokens);
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $tokenId]);
     }
 
     // =========================================================================
@@ -284,6 +294,9 @@ class AuthenticationTest extends TestCase
 
     public function test_different_users_get_different_tokens()
     {
+        // Relative baseline (see test_logout_revokes_token): intent is that
+        // two created tokens are distinct and both persisted.
+        $baselineTokens = DB::table('personal_access_tokens')->count();
         $user2 = User::create([
             'name' => 'User Two',
             'email' => 'user2@example.com',
@@ -297,6 +310,6 @@ class AuthenticationTest extends TestCase
 
         $this->assertNotEquals($token1, $token2);
 
-        $this->assertDatabaseCount('personal_access_tokens', 2);
+        $this->assertDatabaseCount('personal_access_tokens', $baselineTokens + 2);
     }
 }

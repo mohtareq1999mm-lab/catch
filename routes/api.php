@@ -182,8 +182,12 @@ Route::prefix('v1/general')->group(function () {
             ->whereUuid('entitlement')->whereUuid('asset')
             ->name('general.digital.url');
 
-        // Digital product downloads via temporary SIGNED urls (no Sanctum at
-        // redemption). Ownership is enforced when the URL is issued; the controller
+        // Digital product downloads via temporary SIGNED urls. Note: this group
+        // enforces `auth:sanctum` (outer) + `signed` + `throttle:30,1`, so
+        // redemption currently requires BOTH a session and a valid signature.
+        // If guest (signature-only) redemption is intended, this route must be
+        // moved out of the sanctum group — product decision, not done here.
+        // Ownership is enforced when the URL is issued; the controller
         // re-checks entitlement status, asset ownership and the download limit.
         Route::get('digital/download/{entitlement}/{asset}', [\App\Http\Controllers\Api\General\DigitalDownloadController::class, 'download'])
             ->middleware(['signed', 'throttle:30,1'])
@@ -215,13 +219,12 @@ Route::prefix('v1/general/invoices')->middleware(['signed', 'throttle:30,1'])->g
         ->whereUuid('uuid')->name('general.invoices.download');
 });
 
-// Digital product downloads via temporary SIGNED urls (no Sanctum at
-// redemption). Ownership is enforced when the URL is issued; the controller
-// re-checks entitlement status, asset ownership and the download limit.
-Route::get('v1/general/digital/download/{entitlement}/{asset}', [\App\Http\Controllers\Api\General\DigitalDownloadController::class, 'download'])
-    ->middleware(['signed', 'throttle:30,1'])
-    ->whereUuid('entitlement')->whereUuid('asset')
-    ->name('general.digital.download');
+// NOTE: the signed digital-download route lives inside the `v1/general` group
+// above (same name `general.digital.download`; effective middleware
+// `auth:sanctum` (outer) + `signed` + `throttle:30,1`). A top-level
+// signed-only duplicate was removed (RT-003): it was already shadowed at
+// runtime (first-registered wins), so removal is a no-op. Guest
+// (signature-only) redemption would require un-nesting — product decision.
 
 // Admin tracking dashboard
 Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {

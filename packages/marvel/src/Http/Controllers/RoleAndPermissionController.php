@@ -180,6 +180,11 @@ class RoleAndPermissionController extends CoreController
                 return $this->apiResponse(CANNOT_ASSIGN_ROLE_TO_USER, 400, false);
             }
             $roles = Role::whereIn('id', $request->role_ids)->where('guard_name', 'api')->get();
+            // SEC-004: only SUPER_ADMIN holders may grant the super_admin role.
+            // Any other actor attempting it gets 403 (existing message key, no new strings).
+            if ($roles->contains(fn ($r) => $r->name === RoleEnum::SUPER_ADMIN) && !($request->user()?->hasRole(RoleEnum::SUPER_ADMIN, 'api') ?? false)) {
+                return $this->apiResponse(CANNOT_ASSIGN_ROLE_TO_USER, 403, false);
+            }
             $user->syncRoles($roles)->load('roles','permissions');
 
             return $this->apiResponse(ROLE_ASSIGNED_SUCCESSFULLY, 200, true, UserResource::make($user));
@@ -199,6 +204,11 @@ class RoleAndPermissionController extends CoreController
             ]);
             $user = User::findOrFail($userId);
             $roles = Role::whereIn('id', $request->role_ids)->where('guard_name', 'api')->get();
+            // SEC-004: only SUPER_ADMIN holders may remove the super_admin role
+            // (prevents privilege stripping by lower-privileged staff).
+            if ($roles->contains(fn ($r) => $r->name === RoleEnum::SUPER_ADMIN) && !($request->user()?->hasRole(RoleEnum::SUPER_ADMIN, 'api') ?? false)) {
+                return $this->apiResponse(CANNOT_ASSIGN_ROLE_TO_USER, 403, false);
+            }
             foreach ($roles as $role) {
                 $user->removeRole($role);
             }

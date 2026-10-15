@@ -247,7 +247,9 @@ class PhoneOnlyE2ETest extends TestCase
             'policy' => '1',
         ]);
         $response->assertStatus(422);
-        $response->assertJsonStructure(['email']);
+        // Canonical 422 envelope (Handler-wrapped): {message, status, errors}.
+        // Intent: the email field carries the validation error.
+        $response->assertJsonStructure(['errors' => ['email']]);
     }
 
     /** @test */
@@ -264,7 +266,7 @@ class PhoneOnlyE2ETest extends TestCase
             'policy' => '1',
         ]);
         $response->assertStatus(422);
-        $response->assertJsonStructure(['email']);
+        $response->assertJsonStructure(['errors' => ['email']]);
     }
 
     // -----------------------------------------------------------------

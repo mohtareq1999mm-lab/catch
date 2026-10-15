@@ -63,12 +63,12 @@ Valid request driving a transition (test-verified call):
 
 ## Success: transition accepted — HTTP 200 (PLAIN shape with a stale echo)
 
-Plain `response()->json(['success' => true, 'message' => ..., 'data' => ...])` — NO `status` key (code-verified shape difference from `ApiResponse` actions). Verified by `test_admin_with_shipment_permission_can_update` (`assertOk`, `postJson`; persistence proven separately: `shipment_status: in_transit`, `tracking_number: TRK-1`).
+Plain `response()->json(['success' => true, 'message' => ..., 'data' => ...])` — NO `status` key (code-verified shape difference from `ApiResponse` actions). Message via `__('message.MESSAGE.SHIPMENT_STATUS_UPDATED_SUCCESSFULLY')` (`message.php:638`, NO period). Verified by `test_admin_with_shipment_permission_can_update` (`assertOk`, `postJson`; persistence proven separately: `shipment_status: in_transit`, `tracking_number: TRK-1`).
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
 | `success` | boolean | Always present | Outcome flag | Always `true` on success |
-| `message` | string | Always present | Literal (untranslated) | Always `"Shipment status updated successfully"` |
+| `message` | string | Always present | Translated `message.MESSAGE.SHIPMENT_STATUS_UPDATED_SUCCESSFULLY` (`message.php:638` — note NO trailing period, unlike `ORDER_NOT_FOUND`/`UNAUTHENTICATED`) | Always `"Shipment status updated successfully"` |
 | `data` | object | Always present on success | Result payload (keys verified) | `order_id`, `shipment_status` (FRESH re-read — trustworthy), `tracking_number` (STALE pre-event instance echo — code-verified asymmetry; trust the show endpoint for confirmation, not this echo) |
 
 ```json
@@ -89,18 +89,18 @@ No error-code field; every error below has Error code `None`. Success/error shap
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (code-traced) | See 401 example |
+| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (WITH period, `message.ERROR.UNAUTHENTICATED` — Handler:170, code-verified) | None | No valid token (code-traced) | See 401 example |
 | 403 | Authenticated caller holds NEITHER `update-shipment` NOR `create-shipment` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Customer (verified by `test_customer_cannot_mutate_admin_shipment` → 403, plus `shipment_status` proven UNCHANGED) | See 403 example |
 | 405 | `PUT`/`PATCH`/`GET` on this path (only `POST` registered) | `{message: string, status: boolean}` | None | `"Method Not Allowed"` | None | Wrong method (code-traced) | See 405 example |
-| 422 | Manual validation fails (missing/unknown `status`, overlong strings, non-array `location_data`, bad date) | `{message: string, status: boolean, errors: object}` | None | Laravel default (`validate()` throw → `Handler` validation branch) | Field → messages | Invalid body (code-traced; no validation test found) | See 422 example |
-| 500 | Unknown `{orderId}` (miss → total catch → 500, NOT 404 — code-verified wart, the inverse of the show sibling) OR transition/listener failure (logged with order id; the transaction rolls back but the log line persists) | `{success: boolean, message: string}` (PLAIN shape, no `status` key) | None | `"Failed to update shipment status"` (literal controller text) | None | Unknown id or transition failure (code-traced) | See 500 example |
+| 422 | Manual validation fails (missing/unknown `status`, overlong strings, non-array `location_data`, bad date) | `{message: string, status: boolean, errors: object}` | None | `"The given data was invalid."` (`message.ERROR.INVALID_DATA` — `validate()` throw → `Handler` validation branch; field texts live in `errors`) | Field → messages | Invalid body (code-traced; no validation test found) | See 422 example |
+| 500 | Unknown `{orderId}` (miss → total catch → 500, NOT 404 — code-verified wart, the inverse of the show sibling) OR transition/listener failure (logged with order id; the transaction rolls back but the log line persists) | `{success: boolean, message: string}` (PLAIN shape, no `status` key) | None | `"Failed to update shipment status"` via `__('message.ERROR.SHIPMENT_STATUS_UPDATE_FAILED')` (`message.php:639`, NO period) | None | Unknown id or transition failure (code-traced) | See 500 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
 401 example:
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```
@@ -127,7 +127,7 @@ No error-code field; every error below has Error code `None`. Success/error shap
 
 ```json
 {
-  "message": "The status field is required.",
+  "message": "The given data was invalid.",
   "status": false,
   "errors": {
     "status": ["The status field is required."]

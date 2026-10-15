@@ -25,7 +25,8 @@ class FulfillmentService
      * Phase 3: deterministic idempotency key for AUTOMATIC releases
      * (payment-success / COD-placement triggers). Stable per order, so any
      * replay of the same automatic trigger reuses the one fulfillment row.
-     * Namespace `auto-release-order-` is reserved for this mechanism —
+     * Namespace `auto-release-order-{numericId}` (anchored exact match —
+     * see isAutomaticKey) is reserved for this mechanism —
      * operator/explicit split keys must not use it (UNIQUE backstop stays).
      */
     public static function automaticReleaseKey(int $orderId): string
@@ -51,6 +52,18 @@ class FulfillmentService
      *
      * @throws \RuntimeException when the order is not releasable.
      */
+    /**
+     * Whether the key belongs to the automatic release namespace
+     * (`auto-release-order-{id}`). Automatic triggers (payment success,
+     * COD placement, release-ready sweeper) share one deterministic key per
+     * order so replays converge. Custom keys are explicit split intent and
+     * keep the legacy bypass semantics.
+     */
+    public static function isAutomaticKey(?string $key): bool
+    {
+        return $key !== null && preg_match('/^auto-release-order-\d+$/', $key) === 1;
+    }
+
     public function releaseForOrder(Order $order, ?int $warehouseId = null, ?string $idempotencyKey = null): Fulfillment
     {
         // Single transaction: idempotency check + order lock + pending reuse
@@ -72,13 +85,20 @@ class FulfillmentService
             $warehouse = $this->warehouses->resolveForNewFulfillment($warehouseId);
             $resolvedWarehouseId = $warehouse->id;
 
-            if ($idempotencyKey === null) {
-                // P2-3: single-warehouse fulfillment — a normal (keyless)
-                // release must not open a second warehouse for an order that
-                // already has a non-cancelled fulfillment elsewhere. Keyed
-                // calls are explicit split intent (split via distinct keys)
-                // and bypass this guard. The order row lock above serializes
-                // concurrent releases, so this check cannot race.
+            // OF-001: automatic keys are NOT split intent. A keyed automatic
+            // replay must converge on the same row as a prior keyless release
+            // (same order + warehouse) instead of opening a duplicate pending
+            // fulfillment that stalls FulfillmentOrderSyncService aggregation.
+            // Custom (non-auto) keys preserve explicit-split bypass semantics.
+            $isSplitIntent = $idempotencyKey !== null && !self::isAutomaticKey($idempotencyKey);
+
+            if (!$isSplitIntent) {
+                // P2-3: single-warehouse fulfillment — a normal release must
+                // not open a second warehouse for an order that already has a
+                // non-cancelled fulfillment elsewhere. Keyed custom splits
+                // (explicit operator intent via distinct keys) bypass this
+                // guard. The order row lock above serializes concurrent
+                // releases, so this check cannot race.
                 $foreign = Fulfillment::where('order_id', $fresh->id)
                     ->where('status', '!=', 'cancelled')
                     ->where('warehouse_id', '!=', $resolvedWarehouseId)
@@ -96,7 +116,33 @@ class FulfillmentService
                     ->lockForUpdate()
                     ->first();
                 if ($pending) {
-                    return $pending;
+                    // Claim a keyless pending row for the automatic namespace
+                    // (NULL-only, never overwrite a split key) so the next
+                    // automatic replay hits the key path above.
+                    if ($idempotencyKey !== null && $pending->idempotency_key === null) {
+                        $pending->update(['idempotency_key' => $idempotencyKey]);
+                    }
+
+                    return $pending->fresh();
+                }
+
+                // WMS-001: a keyless/automatic release must not open a second
+                // same-warehouse fulfillment alongside an active one (picking,
+                // packing, ...). The extra pending drags sync aggregation and
+                // splits operational work. Return the existing active row
+                // instead; explicit same-warehouse splits still use custom keys.
+                $active = Fulfillment::where('order_id', $fresh->id)
+                    ->where('warehouse_id', $resolvedWarehouseId)
+                    ->where('status', '!=', 'cancelled')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->first();
+                if ($active) {
+                    if ($idempotencyKey !== null && $active->idempotency_key === null) {
+                        $active->update(['idempotency_key' => $idempotencyKey]);
+                    }
+
+                    return $active->fresh();
                 }
             }
 
@@ -179,9 +225,20 @@ class FulfillmentService
             // (code/name) is write-once history: set via forceFill so later
             // mass-assignment can never rewrite it; deletes are restricted
             // while fulfillments reference the row.
+            // Q-04: pin workflow version at creation. NULL = legacy (no version
+            // published yet) → safe legacy behavior. Guarded by hasColumn/hasTable
+            // so code deployed before the migration still runs. Infra errors
+            // propagate fail-closed (never silently pin NULL on DB failure).
+            $pinnedVersionId = null;
+            if (\Illuminate\Support\Facades\Schema::hasColumn('fulfillments', 'warehouse_workflow_version_id')
+                && \Illuminate\Support\Facades\Schema::hasTable('warehouse_workflow_versions')) {
+                $pinnedVersionId = app(\App\Services\Warehouse\WarehouseWorkflowService::class)->resolvePinnedVersionId();
+            }
+
             $fulfillment = Fulfillment::create([
                 'order_id' => $order->id,
                 'warehouse_id' => $warehouseId,
+                'warehouse_workflow_version_id' => $pinnedVersionId,
                 'fulfillment_number' => $fulfillmentNumber,
                 'status' => 'pending',
                 'priority' => $this->determinePriority($order),
@@ -224,6 +281,7 @@ class FulfillmentService
                 'fulfillment_number' => $fulfillmentNumber,
                 'order_id' => $order->id,
                 'warehouse_id' => $warehouseId,
+                'workflow_version_id' => $pinnedVersionId,
                 'items_count' => $fulfillment->items()->count(),
             ]);
 

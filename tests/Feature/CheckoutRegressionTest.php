@@ -45,7 +45,31 @@ class CheckoutRegressionTest extends TestCase
         Config::set('scout.driver', 'null');
 
         $this->createTestTables();
+        // Legacy `variation_options` table (Variation model) exists in neither
+        // migrations nor live DBs — only in this suite's mini-schema. Ensure
+        // it independently of the users-table early-return inside
+        // createTestTables so the deductStock tests run on seeded databases.
+        $this->ensureVariationOptionsTable();
         $this->seedBaseData();
+    }
+
+    private function ensureVariationOptionsTable(): void
+    {
+        if (Schema::hasTable('variation_options')) {
+            return;
+        }
+
+        Schema::create('variation_options', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
+            $table->string('sku')->nullable();
+            $table->decimal('price', 10, 2)->default(0);
+            $table->integer('stock_quantity')->default(0);
+            $table->integer('reserved_quantity')->default(0);
+            $table->integer('sold_quantity')->default(0);
+            $table->boolean('in_stock')->default(true);
+            $table->timestamps();
+        });
     }
 
     private function createTestTables(): void
@@ -136,17 +160,9 @@ class CheckoutRegressionTest extends TestCase
             $table->softDeletes();
         });
 
-        Schema::create('variation_options', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
-            $table->string('sku')->nullable();
-            $table->decimal('price', 10, 2)->default(0);
-            $table->integer('stock_quantity')->default(0);
-            $table->integer('reserved_quantity')->default(0);
-            $table->integer('sold_quantity')->default(0);
-            $table->boolean('in_stock')->default(true);
-            $table->timestamps();
-        });
+        // NOTE: `variation_options` is ensured by ensureVariationOptionsTable()
+        // (called from setUp) so it also exists on seeded databases where the
+        // users-table early-return above skips this whole block.
 
         Schema::create('product_variants', function (Blueprint $table) {
             $table->id();

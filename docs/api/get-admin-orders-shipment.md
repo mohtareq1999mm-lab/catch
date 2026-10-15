@@ -15,7 +15,7 @@ Returns one order's shipment fields as plain JSON with no message key and no per
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/orders/{orderId}/shipment` |
 | Path composition | `api/v1` prefix + `admin/orders/{orderId}/shipment` from the `Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group in `packages/marvel/src/Rest/Routes.php` with route-level ANY-of `permission:view-shipment\|view-shipments\|view-orders\|view-order` (four-way pipe — any one passes; source comment cites SEC-1 as the reason this pipe exists at all). NOTE the group middleware has NO `lang` entry (unlike the Marvel group) — there is no locale behavior on this action |
-| Controller action | `App\Http\Controllers\Api\Admin\ShipmentController@show(string $orderId)` — a PLAIN `Controller` with NO constructor middleware (group supplies auth; no in-controller permission check — the route pipe alone decides). `Order::findOrFail` miss (or any `Exception`) → plain 404 `'Order not found'` (literal message, NOT a translated key and NOT the fixed resource string — code-verified). Success is plain `response()->json` (NOT `ApiResponse` — there is NO `status` key and NO `message` key on success; code-verified shape difference) |
+| Controller action | `App\Http\Controllers\Api\Admin\ShipmentController@show(string $orderId)` — a PLAIN `Controller` with NO constructor middleware (group supplies auth; no in-controller permission check — the route pipe alone decides). `Order::findOrFail` miss (or any `Exception`) → plain 404 `__('message.ERROR.ORDER_NOT_FOUND')` (`message.php:592` → `"Order not found."` WITH period — translated, NOT the fixed `Resource Not Found` string — code-verified). Success is plain `response()->json` (NOT `ApiResponse` — there is NO `status` key and NO `message` key on success; code-verified shape difference) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group) |
 | Permission | Any ONE of `view-shipment` / `view-shipments` / `view-orders` / `view-order` via the route pipe (no constructor/inline check exists) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
@@ -80,9 +80,9 @@ No error-code field; every error below has Error code `None`.Shapes here are PLA
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing, invalid, revoked, or expired Sanctum token | `{message: string, status: boolean}` (group-middleware shape) | None | `"Unauthenticated"` | None | Any request without a valid token (code-traced; the twin cancel action pins 401 strictly in `test_cancel_unauthenticated_returns_401`) | See 401 example |
+| 401 | Missing, invalid, revoked, or expired Sanctum token | `{message: string, status: boolean}` (group-middleware shape) | None | `"Unauthenticated."` (WITH period, `message.ERROR.UNAUTHENTICATED` — Handler:170, code-verified) | None | Any request without a valid token (code-traced; the twin cancel action pins 401 strictly in `test_cancel_unauthenticated_returns_401`) | See 401 example |
 | 403 | Authenticated caller holds NONE of the four pipe permissions | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS`: `en` → `"User does not have the required permissions."` | None | Customer with no viewing permission (verified by `test_customer_cannot_read_admin_shipment` → 403) | See 403 example |
-| 404 | No order with `{orderId}` (ANY `Exception` → literal message — code-verified total catch) | `{success: boolean, message: string}` (PLAIN shape, no `status` key) | None | `"Order not found"` (literal controller text — neither translated nor the fixed resource string) | None | Unknown numeric id (code-traced; no show-miss test found) | See 404 example |
+| 404 | No order with `{orderId}` (ANY `Exception` → translated message — code-verified total catch) | `{success: boolean, message: string}` (PLAIN shape, no `status` key) | None | `"Order not found."` (WITH period via `__('message.ERROR.ORDER_NOT_FOUND')`, `message.php:592` — NOT the fixed `Resource Not Found` string) | None | Unknown numeric id (code-traced; no show-miss test found) | See 404 example |
 | 404 | Non-numeric `{orderId}` matches NO route (`whereNumber`) | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape) | None | Non-numeric segment | See 404-constraint example |
 | 429 | Exceeding `throttle:admin` (400/min per user id or IP) | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded for the caller key | See 429 example |
 
@@ -90,7 +90,7 @@ No error-code field; every error below has Error code `None`.Shapes here are PLA
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```
@@ -109,7 +109,7 @@ No error-code field; every error below has Error code `None`.Shapes here are PLA
 ```json
 {
   "success": false,
-  "message": "Order not found"
+  "message": "Order not found."
 }
 ```
 

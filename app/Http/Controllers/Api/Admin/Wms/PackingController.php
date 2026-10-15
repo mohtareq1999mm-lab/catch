@@ -96,7 +96,12 @@ class PackingController extends WmsAdminController
         $task = PackingTask::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($this->taskWarehouseId($task), 'view-fulfillment', true);
 
-        $task->loadMissing(['packingStation:id,code,name,warehouse_id']);
+        $task->loadMissing([
+            'packingStation:id,code,name,warehouse_id',
+            'fulfillment.items.product',
+            'fulfillment.items.productVariant.attributeProducts.attributeValue.attribute',
+            'fulfillment.items.productLocation.location',
+        ]);
 
         return $this->apiResponse(
             __('wms.packing.task_fetched'),

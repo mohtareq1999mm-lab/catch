@@ -430,7 +430,9 @@ class WmsPlacementAuditTest extends TestCase
         $this->assertNull($data['warehouse_id']);
         $this->assertSame(10, count($data['checks']));
         $this->assertSame(10, $data['status_counts']['clean']);
+        $this->assertSame(0, $data['status_counts']['findings'] + $data['status_counts']['skipped'] + $data['status_counts']['error']);
         $this->assertSame(0, $data['total_findings']);
+        $this->assertNull($data['overall_note']);
         $this->assertNotEmpty($data['total_findings_note']);
         foreach ($data['checks'] as $check) {
             $this->assertArrayHasKey('key', $check);
@@ -467,6 +469,12 @@ class WmsPlacementAuditTest extends TestCase
             {
                 return $this->runCheck($key, $c);
             }
+
+            /** @param array<int,array{status:string,blocking?:bool,key?:string}> $checks */
+            public function probeOverall(array $checks): array
+            {
+                return $this->overallStatus($checks);
+            }
         };
 
         $result = $probe->probe('boom', fn () => throw new \RuntimeException('snap'));
@@ -474,6 +482,45 @@ class WmsPlacementAuditTest extends TestCase
         $this->assertSame('error', $result['status']);
         $this->assertSame(0, $result['count']);
         $this->assertNotEmpty($result['message']);
+    }
+
+    public function test_overall_status_priority_is_fail_closed(): void
+    {
+        $probe = new class extends \App\Console\Commands\AuditInventoryPlacements
+        {
+            /** @param array<int,array{status:string,blocking?:bool,key?:string}> $checks */
+            public function probeOverall(array $checks): array
+            {
+                return $this->overallStatus($checks);
+            }
+        };
+
+        $clean = ['key' => 'a', 'status' => 'clean', 'count' => 0];
+        $findings = ['key' => 'b', 'status' => 'findings', 'count' => 2];
+        $error = ['key' => 'c', 'status' => 'error', 'count' => 0];
+        $scopeSkip = ['key' => 'd', 'status' => 'skipped', 'count' => 0, 'blocking' => false];
+        $schemaSkip = ['key' => 'e', 'status' => 'skipped', 'count' => 0, 'blocking' => true];
+
+        // Errors outrank findings: incompleteness must never hide as findings.
+        $this->assertSame('error', $probe->probeOverall([$clean, $findings, $error])['status']);
+        $this->assertSame('error', $probe->probeOverall([$error])['status']);
+        $this->assertSame('findings', $probe->probeOverall([$clean, $findings])['status']);
+        // Scope skips never block clean; missing-schema skips always do.
+        $this->assertSame('clean', $probe->probeOverall([$clean, $scopeSkip])['status']);
+        $mixed = $probe->probeOverall([$clean, $schemaSkip]);
+        $this->assertSame('error', $mixed['status']);
+        $this->assertStringContainsString('unevaluated', $mixed['overall_note'] ?? '');
+        $this->assertStringContainsString('e', $mixed['overall_note'] ?? '');
+        $this->assertSame('clean', $probe->probeOverall([$clean])['status']);
+        // Coexisting unevaluated invariants are kept in the summary, whatever
+        // the overall status is.
+        $both = $probe->probeOverall([$findings, $schemaSkip]);
+        $this->assertSame('findings', $both['status']);
+        $this->assertStringContainsString('unevaluated', $both['overall_note'] ?? '');
+        $errBoth = $probe->probeOverall([$error, $schemaSkip]);
+        $this->assertSame('error', $errBoth['status']);
+        $this->assertStringContainsString('unevaluated', $errBoth['overall_note'] ?? '');
+        $this->assertNull($probe->probeOverall([$clean])['overall_note']);
     }
 
     public function test_audit_writes_nothing(): void
@@ -491,7 +538,7 @@ class WmsPlacementAuditTest extends TestCase
 
         // Source-level guard: the command must contain no write operations.
         $source = file_get_contents(app_path('Console/Commands/AuditInventoryPlacements.php'));
-        foreach (['->insert(', '->update(', '->delete(', '::create(', '->decrement(', '->increment(', '->upsert(', 'DB::statement('] as $write) {
+        foreach (['->insert(', '->insertOrIgnore(', '->insertGetId(', 'DB::insert(', '->update(', '->updateQuietly(', 'DB::update(', '->delete(', '->forceDelete(', 'DB::delete(', '::create(', '->save(', '->saveQuietly(', '->forceFill(', '->touch(', '->firstOrCreate(', '->updateOrCreate(', '->restore(', '->truncate(', '->decrement(', '->increment(', '->upsert(', 'DB::statement(', 'DB::unprepared(', 'DB::affectingStatement(', 'Schema::create(', 'Schema::drop(', 'Schema::table(', '::dispatch(', '->dispatch(', 'event('] as $write) {
             $this->assertStringNotContainsString($write, $source, "Command source must stay read-only: found {$write}");
         }
     }
@@ -519,12 +566,18 @@ class WmsPlacementAuditTest extends TestCase
             $this->place($p->id, $this->location('AUD-SC'.$i)->id, 1);
         }
 
+        DB::enableQueryLog();
         $started = microtime(true);
         $result = $this->jsonAudit();
         $elapsed = microtime(true) - $started;
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
 
         $this->assertSame(0, $result['exit'], json_encode(array_slice($result['data']['checks'], 0, 3)));
         $this->assertLessThan(60, $elapsed);
+        // Query count is deterministic for this code path (~35 reads); a
+        // future N+1 regression trips this bound instead of hiding in timing.
+        $this->assertLessThan(100, $queries, "Audit ran {$queries} queries for 300 placements.");
     }
 
     /** @return array<string,mixed> */
@@ -536,9 +589,12 @@ class WmsPlacementAuditTest extends TestCase
             'products_reserved' => (float) DB::table('products')->sum('reserved_quantity'),
             'variants' => DB::table('product_variants')->count(),
             'variants_stock' => (float) DB::table('product_variants')->sum('stock_quantity'),
+            'variants_reserved' => (float) DB::table('product_variants')->sum('reserved_quantity'),
             'placements' => DB::table('product_locations')->count(),
             'placed_qty' => (float) DB::table('product_locations')->sum('quantity'),
             'placed_hint' => (float) DB::table('product_locations')->sum('allocated_hint'),
+            'warehouses' => DB::table('warehouses')->count(),
+            'locations' => DB::table('locations')->count(),
             'operations' => DB::table('inventory_operations')->count(),
             'orders' => DB::table('orders')->count(),
         ];

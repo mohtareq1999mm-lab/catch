@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Console\Commands\CancelUnpaidOrders;
 use App\Services\General\OrderService;
+use App\Services\Inventory\OrderReservationService;
 use App\Services\Payment\PaymentCheckoutHandler;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Database\Schema\Blueprint;
 use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Order;
@@ -469,14 +471,14 @@ Schema::create('users', function (Blueprint $table) {
             'options' => [],
         ]);
 
-        Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
-        Governorate::create([
-            'country_id' => 1,
+        $country = Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
+        $governorate = Governorate::create([
+            'country_id' => $country->id,
             'name' => 'Cairo',
             'status' => true,
         ]);
         \Marvel\Database\Models\ShippingPrice::create([
-            'governorate_id' => 1,
+            'governorate_id' => $governorate->id,
             'price' => 50.00,
             'estimated_days' => 3,
             'free_shipping_over' => 500.00,
@@ -515,10 +517,15 @@ Schema::create('users', function (Blueprint $table) {
         ]);
     }
 
-    private function createOrderWithPendingTransaction(string $paymentMethod = 'cod', ?string $invoiceId = null): Order
+    private function createOrderWithPendingTransaction(string $paymentMethod = 'cod', ?string $invoiceId = null, ?User $owner = null): Order
     {
+        // One pending order per user (partial unique index
+        // idx_orders_user_pending_unique) — callers creating several pendings
+        // must pass distinct owners; default preserves existing single-order
+        // tests (owner $this->user).
+        $owner = $owner ?? $this->user;
         $order = Order::create([
-            'user_id' => $this->user->id,
+            'user_id' => $owner->id,
             'name' => 'Test Order',
             'price' => 100.00,
             'total_price' => 100.00,
@@ -528,7 +535,7 @@ Schema::create('users', function (Blueprint $table) {
 
         Transaction::create([
             'order_id' => $order->id,
-            'user_id' => $this->user->id,
+            'user_id' => $owner->id,
             'payment_method' => $paymentMethod,
             'status' => 'pending',
             'amount' => 100.00,
@@ -536,6 +543,16 @@ Schema::create('users', function (Blueprint $table) {
         ]);
 
         return $order->fresh();
+    }
+
+    private function freshOwner(): User
+    {
+        return User::create([
+            'name' => 'Owner ' . Str::random(4),
+            'email' => 'owner-' . Str::random(6) . '@example.com',
+            'email_verified_at' => now(),
+            'password' => bcrypt('password'),
+        ]);
     }
 
     // ========== OrderService: markCashierPaid ==========
@@ -652,7 +669,11 @@ Schema::create('users', function (Blueprint $table) {
 
         $coupon = \Marvel\Database\Models\Coupon::create([
             'slug' => 'test10',
-            'discount_type' => 'fixed',
+            // Canonical enum value: Coupon::validateDiscount() rejects anything
+            // outside DiscountType::getValues(), and the coupons.discount_type
+            // ENUM coerces 'fixed' to '' (verified) — same alias trap as
+            // products (see OrderCreationFlowTest fixed_rate corrections).
+            'discount_type' => 'fixed_rate',
             'discount' => 10,
             'start_date' => now()->toDateString(),
             'end_date' => now()->addMonth()->toDateString(),
@@ -882,11 +903,21 @@ Schema::create('users', function (Blueprint $table) {
 
         Config::set('payment.order_timeout_hours', 1);
 
-        $freshOrder = $this->createOrderWithPendingTransaction('cod');
-        DB::table('orders')->where('id', $freshOrder->id)->update(['created_at' => now()]);
+        $freshOrder = $this->createOrderWithPendingTransaction('cod', null, $this->freshOwner());
+        // Reservation contract (reaper selects on inventory_state +
+        // reservation_expires_at, NOT created_at): fresh keeps a future expiry.
+        DB::table('orders')->where('id', $freshOrder->id)->update([
+            'created_at' => now(),
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->addHour(),
+        ]);
 
-        $expiredOrder = $this->createOrderWithPendingTransaction('pay_at_cashier');
-        DB::table('orders')->where('id', $expiredOrder->id)->update(['created_at' => now()->subHours(2)]);
+        $expiredOrder = $this->createOrderWithPendingTransaction('pay_at_cashier', null, $this->freshOwner());
+        DB::table('orders')->where('id', $expiredOrder->id)->update([
+            'created_at' => now()->subHours(2),
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->subHour(),
+        ]);
 
         $this->artisan('orders:cancel-unpaid')
             ->assertExitCode(0);
@@ -937,7 +968,11 @@ Schema::create('users', function (Blueprint $table) {
         Config::set('payment.order_timeout_hours', 1);
 
         $order = $this->createOrderWithPendingTransaction('cod');
-        DB::table('orders')->where('id', $order->id)->update(['created_at' => now()->subHours(2)]);
+        DB::table('orders')->where('id', $order->id)->update([
+            'created_at' => now()->subHours(2),
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->subHour(),
+        ]);
 
         $this->artisan('orders:cancel-unpaid');
 
@@ -945,28 +980,22 @@ Schema::create('users', function (Blueprint $table) {
     }
 
     /** @test */
-    public function cancel_unpaid_orders_uses_configurable_timeout()
+    public function reservation_timeout_matrix_is_configurable(): void
     {
+        // The reaper no longer reads payment.order_timeout_hours at selection
+        // time (it honors reservation_expires_at); configurability lives in
+        // OrderReservationService::timeoutHoursFor, applied at reserve time.
+        // pay_at_cashier falls in the 24h (non-COD) bucket.
         Config::set('payment.order_timeout_hours', 48);
+        Config::set('payment.cod_order_timeout_hours', 100);
 
-        $recentOrder = $this->createOrderWithPendingTransaction('cod');
-        DB::table('orders')->where('id', $recentOrder->id)->update(['created_at' => now()->subHours(24)]);
+        $onlineLike = new Order(['payment_method' => 'pay_at_cashier']);
+        $cod = new Order(['payment_method' => 'cod']);
 
-        $oldOrder = $this->createOrderWithPendingTransaction('cod');
-        DB::table('orders')->where('id', $oldOrder->id)->update(['created_at' => now()->subHours(72)]);
-
-        $this->artisan('orders:cancel-unpaid')
-            ->assertExitCode(0);
-
-        $this->assertDatabaseHas('orders', [
-            'id' => $recentOrder->id,
-            'status' => 'pending',
-        ]);
-
-        $this->assertDatabaseHas('orders', [
-            'id' => $oldOrder->id,
-            'status' => 'cancelled',
-        ]);
+        $this->assertSame(48, OrderReservationService::timeoutHoursFor($onlineLike));
+        $this->assertSame(100, OrderReservationService::timeoutHoursFor($cod));
+        // (File defaults in config/payment.php are static config, not
+        // behavior — intentionally not asserted here.)
     }
 
     /** @test */
@@ -980,7 +1009,20 @@ Schema::create('users', function (Blueprint $table) {
         $this->product->update(['reserved_quantity' => 1]);
 
         $order = $this->createOrderWithPendingTransaction('online', 'inv-cart-release');
-        DB::table('orders')->where('id', $order->id)->update(['created_at' => now()->subHours(2)]);
+        DB::table('orders')->where('id', $order->id)->update([
+            'created_at' => now()->subHours(2),
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->subHour(),
+        ]);
+        // Release decrements per ORDER lines: mirror the physical line so the
+        // reaper's release has stock to restore (cart setup alone is not read).
+        DB::table('order_products')->insert([
+            'order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'product_quantity' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $this->assertDatabaseHas('products', [
             'id' => $this->product->id,
@@ -1012,7 +1054,11 @@ Schema::create('users', function (Blueprint $table) {
         $this->product->update(['reserved_quantity' => 1]);
 
         $order = $this->createOrderWithPendingTransaction('cod');
-        DB::table('orders')->where('id', $order->id)->update(['created_at' => now()->subHours(2)]);
+        DB::table('orders')->where('id', $order->id)->update([
+            'created_at' => now()->subHours(2),
+            'inventory_state' => 'active',
+            'reservation_expires_at' => now()->subHour(),
+        ]);
 
         $this->artisan('orders:cancel-unpaid')
             ->assertExitCode(0);
@@ -1048,7 +1094,8 @@ Schema::create('users', function (Blueprint $table) {
         ]);
 
         $response->assertStatus(422);
-        $response->assertJsonStructure(['pickup_location_id']);
+        // Canonical 422 envelope (Handler-wrapped): {message, status, errors}.
+        $response->assertJsonStructure(['errors' => ['pickup_location_id']]);
     }
 
     /** @test */
@@ -1069,7 +1116,8 @@ Schema::create('users', function (Blueprint $table) {
         ]);
 
         $response->assertStatus(422);
-        $response->assertJsonStructure(['pickup_location_id']);
+        // Canonical 422 envelope (Handler-wrapped): {message, status, errors}.
+        $response->assertJsonStructure(['errors' => ['pickup_location_id']]);
     }
 
     /** @test */
@@ -1085,7 +1133,9 @@ Schema::create('users', function (Blueprint $table) {
             'address' => ['street' => 'Test St'],
             'fulfillment_type' => 'delivery',
             'payment_method' => 'cod',
-            'governorate_id' => 1,
+            // Real row id: hardcoded 1 breaks on reused databases where
+            // auto_increment has advanced (same class as the country fix).
+            'governorate_id' => DB::table('governorates')->value('id'),
         ]);
 
         $response->assertStatus(200);
@@ -1117,11 +1167,15 @@ Schema::create('users', function (Blueprint $table) {
     }
 
     /** @test */
-    public function payment_checkout_handler_uses_configured_currency()
+    public function payment_checkout_handler_uses_order_currency()
     {
-        Config::set('payment.default_currency', 'KWD');
-
+        // Contract (PaymentCurrencyResolver::forOrder): the ORDER's own
+        // currency wins (catalog_currency_code, then currency_code); the
+        // `payment.default_currency` config is only a fallback when catalog
+        // resolution throws. The old test set the config key and expected it
+        // to flow through — false premise, corrected here.
         $order = $this->createOrderWithPendingTransaction('cod');
+        DB::table('orders')->where('id', $order->id)->update(['catalog_currency_code' => 'KWD']);
         Transaction::where('order_id', $order->id)->delete();
 
         $handler = app(PaymentCheckoutHandler::class);

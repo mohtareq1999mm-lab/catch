@@ -15,7 +15,7 @@ Returns one fulfillment by numeric id with the bounded detail contract and maske
 | HTTP method | `GET` |
 | Full path | `/api/v1/admin/fulfillments/{id}` (explicit `{id}` placeholder with `whereNumber('id')` — non-numeric segments match NO route) |
 | Path composition | `api/v1` prefix + `admin/fulfillments/{id}` from the `Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])` group (named `api.admin.fulfillments.show`) in `packages/marvel/src/Rest/Routes.php` |
-| Controller action | `App\Http\Controllers\Api\Admin\Wms\FulfillmentController@show(int $id)` → `whereKey->firstOrFail` (miss escapes → 404 fixed); then `authorizeWarehouseScope(warehouse_id, 'view-fulfillment', asNotFound: TRUE)` — scoped denial converts to `NotFoundHttpException('Resource Not Found')` → SAME fixed text (code-verified anti-enumeration twin of warehouse/location show); then the bounded `loadDetail` assembly (six relations + two manual id-ordered sets — code-verified) |
+| Controller action | `App\Http\Controllers\Api\Admin\Wms\FulfillmentController@show(int $id)` → `whereKey->firstOrFail` (miss escapes → 404 fixed); then `authorizeWarehouseScope(warehouse_id, 'view-fulfillment', asNotFound: TRUE)` — scoped denial converts to `NotFoundHttpException('Resource Not Found')` → SAME fixed text (code-verified anti-enumeration twin of warehouse/location show); then the bounded `loadDetail` assembly (eight `loadMissing` paths — `order`, `warehouse`, `assignedUser`, `items.product`, `items.productVariant.*`, `items.productLocation.location`, `packingTasks`, `shipments` — plus two manual id-ordered sets `pickingTasksManual`/`packagesManual` — code-verified) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` (group; no constructor middleware) |
 | Permission | Required: `view-fulfillment` via the route pipe, PLUS home-scope (global `manage-warehouse` bypasses scope ONLY for that exact permission string — a `manage-warehouse`-only holder still fails THIS pipe; code-verified from the access helper + pipe) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
@@ -52,14 +52,14 @@ Valid request showing a fulfillment (test-compatible call):
 
 ## Success: bounded detail returned — HTTP 200 (contract-pinned keys AND absences)
 
-Returned via `ApiResponse::apiResponse('Fulfillment fetched successfully.', 200, true, FulfillmentDetailResource::make($detail))` (literal message). Verified by `test_show_returns_bounded_detail_contract` (200 + `success: true`, TEN required keys, TWO asserted absences, single-item proof, `getJson`).
+Returned via `ApiResponse::apiResponse(__('wms.fulfillment.fetched_one'), 200, true, FulfillmentDetailResource::make($detail))` — translated at the call site (`en` → `"Fulfillment fetched successfully."`, verified in `resources/lang/en/wms.php:65`). Verified by `test_show_returns_bounded_detail_contract` (200 + `success: true`, TEN required keys, TWO asserted absences, single-item proof, `getJson`).
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |
 | `status` | integer | Always present | Mirrors the HTTP status | Always `200` on success |
-| `message` | string | Always present | Literal (untranslated) | Always `"Fulfillment fetched successfully."` |
+| `message` | string | Always present | Translated `wms.fulfillment.fetched_one` | `en` → `"Fulfillment fetched successfully."` |
 | `success` | boolean | Always present | Outcome flag | Always `true` on success |
-| `data` | object | Always present on success | `FulfillmentDetailResource` (keys AND absences test-pinned) | PRESENT: `id`, `fulfillment_number`, `order_id`, `order{id, order_number, status}`, `warehouse_id`, `warehouse{id, code, name, status}`, `status`, `priority`, `assigned_to`, `assigned_user{id, name}`/null, `items[{id, order_item_id, product_id, product_variant_id, product_location_id, quantity, quantity_picked, status}]`, `picking_tasks[{id, fulfillment_item_id, batch_id, status, claimed_by, quantity_to_pick, quantity_picked}]`, `packing_tasks[{id, status, packing_station_id, assigned_to}]`, `packages[{id, packing_task_id, status, package_number}]`, `shipments[]` (shipment resources), `cancelled_by`, `cancel_source`, `notes`, eight `*_at` timestamps (ISO/null), `created_at`, `updated_at`. ABSENT by design: `allowed_actions` (P9-9 owns that contract), `metadata` |
+| `data` | object | Always present on success | `FulfillmentDetailResource` (keys AND absences test-pinned) | PRESENT: `id`, `fulfillment_number`, `order_id`, `order{id, order_number, status}`, `warehouse_id`, `warehouse{id, code, name, status}`, `status`, `priority`, `assigned_to`, `assigned_user{id, name}`/null, `items[{id, order_item_id, product_id, product_variant_id, product_location_id, quantity (float), quantity_picked (float), status, product{id, name, sku, product_type, thumbnail}/null, variant{id, sku, price, stock_quantity, attributes[]}/null, location{id, code, name, barcode}/null}]` (enriched via `FormatsWmsProductVariant` — working-tree addition; quantities now cast to float), `picking_tasks[{id, fulfillment_item_id, batch_id, status, claimed_by, quantity_to_pick, quantity_picked}]`, `packing_tasks[{id, status, packing_station_id, assigned_to}]`, `packages[{id, packing_task_id, status, package_number}]`, `shipments[]` (shipment resources), `cancelled_by`, `cancel_source`, `notes`, eight `*_at` timestamps (ISO/null), `created_at`, `updated_at`. ABSENT by design: `allowed_actions` (P9-9 owns that contract), `metadata` |
 
 ```json
 {
@@ -77,7 +77,21 @@ Returned via `ApiResponse::apiResponse('Fulfillment fetched successfully.', 200,
     "priority": null,
     "assigned_to": null,
     "assigned_user": null,
-    "items": [],
+    "items": [
+      {
+        "id": 1,
+        "order_item_id": 5,
+        "product_id": 10,
+        "product_variant_id": null,
+        "product_location_id": 3,
+        "quantity": 2.0,
+        "quantity_picked": 0.0,
+        "status": "pending",
+        "product": {"id": 10, "name": "FP", "sku": "SKU-FUL-1", "product_type": "simple", "thumbnail": null},
+        "variant": null,
+        "location": {"id": 3, "code": "FA-01", "name": "Bin", "barcode": "FA-LOC-01"}
+      }
+    ],
     "picking_tasks": [],
     "packing_tasks": [],
     "packages": [],
@@ -105,7 +119,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | Any request without a valid token (verified by the 401 matrix on show) | See 401 example |
+| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (WITH period, `message.ERROR.UNAUTHENTICATED` — Handler:170 + `resources/lang/en/message.php:575`, code-verified) | None | Any request without a valid token (verified by the 401 matrix on show) | See 401 example |
 | 403 | Authenticated caller lacks `view-fulfillment` (route pipe) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Homed permissionless user (verified 403 on show) | See 403 example |
 | 404 | No visible fulfillment with `{id}` — genuine miss, OR cross-warehouse read masked by anti-enumeration (byte-identical: fixed string, Handler shape) | `{message: string, status: boolean}` | None | `"Resource Not Found"` (fixed string) | None | Unknown id (verified by `test_show_missing_returns_404` for `999999`); foreign id (verified by `test_show_cross_warehouse_returns_404`) | See 404 example |
 | 404 | Non-numeric `{id}` matches NO route | `{message: string, status: boolean}` | None | `"Not Found"` (route-miss shape — different text, code-verified) | None | Non-numeric segment | See 404-constraint example |
@@ -115,7 +129,7 @@ No error-code field; every error below has Error code `None`. No validation, so 
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```

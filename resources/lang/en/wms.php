@@ -167,6 +167,9 @@ return [
         'target_inactive' => 'Target location #:id is not active/placeable',
         'placement_warehouse_mismatch' => 'Product placement warehouse does not match its location warehouse',
         'validation_failed' => 'Picking validation failed: :reason.',
+        'empty' => 'Fulfillment #:id has no items: nothing to pick.',
+        'awaiting_placement' => 'Fulfillment #:id has :count item(s) awaiting placement: assign placement before creating picking tasks.',
+        'no_tasks' => 'Fulfillment #:id has no pickable items: all quantities already picked or no remaining work.',
     ],
 
     // Placements
@@ -285,5 +288,21 @@ return [
     // Barcode scanning
     'barcode' => [
         'unknown' => 'Unknown barcode: :code.',
+    ],
+
+    // Warehouse Workflow (global configurable workflow, Q-01..Q-08)
+    'workflow' => [
+        'fetched' => 'Warehouse workflow fetched successfully.',
+        'history_fetched' => 'Warehouse workflow history fetched successfully.',
+        'published' => 'Warehouse workflow published successfully.',
+        'no_published_version' => 'No warehouse workflow published yet: legacy behavior applies.',
+        'order_received_mandatory' => 'Order Received is mandatory and cannot be disabled.',
+        'quality_check_not_supported' => 'Quality Check is not available in this version.',
+        'picking_cannot_be_disabled' => 'Picking cannot be disabled: no safe transition exists (pending requires picking).',
+        'packing_cannot_be_disabled' => 'Packing cannot be disabled: no safe transition exists (packing requires verification to ready_to_ship).',
+        'shipping_disabled' => 'Shipment creation blocked: shipping is disabled by the pinned warehouse workflow version.',
+        'version_immutable' => 'Warehouse workflow version #:id is immutable and cannot be updated.',
+        'invalid_version' => 'Invalid warehouse workflow version #:id.',
+        'invalid_flag' => 'Invalid value for :field: expected boolean.',
     ],
 ];

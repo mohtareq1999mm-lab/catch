@@ -52,8 +52,46 @@ class AdminOrderTrackingController extends Controller
             $query->where('status', $request->get('status'));
         }
 
+        // Payment Status Filter (supports single value, comma-separated, array, and aliases)
         if ($request->filled('payment_status')) {
-            $query->where('payment_status', $request->get('payment_status'));
+            $rawStatus = $request->get('payment_status');
+            $statuses = is_array($rawStatus)
+                ? $rawStatus
+                : array_map('trim', explode(',', (string) $rawStatus));
+
+            $expanded = [];
+            foreach ($statuses as $st) {
+                $expanded[] = $st;
+                if ($st === 'pending' || $st === Order::PAYMENT_STATUS_PENDING) {
+                    $expanded[] = 'pending';
+                    $expanded[] = Order::PAYMENT_STATUS_PENDING;
+                } elseif ($st === 'paid' || $st === 'success' || $st === Order::PAYMENT_STATUS_SUCCESS) {
+                    $expanded[] = 'paid';
+                    $expanded[] = 'success';
+                    $expanded[] = Order::PAYMENT_STATUS_SUCCESS;
+                } elseif ($st === 'failed' || $st === Order::PAYMENT_STATUS_FAILED) {
+                    $expanded[] = 'failed';
+                    $expanded[] = Order::PAYMENT_STATUS_FAILED;
+                } elseif ($st === 'refunded' || $st === Order::PAYMENT_STATUS_REFUNDED) {
+                    $expanded[] = 'refunded';
+                    $expanded[] = Order::PAYMENT_STATUS_REFUNDED;
+                }
+            }
+            $query->whereIn('payment_status', array_unique($expanded));
+        }
+
+        // Payment Method / Type Filter (e.g. online, cash_on_delivery, etc.)
+        $paymentMethod = $request->get('payment_method') ?? $request->get('payment_type');
+        if (!empty($paymentMethod)) {
+            $methods = is_array($paymentMethod)
+                ? $paymentMethod
+                : array_map('trim', explode(',', (string) $paymentMethod));
+            $query->whereIn('payment_method', $methods);
+        }
+
+        // Payment Gateway Filter (e.g. myfatoorah, stripe, etc.)
+        if ($request->filled('payment_gateway')) {
+            $query->where('payment_gateway', $request->get('payment_gateway'));
         }
 
         if ($request->filled('fulfillment_status')) {
@@ -70,12 +108,37 @@ class AdminOrderTrackingController extends Controller
             });
         }
 
+        // Absolute date filters
         if ($request->filled('date_from')) {
             $query->where('created_at', '>=', $request->get('date_from'));
         }
 
         if ($request->filled('date_to')) {
             $query->where('created_at', '<=', $request->get('date_to'));
+        }
+
+        // Relative date filtering (older than X days/weeks/months)
+        if ($request->filled('older_than')) {
+            $cutoff = $this->parseRelativeDuration($request->get('older_than'));
+            if ($cutoff !== null) {
+                $query->where('created_at', '<=', $cutoff);
+            }
+        } elseif ($request->filled('older_than_days')) {
+            $query->where('created_at', '<=', now()->subDays((int) $request->get('older_than_days')));
+        } elseif ($request->filled('older_than_hours')) {
+            $query->where('created_at', '<=', now()->subHours((int) $request->get('older_than_hours')));
+        } elseif ($request->filled('older_than_months')) {
+            $query->where('created_at', '<=', now()->subMonths((int) $request->get('older_than_months')));
+        }
+
+        // Relative date filtering (newer than X / within last X)
+        if ($request->filled('newer_than')) {
+            $cutoff = $this->parseRelativeDuration($request->get('newer_than'));
+            if ($cutoff !== null) {
+                $query->where('created_at', '>=', $cutoff);
+            }
+        } elseif ($request->filled('within_days')) {
+            $query->where('created_at', '>=', now()->subDays((int) $request->get('within_days')));
         }
 
         // Sorting (whitelist)
@@ -430,5 +493,39 @@ class AdminOrderTrackingController extends Controller
         }
 
         return $alerts;
+    }
+
+    /**
+     * Parse human-readable or shorthand relative duration into a Carbon instance.
+     * Supports: '2d', '3_days', '2 days', '1w', '1_week', '1m', '1_month', '2m', '1y', or plain integer (days).
+     */
+    private function parseRelativeDuration(string|int $duration): ?\Illuminate\Support\Carbon
+    {
+        $duration = trim((string) $duration);
+        if ($duration === '') {
+            return null;
+        }
+
+        // Plain integer -> treat as days
+        if (is_numeric($duration)) {
+            return now()->subDays((int) $duration);
+        }
+
+        // Regex pattern: (\d+)\s*(days?|d|hours?|h|weeks?|w|months?|m|years?|y)
+        if (preg_match('/^(\d+)\s*([a-zA-Z_]+)$/', $duration, $matches)) {
+            $amount = (int) $matches[1];
+            $unit = strtolower(str_replace('_', '', $matches[2]));
+
+            return match (true) {
+                in_array($unit, ['h', 'hour', 'hours'], true) => now()->subHours($amount),
+                in_array($unit, ['d', 'day', 'days'], true) => now()->subDays($amount),
+                in_array($unit, ['w', 'week', 'weeks'], true) => now()->subWeeks($amount),
+                in_array($unit, ['m', 'month', 'months'], true) => now()->subMonths($amount),
+                in_array($unit, ['y', 'year', 'years'], true) => now()->subYears($amount),
+                default => null,
+            };
+        }
+
+        return null;
     }
 }

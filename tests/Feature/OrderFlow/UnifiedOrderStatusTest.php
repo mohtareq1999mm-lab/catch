@@ -439,17 +439,37 @@ class UnifiedOrderStatusTest extends TestCase
     {
         $flow = $this->flowFor('international');
 
-        FlowInput::create([
-            'flow_id' => $flow->id,
-            'key' => 'customs_reference',
-            'label' => ['en' => 'Customs reference', 'ar' => 'المرجع الجمركي'],
-            'type' => FlowInput::TYPE_TEXT,
-            'required' => true,
-            'required_at' => 'transition:customs_clearance',
-            'sort_order' => 1,
-            'validation' => ['min' => 3, 'max' => 100],
-            'is_active' => true,
-        ]);
+        // firstOrCreate: seeded databases already carry this definition.
+        // Pin the effective contract explicitly — firstOrCreate guarantees
+        // existence, NOT attribute equality, so assert the gated attributes
+        // (a drifted seeded row must fail loudly, never pass silently).
+        $input = FlowInput::firstOrCreate(
+            [
+                'flow_id' => $flow->id,
+                'key' => 'customs_reference',
+            ],
+            [
+                'label' => ['en' => 'Customs reference', 'ar' => 'المرجع الجمركي'],
+                'type' => FlowInput::TYPE_TEXT,
+                'required' => true,
+                'required_at' => 'transition:customs_clearance',
+                'sort_order' => 1,
+                'validation' => ['min' => 3, 'max' => 100],
+                'is_active' => true,
+            ]
+        );
+        $this->assertTrue($input->required, 'customs_reference must be required');
+        $this->assertTrue($input->is_active, 'customs_reference must be active');
+        $this->assertSame(FlowInput::TYPE_TEXT, $input->type);
+        $this->assertSame('transition:customs_clearance', $input->required_at);
+        // Pin validation bounds too: 'ab' (len 2) proves min<=2 and the valid
+        // fixture proves max>=13, but a drifted min:4/max:200 would pass both
+        // silently — so assert the exact contract (cast-aware: JSON column).
+        $validation = is_string($input->validation)
+            ? json_decode($input->validation, true)
+            : (array) $input->validation;
+        $this->assertSame(3, (int) ($validation['min'] ?? null), 'customs_reference min must be 3');
+        $this->assertSame(100, (int) ($validation['max'] ?? null), 'customs_reference max must be 100');
     }
 
     private function arrivedIntlOrder(): Order
