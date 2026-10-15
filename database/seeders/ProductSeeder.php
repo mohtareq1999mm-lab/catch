@@ -729,7 +729,7 @@ class ProductSeeder extends Seeder
                         $current = $parent;
                     }
                     $product->categories()->attach(array_unique($catIds));
-            } elseif (!empty($allCategories)) {
+            } elseif ($allCategories->isNotEmpty()) {
                     $fallback = $allCategories->random();
                     $product->categories()->attach($fallback->id);
                 }

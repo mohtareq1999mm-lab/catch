@@ -1,0 +1,81 @@
+﻿
+   INFO  Seeding database.  
+
+  Database\Seeders\PermissionSeeder .......................................................................... RUNNING  
+  Database\Seeders\PermissionSeeder ................................................................. 1,442.02 ms DONE  
+
+  Database\Seeders\SettingSeeder ............................................................................. RUNNING  
+  Database\Seeders\SettingSeeder ........................................................................ 6.53 ms DONE  
+
+  Database\Seeders\CurrencySeeder ............................................................................ RUNNING  
+  Database\Seeders\CurrencySeeder ...................................................................... 52.09 ms DONE  
+
+  Database\Seeders\TagSeeder ................................................................................. RUNNING  
+  Database\Seeders\TagSeeder .......................................................................... 153.17 ms DONE  
+
+  Database\Seeders\LocationSeeder ............................................................................ RUNNING  
+  Database\Seeders\LocationSeeder ..................................................................... 564.41 ms DONE  
+
+  Database\Seeders\ContentPageSeeder ......................................................................... RUNNING  
+  Database\Seeders\ContentPageSeeder .................................................................. 179.82 ms DONE  
+
+  Database\Seeders\StaticPageSeeder .......................................................................... RUNNING  
+  Database\Seeders\StaticPageSeeder .................................................................... 13.26 ms DONE  
+
+  Database\Seeders\SectionSeeder ............................................................................. RUNNING  
+  Database\Seeders\SectionSeeder ...................................................................... 108.09 ms DONE  
+
+  Database\Seeders\PickupLocationSeeder ...................................................................... RUNNING  
+  Database\Seeders\PickupLocationSeeder ................................................................ 35.92 ms DONE  
+
+  Database\Seeders\OrderFlowSeeder ........................................................................... RUNNING  
+  Database\Seeders\OrderFlowSeeder ..................................................................... 57.68 ms DONE  
+
+  Database\Seeders\FlowInputSeeder ........................................................................... RUNNING  
+  Database\Seeders\FlowInputSeeder ..................................................................... 40.37 ms DONE  
+
+  Database\Seeders\OrderStatusPermissionSeeder ............................................................... RUNNING  
+  Database\Seeders\OrderStatusPermissionSeeder ........................................................ 138.69 ms DONE  
+
+  Database\Seeders\BannerSeeder .............................................................................. RUNNING  
+  Database\Seeders\BannerSeeder ....................................................................... 265.48 ms DONE  
+
+  Database\Seeders\SliderSeeder .............................................................................. RUNNING  
+  Database\Seeders\SliderSeeder ....................................................................... 264.00 ms DONE  
+
+  Database\Seeders\FaqSeeder ................................................................................. RUNNING  
+  Database\Seeders\FaqSeeder ........................................................................... 71.15 ms DONE  
+
+  Database\Seeders\FlashSaleSeeder ........................................................................... RUNNING  
+  Database\Seeders\FlashSaleSeeder .................................................................... 350.68 ms DONE  
+
+  Database\Seeders\BrandSeeder ............................................................................... RUNNING  
+  Database\Seeders\BrandSeeder ...................................................................... 4,187.91 ms DONE  
+
+  Database\Seeders\ContactSeeder ............................................................................. RUNNING  
+  Database\Seeders\ContactSeeder ...................................................................... 111.89 ms DONE  
+
+  Database\Seeders\ProductSeeder ............................................................................. RUNNING  
+ProductSeeder failed: You requested 1 items, but there are only 0 items available.
+
+   InvalidArgumentException 
+
+  You requested 1 items, but there are only 0 items available.
+
+  at vendor\laravel\framework\src\Illuminate\Collections\Arr.php:659
+    655▕ 
+    656▕         $count = count($array);
+    657▕ 
+    658▕         if ($requested > $count) {
+  ➜ 659▕             throw new InvalidArgumentException(
+    660▕                 "You requested {$requested} items, but there are only {$count} items available."
+    661▕             );
+    662▕         }
+    663▕
+
+  1   vendor\laravel\framework\src\Illuminate\Collections\Collection.php:1034
+      Illuminate\Support\Arr::random([])
+
+  2   database\seeders\ProductSeeder.php:733
+      Illuminate\Support\Collection::random()
+
