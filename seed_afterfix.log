@@ -1,0 +1,58 @@
+﻿
+   INFO  Seeding database.  
+
+  Database\Seeders\PermissionSeeder .......................................................................... RUNNING  
+  Database\Seeders\PermissionSeeder ................................................................. 1,336.53 ms DONE  
+
+  Database\Seeders\SettingSeeder ............................................................................. RUNNING  
+  Database\Seeders\SettingSeeder ........................................................................ 9.96 ms DONE  
+
+  Database\Seeders\CurrencySeeder ............................................................................ RUNNING  
+  Database\Seeders\CurrencySeeder ...................................................................... 50.32 ms DONE  
+
+  Database\Seeders\TagSeeder ................................................................................. RUNNING  
+  Database\Seeders\TagSeeder .......................................................................... 226.51 ms DONE  
+
+  Database\Seeders\LocationSeeder ............................................................................ RUNNING  
+  Database\Seeders\LocationSeeder ..................................................................... 963.51 ms DONE  
+
+  Database\Seeders\ContentPageSeeder ......................................................................... RUNNING  
+  Database\Seeders\ContentPageSeeder .................................................................. 258.04 ms DONE  
+
+  Database\Seeders\StaticPageSeeder .......................................................................... RUNNING  
+  Database\Seeders\StaticPageSeeder .................................................................... 17.46 ms DONE  
+
+  Database\Seeders\SectionSeeder ............................................................................. RUNNING  
+  Database\Seeders\SectionSeeder ...................................................................... 208.57 ms DONE  
+
+  Database\Seeders\PickupLocationSeeder ...................................................................... RUNNING  
+  Database\Seeders\PickupLocationSeeder ................................................................ 75.85 ms DONE  
+
+  Database\Seeders\OrderFlowSeeder ........................................................................... RUNNING  
+  Database\Seeders\OrderFlowSeeder ..................................................................... 76.71 ms DONE  
+
+  Database\Seeders\FlowInputSeeder ........................................................................... RUNNING  
+  Database\Seeders\FlowInputSeeder ..................................................................... 24.86 ms DONE  
+
+  Database\Seeders\OrderStatusPermissionSeeder ............................................................... RUNNING  
+  Database\Seeders\OrderStatusPermissionSeeder ........................................................ 126.06 ms DONE  
+
+  Database\Seeders\BannerSeeder .............................................................................. RUNNING  
+  Database\Seeders\BannerSeeder ....................................................................... 172.52 ms DONE  
+
+  Database\Seeders\SliderSeeder .............................................................................. RUNNING  
+  Database\Seeders\SliderSeeder ....................................................................... 155.70 ms DONE  
+
+  Database\Seeders\FaqSeeder ................................................................................. RUNNING  
+  Database\Seeders\FaqSeeder ........................................................................... 46.70 ms DONE  
+
+  Database\Seeders\FlashSaleSeeder ........................................................................... RUNNING  
+  Database\Seeders\FlashSaleSeeder .................................................................... 242.19 ms DONE  
+
+  Database\Seeders\BrandSeeder ............................................................................... RUNNING  
+  Database\Seeders\BrandSeeder ...................................................................... 4,082.92 ms DONE  
+
+  Database\Seeders\ContactSeeder ............................................................................. RUNNING  
+  Database\Seeders\ContactSeeder ...................................................................... 190.44 ms DONE  
+
+  Database\Seeders\ProductSeeder ............................................................................. RUNNING  

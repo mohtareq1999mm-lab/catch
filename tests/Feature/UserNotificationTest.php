@@ -655,13 +655,20 @@ class UserNotificationTest extends TestCase
 
         // With an empty selection the assignment flow never calls assignCoupon(),
         // so the listener is never invoked. Verify the listener is a no-op
-        // when the underlying assignment has no resolvable user.
+        // when the underlying assignment has no resolvable user. The
+        // coupon_assignments.user_id FK forbids dangling rows, so suspend it
+        // narrowly (restored in finally — session state survives rollback).
         $coupon = $this->createCoupon();
-        $assignment = CouponAssignment::create([
-            'coupon_id' => $coupon->id,
-            'user_id' => 999999,
-            'max_uses' => 1,
-        ]);
+        Schema::disableForeignKeyConstraints();
+        try {
+            $assignment = CouponAssignment::create([
+                'coupon_id' => $coupon->id,
+                'user_id' => 999999,
+                'max_uses' => 1,
+            ]);
+        } finally {
+            Schema::enableForeignKeyConstraints();
+        }
 
         (new SendUserCouponAssignedNotification())->handle(new CouponAssigned($assignment));
 
