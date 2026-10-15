@@ -111,4 +111,5 @@ return [
     'stock_transferred' => 'تم نقل المخزون للمنتج #:id',
     'stock_received' => 'تم استلام المخزون للمنتج #:id',
     'stock_placed' => 'تم تموضع المخزون الأولي للمنتج #:id',
+    'stock_placement_recorded' => 'تم تسجيل تموضع قائم للمنتج #:id',
 ];

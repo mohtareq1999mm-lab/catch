@@ -205,6 +205,92 @@ class StockOperationService
     }
 
     /**
+     * Record where already-counted stock physically sits (catalog backfill).
+     *
+     * Backfill-only primitive: normal intake uses receiveStock (adds stock)
+     * or placeInitialStock (assigns creation quantity once). This method
+     * NEVER writes the authority (stock_quantity, reserved_quantity,
+     * in_stock) — it only creates/raises the placement HINT row so the
+     * allocator can find units the authority already counts.
+     *
+     * Guards (all inside one transaction, lock order authority → location
+     * → placements, mirroring receiveStock): SKU-level authority resolution
+     * (digital refused, variable products require their variant, parent
+     * stock never substituted); locked active/placeable location with
+     * warehouse consistency; one-SKU-per-bin occupancy; denorm/warehouse
+     * drift fail-closed; hint-sum cap (this SKU's hints across ALL bins
+     * plus the requested amount must not exceed authority stock — the
+     * backfill records truth, never manufactures it).
+     *
+     * Idempotent by convergence: when the row already holds >= the
+     * requested quantity nothing is written (reruns are no-ops).
+     *
+     * @return array{placement: ProductLocation, applied: bool, hint_quantity: float}
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     * @throws \InvalidArgumentException
+     */
+    public function recordExistingPlacement(
+        int $productId,
+        ?int $variantId,
+        int $locationId,
+        ?int $warehouseId,
+        int $quantity
+    ): array {
+        $this->assertPositiveQuantity($quantity);
+
+        return $this->runInTransaction(function () use ($productId, $variantId, $locationId, $warehouseId, $quantity) {
+            [$authority] = $this->resolveAuthority($productId, $variantId);
+
+            $locked = $this->lockAuthority($productId, $variantId);
+            // M3 parity with receiveStock/transferStock: the pre-check above
+            // ran on a possibly stale snapshot; re-assert under the lock.
+            $this->reassertAuthorityLocked($productId, $variantId);
+
+            [$location, $resolvedWarehouseId] = $this->lockedPlaceableLocation($locationId, $warehouseId);
+            $placement = $this->lockedPlacement($productId, $variantId, $location->id, $resolvedWarehouseId);
+
+            $authorityStock = (float) ($locked->stock_quantity ?? 0);
+            // CONCURRENCY (proven by BackfillConcurrencyTest): the hint sum
+            // MUST be a locking read. The authority row lock serializes
+            // same-SKU workers (the loser proceeds only after the winner
+            // commits), but a plain sum() would still use the loser's stale
+            // snapshot and both would pass the cap for different bins.
+            $skuHintSum = (float) ProductLocation::query()->forSku($productId, $variantId)->lockForUpdate()->sum('quantity');
+            $current = (float) $placement->quantity;
+
+            if ($current >= $quantity) {
+                return ['placement' => $placement->fresh(), 'applied' => false, 'hint_quantity' => $current];
+            }
+
+            if ($skuHintSum - $current + $quantity > $authorityStock + 0.000001) {
+                throw new \InvalidArgumentException(
+                    __('wms.placement.insufficient', ['required' => $quantity, 'found' => $authorityStock])
+                        . " [hint_cap: sku_hints={$skuHintSum} authority={$authorityStock}]"
+                );
+            }
+
+            $this->placements->updateLocationQuantity($placement->id, (float) ($quantity - $current), 'backfill_record');
+
+            ActivityAuditService::recordModel(
+                $locked,
+                'stock.placement_recorded',
+                'inventory',
+                __('activity.stock_placement_recorded', ['id' => $productId]),
+                old: ['hint_quantity' => $current, 'product_variant_id' => $variantId],
+                new: [
+                    'hint_quantity' => (float) $quantity,
+                    'product_variant_id' => $variantId,
+                    'warehouse_id' => $resolvedWarehouseId,
+                    'location_id' => $location->id,
+                ],
+            );
+
+            return ['placement' => $placement->fresh(), 'applied' => true, 'hint_quantity' => (float) $quantity];
+        });
+    }
+
+    /**
      * Receive new physical stock: authority += qty, placement += qty.
      *
      * @return array{result: array<string, mixed>, replayed: bool}
@@ -641,6 +727,12 @@ class StockOperationService
 
         // firstOrCreate with NULL variant needs explicit null handling:
         // Eloquent translates ['product_variant_id' => null] to whereNull.
+        // CONCURRENCY (proven by BackfillConcurrencyTest): the existence
+        // check MUST be a locking read. Under REPEATABLE-READ a plain first()
+        // uses the txn snapshot, so a loser blocked on the authority/location
+        // locks still would not see the winner's committed row and both would
+        // insert (MySQL UNIQUE permits multiple NULLs) — duplicate simple
+        // rows. FOR UPDATE forces a current read after serialization.
         try {
             $query = ProductLocation::query()
                 ->where('product_id', $productId)
@@ -650,7 +742,7 @@ class StockOperationService
             } else {
                 $query->where('product_variant_id', $variantId);
             }
-            $placement = $query->first();
+            $placement = $query->lockForUpdate()->first();
             if (!$placement) {
                 $placement = ProductLocation::query()->create([
                     'product_id' => $productId,
@@ -668,6 +760,7 @@ class StockOperationService
 
             $placement = ProductLocation::query()->forSku($productId, $variantId)
                 ->where('location_id', $locationId)
+                ->lockForUpdate()
                 ->firstOrFail();
         }
 

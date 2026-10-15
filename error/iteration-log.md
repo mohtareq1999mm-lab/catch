@@ -142,3 +142,8 @@
 - Ran 4 files (invoice x2, digital, gift); fixed for real: relative permission count, warehouse ensure, commit-semantic rewrites, pending-expiry rebuild.
 - Deepest: COD-commit vs reservation-lifecycle premise conflict resolved toward implemented design in both tests; reaper pending-only scope confirmed deliberate (admin path owns processing).
 - Shared-DB contention observed directly (foreign users, lock waits) — mitigation is isolation + residue checks, not retries alone.
+
+## Iter-021 — batch-7 loop: 47/47 + coexistence design (audit track, isolated catch_loop)
+- FinalArchitecture 31/31 untouched-green; CheckoutPendingOrderRedesign 8/16 -> 16/16 across 5 fix layers (email, currency fixture, double-count, scoped warehouse x4, debug hygiene).
+- Deepest: two orthogonal designs (fulfillment auto-advance vs pending lifecycle) coexist in one file only via scoped fixtures — document the split or the next reader re-breaks it.
+- Contention: live ALTER + open-trx neighbors observed; foreign phpunit killed once (rollback-safe); user granted pause window; quiet verified before green runs.

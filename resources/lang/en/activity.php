@@ -111,4 +111,5 @@ return [
     'stock_transferred' => 'Stock transferred for product #:id',
     'stock_received' => 'Stock received for product #:id',
     'stock_placed' => 'Initial stock placed for product #:id',
+    'stock_placement_recorded' => 'Existing placement recorded for product #:id',
 ];

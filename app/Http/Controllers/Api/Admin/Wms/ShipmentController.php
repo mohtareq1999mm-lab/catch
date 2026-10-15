@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\Admin\Wms;
 
 use App\Http\Requests\Admin\Wms\BatchCommandRequest;
+use App\Http\Requests\Admin\Wms\BulkCreateShipmentsRequest;
+use App\Http\Requests\Admin\Wms\BulkShipmentActionRequest;
 use App\Http\Requests\Admin\Wms\CreateShipmentRequest;
 use App\Http\Requests\Admin\Wms\ListShipmentsRequest;
 use App\Http\Requests\Admin\Wms\ShipmentNotesRequest;
@@ -126,6 +128,61 @@ class ShipmentController extends WmsAdminController
             $replay ? 200 : 201,
             true,
             ShipmentDetailResource::make($shipment->fresh())
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/fulfillments/create-shipments
+     */
+    public function bulkCreateShipments(BulkCreateShipmentsRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $fulfillmentIds = $data['fulfillment_ids'];
+        unset($data['fulfillment_ids']);
+
+        $result = $this->shipments->bulkCreateForFulfillments($fulfillmentIds, $data);
+
+        return $this->apiResponse(
+            __('wms.shipment.created'),
+            200,
+            true,
+            $result
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/shipments/bulk-dispatch
+     */
+    public function bulkDispatch(BulkShipmentActionRequest $request): JsonResponse
+    {
+        $result = $this->shipments->bulkDispatch(
+            $request->validated('shipment_ids'),
+            $request->validated('notes')
+        );
+
+        return $this->apiResponse(
+            __('wms.shipment.dispatched'),
+            200,
+            true,
+            $result
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/shipments/bulk-deliver
+     */
+    public function bulkDeliver(BulkShipmentActionRequest $request): JsonResponse
+    {
+        $result = $this->shipments->bulkDeliver(
+            $request->validated('shipment_ids'),
+            $request->validated('notes')
+        );
+
+        return $this->apiResponse(
+            __('wms.shipment.delivered'),
+            200,
+            true,
+            $result
         );
     }
 

@@ -113,3 +113,7 @@
 - InvoiceDownloadPermission 18/18 (relative permission baseline + scoped no-dup check); MyInvoices 9/9; DigitalRepairVerification 9/9.
 - GiftAndReconciliation 8/8: default-warehouse ensure (auto-release listener requires ACTIVE default); COD-commit assertion rewrite (reserved-0/sold-1/COMMITTED vs stale reserved-1); expiry test rebuilt as pending+ACTIVE with real order lines (COD processing is outside reaper pending-only scope by design); cart-404 + PAN-absence already covered.
 - Contention on shared catch_audit (foreign residue, 1205 metadata-lock waits) answered with single-run isolation + per-file residue checks; zero residue both DBs.
+
+## C-015 (audit track) — batch-7 loop: pending-order redesign 16/16 (test-only)
+- Fixture hygiene: randomized setUp email (fixed-email lock collisions under concurrency); single-currency EGP base+catalog (USD fallback breaks checkout rates AND mark-paid invoices — single root, one fixture); double-count correction (COD commits once at creation); warehouse scoped to the 4 mark-paid tests (pending premise preserved elsewhere).
+- Diagnostic discipline: every 422 reproduced with body capture before theorizing (USD invoice, then warehouse). Stray foreign phpunit runners stopped once (theirs roll back); coordination question asked and answered (pause window).

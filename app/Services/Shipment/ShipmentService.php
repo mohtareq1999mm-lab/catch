@@ -641,4 +641,158 @@ class ShipmentService
 
         $shipment->update($payload);
     }
+
+    /**
+     * Bulk create shipments for multiple fulfillments.
+     * Fault-tolerant: successful items progress, failed items report explicit reasons.
+     *
+     * @param int[] $fulfillmentIds
+     * @param array $commonData
+     * @return array{successful: array, failed: array, summary: array}
+     */
+    public function bulkCreateForFulfillments(array $fulfillmentIds, array $commonData = []): array
+    {
+        $uniqueIds = array_values(array_unique(array_map('intval', $fulfillmentIds)));
+        $successful = [];
+        $failed = [];
+
+        foreach ($uniqueIds as $fulfillmentId) {
+            $fulfillment = Fulfillment::find($fulfillmentId);
+            if (!$fulfillment) {
+                $failed[] = [
+                    'fulfillment_id' => $fulfillmentId,
+                    'reason' => "Fulfillment #{$fulfillmentId} not found",
+                ];
+                continue;
+            }
+
+            try {
+                $shipment = $this->createForFulfillment($fulfillment, $commonData);
+                $successful[] = [
+                    'fulfillment_id' => $fulfillment->id,
+                    'fulfillment_number' => $fulfillment->fulfillment_number,
+                    'shipment_id' => $shipment->id,
+                    'tracking_number' => $shipment->tracking_number,
+                    'status' => $shipment->status,
+                    'courier' => $shipment->courier,
+                ];
+            } catch (\Throwable $e) {
+                $failed[] = [
+                    'fulfillment_id' => $fulfillmentId,
+                    'fulfillment_number' => $fulfillment->fulfillment_number,
+                    'reason' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'successful' => $successful,
+            'failed' => $failed,
+            'summary' => [
+                'total' => count($uniqueIds),
+                'success_count' => count($successful),
+                'failed_count' => count($failed),
+            ],
+        ];
+    }
+
+    /**
+     * Bulk dispatch multiple shipments to carrier (Carrier Manifest Handoff).
+     *
+     * @param int[] $shipmentIds
+     * @return array{successful: array, failed: array, summary: array}
+     */
+    public function bulkDispatch(array $shipmentIds, ?string $notes = null): array
+    {
+        $uniqueIds = array_values(array_unique(array_map('intval', $shipmentIds)));
+        $successful = [];
+        $failed = [];
+
+        foreach ($uniqueIds as $shipmentId) {
+            $shipment = Shipment::find($shipmentId);
+            if (!$shipment) {
+                $failed[] = [
+                    'shipment_id' => $shipmentId,
+                    'reason' => "Shipment #{$shipmentId} not found",
+                ];
+                continue;
+            }
+
+            try {
+                $dispatched = $this->dispatch($shipmentId, $notes);
+                $successful[] = [
+                    'shipment_id' => $dispatched->id,
+                    'tracking_number' => $dispatched->tracking_number,
+                    'status' => $dispatched->status,
+                    'fulfillment_id' => $dispatched->fulfillment_id,
+                ];
+            } catch (\Throwable $e) {
+                $failed[] = [
+                    'shipment_id' => $shipmentId,
+                    'tracking_number' => $shipment->tracking_number,
+                    'reason' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'successful' => $successful,
+            'failed' => $failed,
+            'summary' => [
+                'total' => count($uniqueIds),
+                'success_count' => count($successful),
+                'failed_count' => count($failed),
+            ],
+        ];
+    }
+
+    /**
+     * Bulk deliver multiple shipments.
+     *
+     * @param int[] $shipmentIds
+     * @return array{successful: array, failed: array, summary: array}
+     */
+    public function bulkDeliver(array $shipmentIds, ?string $notes = null): array
+    {
+        $uniqueIds = array_values(array_unique(array_map('intval', $shipmentIds)));
+        $successful = [];
+        $failed = [];
+
+        foreach ($uniqueIds as $shipmentId) {
+            $shipment = Shipment::find($shipmentId);
+            if (!$shipment) {
+                $failed[] = [
+                    'shipment_id' => $shipmentId,
+                    'reason' => "Shipment #{$shipmentId} not found",
+                ];
+                continue;
+            }
+
+            try {
+                $delivered = $this->markDelivered($shipmentId, $notes);
+                $successful[] = [
+                    'shipment_id' => $delivered->id,
+                    'tracking_number' => $delivered->tracking_number,
+                    'status' => $delivered->status,
+                    'fulfillment_id' => $delivered->fulfillment_id,
+                ];
+            } catch (\Throwable $e) {
+                $failed[] = [
+                    'shipment_id' => $shipmentId,
+                    'tracking_number' => $shipment->tracking_number,
+                    'reason' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'successful' => $successful,
+            'failed' => $failed,
+            'summary' => [
+                'total' => count($uniqueIds),
+                'success_count' => count($successful),
+                'failed_count' => count($failed),
+            ],
+        ];
+    }
 }

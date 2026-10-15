@@ -662,10 +662,12 @@ Route::prefix('admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:adm
 });
 
 // Fulfillment Phase 9 (P9-6): Packing + Package surface. Packing tasks scope
+// Fulfillment Phase 9 (P9-6): Packing + Package surface. Packing tasks scope
 // via fulfillment.warehouse_id, stations carry warehouse_id directly,
 // packages scope via fulfillment.warehouse_id. Shipment creation from a
 // verified task is P9-8 territory and is NOT exposed here.
 Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::post('create-packing-tasks', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'bulkCreateTasks'])->middleware('permission:packing-execute')->name('api.admin.fulfillments.create-packing-tasks');
     Route::post('{id}/create-packing-task', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'createTask'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.fulfillments.create-packing-task');
 });
 Route::prefix('admin/packing-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
@@ -699,11 +701,14 @@ Route::prefix('admin/packages')->middleware(['api', 'auth:sanctum', 'throttle:ad
 // resolves via shipment.fulfillment_id → fulfillment.warehouse_id —
 // order-only labels (null fulfillment) 404 on this surface.
 Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::post('create-shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkCreateShipments'])->middleware('permission:create-shipment')->name('api.admin.fulfillments.create-shipments');
     Route::post('{id}/shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'store'])->whereNumber('id')->middleware('permission:create-shipment')->name('api.admin.fulfillments.shipments.store');
 });
 Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:view-shipment')->name('api.admin.shipments.index');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-shipment')->name('api.admin.shipments.show');
+    Route::post('bulk-dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDispatch'])->middleware('permission:update-shipment')->name('api.admin.shipments.bulk-dispatch');
+    Route::post('bulk-deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDeliver'])->middleware('permission:update-shipment')->name('api.admin.shipments.bulk-deliver');
     Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.dispatch');
     Route::post('{id}/deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'markDelivered'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.deliver');
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'cancelShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.cancel');

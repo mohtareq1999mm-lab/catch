@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\AssignedCouponConsumed;
+use App\Models\Fulfillment\Warehouse;
 use App\Services\Coupon\CouponAssignmentValidator;
 use App\Services\Coupon\CouponCalculator;
 use App\Services\Coupon\CouponOrchestrator;
@@ -514,6 +515,15 @@ $table->decimal('product_total_price', 10, 2)->default(0);
         ]);
 
         Permission::create(['name' => 'update-order-status', 'guard_name' => 'api']);
+
+        // Payment-completion tests converge through fulfillment release,
+        // which needs exactly one ACTIVE default warehouse.
+        $warehouse = Warehouse::firstOrCreate(
+            ['code' => 'TEST-DEFAULT'],
+            ['name' => 'Test Default', 'status' => 'active', 'is_default' => true]
+        );
+        Warehouse::where('is_default', true)->whereKeyNot($warehouse->getKey())->update(['is_default' => false]);
+        $warehouse->update(['status' => 'active', 'is_default' => true]);
     }
 
     private function createCoupon(string $code, array $overrides = []): Coupon
@@ -1151,16 +1161,25 @@ $table->decimal('product_total_price', 10, 2)->default(0);
         $coupon->refresh();
         $this->assertEquals(1, $coupon->used);
 
-        // Second usage ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â should be blocked by unique constraint
+        // Second usage must be BLOCKED fail-closed with REASON_ALREADY_USED
+        // (public single-use path: firstOrCreate + wasRecentlyCreated check).
+        // NOTE: the second order is 'processing', not 'pending' — the partial
+        // unique index allows only one PENDING order per user, and status is
+        // irrelevant to recordCouponUsage. Same user + same coupon preserved.
         $order2 = Order::create([
             'user_id' => $this->customer->id,
             'name' => 'Test',
-            'status' => 'pending',
+            'status' => 'processing',
             'price' => 100.00,
             'total_price' => 100.00,
             'coupon' => 'DUPBLK',
         ]);
-        $method->invoke($orderService, $order2);
+        try {
+            $method->invoke($orderService, $order2);
+            $this->fail('Second consumption of the same public coupon must be blocked.');
+        } catch (\App\Exceptions\CouponConsumptionException $e) {
+            $this->assertSame(\App\Exceptions\CouponConsumptionException::REASON_ALREADY_USED, $e->reason);
+        }
 
         $coupon->refresh();
         $this->assertEquals(1, $coupon->used);

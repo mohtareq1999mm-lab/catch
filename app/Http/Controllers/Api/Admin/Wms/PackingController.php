@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Wms;
 
 use App\Http\Requests\Admin\Wms\AssignPackingTaskRequest;
+use App\Http\Requests\Admin\Wms\BulkCreatePackingTasksRequest;
 use App\Http\Requests\Admin\Wms\BatchCommandRequest;
 use App\Http\Requests\Admin\Wms\CompletePackingRequest;
 use App\Http\Requests\Admin\Wms\ListPackingStationsRequest;
@@ -136,6 +137,28 @@ class PackingController extends WmsAdminController
             201,
             true,
             PackingTaskDetailResource::make($task->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/fulfillments/create-packing-tasks
+     */
+    public function bulkCreateTasks(BulkCreatePackingTasksRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $stationId = isset($data['packing_station_id']) ? (int) $data['packing_station_id'] : null;
+
+        $result = $this->packing->bulkCreatePackingTasks(
+            $data['fulfillment_ids'],
+            $stationId,
+            $this->actorId()
+        );
+
+        return $this->apiResponse(
+            __('wms.packing.created'),
+            200,
+            true,
+            $result
         );
     }
 

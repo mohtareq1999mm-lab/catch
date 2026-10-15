@@ -712,4 +712,60 @@ class PackingService
 
         return $number;
     }
+
+    /**
+     * Bulk create packing tasks for multiple fulfillments.
+     * Fault-tolerant: successful items progress, failed items report explicit reasons.
+     *
+     * @param int[] $fulfillmentIds
+     * @return array{successful: array, failed: array, summary: array}
+     */
+    public function bulkCreatePackingTasks(array $fulfillmentIds, ?int $stationId = null, ?int $userId = null): array
+    {
+        $uniqueIds = array_values(array_unique(array_map('intval', $fulfillmentIds)));
+        $successful = [];
+        $failed = [];
+
+        foreach ($uniqueIds as $fulfillmentId) {
+            $fulfillment = Fulfillment::find($fulfillmentId);
+            if (!$fulfillment) {
+                $failed[] = [
+                    'fulfillment_id' => $fulfillmentId,
+                    'reason' => "Fulfillment #{$fulfillmentId} not found",
+                ];
+                continue;
+            }
+
+            try {
+                $task = $this->createPackingTaskFromFulfillment($fulfillment);
+                if ($stationId !== null && $userId !== null) {
+                    $task = $this->assignToStation($task, $stationId, $userId);
+                }
+
+                $successful[] = [
+                    'fulfillment_id' => $fulfillment->id,
+                    'fulfillment_number' => $fulfillment->fulfillment_number,
+                    'packing_task_id' => $task->id,
+                    'status' => $task->status,
+                    'packing_station_id' => $task->packing_station_id,
+                ];
+            } catch (\Throwable $e) {
+                $failed[] = [
+                    'fulfillment_id' => $fulfillmentId,
+                    'fulfillment_number' => $fulfillment->fulfillment_number,
+                    'reason' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'successful' => $successful,
+            'failed' => $failed,
+            'summary' => [
+                'total' => count($uniqueIds),
+                'success_count' => count($successful),
+                'failed_count' => count($failed),
+            ],
+        ];
+    }
 }

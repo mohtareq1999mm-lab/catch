@@ -6,6 +6,7 @@ use App\Events\OrderCreated;
 use App\Events\OrderCancelled;
 use App\Events\PaymentFailed;
 use App\Services\Checkout\OrderCreationService;
+use App\Models\Fulfillment\Warehouse;
 use App\Services\General\CartInventoryService;
 use App\Services\General\OrderService;
 use App\Services\General\PromotionService;
@@ -59,7 +60,9 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
         $this->user = User::create([
             'name' => 'Pending Order User',
-            'email' => 'pending@example.com',
+            // Random per test: fixed emails collide across concurrent runs
+            // sharing a database (unique-key lock waits, not app behavior).
+            'email' => 'pending-' . Str::random(6) . '@example.com',
             'password' => bcrypt('password'),
             'type' => 'user',
             'is_active' => true,
@@ -87,6 +90,24 @@ class CheckoutPendingOrderRedesignTest extends TestCase
             'price' => 20,
             'status' => true,
         ]);
+
+        // Store currency fixture: single-currency EGP catalog AND base.
+        // Why both: CurrencyService converts base→catalog during checkout, so
+        // any base/catalog split needs currency_rates rows (absent here) —
+        // same-code is identity and needs none. Separately, invoice generation
+        // (PaymentSucceeded listener) rejects non-gateway currencies, so the
+        // catalog must be MyFatoorah-listed (EGP is; the USD fallback is not).
+        // Set BEFORE any request: the service memoizes per app instance.
+        $settings = \Marvel\Database\Models\Settings::first();
+        $options = $settings?->options ?? [];
+        $options['catalog_currency_code'] = 'EGP';
+        $options['base_currency_code'] = 'EGP';
+        if ($settings) {
+            $settings->options = $options;
+            $settings->save();
+        } else {
+            \Marvel\Database\Models\Settings::create(['options' => $options]);
+        }
     }
 
     private function auth(): void
@@ -175,6 +196,22 @@ class CheckoutPendingOrderRedesignTest extends TestCase
         $this->grantPermission();
 
         return $this->postJson(self::PREFIX . '/checkout/cod/' . $order->id . '/mark-paid');
+    }
+
+    /**
+     * Mark-paid completion converges through fulfillment release, which needs
+     * exactly one ACTIVE default warehouse. Scoped to the 4 mark-paid tests
+     * ONLY: the rest of this file asserts the no-warehouse pending path
+     * (auto-release must NOT advance their orders to processing).
+     */
+    private function ensureDefaultWarehouse(): void
+    {
+        $warehouse = Warehouse::firstOrCreate(
+            ['code' => 'TEST-DEFAULT'],
+            ['name' => 'Test Default', 'status' => 'active', 'is_default' => true]
+        );
+        Warehouse::where('is_default', true)->whereKeyNot($warehouse->getKey())->update(['is_default' => false]);
+        $warehouse->update(['status' => 'active', 'is_default' => true]);
     }
 
     // =========================================================================
@@ -334,11 +371,17 @@ class CheckoutPendingOrderRedesignTest extends TestCase
         $this->auth();
         $this->addItemToCart();
 
+        // Baseline BEFORE checkout: COD commits inventory at creation, and the
+        // later mark-paid recommit is an idempotent no-op by design
+        // (OrderService::markCodAsPaid → changeOrderStatus completed). A second
+        // deduction here would be double-counting, not "committing".
+        $stockBefore = $this->product->refresh()->stock_quantity;
+
         $this->checkout();
         $order = Order::where('user_id', $this->user->id)->first();
 
-        $stockBefore = $this->product->refresh()->stock_quantity;
-
+        // Mark-paid converges through fulfillment release: needs the warehouse.
+        $this->ensureDefaultWarehouse();
         $this->markOrderAsPaid($order)->assertStatus(200);
 
         $product = $this->product->refresh();
@@ -360,6 +403,7 @@ class CheckoutPendingOrderRedesignTest extends TestCase
         $order = Order::where('user_id', $this->user->id)->first();
 
         $this->grantPermission();
+        $this->ensureDefaultWarehouse();
         $this->postJson(self::PREFIX . '/checkout/cod/' . $order->id . '/mark-paid')->assertStatus(200);
         $this->postJson(self::PREFIX . '/checkout/cod/' . $order->id . '/mark-paid')->assertStatus(422);
 
@@ -398,6 +442,7 @@ class CheckoutPendingOrderRedesignTest extends TestCase
         $order = Order::where('user_id', $this->user->id)->first();
         $order->update(['promotion_id' => $promotion->id]);
 
+        $this->ensureDefaultWarehouse();
         $this->markOrderAsPaid($order);
 
         $this->assertEquals(1, $promotion->refresh()->usage, 'Promotion usage incremented exactly once after payment');
@@ -433,6 +478,7 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
         $order = Order::where('user_id', $this->user->id)->first();
 
+        $this->ensureDefaultWarehouse();
         $this->markOrderAsPaid($order);
 
         $this->assertDatabaseHas('coupon_usages', [
