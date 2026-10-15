@@ -510,14 +510,16 @@ Schema::create('users', function (Blueprint $table) {
             'options' => [],
         ]);
 
-        \Marvel\Database\Models\Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
-        Governorate::create([
-            'country_id' => 1,
+        $country = \Marvel\Database\Models\Country::create(['name' => 'Egypt', 'slug' => 'egypt', 'status' => true]);
+        $governorate = Governorate::create([
+            // Created id, never literal 1: auto_increment survives rollbacks
+            // so the next id is unpredictable on reused databases.
+            'country_id' => $country->id,
             'name' => 'Cairo',
             'status' => true,
         ]);
         \Marvel\Database\Models\ShippingPrice::create([
-            'governorate_id' => 1,
+            'governorate_id' => $governorate->id,
             'price' => 50.00,
             'estimated_days' => 3,
             'free_shipping_over' => 500.00,

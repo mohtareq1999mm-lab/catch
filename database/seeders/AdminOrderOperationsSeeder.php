@@ -96,8 +96,12 @@ class AdminOrderOperationsSeeder extends Seeder
             $admin->givePermissionTo($statusPerms);
         }
 
-        // Generate Sanctum Plaintext Token
-        $adminToken = $admin->createToken('AdminOrderOperationsToken')->plainTextToken;
+        // Generate Sanctum Plaintext Token (idempotent: re-seeding must not
+        // leak a new bearer token row on every run — same pattern as
+        // WmsOperationsSeeder's AdminWmsToken).
+        $adminToken = $admin->tokens()->where('name', 'AdminOrderOperationsToken')->exists()
+            ? '[existing AdminOrderOperationsToken kept — no new token issued]'
+            : $admin->createToken('AdminOrderOperationsToken')->plainTextToken;
 
         // 4. Warehouse & Locations
         $warehouse = Warehouse::firstOrCreate(
@@ -256,7 +260,11 @@ class AdminOrderOperationsSeeder extends Seeder
         $this->command?->info('----------------------------------------------------------------');
         $this->command?->info("  Admin Email:        admin@gmail.com");
         $this->command?->info("  Admin Password:     password123");
-        $this->command?->info("  Admin Bearer Token: {$adminToken}");
+        if (str_starts_with((string) $adminToken, '[existing')) {
+            $this->command?->info('  Admin Bearer Token: (existing AdminOrderOperationsToken kept — mint a new one via Sanctum if needed)');
+        } else {
+            $this->command?->info("  Admin Bearer Token: {$adminToken}");
+        }
         $this->command?->info('----------------------------------------------------------------');
         $this->command?->info("  Order for Shipment SHOW:   ID: {$orderShipmentView->id} (Order Number: {$orderShipmentView->order_number})");
         $this->command?->info("  Order for Shipment UPDATE: ID: {$orderShipmentUpdate->id} (Order Number: {$orderShipmentUpdate->order_number})");
