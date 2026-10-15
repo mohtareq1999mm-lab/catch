@@ -554,9 +554,6 @@ class Product extends Model implements HasMedia
         })->where(function ($q) {
             $q->whereDoesntHave('categories')
               ->orWhereHas('categories', fn($cq) => $cq->active());
-        })->where(function ($q) {
-            $q->whereDoesntHave('brands')
-              ->orWhereHas('brands', fn($bq) => $bq->active());
         });
     }
 

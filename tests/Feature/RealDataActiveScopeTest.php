@@ -111,16 +111,17 @@ class RealDataActiveScopeTest extends TestCase
             $this->assertNotContains($slug, $slugs, "Inactive slug $slug leaked into /general/products");
         }
         $this->assertNotContains('active-but-cat-inactive', $slugs, 'Product with only inactive category leaked');
-        $this->assertNotContains('active-but-brand-inactive', $slugs, 'Product with only inactive brand leaked');
+        $this->assertContains('active-but-brand-inactive', $slugs, 'Product with inactive brand is visible as long as category is active');
         $this->assertNotContains('soft-deleted-hidden', $slugs, 'Soft-deleted leaked');
 
         // detail endpoint must 404 for every inactive
-        foreach (array_merge($inactiveSlugs, ['active-but-cat-inactive', 'active-but-brand-inactive']) as $slug) {
+        foreach (array_merge($inactiveSlugs, ['active-but-cat-inactive']) as $slug) {
             $detail = $this->getJson("/api/v1/general/products/{$slug}");
             $this->assertTrue(in_array($detail->status(), [404, 410]), "Inactive detail $slug should 404, got {$detail->status()}");
         }
         // active detail must 200
         $this->getJson("/api/v1/general/products/real-active-keep")->assertOk();
+        $this->getJson("/api/v1/general/products/active-but-brand-inactive")->assertOk();
 
         // categories/brands inactive should not appear
         $this->getJson("/api/v1/general/categories/inactive-cat-real")->assertStatus(404);

@@ -135,3 +135,9 @@
 ## C-019 (audit track) — batch-12 loop: wishlist route wired + 36/36 (route + test-only)
 - Route: DELETE wishlists/{id} -> destroy (action existed, owner-scoped, 404-safe; same sanctum group; no new logic). Test fixes: toggle POST to PATCH xN; my-wishlists alias to index; guest 200 to 401 (file convention x5); falsy-data envelope (apiResponse omits empty data); page-object paths (data.data/data.total).
 - Residue zero; catch untouched.
+
+## C-020 (audit track) — batch-13 loop: 121/121, 3 premise corrections (test-only)
+- AttributeApi 16/16: guest 403 to 401 (sanctum runs before permission middleware) x2; 3 attribute-values tests guard disabled state (route:list ERROR, absence-proof helper fails loudly on re-enable).
+- AttributesProductionHarden 32/32: 8 attribute-values tests same guard pattern; pivot cascade proven via model delete (same FK cascade the API would rely on).
+- PricingProductionHarden 36/36: (1) negative-discount clamp superseded by CP-05 model fail-closed (InvalidArgumentException at save) — test now proves the stronger guard; (2) zero-price shipping 30 superseded by D4 physical-subtotal rule (shipping 0/total 0) — flagged for product review whether free physical items should incur delivery; (3) oversell incrementItem-throws contradicted cart-no-check design docblock — rewritten as checkout-422 proof per canonical OrderReservationLifecycleTest. No app code touched.
+- ChannelContext 14/14 + CityApi 23/23 untouched-green. Residue zero; catch untouched (re-emptied by parallel track, observed read-only).

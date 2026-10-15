@@ -49,7 +49,8 @@
 - الدفعة الثامنة (C-016): ‏82/0 (notifications + coupons) + ترجمة reaper إلى عقد reservation + تشخيص Pusher-flake (DDL أول تشغيل).
 - الدفعة التاسعة (C-017): ‏91/91 (NotifyLogs محظورة كملف + UserNotification + ExportCancel + BusinessRules + EventSystem) + حراس paid-cancel + single-currency EGP.
 - الدفعة العاشرة/الحادية عشرة (C-018): ProductsEndpoint ‏77/77 + CategoriesEndpoint ‏40/41 (PAGINATION-001 مؤجلة بقرار) + `catch` أُعيد ملؤها (156/1010) دون مساس.
-- الدفعة الثانية عشرة (C-019): TagCrud ‏13/13 + WishlistApi ‏36/36 (توصيل route ناقص + page-object). العشرة: اختبارات ضد routes غير مسجلة/معطلة (update-email ×4، social-login-token ×3، make-admin ×3) مع إثبات `route:list ERROR` لكل منها — التنفيذ مرفوض (features جديدة).
+- الدفعة الثانية عشرة (C-019): TagCrud ‏13/13 + WishlistApi ‏36/36 (توصيل route ناقص + page-object).
+- الدفعة الثالثة عشرة (C-020): ‏121/121 — Attribute ‏16/16 + City ‏23/23 + AttributesHarden ‏32/32 + Channel ‏14/14 + Pricing ‏36/36 (ثلاث premises متقادمة صُححت test-only: CP-05 وD4 وcart-no-check). العشرة: اختبارات ضد routes غير مسجلة/معطلة (update-email ×4، social-login-token ×3، make-admin ×3) مع إثبات `route:list ERROR` لكل منها — التنفيذ مرفوض (features جديدة).
 - بقايا صفرية: العدّادات ‏7/12/3/2/9 متطابقة قبل/بعد كل تشغيل. حادثة بيئة: MySQL كان متوقفاً mid-loop (تشغيل أحمر-كاذب مُستبعد)؛ أُعيد التشغيل على نفس datadir والعدّادات متطابقة.
 - INVALID (لا يُستشهد به): `--filter=AuthenticationTest` القديم → `4 failed, 41 passed` أثناء الترحيل — ملوث.
 - المراجعة المستقلة لملفات الاختبار: لا BLOCKER؛ M1/S1/S2/S3/N2 مطبّقة. التفاصيل: `error/verification-evidence-audit-track.md`.

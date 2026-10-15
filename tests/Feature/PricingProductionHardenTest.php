@@ -972,6 +972,11 @@ class PricingProductionHardenTest extends TestCase
     /** @test */
     public function product_stock_reservation_prevents_overselling()
     {
+        // Canonical contract (see OrderReservationLifecycleTest ::
+        // cart_accepts_quantities_beyond_stock): carts NEVER check stock —
+        // CartInventoryService::incrementItem states it explicitly. Oversell
+        // is rejected atomically at checkout (422, no Order). The old premise
+        // (incrementItem throws) contradicted the service docblock.
         $limitedProduct = Product::create([
             'name' => 'Limited Stock',
             'slug' => 'limited-stock-' . Str::random(6),
@@ -981,44 +986,33 @@ class PricingProductionHardenTest extends TestCase
             'stock_quantity' => 2,
         ]);
 
-        $limitedProduct->increment('reserved_quantity', 1);
-
-        $cart = Cart::create(['user_id' => auth()->id(), 'status' => 'active', 'total_price' => 50]);
+        $cart = Cart::create(['user_id' => auth()->id(), 'status' => 'active', 'total_price' => 150]);
         CartItem::create([
             'cart_id' => $cart->id,
             'product_id' => $limitedProduct->id,
-            'quantity' => 1,
+            'quantity' => 3,
             'price' => 50,
-            'total_price' => 50,
-            'reserved_quantity' => 1,
+            'total_price' => 150,
+            'reserved_quantity' => 0,
             'shipping_method' => 'SCHEDULED',
         ]);
 
-        $limitedProduct->increment('reserved_quantity', 1);
+        // Cart level accepts beyond-stock quantity by design.
+        $this->assertEquals(3, CartItem::where('cart_id', $cart->id)->sum('quantity'));
 
-        // carts.user_id is UNIQUE (one active cart per user) — the second
-        // contender must be a different user (the real oversell scenario).
-        $otherUser = \Marvel\Database\Models\User::create([
-            'name' => 'Oversell Rival',
-            'email' => 'oversell-rival@example.com',
-            'password' => bcrypt('password'),
-            'email_verified_at' => now(),
-        ]);
-        $cart2 = Cart::create(['user_id' => $otherUser->id, 'status' => 'active', 'total_price' => 50]);
-        CartItem::create([
-            'cart_id' => $cart2->id,
-            'product_id' => $limitedProduct->id,
-            'quantity' => 1,
-            'price' => 50,
-            'total_price' => 50,
-            'reserved_quantity' => 1,
-            'shipping_method' => 'SCHEDULED',
+        $response = $this->postJson(self::PREFIX . '/checkout', [
+            'name' => 'Test',
+            'user_phone' => '123',
+            'user_email' => 'test@test.com',
+            'address' => ['street' => 'Test'],
+            'fulfillment_type' => 'delivery',
+            'payment_method' => 'cod',
+            'governorate_id' => $this->governorate->id,
         ]);
 
-        $this->expectException(\Exception::class);
-        app(\App\Services\General\CartInventoryService::class)->incrementItem(
-            $cart2, $limitedProduct, null, 1, [], 'SCHEDULED'
-        );
+        $response->assertStatus(422);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertEquals(2, $limitedProduct->refresh()->stock_quantity);
     }
 
     // ===================== Flash Sale Date Boundaries =====================

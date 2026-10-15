@@ -56,13 +56,13 @@ class BrandSeeder extends Seeder
                 $brand = Brand::create([
                     'name' => $name,
                     'details' => $brandData['details'],
-                    'status' => random_int(0, 1),
+                    'status' => 1,
                 ]);
             } else {
                 $brand->update([
                     'name' => $name,
                     'details' => $brandData['details'],
-                    'status' => random_int(0, 1),
+                    'status' => 1,
                 ]);
             }
 

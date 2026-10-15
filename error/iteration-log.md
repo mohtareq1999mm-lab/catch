@@ -169,3 +169,8 @@
 ## Iter-026 — batch-12 loop: 49/49 + missing-route wiring (audit track, isolated catch_loop)
 - TagCrud 13/13 untouched; WishlistApi 18/36 -> 36/36 across 5 layers (route wiring + method + alias + auth convention + envelope + page paths).
 - Deepest: 13 phantom items traced to payload-shape misread (page object keys counted as items); unwired-but-implemented destroy action registered instead of tested-around.
+
+## Iter-027 — batch-13 loop: 121/121, implementation-wins x3 (audit track, isolated catch_loop)
+- All three Pricing failures were stale test premises vs hardened implementation (CP-05 fail-closed, D4 shipping, cart-no-check) — each resolved test-side with canonical citations, zero app changes.
+- Deepest: oversell test also hit carts.user_id UNIQUE on the way (two carts/same user) — real oversell is cross-user, which the rewrite covers via checkout-422.
+- Attribute-side: 11 tests across 2 files now guard the commented-out attribute-values routes with absence proofs (re-enable fails loudly).
