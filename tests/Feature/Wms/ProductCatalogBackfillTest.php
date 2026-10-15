@@ -117,6 +117,27 @@ class ProductCatalogBackfillTest extends TestCase
         $this->assertSame(0, ProductLocation::count());
     }
 
+    public function test_reconcile_rejects_unknown_warehouse(): void
+    {
+        $code = \Illuminate\Support\Facades\Artisan::call('inventory:reconcile-catalog', ['--warehouse' => 999999]);
+
+        $this->assertSame(2, $code);
+        $this->assertSame(0, ProductLocation::count());
+    }
+
+    public function test_reconcile_dry_run_writes_no_audit_or_ledger_rows(): void
+    {
+        $p = $this->simpleProduct(['stock_quantity' => 7]);
+        $opsBefore = \App\Models\Inventory\InventoryOperation::count();
+        $logBefore = \Spatie\Activitylog\Models\Activity::count();
+
+        \Illuminate\Support\Facades\Artisan::call('inventory:reconcile-catalog', []);
+
+        $this->assertSame($opsBefore, \App\Models\Inventory\InventoryOperation::count());
+        $this->assertSame($logBefore, \Spatie\Activitylog\Models\Activity::count());
+        $this->assertSame(7, (int) $p->fresh()->stock_quantity);
+    }
+
     // ---------- canonical apply workflow: inventory:backfill-placements ----------
     // Mapping-driven writes belong to exactly one entry point (AC-02). These
     // tests exercise that canonical command; reconcile-catalog stays

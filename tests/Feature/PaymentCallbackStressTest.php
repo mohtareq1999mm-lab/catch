@@ -355,6 +355,12 @@ class PaymentCallbackStressTest extends TestCase
             'total_price' => 100.00,
             'status' => 'pending',
             'payment_method' => $paymentMethod,
+            // Currency snapshot like real checkout writes: the mocked gateway
+            // settles in EGP, and the completion guard compares gateway vs
+            // order currency. Without codes the resolver falls back to USD
+            // (catalog default) and every success callback mismatches.
+            'currency_code' => 'EGP',
+            'catalog_currency_code' => 'EGP',
         ]);
 
         Transaction::create([

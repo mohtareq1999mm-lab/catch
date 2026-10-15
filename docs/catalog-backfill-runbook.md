@@ -40,12 +40,21 @@ inactive/unplaceable bins are refused; one SKU per bin; requested hints are
 capped at authority stock; existing rows at/above the mapped quantity are
 skipped (never rewritten).
 
-## 4. Dry-run first (writes nothing)
+## 4. Dry-run first (no committed writes)
 
 ```powershell
 php artisan inventory:backfill-placements --mapping=mapping.json --json > dryrun.json
-# exit 0 = every row would apply; exit 1 = failures listed; exit 2 = bad file
+# exit 0 = every row valid (would-apply or already skipped_covered);
+# exit 1 = failures listed; exit 2 = bad file
 ```
+
+Dry-run executes the full write path inside a transaction that is always
+rolled back, so validation is as strong as apply (placeable, occupancy,
+hint-cap) while committed state stays untouched. It is not lock-free:
+brief row locks are taken and rolled back. Keep mapping files modest
+(≤ 2000 rows per file; larger stocktakes should be split) — the whole file
+is loaded into memory, failures are all kept in `--json` output, and the
+human-readable report prints the first 10.
 
 ## 5. Apply on an isolated database
 

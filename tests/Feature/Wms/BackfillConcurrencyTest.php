@@ -48,6 +48,11 @@ class BackfillConcurrencyTest extends TestCase
     {
         parent::setUp();
 
+        // Process spawning here uses the Windows `start /B` launcher.
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $this->markTestSkipped('Multi-process barrier workers require Windows process spawning.');
+        }
+
         $this->tmp = sys_get_temp_dir() . '/bfconc-' . Str::random(8);
         mkdir($this->tmp, 0777, true);
         $this->activityBefore = $this->activityCount();
@@ -260,6 +265,11 @@ PHP;
         $rows = $this->placementsFor($p->id);
         $this->assertCount(1, $rows, 'exactly one placement row must exist after concurrent same-mapping apply');
         $this->assertEquals(40, (float) $rows->first()->quantity);
+        // Both workers completed successfully: exactly one applied, the
+        // other converged to a no-op skip (no duplicate, no failure).
+        $applied = array_map(fn ($r) => $r['out']['applied'] ?? null, $results);
+        sort($applied);
+        $this->assertSame([false, true], $applied, 'one worker applies, the other skips: ' . json_encode($results));
         // Authority untouched by either worker.
         $this->assertSame(40, (int) $p->fresh()->stock_quantity);
         $this->assertSame(0, (int) $p->fresh()->reserved_quantity);
@@ -309,6 +319,8 @@ PHP;
 
         $sum = (float) $this->placementsFor($p->id)->sum('quantity');
         $this->assertLessThanOrEqual(10.0, $sum, 'combined hints must never exceed authority stock');
+        $successes = count(array_filter($results, fn ($r) => ($r['out']['ok'] ?? false) === true));
+        $this->assertSame(1, $successes, 'exactly one worker must succeed, the other must hit the hint cap: ' . json_encode($results));
         $this->assertSame(10, (int) $p->fresh()->stock_quantity);
     }
 
