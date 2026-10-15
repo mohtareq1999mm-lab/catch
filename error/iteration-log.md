@@ -147,3 +147,8 @@
 - FinalArchitecture 31/31 untouched-green; CheckoutPendingOrderRedesign 8/16 -> 16/16 across 5 fix layers (email, currency fixture, double-count, scoped warehouse x4, debug hygiene).
 - Deepest: two orthogonal designs (fulfillment auto-advance vs pending lifecycle) coexist in one file only via scoped fixtures — document the split or the next reader re-breaks it.
 - Contention: live ALTER + open-trx neighbors observed; foreign phpunit killed once (rollback-safe); user granted pause window; quiet verified before green runs.
+
+## Iter-022 — batch-8 loop: 82/82 + reaper translation (audit track, isolated catch_loop)
+- NotificationTest 38/38 untouched-green; CouponsProductionHarden 38+6 fail -> 44/44 across 5 fix layers.
+- Deepest: same pattern as batch-7 (stale created_at/design premise translated forward); duplicate-block proven at the exact branch via live reservation fixture.
+- Pusher flake root-caused to DDL-poisoned transactions, not app randomness. Lesson: first-run-on-fresh-schema is a distinct state — pre-create test-only tables to keep it clean.

@@ -1166,6 +1166,9 @@ $table->decimal('product_total_price', 10, 2)->default(0);
         // NOTE: the second order is 'processing', not 'pending' — the partial
         // unique index allows only one PENDING order per user, and status is
         // irrelevant to recordCouponUsage. Same user + same coupon preserved.
+        // A live reservation (like a real checkout holds) is attached first:
+        // without it, POLICY-4 revalidation rejects with NOT_ELIGIBLE before
+        // the already-used branch is ever reached.
         $order2 = Order::create([
             'user_id' => $this->customer->id,
             'name' => 'Test',
@@ -1174,6 +1177,7 @@ $table->decimal('product_total_price', 10, 2)->default(0);
             'total_price' => 100.00,
             'coupon' => 'DUPBLK',
         ]);
+        app(\App\Services\Coupon\CouponReservationService::class)->reserve($order2, $coupon);
         try {
             $method->invoke($orderService, $order2);
             $this->fail('Second consumption of the same public coupon must be blocked.');

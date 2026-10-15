@@ -18,6 +18,12 @@ class AdminOrderOperationsSeeder extends Seeder
 {
     public function run(): void
     {
+        // Fail-closed: this seeder resets admin@gmail.com to a public known
+        // password, mints bearer tokens and creates ORD-TEST-* orders. It
+        // must never run against production data (same contract as
+        // WmsOperationsSeeder, which runs after it in DatabaseSeeder).
+        abort_if(app()->isProduction(), 403, 'AdminOrderOperationsSeeder is blocked in production.');
+
         $this->command?->info('================================================================');
         $this->command?->info('  Starting Admin Order Operations & Flows Seeder');
         $this->command?->info('================================================================');

@@ -117,3 +117,8 @@
 ## C-015 (audit track) — batch-7 loop: pending-order redesign 16/16 (test-only)
 - Fixture hygiene: randomized setUp email (fixed-email lock collisions under concurrency); single-currency EGP base+catalog (USD fallback breaks checkout rates AND mark-paid invoices — single root, one fixture); double-count correction (COD commits once at creation); warehouse scoped to the 4 mark-paid tests (pending premise preserved elsewhere).
 - Diagnostic discipline: every 422 reproduced with body capture before theorizing (USD invoice, then warehouse). Stray foreign phpunit runners stopped once (theirs roll back); coordination question asked and answered (pause window).
+
+## C-016 (audit track) — batch-8 loop: notifications + coupons 44/44 (test-only)
+- FK-id chain, canonical coupon type, 6 cancel tests to reservation contract, matrix unit test, envelopes, order-currency contract, real governorate id, duplicate-block ALREADY_USED via live reservation row.
+- Deepest translations: reaper created_at premise superseded by reservation design (translated, not reverted); untranslatable config-timeout premise became timeoutHoursFor unit test.
+- Flaky forced-Pusher broadcast traced to first-run setUp DDL voiding transaction deferral (ShouldDispatchAfterCommit fires post-DDL-commit); stable once tables exist. Design note recorded (forced pusher + sync queue = external call inside request lifecycle); no behavior change (product decision).

@@ -218,6 +218,7 @@ class ReconcileProductCatalog extends Command
             DB::table('products')
                 ->selectRaw('sku, COUNT(*) as sku_rows')
                 ->whereNotNull('sku')
+                ->where('sku', '!=', '')
                 ->groupBy('sku')
                 ->havingRaw('COUNT(*) > 1')
                 ->orderBy('sku')

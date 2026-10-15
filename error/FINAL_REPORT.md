@@ -45,7 +45,8 @@
 - الدفعة الرابعة (C-012): ‏247/0 عبر 20 ملفاً + migration ‏nullable-variant-price + تصحيح enum صامت + 422-envelope. اكتشافان حقيقيان: service-intended nulls مقابل NOT NULL (×2)، واختبار ناجح لسبب خاطئ (مصادفة ‏100×0.85). بقايا صفرية؛ `catch` لم تُمس.
 - الدفعة الخامسة (C-013): ‏33/0 (MarvelStatusAuthority + PaymentSystem) + قاعدة `catch_audit` خاصة. إلغاء 6 اختبارات reaper إلى عقد reservation + matrix unit test + FK ids حقيقية + canonical coupon. بقايا صفرية.
 - الدفعة السادسة (C-014): ‏53/0 (invoice ×2 + digital + gift) + انضباط التزامن. أعمق ترجمة: COD-commit مقابل reservation-lifecycle + نطاق reaper (pending فقط، عن قصد).
-- الدفعة السابعة (C-015): ‏47/0 (FinalArchitecture + PendingRedesign) + تعايش التصميمين (warehouse لنطاق mark-paid فقط). العشرة: اختبارات ضد routes غير مسجلة/معطلة (update-email ×4، social-login-token ×3، make-admin ×3) مع إثبات `route:list ERROR` لكل منها — التنفيذ مرفوض (features جديدة).
+- الدفعة السابعة (C-015): ‏47/0 (FinalArchitecture + PendingRedesign) + تعايش التصميمين (warehouse لنطاق mark-paid فقط).
+- الدفعة الثامنة (C-016): ‏82/0 (notifications + coupons) + ترجمة reaper إلى عقد reservation + تشخيص Pusher-flake (DDL أول تشغيل). العشرة: اختبارات ضد routes غير مسجلة/معطلة (update-email ×4، social-login-token ×3، make-admin ×3) مع إثبات `route:list ERROR` لكل منها — التنفيذ مرفوض (features جديدة).
 - بقايا صفرية: العدّادات ‏7/12/3/2/9 متطابقة قبل/بعد كل تشغيل. حادثة بيئة: MySQL كان متوقفاً mid-loop (تشغيل أحمر-كاذب مُستبعد)؛ أُعيد التشغيل على نفس datadir والعدّادات متطابقة.
 - INVALID (لا يُستشهد به): `--filter=AuthenticationTest` القديم → `4 failed, 41 passed` أثناء الترحيل — ملوث.
 - المراجعة المستقلة لملفات الاختبار: لا BLOCKER؛ M1/S1/S2/S3/N2 مطبّقة. التفاصيل: `error/verification-evidence-audit-track.md`.

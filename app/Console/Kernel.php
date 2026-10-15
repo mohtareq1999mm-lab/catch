@@ -16,6 +16,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\CancelUnpaidOrders::class,
         \App\Console\Commands\AuditInventoryPlacements::class,
         \App\Console\Commands\BackfillPlacements::class,
+        \App\Console\Commands\ReconcileProductCatalog::class,
         \App\Console\Commands\ExpireCouponReservations::class,
         \App\Console\Commands\ExpireCouponClaims::class,
         \App\Console\Commands\MigrateInventoryReservations::class,
