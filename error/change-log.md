@@ -122,3 +122,16 @@
 - FK-id chain, canonical coupon type, 6 cancel tests to reservation contract, matrix unit test, envelopes, order-currency contract, real governorate id, duplicate-block ALREADY_USED via live reservation row.
 - Deepest translations: reaper created_at premise superseded by reservation design (translated, not reverted); untranslatable config-timeout premise became timeoutHoursFor unit test.
 - Flaky forced-Pusher broadcast traced to first-run setUp DDL voiding transaction deferral (ShouldDispatchAfterCommit fires post-DDL-commit); stable once tables exist. Design note recorded (forced pusher + sync queue = external call inside request lifecycle); no behavior change (product decision).
+
+## C-017 (audit track) — batch-9 loop: BusinessRules 5/5 + EventSystem 48/48 (test-only)
+- BusinessRules: cart PREFIX+shape to real contract; canonical FIXED_RATE x2; single-currency EGP fixture (USD fallback breaks checkout rates AND mark-paid invoices — one root; memoization forces setUp placement); paid-cancel x2 converted to completed-rejection guards (gate forbids completed->cancelled; refund owns paid exit); randomized fixture email; warehouse fixture for completion convergence.
+- EventSystem: gateway ctor via container+mock binding x3; 4 activity tests rewritten to synchronous ActivityAuditService rows; provider key App-vs-Marvel corrected; committed-state premise for restore test.
+- Residue zero; catch untouched.
+
+## C-018 (audit track) — batch-10/11 loop: storefront categories green (test-only)
+- CategoriesEndpoint 39/41 -> 40 pass + 1 skipped: name-unique default (live categories_name_unique vs helper schema gap) + literal overrides; active-scope product fixtures (status/in_stock vs withCount-active tie); contradictory pagination pair resolved by evidence (implementation + admin-docs describe different contracts; aspirational test -> PAGINATION-001 markTestSkipped, not deleted).
+- Shared catch repopulated by parallel (156/1010, read-only verified) — loop stays isolated; residue zero everywhere this track touches.
+
+## C-019 (audit track) — batch-12 loop: wishlist route wired + 36/36 (route + test-only)
+- Route: DELETE wishlists/{id} -> destroy (action existed, owner-scoped, 404-safe; same sanctum group; no new logic). Test fixes: toggle POST to PATCH xN; my-wishlists alias to index; guest 200 to 401 (file convention x5); falsy-data envelope (apiResponse omits empty data); page-object paths (data.data/data.total).
+- Residue zero; catch untouched.

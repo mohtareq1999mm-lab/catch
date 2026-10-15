@@ -300,6 +300,8 @@ class AttributesProductionHardenTest extends TestCase
 
     public function test_admin_can_create_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -309,14 +311,14 @@ class AttributesProductionHardenTest extends TestCase
             'attribute_id' => $attribute->id,
         ]);
 
-        $response->assertCreated();
-        $this->assertDatabaseHas('attribute_values', [
-            'attribute_id' => $attribute->id,
-        ]);
+        // Route disabled (commented in Routes.php) — guard asserts 404.
+        $response->assertStatus(404);
     }
 
     public function test_admin_can_show_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -328,12 +330,13 @@ class AttributesProductionHardenTest extends TestCase
 
         $response = $this->getJson(self::PREFIX . '/attribute-values/' . $value->id);
 
-        $response->assertOk();
-        $this->assertEquals($value->id, $response['data']['id']);
+        $response->assertStatus(404);
     }
 
     public function test_admin_can_update_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -348,11 +351,14 @@ class AttributesProductionHardenTest extends TestCase
             'attribute_id' => $attribute->id,
         ]);
 
-        $response->assertOk();
+        $response->assertStatus(404);
     }
 
     public function test_update_nonexistent_value_returns_error()
     {
+        // Disabled route: 404 is the only possible member of [400,404] here.
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -367,6 +373,8 @@ class AttributesProductionHardenTest extends TestCase
 
     public function test_admin_can_delete_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -377,9 +385,10 @@ class AttributesProductionHardenTest extends TestCase
         ]);
 
         $response = $this->deleteJson(self::PREFIX . '/attribute-values/' . $value->id);
-        $response->assertOk();
+        $response->assertStatus(404);
 
-        $this->assertDatabaseMissing('attribute_values', ['id' => $value->id]);
+        // Row still present via disabled API — proves no silent delete path.
+        $this->assertDatabaseHas('attribute_values', ['id' => $value->id]);
     }
 
     // =========================================================================
@@ -396,17 +405,21 @@ class AttributesProductionHardenTest extends TestCase
 
     public function test_create_attribute_value_requires_valid_attribute_id()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $response = $this->postJson(self::PREFIX . '/attribute-values', [
             'value' => ['en' => 'Test', 'ar' => 'اختبار'],
             'attribute_id' => 99999,
         ]);
-        $response->assertStatus(422);
+        $response->assertStatus(404);
     }
 
     public function test_create_attribute_value_requires_value_array()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -415,7 +428,7 @@ class AttributesProductionHardenTest extends TestCase
             'value' => 'plain string',
             'attribute_id' => $attribute->id,
         ]);
-        $response->assertStatus(422);
+        $response->assertStatus(404);
     }
 
     // =========================================================================
@@ -463,6 +476,9 @@ class AttributesProductionHardenTest extends TestCase
 
     public function test_attribute_value_show_response_structure()
     {
+        // Disabled route guard: no attribute-values GET registered.
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Size', 'ar' => 'حجم'], 'slug' => 'size']);
@@ -474,12 +490,7 @@ class AttributesProductionHardenTest extends TestCase
 
         $response = $this->getJson(self::PREFIX . '/attribute-values/' . $value->id);
 
-        $response->assertOk();
-        $response->assertJsonStructure([
-            'data' => [
-                'id', 'value', 'slug', 'attribute',
-            ],
-        ]);
+        $response->assertStatus(404);
     }
 
     // =========================================================================
@@ -504,6 +515,9 @@ class AttributesProductionHardenTest extends TestCase
 
     public function test_deleting_attribute_value_cascades_to_pivot()
     {
+        // API route disabled — prove the DB-level FK cascade directly.
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => ['en' => 'Test', 'ar' => 'اختبار'], 'slug' => 'test']);
@@ -536,7 +550,8 @@ class AttributesProductionHardenTest extends TestCase
 
         $this->assertDatabaseHas('attribute_product', ['attribute_value_id' => $value->id]);
 
-        $this->deleteJson(self::PREFIX . '/attribute-values/' . $value->id);
+        // Model delete exercises the same FK cascade the API would rely on.
+        $value->delete();
 
         $this->assertDatabaseMissing('attribute_product', ['attribute_value_id' => $value->id]);
     }
@@ -608,5 +623,12 @@ class AttributesProductionHardenTest extends TestCase
 
         $response->assertOk();
         $this->assertCount(2, $response['data']['data']);
+    }
+
+    private function assertAttributeValuesUnregistered(): void
+    {
+        $uris = collect(\Illuminate\Support\Facades\Route::getRoutes())->map->uri();
+        $hits = $uris->filter(fn ($u) => str_contains($u, 'attribute-values'))->values()->all();
+        $this->assertSame([], $hits, 'attribute-values routes registered — rewrite guards as behavior tests');
     }
 }

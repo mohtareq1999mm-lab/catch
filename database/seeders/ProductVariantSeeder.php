@@ -21,9 +21,18 @@ class ProductVariantSeeder extends Seeder
         $colorValues = $this->valuesForAttribute($attributes, 'Color');
         $sizeValues = $this->valuesForAttribute($attributes, 'Size');
 
+        $variablePrefixes = ['FAC', 'EYE', 'LIP', 'CHK', 'NAI'];
+
+        // Ensure products matching variable categories are set to variable type
+        Product::where(function ($q) use ($variablePrefixes) {
+            foreach ($variablePrefixes as $prefix) {
+                $q->orWhere('sku', 'LIKE', $prefix . '-%');
+            }
+        })->where('product_type', '!=', ProductType::VARIABLE)
+          ->update(['product_type' => ProductType::VARIABLE]);
+
         $products = Product::where('product_type', ProductType::VARIABLE)
             ->where('stock_quantity', '>', 0)
-            ->inRandomOrder()
             ->with('flash_sales')
             ->get();
 
@@ -35,6 +44,10 @@ class ProductVariantSeeder extends Seeder
         $existingSkus = ProductVariant::pluck('sku')->filter()->values()->all();
 
         foreach ($products as $index => $product) {
+            if ($product->variations()->exists()) {
+                continue;
+            }
+
             $basePrice = (float) $product->price;
             $productStock = (int) $product->stock_quantity;
             $flashSale = $product->has_flash_sale ? $pricingService->resolveActiveFlashSale($product) : null;

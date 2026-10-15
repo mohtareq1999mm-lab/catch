@@ -630,6 +630,8 @@ class ProductSeeder extends Seeder
                 ['name' => ['en' => 'Silicone Brush Set', 'ar' => 'طقم فرش سيليكون'], 'price' => 16.00, 'sku_prefix' => 'ACC'],
             ];
 
+            $variablePrefixes = ['FAC', 'EYE', 'LIP', 'CHK', 'NAI'];
+
             foreach ($products as $i => $productData) {
                 $productNameEn = $productData['name']['en'];
                 $productNameAr = $productData['name']['ar'];

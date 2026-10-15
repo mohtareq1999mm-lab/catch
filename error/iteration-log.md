@@ -156,3 +156,16 @@
 ## Iter-023 — translation constant-resolution audit (read-only, no DB)
 - Method: 4 script iterations converging on faithful Laravel semantics (group/item split + Arr::get exact-first). v1-v3 false alarms (326/1 misses) caught by cross-checking direct greps — methodology fixed before any finding was filed.
 - Result: 327/328 resolve both locales; sole miss is Excel-only. Verdict recorded: no raw-key leaks in constants contract. ar.json + placeholder consistency remain open.
+
+## Iter-024 — batch-9 loop: 91/91 closed + guard conversions (audit track, isolated catch_loop)
+- NotifyLogs FILE BLOCKED (ghost routes); UserNotification 31/31; ExportCancel 5/5; BusinessRules 0/5 -> 5/5 across 6 fix layers; EventSystem 39/48 -> 48/48 across 4 layers.
+- Deepest: paid-cancel premise vs gate (converted to guards, not reverted); currency fixture ordering vs memoization (diagnosed via body capture); stray-debug discipline (added, used, removed same session).
+
+## Iter-025 — batch-10/11 loop: storefront green + pagination contract fork (audit track, isolated catch_loop)
+- ProductsEndpoint 77/77 untouched; CategoriesEndpoint fixed across 3 layers (unique drift, active-scope tie, contradictory pair).
+- Deepest: two tests asserting opposite contracts can never jointly pass — resolved by reading implementation + docs lineage, skipping (not deleting) the aspirational one with a decision ID.
+- Shared catch now carries parallel fixtures again (156/1010); untouched, loop unaffected.
+
+## Iter-026 — batch-12 loop: 49/49 + missing-route wiring (audit track, isolated catch_loop)
+- TagCrud 13/13 untouched; WishlistApi 18/36 -> 36/36 across 5 layers (route wiring + method + alias + auth convention + envelope + page paths).
+- Deepest: 13 phantom items traced to payload-shape misread (page object keys counted as items); unwired-but-implemented destroy action registered instead of tested-around.

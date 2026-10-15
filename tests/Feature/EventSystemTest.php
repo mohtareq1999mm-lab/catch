@@ -387,6 +387,11 @@ class EventSystemTest extends TestCase
             'total_price' => 100.00,
             'status' => 'pending',
             'paid_at' => now(),
+            // Currency snapshot like real checkout writes: gateway paths
+            // (e.g. refund) resolve order currency first and reject
+            // catalog-fallback USD as unsupported.
+            'currency_code' => 'EGP',
+            'catalog_currency_code' => 'EGP',
         ]);
 
         OrderProduct::create([
@@ -725,7 +730,10 @@ class EventSystemTest extends TestCase
             ],
         ]);
 
-        $gateway = new MyFatoorahGateway($mockService);
+        // Resolve via container (ctor takes MyfatoraService + 2 resolvers);
+        // bind the mock so no real provider call happens.
+        $this->app->instance(MyfatoraService::class, $mockService);
+        $gateway = app(MyFatoorahGateway::class);
         $result = $gateway->refund($order, 100.00);
 
         $this->assertTrue($result->success);
@@ -739,7 +747,7 @@ class EventSystemTest extends TestCase
     {
         $order = $this->createOrderWithItems();
 
-        $gateway = new MyFatoorahGateway(app(MyfatoraService::class));
+        $gateway = app(MyFatoorahGateway::class);
         $result = $gateway->refund($order, 100.00);
 
         $this->assertFalse($result->success);
@@ -761,7 +769,8 @@ class EventSystemTest extends TestCase
         $mockService = $this->createMock(MyfatoraService::class);
         $mockService->method('makeRefund')->willReturn(null);
 
-        $gateway = new MyFatoorahGateway($mockService);
+        $this->app->instance(MyfatoraService::class, $mockService);
+        $gateway = app(MyFatoorahGateway::class);
         $result = $gateway->refund($order, 100.00);
 
         $this->assertFalse($result->success);
@@ -794,23 +803,28 @@ class EventSystemTest extends TestCase
     /** @test */
     public function order_cancelled_logs_activity()
     {
-        Bus::fake();
-
         $order = $this->createOrderWithItems($this->user);
 
         $listener = app(SendOrderCancelledNotification::class);
         $listener->handle(new OrderCancelled($order));
 
-        Bus::assertDispatched(LogActivityJob::class, function ($job) use ($order) {
-            return $job->subjectType === get_class($order)
-                && $job->subjectId === $order->id
-                && $job->causerId === $order->user_id
-                && $job->event === 'order_cancelled'
-                && $job->logName === 'orders'
-                && $job->description === __('activity.order_cancelled')
-                && isset($job->properties['order_id'])
-                && $job->properties['order_id'] === $order->id;
-        });
+        // Current plumbing records synchronously via ActivityAuditService
+        // (no LogActivityJob dispatch): assert the persisted audit row with
+        // the same subject/event/log/description/order-id intent.
+        $this->assertDatabaseHas('activity_log', [
+            'subject_type' => get_class($order),
+            'subject_id' => $order->id,
+            'causer_id' => $order->user_id,
+            'event' => 'order_cancelled',
+            'log_name' => 'orders',
+            'description' => __('activity.order_cancelled'),
+        ]);
+        $properties = (array) json_decode((string) DB::table('activity_log')
+            ->where('subject_type', get_class($order))
+            ->where('subject_id', $order->id)
+            ->where('event', 'order_cancelled')
+            ->latest('id')->value('properties'), true);
+        $this->assertSame($order->id, $properties['new']['order_id'] ?? null);
     }
 
     /** @test */
@@ -832,23 +846,26 @@ class EventSystemTest extends TestCase
     /** @test */
     public function order_status_changed_logs_activity()
     {
-        Bus::fake();
-
         $order = $this->createOrderWithItems($this->user);
 
         $listener = app(SendOrderStatusChangedNotification::class);
         $listener->handle(new OrderStatusChanged($order));
 
-        Bus::assertDispatched(LogActivityJob::class, function ($job) use ($order) {
-            return $job->subjectType === get_class($order)
-                && $job->subjectId === $order->id
-                && $job->causerId === $order->user_id
-                && $job->event === 'order_status_changed'
-                && $job->logName === 'orders'
-                && $job->description === __('activity.order_status_changed')
-                && isset($job->properties['order_id'])
-                && $job->properties['order_id'] === $order->id;
-        });
+        // Same plumbing translation as order_cancelled_logs_activity.
+        $this->assertDatabaseHas('activity_log', [
+            'subject_type' => get_class($order),
+            'subject_id' => $order->id,
+            'causer_id' => $order->user_id,
+            'event' => 'order_status_changed',
+            'log_name' => 'orders',
+            'description' => __('activity.order_status_changed'),
+        ]);
+        $properties = (array) json_decode((string) DB::table('activity_log')
+            ->where('subject_type', get_class($order))
+            ->where('subject_id', $order->id)
+            ->where('event', 'order_status_changed')
+            ->latest('id')->value('properties'), true);
+        $this->assertSame($order->id, $properties['new']['order_id'] ?? null);
     }
 
     /** @test */
@@ -870,23 +887,26 @@ class EventSystemTest extends TestCase
     /** @test */
     public function payment_succeeded_logs_activity()
     {
-        Bus::fake();
-
         $order = $this->createOrderWithItems($this->user);
 
         $listener = app(SendPaymentSucceededNotification::class);
         $listener->handle(new PaymentSucceeded($order));
 
-        Bus::assertDispatched(LogActivityJob::class, function ($job) use ($order) {
-            return $job->subjectType === get_class($order)
-                && $job->subjectId === $order->id
-                && $job->causerId === $order->user_id
-                && $job->event === 'payment_succeeded'
-                && $job->logName === 'orders'
-                && $job->description === __('activity.payment_succeeded')
-                && isset($job->properties['order_id'])
-                && $job->properties['order_id'] === $order->id;
-        });
+        // Same plumbing translation as order_cancelled_logs_activity.
+        $this->assertDatabaseHas('activity_log', [
+            'subject_type' => get_class($order),
+            'subject_id' => $order->id,
+            'causer_id' => $order->user_id,
+            'event' => 'payment_succeeded',
+            'log_name' => 'orders',
+            'description' => __('activity.payment_succeeded'),
+        ]);
+        $properties = (array) json_decode((string) DB::table('activity_log')
+            ->where('subject_type', get_class($order))
+            ->where('subject_id', $order->id)
+            ->where('event', 'payment_succeeded')
+            ->latest('id')->value('properties'), true);
+        $this->assertSame($order->id, $properties['new']['order_id'] ?? null);
     }
 
     /** @test */
@@ -908,23 +928,26 @@ class EventSystemTest extends TestCase
     /** @test */
     public function payment_failed_logs_activity()
     {
-        Bus::fake();
-
         $order = $this->createOrderWithItems($this->user);
 
         $listener = app(SendPaymentFailedNotification::class);
         $listener->handle(new PaymentFailed($order));
 
-        Bus::assertDispatched(LogActivityJob::class, function ($job) use ($order) {
-            return $job->subjectType === get_class($order)
-                && $job->subjectId === $order->id
-                && $job->causerId === $order->user_id
-                && $job->event === 'payment_failed'
-                && $job->logName === 'orders'
-                && $job->description === __('activity.payment_failed')
-                && isset($job->properties['order_id'])
-                && $job->properties['order_id'] === $order->id;
-        });
+        // Same plumbing translation as order_cancelled_logs_activity.
+        $this->assertDatabaseHas('activity_log', [
+            'subject_type' => get_class($order),
+            'subject_id' => $order->id,
+            'causer_id' => $order->user_id,
+            'event' => 'payment_failed',
+            'log_name' => 'orders',
+            'description' => __('activity.payment_failed'),
+        ]);
+        $properties = (array) json_decode((string) DB::table('activity_log')
+            ->where('subject_type', get_class($order))
+            ->where('subject_id', $order->id)
+            ->where('event', 'payment_failed')
+            ->latest('id')->value('properties'), true);
+        $this->assertSame($order->id, $properties['new']['order_id'] ?? null);
     }
 
     /** @test */
@@ -1110,14 +1133,15 @@ class EventSystemTest extends TestCase
         $reflection = new \ReflectionClass(EventServiceProvider::class);
         $defaults = $reflection->getDefaultProperties();
 
-        $this->assertArrayHasKey(\Marvel\Events\OrderCancelled::class, $defaults['listen']);
+        // App provider wires the APP OrderCancelled event (the Marvel event
+        // lives on MarvelEventServiceProvider — covered by its sibling test).
+        // The stale Marvel key never existed here; assert the real wiring.
+        $this->assertArrayHasKey(\App\Events\OrderCancelled::class, $defaults['listen']);
+        // Wiring grew beyond a single listener (notification fanout): assert
+        // the restore path stays registered without freezing the full list.
         $this->assertContains(
             RestoreProductInventory::class,
-            $defaults['listen'][\Marvel\Events\OrderCancelled::class]
-        );
-        $this->assertCount(
-            1,
-            $defaults['listen'][\Marvel\Events\OrderCancelled::class]
+            $defaults['listen'][\App\Events\OrderCancelled::class]
         );
     }
 
@@ -1137,6 +1161,11 @@ class EventSystemTest extends TestCase
             'stock_quantity' => 7,
             'sold_quantity' => 8,
         ]);
+
+        // A paid COD order is COMMITTED in real lifecycle (commit at creation);
+        // the cancel path restores ONLY committed rows (else it releases an
+        // ACTIVE hold, else no-ops). Set the premise the test asserts about.
+        $order->update(['inventory_state' => Order::INVENTORY_STATE_COMMITTED]);
 
         $orderService = app(OrderService::class);
         $orderService->changeOrderStatus(null, 'cancelled', $order->id);

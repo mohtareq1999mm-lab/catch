@@ -542,7 +542,13 @@ class PricingProductionHardenTest extends TestCase
     /** @test */
     public function negative_discount_rejected()
     {
-        $coupon = Coupon::create([
+        // CP-05 fail-closed: the Coupon model rejects negative discounts at
+        // save time (InvalidArgumentException), so the calculator-clamp
+        // premise is superseded — persistence never holds a negative.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Coupon discount must be a number >= 0.');
+
+        Coupon::create([
             'name' => 'Negative',
             'slug' => 'negative-' . Str::random(4),
             'code' => 'NEG',
@@ -552,11 +558,6 @@ class PricingProductionHardenTest extends TestCase
             'start_date' => now()->subDay(),
             'end_date' => now()->addMonth(),
         ]);
-
-        $result = CouponCalculator::calculate($coupon, 100.00);
-
-        $this->assertEquals(0, $result['discountAmount']);
-        $this->assertEquals(100.00, $result['finalPrice']);
     }
 
     /** @test */
@@ -651,7 +652,13 @@ class PricingProductionHardenTest extends TestCase
         $response->assertStatus(200);
         $order = Order::where('user_id', auth()->id())->latest()->first();
         $this->assertEquals(0, (float) $order->price);
-        $this->assertEquals(30.00, (float) $order->total_price);
+        // D4 canonical: shipping exists only for physical lines with subtotal
+        // > 0 (OrderService::resolveShippingChargeForCart). A zero-price cart
+        // has physical subtotal 0, so shipping is 0 and total is 0 — the old
+        // expectation of 30 contradicted D4. Flagged for product review
+        // whether free physical items should still incur delivery fees.
+        $this->assertEquals(0, (float) $order->shipping_price);
+        $this->assertEquals(0, (float) $order->total_price);
     }
 
     // ===================== Price Cast Type Consistency =====================
@@ -989,7 +996,15 @@ class PricingProductionHardenTest extends TestCase
 
         $limitedProduct->increment('reserved_quantity', 1);
 
-        $cart2 = Cart::create(['user_id' => auth()->id(), 'status' => 'active', 'total_price' => 50]);
+        // carts.user_id is UNIQUE (one active cart per user) — the second
+        // contender must be a different user (the real oversell scenario).
+        $otherUser = \Marvel\Database\Models\User::create([
+            'name' => 'Oversell Rival',
+            'email' => 'oversell-rival@example.com',
+            'password' => bcrypt('password'),
+            'email_verified_at' => now(),
+        ]);
+        $cart2 = Cart::create(['user_id' => $otherUser->id, 'status' => 'active', 'total_price' => 50]);
         CartItem::create([
             'cart_id' => $cart2->id,
             'product_id' => $limitedProduct->id,

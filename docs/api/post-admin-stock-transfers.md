@@ -34,6 +34,7 @@ Order matters: 401/403-route → 422 (validation) → 404 (location lookups) →
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller |
 | `product_id` | body | integer | Required | No | `required\|integer\|exists:products,id` (unknown ids 422 at validation — same fail-closed twin as receipt) | Existing product id (simple-physical for success) | None | None | `9` | The product moving (authority total provably UNCHANGED — test-verified 150→150) |
+| `product_variant_id` | body | integer | Optional | Yes | `nullable\|integer\|exists:product_variants,id` (code-verified `TransferStockRequest:18`; passed through to `transferStock` — `null` = simple row) | Existing variant id or null | `null` | Variant mismatch surfaces via the `wms.stock.variant_*` guard family | `null` | Variant moving (null for simple products) |
 | `source_location_id` | body | integer | Required | No | `required\|integer\|exists:locations,id` (trashed counts as existing at validation, then 404s at lookup — same split as receipt) | Existing location id | None | None | `1` | Origin bin (must differ from destination AND share its warehouse) |
 | `destination_location_id` | body | integer | Required | No | Same rule set as `source_location_id` | Existing location id | None | None | `2` | Target bin (same warehouse only) |
 | `quantity` | body | integer | Required | No | `required\|integer\|min:1\|max:2147483647` | `1`–`2147483647` | None | None | `30` | Units to move (bounded by source AVAILABLE, not raw quantity — `allocated_hint` counts against it, test-verified) |
@@ -107,12 +108,12 @@ No error-code field; every error below has Error code `None`.
 
 | HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | Guest call (same stack as the receipt twin's 401 test) | See 401 example |
+| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated."` (WITH period, `message.ERROR.UNAUTHENTICATED` — Handler:170, code-verified) | None | Guest call (same stack as the receipt twin's 401 test) | See 401 example |
 | 403 | Authenticated caller lacks `inventory-adjust` (route pipe) | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Valid token without the permission (same pair as receipt) | See 403 example |
-| 403 | Out-of-scope holder at the SOURCE check (first — enumeration-blocking order) or DESTINATION check (second), verbatim | `{message: string, status: boolean}` | None | `"Forbidden warehouse operation."` (verbatim WITH period) | None | Foreign source and/or destination (code-traced order; receipt twin proves the source shape) | See 403-scope example |
+| 403 | Out-of-scope holder at the SOURCE check (first — enumeration-blocking order) or DESTINATION check (second); writes never mask as 404 (`asNotFound` defaults FALSE) | `{message: string, status: boolean}` | None | `"This action is unauthorized."` (`message.ERROR.UNAUTHORIZED_ACTION` — `Handler` swallows the `Forbidden warehouse operation.` throw text) | None | Foreign source and/or destination (code-traced order; receipt twin proves the source shape) | See 403-scope example |
 | 404 | Either LOCATION misses (`firstOrFail` inside resolve — translated `wms.stock` key, NOT the fixed string) | `{message: string, status: boolean}` | None | Translated `wms.stock.location_not_found`: `en` → `"Location not found."` | None | Unknown location id (code-traced; receipt twin verifies the message) | See 404-location example |
 | 404 | PRODUCT vanishes post-validation (TOCTOU race → translated `wms.stock` key) | `{message: string, status: boolean}` | None | Translated `wms.stock.product_not_found`: `en` → `"Product not found."` | None | Vanished product (code-traced race path) | See 404-product example |
-| 422 | `TransferStockRequest` fails (unknown ids, `quantity: 0`, overlong `reference`) | `{message: string, status: boolean, errors: object}` | None | Laravel default | Field → messages | Invalid body (code-traced) | See 422-validation example |
+| 422 | `TransferStockRequest` fails (unknown ids, `quantity: 0`, overlong `reference`) | `{message: string, status: boolean, errors: object}` | None | `"The given data was invalid."` (`message.ERROR.INVALID_DATA` — field texts live in `errors`) | Field → messages | Invalid body (code-traced) | See 422-validation example |
 | 422 | Inactive/unplaceable location, non-receivable product (same guard family as receipt) | `{message: string, status: boolean}` (NO `errors` map) | None | Live `wms.stock` text | None | Dead/wrong-typed bin or product (code-traced family) | See 422-guard example |
 | 422 | Same source AND destination (explicit self-move refusal) | `{message: string, status: boolean}` (NO `errors` map) | None | Live `wms.stock.transfer_same` text | None | Identical ids (verified → 422 with placements provably held) | See 422-same example |
 | 422 | CROSS-warehouse pair (explicit integrity refusal — never a silent cross-posting) | `{message: string, status: boolean}` (NO `errors` map) | None | Live `wms.stock.transfer_cross` text | None | Warehouses differ (verified → 422 with placement proof) | See 422-cross example |
@@ -124,7 +125,7 @@ No error-code field; every error below has Error code `None`.
 
 ```json
 {
-  "message": "Unauthenticated",
+  "message": "Unauthenticated.",
   "status": false
 }
 ```
@@ -138,11 +139,11 @@ No error-code field; every error below has Error code `None`.
 }
 ```
 
-403-scope example (verbatim WITH period):
+403-scope example (throw text swallowed by Handler):
 
 ```json
 {
-  "message": "Forbidden warehouse operation.",
+  "message": "This action is unauthorized.",
   "status": false
 }
 ```
@@ -169,7 +170,7 @@ No error-code field; every error below has Error code `None`.
 
 ```json
 {
-  "message": "The quantity field must be at least 1.",
+  "message": "The given data was invalid.",
   "status": false,
   "errors": {
     "quantity": ["The quantity field must be at least 1."]

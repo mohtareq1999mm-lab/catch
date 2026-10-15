@@ -71,8 +71,8 @@ class DatabaseSeeder extends Seeder
         // always runs, including production (shipping prices, order flows,
         // CMS baseline, pickup locations).
         $this->call([
-//            CategorySeeder::class,
-//            AttributeSeeder::class,
+            CategorySeeder::class,
+            AttributeSeeder::class,
             TagSeeder::class,
             LocationSeeder::class,
             ContentPageSeeder::class,

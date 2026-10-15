@@ -46,7 +46,10 @@
 - الدفعة الخامسة (C-013): ‏33/0 (MarvelStatusAuthority + PaymentSystem) + قاعدة `catch_audit` خاصة. إلغاء 6 اختبارات reaper إلى عقد reservation + matrix unit test + FK ids حقيقية + canonical coupon. بقايا صفرية.
 - الدفعة السادسة (C-014): ‏53/0 (invoice ×2 + digital + gift) + انضباط التزامن. أعمق ترجمة: COD-commit مقابل reservation-lifecycle + نطاق reaper (pending فقط، عن قصد).
 - الدفعة السابعة (C-015): ‏47/0 (FinalArchitecture + PendingRedesign) + تعايش التصميمين (warehouse لنطاق mark-paid فقط).
-- الدفعة الثامنة (C-016): ‏82/0 (notifications + coupons) + ترجمة reaper إلى عقد reservation + تشخيص Pusher-flake (DDL أول تشغيل). العشرة: اختبارات ضد routes غير مسجلة/معطلة (update-email ×4، social-login-token ×3، make-admin ×3) مع إثبات `route:list ERROR` لكل منها — التنفيذ مرفوض (features جديدة).
+- الدفعة الثامنة (C-016): ‏82/0 (notifications + coupons) + ترجمة reaper إلى عقد reservation + تشخيص Pusher-flake (DDL أول تشغيل).
+- الدفعة التاسعة (C-017): ‏91/91 (NotifyLogs محظورة كملف + UserNotification + ExportCancel + BusinessRules + EventSystem) + حراس paid-cancel + single-currency EGP.
+- الدفعة العاشرة/الحادية عشرة (C-018): ProductsEndpoint ‏77/77 + CategoriesEndpoint ‏40/41 (PAGINATION-001 مؤجلة بقرار) + `catch` أُعيد ملؤها (156/1010) دون مساس.
+- الدفعة الثانية عشرة (C-019): TagCrud ‏13/13 + WishlistApi ‏36/36 (توصيل route ناقص + page-object). العشرة: اختبارات ضد routes غير مسجلة/معطلة (update-email ×4، social-login-token ×3، make-admin ×3) مع إثبات `route:list ERROR` لكل منها — التنفيذ مرفوض (features جديدة).
 - بقايا صفرية: العدّادات ‏7/12/3/2/9 متطابقة قبل/بعد كل تشغيل. حادثة بيئة: MySQL كان متوقفاً mid-loop (تشغيل أحمر-كاذب مُستبعد)؛ أُعيد التشغيل على نفس datadir والعدّادات متطابقة.
 - INVALID (لا يُستشهد به): `--filter=AuthenticationTest` القديم → `4 failed, 41 passed` أثناء الترحيل — ملوث.
 - المراجعة المستقلة لملفات الاختبار: لا BLOCKER؛ M1/S1/S2/S3/N2 مطبّقة. التفاصيل: `error/verification-evidence-audit-track.md`.

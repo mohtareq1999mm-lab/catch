@@ -332,6 +332,10 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::patch('wishlists/toggle', [WishlistController::class, 'toggle']);
     Route::apiResource('wishlists', WishlistController::class)->only(['index', 'store']);
     Route::get('wishlists/in_wishlist/{product_id}', [WishlistController::class, 'in_wishlist']);
+    // Owner-scoped removal by product id (WishlistController@destroy looks up
+    // the caller's own row; foreign/missing rows 404 — no existence oracle).
+    // The action existed without a route; tests + implementation agree.
+    Route::delete('wishlists/{id}', [WishlistController::class, 'destroy']);
 
     //============================= promotions ========================/
     Route::apiResource('promotions', PromotionController::class);

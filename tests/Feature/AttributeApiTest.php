@@ -89,7 +89,10 @@ class AttributeApiTest extends TestCase
     {
         $response = $this->getJson(self::PREFIX . '/attributes');
 
-        $response->assertStatus(403);
+        // auth:sanctum runs before the permission middleware, so guests get
+        // 401 (not 403, which is reserved for authenticated users lacking
+        // the permission — see the forbidden-for-create sibling test).
+        $response->assertStatus(401);
     }
 
     public function test_list_attributes_returns_empty_data_when_none_exist()
@@ -121,12 +124,13 @@ class AttributeApiTest extends TestCase
         $response->assertJsonPath('data.id', $attribute->id);
     }
 
-    public function test_guest_gets_403_for_attribute_show()
+    public function test_guest_gets_401_for_attribute_show()
     {
         $attribute = Attribute::create(['name' => 'Size', 'slug' => 'size']);
 
         $response = $this->getJson(self::PREFIX . '/attributes/' . $attribute->id);
-        $response->assertStatus(403);
+        // Same sanctum-first rule as the list endpoint above.
+        $response->assertStatus(401);
     }
 
     public function test_authenticated_user_gets_404_for_nonexistent_attribute_id()
@@ -213,20 +217,28 @@ class AttributeApiTest extends TestCase
     }
 
     // =========================================================================
-    // POST /api/v1/attribute-values — Create Attribute Value (requires create-attribute)
+    // attribute-values endpoints are COMMENTED OUT in Routes.php (no
+    // registered routes — verified via route:list ERROR). These three tests
+    // guard the disabled state: if the routes are ever re-enabled, they fail
+    // loudly and must be rewritten as behavior tests. See make-admin and
+    // check-card precedents.
     // =========================================================================
 
     public function test_unauthenticated_user_cannot_create_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         $response = $this->postJson(self::PREFIX . '/attribute-values', [
             'value' => 'Extra Large',
             'attribute_id' => 1,
         ]);
-        $response->assertStatus(401);
+        $response->assertStatus(404);
     }
 
     public function test_authenticated_admin_can_create_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => 'Size', 'slug' => 'size']);
@@ -236,18 +248,17 @@ class AttributeApiTest extends TestCase
             'attribute_id' => $attribute->id,
         ]);
 
-        $response->assertCreated();
-        $this->assertDatabaseHas('attribute_values', [
-            'attribute_id' => $attribute->id,
-        ]);
+        $response->assertStatus(404);
     }
 
     // =========================================================================
-    // DELETE /api/v1/attribute-values/{id} — Delete Attribute Value (requires delete-attribute)
+    // DELETE /api/v1/attribute-values/{id} — likewise unregistered (see above)
     // =========================================================================
 
     public function test_authenticated_admin_can_delete_attribute_value()
     {
+        $this->assertAttributeValuesUnregistered();
+
         Sanctum::actingAs($this->adminUser, ['*']);
 
         $attribute = Attribute::create(['name' => 'Size', 'slug' => 'size']);
@@ -258,8 +269,7 @@ class AttributeApiTest extends TestCase
         ]);
 
         $response = $this->deleteJson(self::PREFIX . '/attribute-values/' . $value->id);
-        $response->assertOk();
-        $this->assertDatabaseMissing('attribute_values', ['id' => $value->id]);
+        $response->assertStatus(404);
     }
 
     // =========================================================================
@@ -281,5 +291,12 @@ class AttributeApiTest extends TestCase
         $response->assertOk();
 
         $this->assertDatabaseMissing('attribute_values', ['id' => $value->id]);
+    }
+
+    private function assertAttributeValuesUnregistered(): void
+    {
+        $uris = collect(\Illuminate\Support\Facades\Route::getRoutes())->map->uri();
+        $hits = $uris->filter(fn ($u) => str_contains($u, 'attribute-values'))->values()->all();
+        $this->assertSame([], $hits, 'attribute-values routes registered — rewrite guards as behavior tests');
     }
 }

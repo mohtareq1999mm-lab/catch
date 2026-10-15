@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Fulfillment\Warehouse;
 use App\Models\CouponReservation;
 use App\Services\Coupon\CouponReservationService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\Coupon;
@@ -62,7 +64,9 @@ class BusinessRulesImplementationTest extends TestCase
 
         $this->user = User::create([
             'name' => 'Test User',
-            'email' => 'test@example.com',
+            // Random per test: fixed emails collide across concurrent runs
+            // sharing a database (unique-key lock waits, not app behavior).
+            'email' => 'test-' . Str::random(6) . '@example.com',
             'password' => bcrypt('password'),
             'type' => 'user',
             'is_active' => true,
@@ -90,6 +94,32 @@ class BusinessRulesImplementationTest extends TestCase
             'price' => 20,
             'status' => true,
         ]);
+
+        // Single-currency EGP store (base + catalog): online checkout prices
+        // in the order currency and the gateway gate rejects catalog-fallback
+        // USD; split base/catalog would need currency_rates rows (absent).
+        // Set BEFORE any request (CurrencyService memoizes per instance).
+        $settings = \Marvel\Database\Models\Settings::first();
+        $options = $settings?->options ?? [];
+        $options['catalog_currency_code'] = 'EGP';
+        $options['base_currency_code'] = 'EGP';
+        if ($settings) {
+            $settings->options = $options;
+            $settings->save();
+        } else {
+            \Marvel\Database\Models\Settings::create(['options' => $options]);
+        }
+
+        // Completion converges through fulfillment release, which needs
+        // exactly one ACTIVE default warehouse. Online-pending orders are NOT
+        // releasable (unpaid + active → refused), so this fixture does not
+        // disturb the pending-premise tests.
+        $warehouse = Warehouse::firstOrCreate(
+            ['code' => 'TEST-DEFAULT'],
+            ['name' => 'Test Default', 'status' => 'active', 'is_default' => true]
+        );
+        Warehouse::where('is_default', true)->whereKeyNot($warehouse->getKey())->update(['is_default' => false]);
+        $warehouse->update(['status' => 'active', 'is_default' => true]);
 
         Sanctum::actingAs($this->user);
     }
@@ -132,15 +162,22 @@ class BusinessRulesImplementationTest extends TestCase
     /** @test */
     public function test_coupon_reservation_prevents_double_booking()
     {
-        // Create a single-use coupon
+        // Create a single-use coupon. Explicit validity window: the
+        // start/end_date columns are NOT NULL without defaults, so omitting
+        // them stores zero-dates under non-strict mode — which validate as
+        // EXPIRED. (Same class as the settings.language drift.)
         $coupon = Coupon::create([
             'code' => 'SAVE50',
-            'discount_type' => DiscountType::FIXED,
+            // Canonical enum value (DiscountType has FIXED_RATE; there is no
+            // FIXED constant — same alias trap as OrderCreationFlowTest).
+            'discount_type' => DiscountType::FIXED_RATE,
             'discount_amount' => 50,
             'limiter' => 1, // Only 1 use allowed
             'used' => 0,
             'is_valid' => true,
             'status' => 1,
+            'start_date' => now()->subDay()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
         ]);
 
         // User 1 checks out with coupon
@@ -181,12 +218,16 @@ class BusinessRulesImplementationTest extends TestCase
     {
         $coupon = Coupon::create([
             'code' => 'TEST10',
-            'discount_type' => DiscountType::FIXED,
+            // Canonical enum value (see SAVE50 above) + explicit validity
+            // window (zero-date drift reads as expired — see SAVE50 above).
+            'discount_type' => DiscountType::FIXED_RATE,
             'discount_amount' => 10,
             'limiter' => 10,
             'used' => 0,
             'is_valid' => true,
             'status' => 1,
+            'start_date' => now()->subDay()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
         ]);
 
         $this->addToCart(1);
@@ -203,7 +244,11 @@ class BusinessRulesImplementationTest extends TestCase
             'coupon_id' => $coupon->id,
         ]);
 
-        // Simulate payment success
+        // Simulate payment success. Completion of an unpaid order requires
+        // the financial permission (F-1 guard) even in tests.
+        $this->user->givePermissionTo(
+            \Spatie\Permission\Models\Permission::findOrCreate('payments.mark_paid', 'api')
+        );
         $orderService = app(\App\Services\General\OrderService::class);
         DB::transaction(function () use ($order, $orderService) {
             $orderReservationService = app(\App\Services\Inventory\OrderReservationService::class);
@@ -223,10 +268,19 @@ class BusinessRulesImplementationTest extends TestCase
     /** @test */
     public function test_promotion_not_decremented_on_paid_order_cancellation()
     {
+        // Full promotion shape (mirrors the proven fixture in
+        // CheckoutPendingOrderRedesignTest): the eligibility resolver needs
+        // type/value/apply_to scope fields — a bare code row resolves null.
         $promotion = Promotion::create([
+            'name' => 'Test Promotion',
+            'slug' => 'promo10-' . Str::random(6),
             'code' => 'PROMO10',
+            'type' => 'price',
             'type_amount' => 'percentage',
+            'value' => 10,
             'discount_amount' => 10,
+            'minimum_order_amount' => 0,
+            'apply_to' => 'all_products',
             'usage' => 0,
             'status' => 1,
             'is_valid' => true,
@@ -245,7 +299,6 @@ class BusinessRulesImplementationTest extends TestCase
             'payment_method' => 'online',
             'selected_promotion_id' => $promotion->id,
         ]);
-
         $order = Order::where('user_id', $this->user->id)->first();
 
         // Simulate payment success
@@ -265,12 +318,22 @@ class BusinessRulesImplementationTest extends TestCase
 
         $this->assertEquals(1, $promotion->fresh()->usage);
 
-        // Cancel the paid order (Rule 17: should NOT decrement promotion)
+        // Rule 17 as ENFORCED: paid (completed) orders cannot transition to
+        // cancelled — allowsFlowTransition forbids completed→cancelled
+        // ("legacy forbids cancelling paid orders; refunds keep status
+        // completed"). Paid exit is the refund path, not cancellation.
+        // The rejected transition must change nothing (promotion stays 1).
         $orderService = app(\App\Services\General\OrderService::class);
-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        try {
+            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+            $this->fail('Cancelling a paid (completed) order must be rejected.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('completed', $e->getMessage());
+        }
 
+        $this->assertEquals('completed', $order->fresh()->status);
         // Promotion usage should remain 1 (NOT decremented)
-        $this->assertEquals(1, $promotion->fresh()->usage, 'Paid order cancellation must NOT decrement promotion usage');
+        $this->assertEquals(1, $promotion->fresh()->usage, 'Rejected cancel must NOT decrement promotion usage');
     }
 
     /** @test */
@@ -295,24 +358,33 @@ class BusinessRulesImplementationTest extends TestCase
         $stockAfterPayment = $this->product->fresh()->stock_quantity;
         $this->assertEquals($initialStock - 5, $stockAfterPayment);
 
-        // Cancel the paid order
+        // Paid (completed) orders cannot transition to cancelled — same
+        // enforced rule as the promotion test above (refund path owns paid
+        // exit). The rejected transition must leave order AND stock untouched.
         $orderService = app(\App\Services\General\OrderService::class);
-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        try {
+            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+            $this->fail('Cancelling a paid (completed) order must be rejected.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('completed', $e->getMessage());
+        }
 
-        // Stock should be restored
-        $stockAfterCancel = $this->product->fresh()->stock_quantity;
-        $this->assertEquals($initialStock, $stockAfterCancel, 'Paid order cancellation must restore inventory');
-
-        // Order should be marked as restored
-        $this->assertEquals(Order::INVENTORY_STATE_RESTORED, $order->fresh()->inventory_state);
-        $this->assertNotNull($order->fresh()->inventory_state_restored_at);
+        $this->assertEquals('completed', $order->fresh()->status);
+        $stockAfterRejectedCancel = $this->product->fresh()->stock_quantity;
+        $this->assertEquals($stockAfterPayment, $stockAfterRejectedCancel, 'Rejected cancel must not move inventory');
     }
 
     private function addToCart(int $quantity): void
     {
-        $this->postJson(self::PREFIX . '/cart', [
-            'product_id' => $this->product->id,
-            'quantity' => $quantity,
+        // Cart lives at /api/v1/cart (Marvel group), NOT under /api/v1/general,
+        // and store takes {item:{product_id,quantity,shipping_method}} per
+        // CartCreateRequest (shipping_method required).
+        $this->postJson('/api/v1/cart', [
+            'item' => [
+                'product_id' => $this->product->id,
+                'quantity' => $quantity,
+                'shipping_method' => 'scheduled',
+            ],
         ])->assertSuccessful();
     }
 

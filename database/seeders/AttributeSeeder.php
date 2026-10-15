@@ -75,16 +75,18 @@ class AttributeSeeder extends Seeder
         ];
 
         foreach ($attributes as $attr) {
-            $attribute = \Marvel\Database\Models\Attribute::create([
-                'name'=> $attr['name'],
-                'slug' => $attr['slug'],
-            ]);
+            $attribute = \Marvel\Database\Models\Attribute::firstOrCreate(
+                ['slug' => $attr['slug']],
+                ['name' => $attr['name']]
+            );
             foreach ($attr['values'] as $value) {
-                \Marvel\Database\Models\AttributeValue::create([
-                    'attribute_id' => $attribute->id,
-                    'value' => $value['value'],
-                    'slug' => \Illuminate\Support\Str::slug($value['value']['en']),
-                ]);
+                \Marvel\Database\Models\AttributeValue::firstOrCreate(
+                    [
+                        'attribute_id' => $attribute->id,
+                        'slug' => \Illuminate\Support\Str::slug($value['value']['en']),
+                    ],
+                    ['value' => $value['value']]
+                );
             }
         }
     }

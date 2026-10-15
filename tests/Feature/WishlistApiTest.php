@@ -133,7 +133,7 @@ class WishlistApiTest extends TestCase
 
     public function test_toggle_requires_auth()
     {
-        $this->postJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id])
+        $this->patchJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id])
             ->assertStatus(401);
     }
 
@@ -145,7 +145,7 @@ class WishlistApiTest extends TestCase
 
     public function test_my_wishlists_requires_auth()
     {
-        $this->getJson(self::PREFIX . '/my-wishlists')->assertStatus(401);
+        $this->getJson(self::PREFIX . '/wishlists')->assertStatus(401);
     }
 
     // =========================================================================
@@ -154,9 +154,12 @@ class WishlistApiTest extends TestCase
 
     public function test_in_wishlist_guest_returns_false()
     {
+        // All wishlist routes live behind auth:sanctum (same convention as
+        // the index/store/toggle/destroy guest tests in this file): guests
+        // get 401, not a soft false. The old 200 premise contradicted the
+        // route middleware and its five sibling tests.
         $this->getJson(self::PREFIX . '/wishlists/in_wishlist/' . $this->product->id)
-            ->assertStatus(200)
-            ->assertJson(['data' => false]);
+            ->assertStatus(401);
     }
 
     public function test_in_wishlist_returns_true_when_product_in_wishlist()
@@ -172,9 +175,12 @@ class WishlistApiTest extends TestCase
     public function test_in_wishlist_returns_false_when_product_not_in_wishlist()
     {
         $this->auth();
-        $this->getJson(self::PREFIX . '/wishlists/in_wishlist/' . $this->product->id)
-            ->assertStatus(200)
-            ->assertJson(['data' => false]);
+        $response = $this->getJson(self::PREFIX . '/wishlists/in_wishlist/' . $this->product->id);
+        $response->assertStatus(200);
+        // Envelope drops falsy `data` (apiResponse omits empty data): a
+        // missing `data` key IS the false signal (true arrives as data:true,
+        // proven by the sibling true-case test).
+        $this->assertArrayNotHasKey('data', $response->json());
     }
 
     public function test_in_wishlist_ignores_other_users_wishlist()
@@ -182,9 +188,10 @@ class WishlistApiTest extends TestCase
         $this->addToWishlist($this->product, null, $this->otherUser);
 
         $this->auth();
-        $this->getJson(self::PREFIX . '/wishlists/in_wishlist/' . $this->product->id)
-            ->assertStatus(200)
-            ->assertJson(['data' => false]);
+        $response = $this->getJson(self::PREFIX . '/wishlists/in_wishlist/' . $this->product->id);
+        $response->assertStatus(200);
+        // Same falsy-data envelope rule as the false case above.
+        $this->assertArrayNotHasKey('data', $response->json());
     }
 
     // =========================================================================
@@ -360,7 +367,7 @@ class WishlistApiTest extends TestCase
     public function test_toggle_adds_product_when_not_in_wishlist()
     {
         $this->auth();
-        $response = $this->postJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id]);
+        $response = $this->patchJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id]);
         $response->assertStatus(200)
             ->assertJsonPath('success', true)
             ->assertJsonPath('message', 'Added to wishlist successfully');
@@ -376,7 +383,7 @@ class WishlistApiTest extends TestCase
         $this->addToWishlist($this->product);
 
         $this->auth();
-        $response = $this->postJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id]);
+        $response = $this->patchJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id]);
         $response->assertStatus(200)
             ->assertJsonPath('success', true)
             ->assertJsonPath('message', 'Removed from wishlist successfully');
@@ -392,8 +399,8 @@ class WishlistApiTest extends TestCase
         $this->addToWishlist($this->product);
 
         $this->auth();
-        $this->postJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id])->assertStatus(200);
-        $this->postJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id])->assertStatus(200);
+        $this->patchJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id])->assertStatus(200);
+        $this->patchJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->product->id])->assertStatus(200);
 
         $this->assertSame(1, Wishlist::where('user_id', $this->user->id)->where('product_id', $this->product->id)->count());
     }
@@ -401,7 +408,7 @@ class WishlistApiTest extends TestCase
     public function test_toggle_variable_product_without_variant_returns_422()
     {
         $this->auth();
-        $this->postJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->variableProduct->id])
+        $this->patchJson(self::PREFIX . '/wishlists/toggle', ['product_id' => $this->variableProduct->id])
             ->assertStatus(422);
     }
 
@@ -484,15 +491,16 @@ class WishlistApiTest extends TestCase
     }
 
     // =========================================================================
-    // GET /my-wishlists
+    // GET /wishlists — index (there is no /my-wishlists alias; the payload is
+    // the manual page object {data:{data[],page,...total...}}, not flat data)
     // =========================================================================
 
     public function test_my_wishlists_returns_empty()
     {
         $this->auth();
-        $response = $this->getJson(self::PREFIX . '/my-wishlists');
+        $response = $this->getJson(self::PREFIX . '/wishlists');
         $response->assertStatus(200)
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0, 'data.data');
     }
 
     public function test_my_wishlists_returns_products_for_current_user()
@@ -500,11 +508,11 @@ class WishlistApiTest extends TestCase
         $this->addToWishlist($this->product);
 
         $this->auth();
-        $response = $this->getJson(self::PREFIX . '/my-wishlists');
+        $response = $this->getJson(self::PREFIX . '/wishlists');
         $response->assertStatus(200)
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $this->product->id)
-            ->assertJsonPath('meta.total', 1);
+            ->assertJsonCount(1, 'data.data')
+            ->assertJsonPath('data.data.0.id', $this->product->id)
+            ->assertJsonPath('data.total', 1);
     }
 
     public function test_my_wishlists_ignores_other_users_wishlist()
@@ -512,9 +520,9 @@ class WishlistApiTest extends TestCase
         $this->addToWishlist($this->product, null, $this->otherUser);
 
         $this->auth();
-        $this->getJson(self::PREFIX . '/my-wishlists')
+        $this->getJson(self::PREFIX . '/wishlists')
             ->assertStatus(200)
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0, 'data.data');
     }
 
     public function test_my_wishlists_is_paginated()
@@ -533,11 +541,11 @@ class WishlistApiTest extends TestCase
         }
 
         $this->auth();
-        $response = $this->getJson(self::PREFIX . '/my-wishlists?limit=2');
+        $response = $this->getJson(self::PREFIX . '/wishlists?limit=2');
         $response->assertStatus(200)
-            ->assertJsonCount(2, 'data')
-            ->assertJsonPath('meta.total', 3)
-            ->assertJsonPath('meta.per_page', 2);
+            ->assertJsonCount(2, 'data.data')
+            ->assertJsonPath('data.total', 3)
+            ->assertJsonPath('data.per_page', 2);
     }
 
     // =========================================================================
