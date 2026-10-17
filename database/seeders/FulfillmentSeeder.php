@@ -18,7 +18,9 @@ use App\Models\Shipment;
 use App\Models\WarehouseWorkflowVersion;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Marvel\Database\Models\Attribute;
 use Marvel\Database\Models\AttributeProduct;
 use Marvel\Database\Models\AttributeValue;
@@ -38,6 +40,29 @@ class FulfillmentSeeder extends Seeder
         $this->command?->info('================================================================================');
         $this->command?->info('  Seeding Massive, Ultra-Accurate Fulfillment Lifecycle Dataset (240 Records)');
         $this->command?->info('================================================================================');
+
+        // 0. Clean prior operational fulfillment & order data to ensure 100% idempotent fresh runs
+        $this->command?->info('  [CLEANUP] Clearing previous fulfillment & order records to prevent duplicates...');
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        $tablesToTruncate = [
+            'fulfillment_batch_fulfillments',
+            'fulfillment_batches',
+            'shipments',
+            'package_items',
+            'packages',
+            'packing_tasks',
+            'picking_tasks',
+            'fulfillment_items',
+            'fulfillments',
+            'order_products',
+            'orders',
+        ];
+        foreach ($tablesToTruncate as $tbl) {
+            if (Schema::hasTable($tbl)) {
+                DB::table($tbl)->truncate();
+            }
+        }
+        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
 
         // 1. Permissions & Roles
         $permissions = [
