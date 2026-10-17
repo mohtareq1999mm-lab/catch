@@ -55,20 +55,22 @@ class FulfillmentSeeder extends Seeder
         $superAdminRole = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'api']);
 
         // 2. Base Warehouses (Cairo Hub & Alexandria Logistics Hub)
-        $hasDefaultWarehouse = Warehouse::where('is_default', true)->whereNull('deleted_at')->exists();
+        $existingDefault = Warehouse::where('is_default', true)->whereNull('deleted_at')->first();
+        $isDefaultWh1 = ($existingDefault === null || $existingDefault->code === 'WH-CAIRO-CENTRAL');
 
-        $warehouse1 = Warehouse::firstOrCreate(
-            ['code' => 'WH-CAIRO-CENTRAL'],
-            [
+        $warehouse1 = Warehouse::where('code', 'WH-CAIRO-CENTRAL')->first();
+        if (!$warehouse1) {
+            $warehouse1 = Warehouse::create([
+                'code' => 'WH-CAIRO-CENTRAL',
                 'name' => 'Central Hub - Cairo Distribution Center',
                 'address' => 'Plot 12, Industrial Area, Badr City',
                 'city' => 'Cairo',
                 'country' => 'Egypt',
                 'status' => 'active',
-                'is_default' => !$hasDefaultWarehouse,
+                'is_default' => $isDefaultWh1,
                 'metadata' => ['zone' => 'Zone-A', 'total_capacity_sqm' => 15000, 'operating_hours' => '24/7'],
-            ]
-        );
+            ]);
+        }
 
         $warehouse2 = Warehouse::firstOrCreate(
             ['code' => 'WH-ALEX-LOGISTICS'],
@@ -371,9 +373,18 @@ class FulfillmentSeeder extends Seeder
         );
 
         // Order flows and statuses
-        $flow = OrderFlow::first();
+        if (OrderFlow::count() === 0 || OrderStatus::count() === 0) {
+            $this->call(OrderFlowSeeder::class);
+        }
+
+        $flow = OrderFlow::where('is_default', true)->first() ?? OrderFlow::first();
+        $pendingStatus = OrderStatus::where('code', 'pending')->first();
         $processingStatus = OrderStatus::where('code', 'processing')->first();
-        $completedStatus = OrderStatus::where('code', 'completed')->first();
+        $packedStatus = OrderStatus::where('code', 'packed')->first() ?? $processingStatus;
+        $shippedStatus = OrderStatus::where('code', 'shipped')->first() ?? $processingStatus;
+        $deliveredStatus = OrderStatus::where('code', 'delivered')->first() ?? OrderStatus::where('code', 'completed')->first();
+        $completedStatus = OrderStatus::where('code', 'completed')->first() ?? $deliveredStatus;
+        $cancelledStatus = OrderStatus::where('code', 'cancelled')->first();
 
         // 8. Generate 240 Fulfillments: Exactly 30 per Status for All 8 Lifecycle Stages
         $stages = [
@@ -423,18 +434,67 @@ class FulfillmentSeeder extends Seeder
                 $courier = $couriers[($i - 1) % count($couriers)];
                 $boxType = $boxTypes[($i - 1) % count($boxTypes)];
 
-                // Order creation
+                // Order lifecycle state mapping (100% synchronized with flow & status catalog)
                 $orderStatus = match ($stage) {
+                    'pending' => 'processing',
+                    'picking', 'picked', 'packing' => 'processing',
+                    'ready_to_ship' => 'packed',
+                    'shipped' => 'shipped',
                     'delivered' => 'completed',
                     'cancelled' => 'cancelled',
                     default => 'processing',
                 };
+
+                $orderLegacyStatus = match ($stage) {
+                    'delivered' => 'order-completed',
+                    'cancelled' => 'order-cancelled',
+                    'shipped' => 'order-at-local-facility',
+                    default => 'order-processing',
+                };
+
                 $orderStatusId = match ($stage) {
-                    'delivered' => $completedStatus?->id,
+                    'ready_to_ship' => $packedStatus?->id ?? $processingStatus?->id,
+                    'shipped' => $shippedStatus?->id ?? $processingStatus?->id,
+                    'delivered' => $completedStatus?->id ?? $deliveredStatus?->id,
+                    'cancelled' => $cancelledStatus?->id,
                     default => $processingStatus?->id,
                 };
 
-                $orderNumber = "ORD-MASS-{$stage}-{$numStr}";
+                $orderFulfillmentStatus = match ($stage) {
+                    'pending' => Order::FULFILLMENT_STATUS_PENDING,
+                    'picking', 'picked', 'packing' => Order::FULFILLMENT_STATUS_PROCESSING,
+                    'ready_to_ship' => Order::FULFILLMENT_STATUS_READY_FOR_PICKUP,
+                    'shipped' => Order::FULFILLMENT_STATUS_OUT_FOR_DELIVERY,
+                    'delivered' => Order::FULFILLMENT_STATUS_DELIVERED,
+                    'cancelled' => Order::FULFILLMENT_STATUS_CANCELLED,
+                    default => Order::FULFILLMENT_STATUS_PROCESSING,
+                };
+
+                $orderShipmentStatus = match ($stage) {
+                    'ready_to_ship' => Order::SHIPMENT_STATUS_LABEL_CREATED,
+                    'shipped' => Order::SHIPMENT_STATUS_IN_TRANSIT,
+                    'delivered' => Order::SHIPMENT_STATUS_DELIVERED,
+                    'cancelled' => Order::SHIPMENT_STATUS_CANCELLED,
+                    default => Order::SHIPMENT_STATUS_PENDING,
+                };
+
+                $inventoryState = match ($stage) {
+                    'cancelled' => Order::INVENTORY_STATE_RELEASED,
+                    default => Order::INVENTORY_STATE_COMMITTED,
+                };
+
+                $stageShort = match ($stage) {
+                    'pending' => 'pnd',
+                    'picking' => 'pic',
+                    'picked' => 'pkd',
+                    'packing' => 'pak',
+                    'ready_to_ship' => 'rts',
+                    'shipped' => 'shp',
+                    'delivered' => 'del',
+                    'cancelled' => 'can',
+                    default => substr($stage, 0, 3),
+                };
+                $orderNumber = "ORD-{$stageShort}-{$numStr}";
                 $order = Order::firstOrCreate(
                     ['order_number' => $orderNumber],
                     [
@@ -443,12 +503,12 @@ class FulfillmentSeeder extends Seeder
                         'user_email' => $cust->email,
                         'user_phone' => $cust->phone_number,
                         'status' => $orderStatus,
-                        'order_status' => 'order-' . $orderStatus,
+                        'order_status' => $orderLegacyStatus,
                         'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
                         'payment_method' => ($i % 3 === 0) ? 'cod' : (($i % 3 === 1) ? 'credit_card' : 'vodafone_cash'),
-                        'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
-                        'fulfillment_status' => $stage,
-                        'shipment_status' => in_array($stage, ['shipped', 'delivered']) ? $stage : 'pending',
+                        'inventory_state' => $inventoryState,
+                        'fulfillment_status' => $orderFulfillmentStatus,
+                        'shipment_status' => $orderShipmentStatus,
                         'flow_id' => $flow?->id,
                         'current_status_id' => $orderStatusId,
                         'price' => 775.00,
@@ -458,7 +518,15 @@ class FulfillmentSeeder extends Seeder
                         'address' => $addr,
                     ]
                 );
-                $order->update(['status' => $orderStatus, 'inventory_state' => Order::INVENTORY_STATE_COMMITTED]);
+                $order->update([
+                    'status' => $orderStatus,
+                    'order_status' => $orderLegacyStatus,
+                    'current_status_id' => $orderStatusId,
+                    'fulfillment_status' => $orderFulfillmentStatus,
+                    'shipment_status' => $orderShipmentStatus,
+                    'inventory_state' => $inventoryState,
+                    'cancelled_at' => ($stage === 'cancelled') ? ($cancelledAt ?? now()) : null,
+                ]);
 
                 // Order Items (Mix of Simple & Variants based on Warehouse Location)
                 $plHeadset = $isAlexOrder ? $plHeadsetAlex : $plHeadsetCairoA;
