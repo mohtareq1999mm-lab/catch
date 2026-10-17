@@ -245,6 +245,10 @@ class ProductService
                 'banners',
                 'sliders',
                 'reviews' => fn($builder) => $builder->approved()->with('user'),
+                'productLocations.location',
+                'productLocations.warehouse',
+                'variations.productLocations.location',
+                'variations.productLocations.warehouse',
             ]))
             ->withAvg(['reviews' => fn($builder) => $builder->approved()], 'rating')
             ->withCount(['reviews' => fn($builder) => $builder->approved()]);

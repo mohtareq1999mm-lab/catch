@@ -58,6 +58,7 @@ class ProductResource extends JsonResource
                 'original' => $this->getMediaImages('products'),
             ],
             'tags'                    => TagResource::collection($this->whenLoaded('tags')),
+            'locations'               => $this->formatLocations($this->productLocations),
             "variants"                => $this->whenLoaded('variations', fn() => $this->getVariants()),
             'reviews'                 => ReviewResource::collection($this->whenLoaded('reviews')),
             $this->mergeWhen($this->relationLoaded('related_products'), fn() => ['related_products' => ProductMiniResource::collection($this->related_products)]),
@@ -91,9 +92,39 @@ class ProductResource extends JsonResource
                 'width' => $variant->width,
                 'length' => $variant->length,
                 'weight' => $variant->weight,
+                'locations' => $this->formatLocations($variant->productLocations),
                 'attributes' => $this->getAttributeName($variant->attributeProducts),
             ];
         });
+    }
+
+    private function formatLocations($productLocations)
+    {
+        if (!$productLocations) {
+            return [];
+        }
+
+        return $productLocations->map(function ($pl) {
+            return [
+                'id' => $pl->id,
+                'location_id' => $pl->location_id,
+                'warehouse_id' => $pl->warehouse_id,
+                'quantity' => (float) $pl->quantity,
+                'allocated_hint' => (float) ($pl->allocated_hint ?? 0),
+                'location' => $pl->location ? [
+                    'id' => $pl->location->id,
+                    'code' => $pl->location->code,
+                    'barcode' => $pl->location->barcode,
+                    'name' => $pl->location->name,
+                    'type' => $pl->location->type,
+                ] : null,
+                'warehouse' => $pl->warehouse ? [
+                    'id' => $pl->warehouse->id,
+                    'code' => $pl->warehouse->code,
+                    'name' => $pl->warehouse->name,
+                ] : null,
+            ];
+        })->values()->all();
     }
 
     private function getAttributeName($attributeProducts)

@@ -451,7 +451,7 @@ class Product extends Model implements HasMedia
 
     public function productLocations(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
-        return $this->hasMany(\App\Models\Fulfillment\ProductLocation::class, 'product_id');
+        return $this->hasMany(\App\Models\Fulfillment\ProductLocation::class, 'product_id')->whereNull('product_variant_id');
     }
 
     public function warehouseLocations(): \Illuminate\Database\Eloquent\Relations\BelongsToMany

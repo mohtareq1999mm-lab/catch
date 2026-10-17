@@ -15,7 +15,7 @@ Returns one product by id with relations and related products loaded.
 | HTTP method | `GET` |
 | Full path | `/api/v1/products/{product}` |
 | Path composition | `api/v1` prefix + `products/{product}` from `Route::apiResource('products', ...)` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group, plus route-level ANY-of pipe middleware (constructor `view-products` gate decides). NOTE the sample/export single-segment GETs (`import/sample`, `export`) are registered BEFORE the apiResource precisely so they are not captured here (source comment verified) |
-| Controller action | `Marvel\Http\Controllers\ProductController@show(Request $request, $id)` → `fetchSingleProduct`: `where('id')->firstOrFail` (id-ONLY lookup — slug NOT accepted, unlike flash-sale/tag show; code-verified asymmetry), related-products fetch (`limit` default 10) attached as `related_products` relation, then EIGHT relations loaded (`variations/categories/flash_sales/banners/sliders/brands/reviews/tags`); inner miss (`Exception` incl. `ModelNotFoundException`) → `MarvelNotFoundException(NOT_FOUND)` → outer `catch (MarvelException)` → rethrown `MarvelException(NOT_FOUND)` → escapes to `Handler` → 404... via WHICH branch? `MarvelNotFoundException`/`MarvelException` are NOT `ModelNotFoundException` (name similarity is a trap — verified distinct classes) → `Handler` `MarvelException` branch: contains `NOT_FOUND` → 404 TRANSLATED `'Not found'` (code-verified chain) |
+| Controller action | `Marvel\Http\Controllers\ProductController@show(Request $request, $id)` → `fetchSingleProduct`: resolves product via `Product::query()->where('id', $id)->orWhere('slug', $id)->firstOrFail()` (supports both numeric ID and slug), related-products fetch (`limit` default 10) attached as `related_products` relation, then relations loaded (`productLocations.location/productLocations.warehouse/variations.productLocations.location/variations.productLocations.warehouse/variations/categories/flash_sales/banners/sliders/brands/reviews/tags`); inner miss (`Exception` incl. `ModelNotFoundException`) → `MarvelNotFoundException(NOT_FOUND)` → outer `catch (MarvelException)` → rethrown `MarvelException(NOT_FOUND)` → escapes to `Handler` → 404... via WHICH branch? `MarvelNotFoundException`/`MarvelException` are NOT `ModelNotFoundException` (name similarity is a trap — verified distinct classes) → `Handler` `MarvelException` branch: contains `NOT_FOUND` → 404 TRANSLATED `'Not found'` (code-verified chain) |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` |
 | Permission | Required once: `view-products` via controller constructor (applies to `index` and `show`) |
 | Required headers | `Authorization: Bearer <sanctum-token>` |
@@ -31,7 +31,7 @@ Returns one product by id with relations and related products loaded.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller |
 | `lang` | header | string | Optional | No | In `['en', 'ar']` | `en`, `ar` | `en` | None | `en` | Selects message locale |
-| `product` | path | mixed id | Required | No | No route constraint; `where('id', $id)` equality (soft-deleted rows miss — `Product` uses `SoftDeletes`, code-verified) | Id of a non-deleted product | None | None | `1` | Identifies the product |
+| `product` | path | mixed id \| slug | Required | No | No route constraint; `where('id', $id)->orWhere('slug', $id)` equality (soft-deleted rows miss — `Product` uses `SoftDeletes`, code-verified) | Id or slug of a non-deleted product | None | None | `1` | Identifies the product |
 | `limit` | query | integer | Optional | No | `$request->limit ?? 10`; unvalidated (related-products page size, code-verified) | Any positive integer | `10` | None | `10` | Related-products limit |
 
 No body fields. No `422` contract.
@@ -107,7 +107,8 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
 | `data.flash_sales` | array | Always present on show (relation loaded) | Flash-sale resources | `[]` when none |
 | `data.reviews` | array | Always present on show (relation loaded) | Review resources | `[]` when none |
 | `data.images` | array of strings | Always present (can be empty) | Media URLs | e.g. `["https://cdn.example/i.jpg"]` |
-| `data.variants` | array | Always present on show (relation loaded) | Variant rows with `id/price/current_price/stock_quantity/reserved_quantity/available_stock/quantity/height/width/length/weight/attributes[{attribute_name,value}]` | `[]` for simple products; `attributes[].attribute_name` can be an EMPTY STRING when the attribute row has no localized name for the active locale (runtime-probed) |
+| `data.locations` | array | Always present on show | Location placement rows: `[{id, location_id, warehouse_id, quantity, allocated_hint, location: {id, code, barcode, name, type}, warehouse: {id, code, name}}]` (direct placements for simple products; empty array for variable products whose placements are assigned to variants) | `[]` when none |
+| `data.variants` | array | Always present on show (relation loaded) | Variant rows with `id/price/current_price/stock_quantity/reserved_quantity/available_stock/quantity/height/width/length/weight/locations/attributes[{attribute_name,value}]` where each location contains `id, location_id, warehouse_id, quantity, allocated_hint, location, warehouse` | `[]` for simple products; `attributes[].attribute_name` can be an EMPTY STRING when the attribute row has no localized name for the active locale (runtime-probed) |
 | `data.related_products` | array | Always present on show (relation explicitly attached) | Slim `ProductResource` rows — runtime-probed 2026-10-17: each item carries ONLY the product base fields + `images` (NO `categories`/`tags`/`brands`/`banners`/`sliders`/`flash_sales`/`reviews`/`variants`) | `[]` when none |
 
 ```json
@@ -158,6 +159,27 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
     "sliders": [],
     "reviews": [],
     "images": [],
+    "locations": [
+      {
+        "id": 101,
+        "location_id": 12,
+        "warehouse_id": 1,
+        "quantity": 10.0,
+        "allocated_hint": 0.0,
+        "location": {
+          "id": 12,
+          "code": "LOC-A-01",
+          "barcode": "BAR-LOC-A01",
+          "name": "Bin A-01",
+          "type": "picking"
+        },
+        "warehouse": {
+          "id": 1,
+          "code": "WH-MAIN",
+          "name": "Main Warehouse"
+        }
+      }
+    ],
     "variants": [],
     "related_products": []
   }

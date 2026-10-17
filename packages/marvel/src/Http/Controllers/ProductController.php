@@ -248,6 +248,12 @@ class ProductController extends CoreController
         }
 
         $product = $this->ProductStore($request);
+        $product->loadMissing([
+            'variations.productLocations.location',
+            'variations.productLocations.warehouse',
+            'productLocations.location',
+            'productLocations.warehouse',
+        ]);
         $this->flushTag(FrontendResource::PRODUCTS->value);
         return $this->apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, ProductResource::make($product));
     }
@@ -329,11 +335,20 @@ class ProductController extends CoreController
     {
         try {
             $limit = $request->limit ?? 10;
-            $product = $this->repository->where('id', $id)->firstOrFail();
-            $related_products = $this->repository->fetchRelated($id, $limit);
+            $product = Product::query()
+                ->where('id', $id)
+                ->orWhere('slug', $id)
+                ->firstOrFail();
+            $related_products = $this->repository->fetchRelated($product->id, $limit);
             $product->setRelation('related_products', $related_products);
 
-            return $product->load('variations', 'categories', 'flash_sales', 'banners', 'sliders', 'brands', 'reviews', 'tags');
+            return $product->load([
+                'variations.productLocations.location',
+                'variations.productLocations.warehouse',
+                'productLocations.location',
+                'productLocations.warehouse',
+                'categories', 'flash_sales', 'banners', 'sliders', 'brands', 'reviews', 'tags',
+            ]);
         } catch (Exception $e) {
             throw new MarvelNotFoundException(NOT_FOUND);
         }
@@ -351,6 +366,12 @@ class ProductController extends CoreController
         try {
             $request->merge(['id' => $id]);
             $product = $this->updateProduct($request);
+            $product->loadMissing([
+                'variations.productLocations.location',
+                'variations.productLocations.warehouse',
+                'productLocations.location',
+                'productLocations.warehouse',
+            ]);
             $this->flushTag(FrontendResource::PRODUCTS->value);
             return $this->apiResponse(UPDATE_PRODUCT_SUCCESSFULLY, 200, true, ProductResource::make($product));
         } catch (MarvelException $e) {

@@ -55,6 +55,8 @@ class FulfillmentSeeder extends Seeder
         $superAdminRole = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'api']);
 
         // 2. Base Warehouses (Cairo Hub & Alexandria Logistics Hub)
+        $hasDefaultWarehouse = Warehouse::where('is_default', true)->whereNull('deleted_at')->exists();
+
         $warehouse1 = Warehouse::firstOrCreate(
             ['code' => 'WH-CAIRO-CENTRAL'],
             [
@@ -63,7 +65,7 @@ class FulfillmentSeeder extends Seeder
                 'city' => 'Cairo',
                 'country' => 'Egypt',
                 'status' => 'active',
-                'is_default' => true,
+                'is_default' => !$hasDefaultWarehouse,
                 'metadata' => ['zone' => 'Zone-A', 'total_capacity_sqm' => 15000, 'operating_hours' => '24/7'],
             ]
         );
