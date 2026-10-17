@@ -61,6 +61,7 @@ class PermissionSeeder extends Seeder
             'regenerate-invoice',
             'cancel-invoice',
             'issue-debit-note',
+            'view-all-shipments',
             'view-shipments',
             'view-shipment',
             'create-shipment',

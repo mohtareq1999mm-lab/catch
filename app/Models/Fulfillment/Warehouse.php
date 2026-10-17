@@ -59,6 +59,13 @@ class Warehouse extends Model
         return $this->hasMany(ProductLocation::class);
     }
 
+    public function users(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\Marvel\Database\Models\User::class, 'warehouse_users')
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
+
     public function scopeActive($query)
     {
         return $query->where('status', 'active');

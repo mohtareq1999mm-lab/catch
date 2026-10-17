@@ -581,6 +581,8 @@ Route::prefix('admin/warehouses')->middleware(['api', 'auth:sanctum', 'throttle:
     Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'activate'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.activate');
     Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'deactivate'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.deactivate');
     Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.destroy');
+    Route::get('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'users'])->whereNumber('id')->middleware('permission:view-warehouse')->name('api.admin.warehouses.users.index');
+    Route::post('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'assignUsers'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.assign');
 });
 Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'index'])->middleware('permission:view-location')->name('api.admin.locations.index');
@@ -709,8 +711,8 @@ Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttl
     Route::post('{id}/shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'store'])->whereNumber('id')->middleware('permission:create-shipment')->name('api.admin.fulfillments.shipments.store');
 });
 Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:view-shipment')->name('api.admin.shipments.index');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-shipment')->name('api.admin.shipments.show');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:view-shipment|view-all-shipments')->name('api.admin.shipments.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-shipment|view-all-shipments')->name('api.admin.shipments.show');
     Route::post('bulk-dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDispatch'])->middleware('permission:update-shipment')->name('api.admin.shipments.bulk-dispatch');
     Route::post('bulk-deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDeliver'])->middleware('permission:update-shipment')->name('api.admin.shipments.bulk-deliver');
     Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.dispatch');

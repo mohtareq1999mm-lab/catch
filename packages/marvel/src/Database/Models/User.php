@@ -372,4 +372,11 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
     {
         $this->addMediaCollection('user-image')->useDisk('users');
     }
+
+    public function warehouses(): BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Fulfillment\Warehouse::class, 'warehouse_users')
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
 }

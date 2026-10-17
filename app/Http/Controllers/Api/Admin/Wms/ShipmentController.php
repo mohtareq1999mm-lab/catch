@@ -41,16 +41,48 @@ class ShipmentController extends WmsAdminController
     }
 
     /**
-     * GET /api/v1/admin/shipments?fulfillment_id=
+     * GET /api/v1/admin/shipments
      */
     public function index(ListShipmentsRequest $request): JsonResponse
     {
-        $fulfillment = Fulfillment::whereKey((int) $request->validated('fulfillment_id'))->firstOrFail();
-        $this->authorizeWarehouseScope($fulfillment->warehouse_id, 'view-shipment', true);
+        $fulfillmentId = $request->validated('fulfillment_id');
 
-        $query = Shipment::query()
-            ->where('fulfillment_id', $fulfillment->id)
-            ->orderByDesc('id');
+        if ($fulfillmentId !== null) {
+            $fulfillment = Fulfillment::whereKey((int) $fulfillmentId)->firstOrFail();
+            $this->authorizeWarehouseScope($fulfillment->warehouse_id, 'view-shipment', true);
+
+            $query = Shipment::query()->where('fulfillment_id', $fulfillment->id);
+        } else {
+            $user = auth()->user();
+            $canViewAll = false;
+            try {
+                $canViewAll = $user->hasPermissionTo('view-all-shipments', 'api')
+                    || $user->hasPermissionTo('manage-warehouse', 'api');
+            } catch (\Throwable) {
+                // Fall through to scoped access
+            }
+
+            $warehouseId = $request->validated('warehouse_id');
+
+            if ($canViewAll && $warehouseId === null) {
+                // Global view: see all WMS shipments across all warehouses
+                $query = Shipment::query()->whereNotNull('fulfillment_id');
+            } else {
+                $targetWarehouseId = $warehouseId !== null
+                    ? (int) $warehouseId
+                    : ($user?->warehouse_id ? (int) $user->warehouse_id : null);
+
+                $this->authorizeWarehouseScope($targetWarehouseId, 'view-shipment', true);
+
+                $query = Shipment::query()->whereHas('fulfillment', function ($q) use ($targetWarehouseId) {
+                    if ($targetWarehouseId !== null) {
+                        $q->where('warehouse_id', $targetWarehouseId);
+                    }
+                });
+            }
+        }
+
+        $query->orderByDesc('id');
 
         $status = $request->validated('status');
         if ($status !== null) {

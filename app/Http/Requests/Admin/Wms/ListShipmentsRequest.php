@@ -12,14 +12,14 @@ class ListShipmentsRequest extends FormRequest
     }
 
     /**
-     * fulfillment_id is required: only fulfillment-linked shipments belong
-     * to the WMS surface (legacy order-only labels stay on the order
-     * shipment surface). Scope resolves via the fulfillment's warehouse.
+     * fulfillment_id is optional: when present, scopes to that fulfillment.
+     * When omitted, scopes to the target warehouse (user's home warehouse or specified warehouse for managers).
      */
     public function rules(): array
     {
         return [
-            'fulfillment_id' => ['required', 'integer', 'min:1'],
+            'fulfillment_id' => ['nullable', 'integer', 'min:1'],
+            'warehouse_id' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'string', 'max:50'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ];

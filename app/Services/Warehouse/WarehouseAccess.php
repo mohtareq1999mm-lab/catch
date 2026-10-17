@@ -48,13 +48,34 @@ class WarehouseAccess
             // Fall through to the home-warehouse check (fail-closed).
         }
 
-        // Otherwise the operation must be warehouse-scoped to home.
-        $home = $this->warehouseIdFor($user);
-        if ($home === null || $warehouseId === null) {
+        // view-all-shipments permission crosses warehouses specifically for shipment views
+        try {
+            if ($permission === 'view-shipment' && $user->hasPermissionTo('view-all-shipments', 'api')) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // Fall through
+        }
+
+        // Otherwise the operation must be warehouse-scoped to home or assigned warehouses.
+        if ($warehouseId === null) {
             return false;
         }
 
-        return $home === (int) $warehouseId;
+        $home = $this->warehouseIdFor($user);
+        if ($home !== null && $home === (int) $warehouseId) {
+            return true;
+        }
+
+        if (method_exists($user, 'warehouses')) {
+            try {
+                return $user->warehouses()->where('warehouses.id', (int) $warehouseId)->exists();
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     /**

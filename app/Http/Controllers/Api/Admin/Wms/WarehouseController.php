@@ -182,4 +182,46 @@ class WarehouseController extends WmsAdminController
 
         return $this->apiResponse(__('message.MESSAGE.WAREHOUSE_ARCHIVED'), 200, true);
     }
+
+    /**
+     * GET /api/v1/admin/warehouses/{id}/users
+     */
+    public function users(int $id): JsonResponse
+    {
+        $warehouse = Warehouse::whereKey($id)->firstOrFail();
+        $this->authorizeWarehouseScope($warehouse->id, 'view-warehouse', true);
+
+        $users = $warehouse->users()
+            ->select('users.id', 'users.name', 'users.email', 'users.type')
+            ->get();
+
+        return $this->apiResponse(
+            __('wms.warehouse.users_fetched'),
+            200,
+            true,
+            $users
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/warehouses/{id}/users
+     */
+    public function assignUsers(\App\Http\Requests\Admin\Wms\AssignWarehouseUsersRequest $request, int $id): JsonResponse
+    {
+        $warehouse = Warehouse::whereKey($id)->firstOrFail();
+        $this->authorizeWarehouseScope($warehouse->id, 'manage-warehouse');
+
+        $result = $this->warehouses->assignUsers(
+            $warehouse,
+            $request->validated('user_ids'),
+            $request->validated('mode', 'attach')
+        );
+
+        return $this->apiResponse(
+            __('wms.warehouse.users_assigned'),
+            200,
+            true,
+            $result
+        );
+    }
 }

@@ -293,6 +293,7 @@ final class Permission extends Enum
     public const ISSUE_DEBIT_NOTE = 'issue-debit-note';
 
     // 📦 Shipments
+    public const VIEW_ALL_SHIPMENTS = 'view-all-shipments';
     public const VIEW_SHIPMENTS = 'view-shipments';
     public const VIEW_SHIPMENT = 'view-shipment';
     public const CREATE_SHIPMENT = 'create-shipment';

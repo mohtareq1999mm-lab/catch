@@ -66,6 +66,8 @@ class WmsOperationsSeeder extends Seeder
             'packing.complete',
 
             // Shipments
+            'view-all-shipments',
+            'view-shipments',
             'view-shipment',
             'create-shipment',
             'update-shipment',

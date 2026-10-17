@@ -223,4 +223,39 @@ class WarehouseService
             return $warehouse->fresh();
         });
     }
+
+    /**
+     * Assign or sync users to a warehouse in bulk.
+     *
+     * @param int[] $userIds
+     * @return array{warehouse_id: int, user_ids: array<int>, count: int, mode: string}
+     */
+    public function assignUsers(Warehouse $warehouse, array $userIds, string $mode = 'attach'): array
+    {
+        $uniqueIds = array_values(array_unique(array_map('intval', $userIds)));
+
+        DB::transaction(function () use ($warehouse, $uniqueIds, $mode) {
+            if ($mode === 'sync') {
+                $warehouse->users()->sync($uniqueIds);
+            } elseif ($mode === 'detach') {
+                $warehouse->users()->detach($uniqueIds);
+            } else {
+                // Default 'attach': syncWithoutDetaching prevents duplicate key errors
+                $warehouse->users()->syncWithoutDetaching($uniqueIds);
+            }
+
+            Log::info('Warehouse users assigned', [
+                'warehouse_id' => $warehouse->id,
+                'user_count' => count($uniqueIds),
+                'mode' => $mode,
+            ]);
+        });
+
+        return [
+            'warehouse_id' => (int) $warehouse->id,
+            'user_ids' => $uniqueIds,
+            'count' => count($uniqueIds),
+            'mode' => $mode,
+        ];
+    }
 }

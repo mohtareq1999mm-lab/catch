@@ -41,7 +41,7 @@ class WmsShipmentTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         foreach ([
-            'view-shipment', 'create-shipment', 'update-shipment', 'manage-warehouse',
+            'view-shipment', 'view-all-shipments', 'create-shipment', 'update-shipment', 'manage-warehouse',
         ] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
@@ -178,9 +178,17 @@ class WmsShipmentTest extends TestCase
         $this->actingAs($dispatcher, 'sanctum')
             ->getJson("/api/v1/admin/shipments/{$shipmentId}")->assertStatus(200);
 
-        // fulfillment_id required; foreign probes 404, never rows.
-        $this->actingAs($dispatcher, 'sanctum')->getJson('/api/v1/admin/shipments')->assertStatus(422);
+        // Omitted fulfillment_id scopes to dispatcher's home warehouse automatically (200).
+        $homeList = $this->actingAs($dispatcher, 'sanctum')->getJson('/api/v1/admin/shipments');
+        $homeList->assertStatus(200);
+        $this->assertSame($shipmentId, $homeList->json('data.0.id'));
+
+        // Foreign dispatcher sees their own warehouse (empty for warehouseB), foreign probes 404.
         $foreign = $this->dispatcher($this->warehouseB->id);
+        $this->actingAs($foreign, 'sanctum')->getJson('/api/v1/admin/shipments')
+            ->assertStatus(200)->assertJsonCount(0, 'data');
+        $this->actingAs($foreign, 'sanctum')
+            ->getJson("/api/v1/admin/shipments?warehouse_id={$this->warehouseA->id}")->assertStatus(404);
         $this->actingAs($foreign, 'sanctum')
             ->getJson("/api/v1/admin/shipments?fulfillment_id={$fulfillment->id}")->assertStatus(404);
         $this->actingAs($foreign, 'sanctum')
@@ -193,6 +201,32 @@ class WmsShipmentTest extends TestCase
         ]);
         $this->actingAs($dispatcher, 'sanctum')
             ->getJson("/api/v1/admin/shipments/{$legacy->id}")->assertStatus(404);
+    }
+
+    public function test_user_with_view_all_shipments_permission_can_view_all_shipments_without_role(): void
+    {
+        $fulfillmentA = $this->readyFulfillment('wh-a');
+        $dispatcherA = $this->dispatcher($this->warehouseA->id);
+        $shipmentA = $this->createHttp($dispatcherA, $fulfillmentA->id)
+            ->assertStatus(201)->json('data.id');
+
+        // Auditor user has NO home warehouse, NO manage-warehouse role, ONLY 'view-all-shipments'
+        $auditor = $this->user(null, ['view-all-shipments']);
+
+        // 1. Can view all shipments across all warehouses globally
+        $response = $this->actingAs($auditor, 'sanctum')->getJson('/api/v1/admin/shipments');
+        $response->assertStatus(200);
+        $this->assertNotEmpty($response->json('data'));
+
+        // 2. Can view single shipment in Warehouse A
+        $this->actingAs($auditor, 'sanctum')
+            ->getJson("/api/v1/admin/shipments/{$shipmentA}")
+            ->assertStatus(200);
+
+        // 3. Can view shipments filtered by specific warehouse
+        $this->actingAs($auditor, 'sanctum')
+            ->getJson("/api/v1/admin/shipments?warehouse_id={$this->warehouseA->id}")
+            ->assertStatus(200);
     }
 
     // ---------- create ----------
