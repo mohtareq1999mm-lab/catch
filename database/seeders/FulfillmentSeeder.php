@@ -56,6 +56,11 @@ class FulfillmentSeeder extends Seeder
             'fulfillments',
             'order_products',
             'orders',
+            'product_locations',
+            'locations',
+            'packing_stations',
+            'warehouse_users',
+            'warehouses',
         ];
         foreach ($tablesToTruncate as $tbl) {
             if (Schema::hasTable($tbl)) {
@@ -443,16 +448,11 @@ class FulfillmentSeeder extends Seeder
                 $cust = $customers[($i - 1) % count($customers)];
                 $addr = $addresses[($i - 1) % count($addresses)];
 
-                // Alternate between Cairo Warehouse (70%) and Alexandria Warehouse (30%)
-                $isAlexOrder = ($i % 3 === 0);
-                $wh = $isAlexOrder ? $warehouse2 : $warehouse1;
-                $assignedPicker = $isAlexOrder
-                    ? $pickersWh2[(($i - 1) % count($pickersWh2)) + 1]
-                    : $pickersWh1[(($i - 1) % count($pickersWh1)) + 1];
-                $assignedPacker = $isAlexOrder
-                    ? $packersWh2[(($i - 1) % count($packersWh2)) + 1]
-                    : $packersWh1[(($i - 1) % count($packersWh1)) + 1];
-                $stationList = $isAlexOrder ? $stationsWh2 : $stationsWh1;
+                // All fulfillments belong to Warehouse #1
+                $wh = Warehouse::find(1) ?? $warehouse1;
+                $assignedPicker = $pickersWh1[(($i - 1) % count($pickersWh1)) + 1];
+                $assignedPacker = $packersWh1[(($i - 1) % count($packersWh1)) + 1];
+                $stationList = $stationsWh1;
                 $station = $stationList[array_keys($stationList)[($i - 1) % count($stationList)]];
 
                 $priority = $priorities[($i - 1) % count($priorities)];
@@ -536,8 +536,8 @@ class FulfillmentSeeder extends Seeder
                         'shipment_status' => $orderShipmentStatus,
                         'flow_id' => $flow?->id,
                         'current_status_id' => $orderStatusId,
-                        'price' => 775.00,
-                        'total_price' => 775.00,
+                        'price' => 2195.00,
+                        'total_price' => 2195.00,
                         'currency_code' => 'EGP',
                         'base_currency_code' => 'EGP',
                         'address' => $addr,
@@ -553,10 +553,12 @@ class FulfillmentSeeder extends Seeder
                     'cancelled_at' => ($stage === 'cancelled') ? ($cancelledAt ?? now()) : null,
                 ]);
 
-                // Order Items (Mix of Simple & Variants based on Warehouse Location)
-                $plHeadset = $isAlexOrder ? $plHeadsetAlex : $plHeadsetCairoA;
-                $plKeyboard = $isAlexOrder ? $plKeyboardAlex : $plKeyboardCairoA;
-                $plVariant = $isAlexOrder ? $plVarLAlex : $plVarLCairo;
+                // Order Items placed in Warehouse #1 locations (5 distinct items)
+                $plHeadset = $plHeadsetCairoA;
+                $plKeyboard = $plKeyboardCairoA;
+                $plPhone = $plPhoneCairo;
+                $plVarM = $plVarMCairo;
+                $plVarL = $plVarLCairo;
 
                 $opHeadset = OrderProduct::firstOrCreate(
                     ['order_id' => $order->id, 'product_id' => $prodHeadset->id, 'product_variant_id' => null],
@@ -566,7 +568,15 @@ class FulfillmentSeeder extends Seeder
                     ['order_id' => $order->id, 'product_id' => $prodKeyboard->id, 'product_variant_id' => null],
                     ['product_name' => 'Logitech MX Mechanical Keyboard', 'product_sku' => $prodKeyboard->sku, 'product_quantity' => 1, 'product_price' => 200.00, 'product_total_price' => 200.00]
                 );
-                $opVariant = OrderProduct::firstOrCreate(
+                $opPhone = OrderProduct::firstOrCreate(
+                    ['order_id' => $order->id, 'product_id' => $prodPhone->id, 'product_variant_id' => null],
+                    ['product_name' => 'Samsung Galaxy S24 Ultra 512GB Titanium', 'product_sku' => $prodPhone->sku, 'product_quantity' => 1, 'product_price' => 1300.00, 'product_total_price' => 1300.00]
+                );
+                $opVarM = OrderProduct::firstOrCreate(
+                    ['order_id' => $order->id, 'product_id' => $prodHoodie->id, 'product_variant_id' => $varM->id],
+                    ['product_name' => 'Heavyweight Fleece Winter Hoodie (M)', 'product_sku' => $varM->sku, 'product_quantity' => 1, 'product_price' => 120.00, 'product_total_price' => 120.00]
+                );
+                $opVarL = OrderProduct::firstOrCreate(
                     ['order_id' => $order->id, 'product_id' => $prodHoodie->id, 'product_variant_id' => $varL->id],
                     ['product_name' => 'Heavyweight Fleece Winter Hoodie (L)', 'product_sku' => $varL->sku, 'product_quantity' => 1, 'product_price' => 125.00, 'product_total_price' => 125.00]
                 );
@@ -647,7 +657,7 @@ class FulfillmentSeeder extends Seeder
                 );
                 $fulfillment->update(['status' => $stage]);
 
-                // Fulfillment Items
+                // Fulfillment Items (5 items per fulfillment)
                 $itemStatus = match ($stage) {
                     'pending' => 'pending',
                     'picking' => ($i % 2 === 0) ? 'picked' : 'picking',
@@ -658,6 +668,8 @@ class FulfillmentSeeder extends Seeder
                 $qtyPicked1 = in_array($itemStatus, ['picked', 'packed']) ? 1 : 0;
                 $qtyPicked2 = in_array($itemStatus, ['picked', 'packed']) ? 1 : ($stage === 'picking' ? 0 : 0);
                 $qtyPicked3 = in_array($itemStatus, ['picked', 'packed']) ? 1 : ($stage === 'picking' ? 1 : 0);
+                $qtyPicked4 = in_array($itemStatus, ['picked', 'packed']) ? 1 : ($stage === 'picking' ? 1 : 0);
+                $qtyPicked5 = in_array($itemStatus, ['picked', 'packed']) ? 1 : 0;
 
                 $item1 = FulfillmentItem::firstOrCreate(
                     ['fulfillment_id' => $fulfillment->id, 'order_item_id' => $opHeadset->id],
@@ -688,15 +700,43 @@ class FulfillmentSeeder extends Seeder
                 );
 
                 $item3 = FulfillmentItem::firstOrCreate(
-                    ['fulfillment_id' => $fulfillment->id, 'order_item_id' => $opVariant->id],
+                    ['fulfillment_id' => $fulfillment->id, 'order_item_id' => $opPhone->id],
                     [
-                        'product_id' => $prodHoodie->id,
-                        'product_variant_id' => $varL->id,
-                        'product_location_id' => $plVariant->id,
+                        'product_id' => $prodPhone->id,
+                        'product_variant_id' => null,
+                        'product_location_id' => $plPhone->id,
                         'quantity' => 1,
                         'quantity_picked' => $qtyPicked3,
                         'status' => $itemStatus,
                         'picked_at' => $qtyPicked3 ? $pickCompleted : null,
+                        'packed_at' => in_array($stage, ['ready_to_ship', 'shipped', 'delivered']) ? $packCompleted : null,
+                    ]
+                );
+
+                $item4 = FulfillmentItem::firstOrCreate(
+                    ['fulfillment_id' => $fulfillment->id, 'order_item_id' => $opVarM->id],
+                    [
+                        'product_id' => $prodHoodie->id,
+                        'product_variant_id' => $varM->id,
+                        'product_location_id' => $plVarM->id,
+                        'quantity' => 1,
+                        'quantity_picked' => $qtyPicked4,
+                        'status' => $itemStatus,
+                        'picked_at' => $qtyPicked4 ? $pickCompleted : null,
+                        'packed_at' => in_array($stage, ['ready_to_ship', 'shipped', 'delivered']) ? $packCompleted : null,
+                    ]
+                );
+
+                $item5 = FulfillmentItem::firstOrCreate(
+                    ['fulfillment_id' => $fulfillment->id, 'order_item_id' => $opVarL->id],
+                    [
+                        'product_id' => $prodHoodie->id,
+                        'product_variant_id' => $varL->id,
+                        'product_location_id' => $plVarL->id,
+                        'quantity' => 1,
+                        'quantity_picked' => $qtyPicked5,
+                        'status' => $itemStatus,
+                        'picked_at' => $qtyPicked5 ? $pickCompleted : null,
                         'packed_at' => in_array($stage, ['ready_to_ship', 'shipped', 'delivered']) ? $packCompleted : null,
                     ]
                 );
@@ -706,6 +746,8 @@ class FulfillmentSeeder extends Seeder
                     $ptStatus1 = ($qtyPicked1 === 1) ? 'picked' : 'picking';
                     $ptStatus2 = ($qtyPicked2 === 1) ? 'picked' : 'picking';
                     $ptStatus3 = ($qtyPicked3 === 1) ? 'picked' : 'picking';
+                    $ptStatus4 = ($qtyPicked4 === 1) ? 'picked' : 'picking';
+                    $ptStatus5 = ($qtyPicked5 === 1) ? 'picked' : 'picking';
 
                     PickingTask::firstOrCreate(
                         ['fulfillment_item_id' => $item1->id],
@@ -744,9 +786,9 @@ class FulfillmentSeeder extends Seeder
                     PickingTask::firstOrCreate(
                         ['fulfillment_item_id' => $item3->id],
                         [
-                            'product_location_id' => $plVariant->id,
+                            'product_location_id' => $plPhone->id,
                             'order_id' => $order->id,
-                            'order_item_id' => $opVariant->id,
+                            'order_item_id' => $opPhone->id,
                             'claimed_by' => $assignedPicker->id,
                             'claimed_at' => $pickStarted,
                             'quantity_to_pick' => 1,
@@ -754,7 +796,41 @@ class FulfillmentSeeder extends Seeder
                             'status' => $ptStatus3,
                             'picked_at' => $qtyPicked3 ? $pickCompleted : null,
                             'sequence' => 3,
-                            'scan_log' => $qtyPicked3 ? [['barcode' => $varL->sku, 'timestamp' => $pickCompleted?->toIso8601String()]] : null,
+                            'scan_log' => $qtyPicked3 ? [['barcode' => $prodPhone->sku, 'timestamp' => $pickCompleted?->toIso8601String()]] : null,
+                        ]
+                    );
+
+                    PickingTask::firstOrCreate(
+                        ['fulfillment_item_id' => $item4->id],
+                        [
+                            'product_location_id' => $plVarM->id,
+                            'order_id' => $order->id,
+                            'order_item_id' => $opVarM->id,
+                            'claimed_by' => $assignedPicker->id,
+                            'claimed_at' => $pickStarted,
+                            'quantity_to_pick' => 1,
+                            'quantity_picked' => $qtyPicked4,
+                            'status' => $ptStatus4,
+                            'picked_at' => $qtyPicked4 ? $pickCompleted : null,
+                            'sequence' => 4,
+                            'scan_log' => $qtyPicked4 ? [['barcode' => $varM->sku, 'timestamp' => $pickCompleted?->toIso8601String()]] : null,
+                        ]
+                    );
+
+                    PickingTask::firstOrCreate(
+                        ['fulfillment_item_id' => $item5->id],
+                        [
+                            'product_location_id' => $plVarL->id,
+                            'order_id' => $order->id,
+                            'order_item_id' => $opVarL->id,
+                            'claimed_by' => $assignedPicker->id,
+                            'claimed_at' => $pickStarted,
+                            'quantity_to_pick' => 1,
+                            'quantity_picked' => $qtyPicked5,
+                            'status' => $ptStatus5,
+                            'picked_at' => $qtyPicked5 ? $pickCompleted : null,
+                            'sequence' => 5,
+                            'scan_log' => $qtyPicked5 ? [['barcode' => $varL->sku, 'timestamp' => $pickCompleted?->toIso8601String()]] : null,
                         ]
                     );
                 }
@@ -776,8 +852,8 @@ class FulfillmentSeeder extends Seeder
                             'started_at' => $packStarted,
                             'packed_at' => $packCompleted,
                             'verified_at' => in_array($stage, ['ready_to_ship', 'shipped', 'delivered']) ? $packCompleted : null,
-                            'weight' => 2.45,
-                            'dimensions' => ['length' => 35, 'width' => 25, 'height' => 15],
+                            'weight' => 3.50,
+                            'dimensions' => ['length' => 40, 'width' => 30, 'height' => 20],
                             'package_materials' => ['box_type' => $boxType, 'padding' => 'bubble_wrap_plus_air_pillows'],
                             'notes' => 'Checked for transit shock resistance and fragile electronic tags',
                         ]
@@ -798,8 +874,8 @@ class FulfillmentSeeder extends Seeder
                             'packing_task_id' => $packingTask?->id,
                             'barcode' => "BAR-PKG-{$stage}-{$numStr}",
                             'status' => $pkgStatus,
-                            'weight' => 2.45,
-                            'dimensions' => ['length' => 35, 'width' => 25, 'height' => 15],
+                            'weight' => 3.50,
+                            'dimensions' => ['length' => 40, 'width' => 30, 'height' => 20],
                             'sealed_at' => in_array($pkgStatus, ['sealed', 'handed_off']) ? $packCompleted : null,
                             'handed_off_at' => ($pkgStatus === 'handed_off') ? $shippedAt : null,
                             'notes' => 'Tamper-evident barcode secured package',
@@ -808,7 +884,9 @@ class FulfillmentSeeder extends Seeder
 
                     PackageItem::firstOrCreate(['package_id' => $package->id, 'fulfillment_item_id' => $item1->id], ['order_item_id' => $opHeadset->id, 'quantity' => 1]);
                     PackageItem::firstOrCreate(['package_id' => $package->id, 'fulfillment_item_id' => $item2->id], ['order_item_id' => $opKeyboard->id, 'quantity' => 1]);
-                    PackageItem::firstOrCreate(['package_id' => $package->id, 'fulfillment_item_id' => $item3->id], ['order_item_id' => $opVariant->id, 'quantity' => 1]);
+                    PackageItem::firstOrCreate(['package_id' => $package->id, 'fulfillment_item_id' => $item3->id], ['order_item_id' => $opPhone->id, 'quantity' => 1]);
+                    PackageItem::firstOrCreate(['package_id' => $package->id, 'fulfillment_item_id' => $item4->id], ['order_item_id' => $opVarM->id, 'quantity' => 1]);
+                    PackageItem::firstOrCreate(['package_id' => $package->id, 'fulfillment_item_id' => $item5->id], ['order_item_id' => $opVarL->id, 'quantity' => 1]);
                 }
 
                 // Shipments (for shipped and delivered stages)
@@ -835,9 +913,11 @@ class FulfillmentSeeder extends Seeder
                             'items' => [
                                 ['sku' => $prodHeadset->sku, 'quantity' => 1, 'name' => 'Sony WH-1000XM5 Wireless Headphones'],
                                 ['sku' => $prodKeyboard->sku, 'quantity' => 1, 'name' => 'Logitech MX Mechanical Keyboard'],
+                                ['sku' => $prodPhone->sku, 'quantity' => 1, 'name' => 'Samsung Galaxy S24 Ultra 512GB Titanium'],
+                                ['sku' => $varM->sku, 'quantity' => 1, 'name' => 'Heavyweight Fleece Winter Hoodie (M)'],
                                 ['sku' => $varL->sku, 'quantity' => 1, 'name' => 'Heavyweight Fleece Winter Hoodie (L)'],
                             ],
-                            'total_weight' => 2.45,
+                            'total_weight' => 3.50,
                             'weight_unit' => 'kg',
                             'shipped_at' => $shippedAt,
                             'estimated_delivery_at' => $shippedAt?->copy()->addHours(24),
@@ -865,8 +945,7 @@ class FulfillmentSeeder extends Seeder
         $this->command?->info('  8. Cancelled:     30 Fulfillments (FUL-MASS-cancelled-001 ... FUL-MASS-cancelled-030)');
         $this->command?->info('--------------------------------------------------------------------------------');
         $this->command?->info('  WAREHOUSES INCLUDED:');
-        $this->command?->info('  - WH-CAIRO-CENTRAL (Cairo Distribution Center) ~ 70% of fulfillments');
-        $this->command?->info('  - WH-ALEX-LOGISTICS (Alexandria Coastal Hub)   ~ 30% of fulfillments');
+        $this->command?->info('  - WH-CAIRO-CENTRAL (Warehouse #1) ~ 100% of fulfillments (240 Records)');
         $this->command?->info('--------------------------------------------------------------------------------');
         $this->command?->info('  STAFF CREDENTIALS:');
         $this->command?->info('  Admin:         admin@gmail.com   / password123');
