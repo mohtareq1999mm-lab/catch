@@ -13,6 +13,7 @@ use App\Http\Resources\Wms\ShipmentResource;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Shipment;
 use App\Services\Shipment\ShipmentService;
+use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -20,7 +21,10 @@ use Illuminate\Http\JsonResponse;
  *
  * Scope resolves via shipment.fulfillment_id → fulfillment.warehouse_id;
  * order-only labels (null fulfillment_id) are NOT part of the WMS surface
- * and 404 here (they stay on the order shipment surface). State ownership:
+ * and 404 here (they stay on the order shipment surface). index() adds
+ * three resolution branches: fulfillment-scoped, home-warehouse-scoped,
+ * and global for view-all-shipments / manage-warehouse holders (the
+ * boundary service decides, via WarehouseAccess). State ownership:
  * ShipmentService owns shipment rows, FulfillmentTransition owns the
  * ready_to_ship→shipped→delivered fulfillment moves (inside the service),
  * Order Flow owns orders (maybeCompleteOrder is service-internal and
@@ -54,13 +58,10 @@ class ShipmentController extends WmsAdminController
             $query = Shipment::query()->where('fulfillment_id', $fulfillment->id);
         } else {
             $user = auth()->user();
-            $canViewAll = false;
-            try {
-                $canViewAll = $user->hasPermissionTo('view-all-shipments', 'api')
-                    || $user->hasPermissionTo('manage-warehouse', 'api');
-            } catch (\Throwable) {
-                // Fall through to scoped access
-            }
+            // Single source of truth for the roomy-read grants (boundary
+            // service), fail-soft per permission (a missing permission row
+            // must not demote a global reader).
+            $canViewAll = app(WarehouseAccess::class)->isGlobalShipmentReader($user);
 
             $warehouseId = $request->validated('warehouse_id');
 

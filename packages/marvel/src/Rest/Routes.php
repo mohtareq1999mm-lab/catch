@@ -599,9 +599,9 @@ Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:a
 // Empty-location contract URI (mission-specified): same handler, WMS prefix.
 // Both URIs share LocationController@emptyProducts + manage-location so the
 // exact proposed contract is verified present without forking behavior.
-Route::prefix('admin/wms/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.wms.locations.products.destroy');
-});
+// Route::prefix('admin/wms/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+//     Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.wms.locations.products.destroy');
+// });
 
 // Warehouse Workflow (Q-08): global config, independent permission on every route.
 Route::prefix('admin/warehouse-workflow')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
@@ -665,6 +665,7 @@ Route::prefix('admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:adm
     Route::post('{id}/complete', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'complete'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.complete');
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'cancel'])->whereNumber('id')->middleware('permission:batch.manage')->name('api.admin.batches.cancel');
     Route::post('{id}/retry', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'retry'])->whereNumber('id')->middleware('permission:batch.manage')->name('api.admin.batches.retry');
+    Route::post('{id}/confirm-location', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'confirmLocation'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.confirm-location');
 });
 
 // Fulfillment Phase 9 (P9-6): Packing + Package surface. Packing tasks scope

@@ -53,6 +53,10 @@ class PickingTaskResource extends JsonResource
             'claimed_at' => $this->claimed_at?->toIso8601String(),
             'claim_expires_at' => $this->claim_expires_at?->toIso8601String(),
             'picked_at' => $this->picked_at?->toIso8601String(),
+            'is_consolidated' => (bool) ($this->consolidated_info['is_consolidated'] ?? false),
+            'consolidated_total_quantity' => (float) ($this->consolidated_info['total_quantity'] ?? ((float) $this->quantity_to_pick - (float) $this->quantity_picked)),
+            'orders_count' => (int) ($this->consolidated_info['orders_count'] ?? 1),
+            'grouped_task_ids' => $this->consolidated_info['task_ids'] ?? [$this->id],
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

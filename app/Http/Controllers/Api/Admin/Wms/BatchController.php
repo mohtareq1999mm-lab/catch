@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin\Wms;
 use App\Http\Requests\Admin\Wms\ListBatchesRequest;
 use App\Http\Requests\Admin\Wms\AssignBatchRequest;
 use App\Http\Requests\Admin\Wms\BatchCommandRequest;
+use App\Http\Requests\Admin\Wms\ConfirmLocationPickRequest;
 use App\Http\Requests\Admin\Wms\CreateBatchRequest;
 use App\Http\Resources\Wms\BatchDetailResource;
 use App\Http\Resources\Wms\BatchResource;
@@ -420,5 +421,53 @@ class BatchController extends WmsAdminController
             true,
             PickingTaskResource::collection($created)
         );
+    }
+
+    /**
+     * POST /api/v1/admin/batches/{id}/confirm-location
+     *
+     * Consolidated location pick: confirms all open tasks for the scanned product
+     * at the scanned location in one atomic operation.
+     */
+    public function confirmLocation(ConfirmLocationPickRequest $request, int $id): JsonResponse
+    {
+        $batch = FulfillmentBatch::whereKey($id)->firstOrFail();
+        $this->authorizeWarehouseScope($batch->warehouse_id, 'batch.operate');
+
+        if (!in_array($batch->status, ['assigned', 'in_progress', 'picking'], true)) {
+            $this->unprocessable(__('wms.batch.assign_status', ['status' => $batch->status]));
+        }
+
+        try {
+            $result = $this->batches->confirmLocationPick(
+                $batch,
+                $request->validated(),
+                $this->actorId(),
+                $this->resolveOverride($request)
+            );
+        } catch (\App\Exceptions\PickingValidationException $e) {
+            $this->unprocessable($e->getMessage());
+        } catch (\InvalidArgumentException $e) {
+            $this->unprocessable($e->getMessage());
+        } catch (\RuntimeException $e) {
+            $this->unprocessable($e->getMessage());
+        }
+
+        return $this->apiResponse(
+            __('wms.batch.location_confirmed', ['count' => count($result['updated_task_ids'])]),
+            200,
+            true,
+            $result
+        );
+    }
+
+    private function resolveOverride(Request $request): bool
+    {
+        $override = (bool) $request->input('override', false);
+        if ($override) {
+            $this->authorize('fulfillment-override');
+        }
+
+        return $override;
     }
 }

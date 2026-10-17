@@ -353,28 +353,72 @@ class FulfillmentService
                 ]);
             }
         } catch (\Exception $e) {
+            $placements = \App\Models\Fulfillment\ProductLocation::query()
+                ->forSku($productId, $variantId)
+                ->where('product_locations.warehouse_id', $warehouseId)
+                ->whereHas('location', fn ($q) => $q->placeable())
+                ->join('locations', 'product_locations.location_id', '=', 'locations.id')
+                ->orderBy('locations.priority', 'desc')
+                ->orderBy('product_locations.quantity', 'desc')
+                ->select('product_locations.*')
+                ->get();
+
+            $sufficientPlacement = $placements->first(fn ($p) => $p->availableQuantity() >= $quantity);
+            $fallbackPlacement = $sufficientPlacement ?? $placements->first();
+
             // Placement/warehouse corruption must never degrade silently into
             // a routine stockout: surface it at error level for ops.
             $level = str_starts_with($e->getMessage(), 'PLACEMENT_MISMATCH:') ? 'error' : 'warning';
-            Log::log($level, 'Failed to allocate location for fulfillment item', [
+            Log::log($level, 'Failed to fully allocate location for fulfillment item; fallback checked', [
                 'fulfillment_id' => $fulfillment->id,
                 'product_id' => $productId,
                 'product_variant_id' => $variantId,
                 'quantity' => $quantity,
                 'error' => $e->getMessage(),
+                'fallback_placement_id' => $fallbackPlacement?->id,
+                'placements_count' => $placements->count(),
             ]);
 
-            FulfillmentItem::create([
-                'fulfillment_id' => $fulfillment->id,
-                'order_item_id' => $orderItem->id,
-                'product_id' => $productId,
-                'product_variant_id' => $variantId,
-                'product_location_id' => null,
-                'quantity' => $quantity,
-                'quantity_picked' => 0,
-                'status' => 'pending',
-                'notes' => 'Location allocation failed: ' . $e->getMessage(),
-            ]);
+            // Distribute across multiple locations with available stock if possible
+            $toAllocate = (float) $quantity;
+            $allocatedAny = false;
+            foreach ($placements as $p) {
+                $avail = max(0, (float) $p->availableQuantity());
+                if ($avail <= 0) {
+                    continue;
+                }
+                $take = min($avail, $toAllocate);
+                FulfillmentItem::create([
+                    'fulfillment_id' => $fulfillment->id,
+                    'order_item_id' => $orderItem->id,
+                    'product_id' => $productId,
+                    'product_variant_id' => $variantId,
+                    'product_location_id' => $p->id,
+                    'quantity' => $take,
+                    'quantity_picked' => 0,
+                    'status' => 'pending',
+                    'notes' => 'Partially allocated from available location stock',
+                ]);
+                $allocatedAny = true;
+                $toAllocate -= $take;
+                if ($toAllocate <= 0) {
+                    break;
+                }
+            }
+
+            if ($toAllocate > 0) {
+                FulfillmentItem::create([
+                    'fulfillment_id' => $fulfillment->id,
+                    'order_item_id' => $orderItem->id,
+                    'product_id' => $productId,
+                    'product_variant_id' => $variantId,
+                    'product_location_id' => $fallbackPlacement?->id,
+                    'quantity' => $toAllocate,
+                    'quantity_picked' => 0,
+                    'status' => 'pending',
+                    'notes' => $fallbackPlacement ? 'Assigned to known warehouse placement' : ('Location allocation failed: ' . $e->getMessage()),
+                ]);
+            }
         }
     }
 

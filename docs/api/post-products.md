@@ -15,7 +15,7 @@ Creates one simple or variable product with relations and images, returning 201 
 | HTTP method | `POST` |
 | Full path | `/api/v1/products` |
 | Path composition | `api/v1` prefix + `products` from `Route::apiResource('products', ...)` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group, plus route-level ANY-of pipe middleware (constructor `create-product` gate decides) |
-| Controller action | `Marvel\Http\Controllers\ProductController@store` → `ProductStore` helper → `ProductRepository::storeProduct` (relations, variants, media); `MarvelException` failures rewrap as `MarvelException(SOMETHING_WENT_WRONG)` and ESCAPE (no catch in `store` itself → `Handler`: no NOT_FOUND/NOT_AUTHORIZED marker → 500 translated — code-verified: store failures are 500s, and the live cause is swallowed); then `flushTag(PRODUCTS)` |
+| Controller action | `Marvel\Http\Controllers\ProductController@store` → `ProductStore` helper → `ProductRepository::storeProduct` (relations, variants, media; ends with `syncProductPlacements` — SEE the placements section below); `MarvelException` failures rewrap as `MarvelException(SOMETHING_WENT_WRONG)` and ESCAPE (no catch in `store` itself → `Handler`: no NOT_FOUND/NOT_AUTHORIZED marker → 500 translated — code-verified: store failures are 500s, and the live cause is swallowed); NEW FLOW: placement `HttpException(422)`s hit the repository's own `catch (HttpException)` → transaction ROLLBACK → RETHROW (they bypass the 500 rewrap and reach `Handler` as raw 422 `{message, status:false}`); then `flushTag(PRODUCTS)` |
 | Authentication | Required. Sanctum bearer token via `auth:sanctum` |
 | Permission | Required once: `create-product` via controller constructor (applies only to `store`); `ProductCreateRequest::authorize` returns `true` |
 | Required headers | `Authorization: Bearer <sanctum-token>`, `Content-Type: multipart/form-data` (images are required files) |
@@ -47,7 +47,7 @@ Middleware runs before validation: 401/403 precede 422/500. Dimensions pre-cast 
 | `categories.*` | body | integer | Required per element | No | `integer\|exists:categories,id` | Existing category ids | None | None | `2` | One category id |
 | `images` | body | array of files | Required | No | `required\|array` | Non-empty file arrays | None | None | `["shirt.jpg"]` | Product images |
 | `images.*` | body (file) | file | Required per element | No | `required\|file\|mimes:jpeg,png,jpg,gif\|max:2048` | jpeg/png/jpg/gif ≤ 2 MB | None | None | `shirt.jpg` | One image |
-| `quantity` | body | integer | Optional | No | `sometimes\|integer\|min:1` | Integer ≥ 1 | Model default | None | `10` | Stock quantity |
+| `quantity` | body | integer | Optional | No | `sometimes\|integer\|min:1` | Integer ≥ 1 | Model default | With `locations[]`-equivalent placement inputs: `SUM(location quantities)` must equal this value (tolerance `0.0001`) or the request fails 422 AFTER validation (`post-products.md` placements section) | `10` | Product-level stock quantity (force-updated to the location sum when placements sync) |
 | `pieces` | body | integer | Optional | No | `sometimes\|integer\|min:1` | Integer ≥ 1 | Model default | None | `1` | Pieces count |
 | `in_stock` | body | string/integer | Required | No | `required\|in:1,0` (STRICT — `true` fails; code-verified) | `1`, `0` | None | None | `1` | Stock flag |
 | `has_discount` | body | string | Required | No | `required\|in:true,false,1,0` (string forms accepted) | `true`, `false`, `1`, `0` | None | None | `0` | Discount switch |
@@ -74,17 +74,38 @@ Middleware runs before validation: 401/403 precede 422/500. Dimensions pre-cast 
 | `sliders.*` | body | integer | Required per element | No | `integer\|exists:sliders,id` | Existing slider ids | None | None | `1` | One slider id |
 | `tax_enabled` | body | boolean | Optional | No | `sometimes\|boolean` | Booleans | Model default | None | `false` | Tax switch |
 | `tax_rate` | body | number | Optional | Yes | `nullable\|numeric\|min:0\|max:100` | `0`–`100` | `null` | None | `15` | Tax percent |
+| `locations` | body | array of objects | Optional | No | `sometimes\|array` | Placement entries | Absent (no product-level placements) | Ignored (skipped) for `variable` products that already ship `variants[]` — variable stock lives on variant rows | `[{"location_id": 3, "quantity": 10}]` | NEW-FLOW product-level WMS placements |
+| `locations.*.location_id` | body | integer | Required with `locations` | No | `required_with:locations\|integer\|exists:locations,id` | Existing location ids | None | None | `3` | The stock location |
+| `locations.*.quantity` | body | number | Required with `locations` | No | `required_with:locations\|numeric\|min:0` | Number ≥ 0 (negatives fail validation; sum mismatch fails in the repository) | None | None | `10` | Units placed at this location |
+| `locations.*.warehouse_id` | body | integer | Optional | Yes | `nullable\|integer\|exists:warehouses,id` | Existing warehouse ids | Resolved SOLELY from the location row (explicit mismatch → 422) | None | `1` | Advisory binding check against the location's own warehouse |
+| `location_id` | body | integer | Optional (LEGACY single-entry path) | No | NO FormRequest rule anymore — repo only reads it when present (`syncProductPlacements` single-entry branch); unknown location ids surface as 422 `"Location #N not found."` from the repository | Existing location id | None | Only used when `locations` is absent | `3` | Legacy single-placement input (kept for compatibility; under-validated by design of the new flow — flagged open item: `warehouse_id`-only no longer 422s) |
 | `variants` | body | array of objects | Optional | No | `sometimes\|array` (variable products) | Variant arrays | Absent | None | `[{"price": 100}]` | Variant rows |
 | `variants.*.price` | body | number | Required with `variants` | No | `required_with:variants\|numeric\|min:0` | Number ≥ 0 | None | Required iff `variants` present | `100` | Variant price |
-| `variants.*.quantity` | body | integer | Required with `variants` | No | `required_with:variants\|integer\|min:0` | Integer ≥ 0 | None | Required iff `variants` present | `5` | Variant quantity |
+| `variants.*.quantity` | body | integer | Optional (NEW FLOW — no longer `required_with:variants`) | No | `sometimes\|integer\|min:0` | Integer ≥ 0 | Derived | With `variants[].locations[]`: `SUM(location quantities)` must equal this value (tolerance `0.0001`) else 422 `"The sum of location quantities (S) must equal the total variant quantity (Q)."`; absent + locations → set from the location sum (code-verified `addVariants`) | `5` | Variant quantity (force-set from location sum when placements sync) |
 | `variants.*.attribute_values` | body | array of integers | Required with `variants` | No | `required_with:variants\|array` | Id arrays | None | Required iff `variants` present | `[9]` | Variant attribute links |
 | `variants.*.attribute_values.*` | body | integer | Required per value | No | `integer\|exists:attribute_values,id` | Existing value ids | None | None | `9` | One attribute value |
 | `variants.*.weight` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"0.5"` | Variant weight |
 | `variants.*.length` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"5"` | Variant length |
 | `variants.*.width` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"5"` | Variant width |
 | `variants.*.height` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"5"` | Variant height |
+| `variants.*.locations` | body | array of objects | Optional | No | `sometimes\|array` | Placement entries per variant | Absent | Variant-level WMS placements (variable products) | `[{"location_id": 3, "quantity": 10}]` | NEW-FLOW per-variant stock placements |
+| `variants.*.locations.*.location_id` | body | integer | Required with `variants.*.locations` | No | `required_with:variants.*.locations\|integer\|exists:locations,id` | Existing location ids | None | None | `3` | The stock location |
+| `variants.*.locations.*.quantity` | body | number | Required with `variants.*.locations` | No | `required_with:variants.*.locations\|numeric\|min:0` | Number ≥ 0 | None | None | `10` | Units placed at this location for this variant |
+| `variants.*.locations.*.warehouse_id` | body | integer | Optional | Yes | `nullable\|integer\|exists:warehouses,id` | Existing warehouse ids | Resolved from the location row (mismatch → 422) | None | `1` | Advisory binding check |
 
 The suite pins required-ness per family with hedged statuses (`[422, 403, 500]`): empty body, name-only, and name+description bodies each assert inclusion of 422 (`test_create_product_requires_name/description/categories`) — the 422 outcome is code-traced as the first applicable failure for a permitted admin.
+
+## Placements synchronization (NEW FLOW — after validation, inside the create transaction)
+
+Runs at the END of `storeProduct` via `syncProductPlacements` (product level) and, per variant, `syncVariantPlacements`. All failures are `HttpException(422)` → transaction rollback → raw 422 envelope (NO `errors` map), NOT the legacy 500 rewrap. Evidence: code-verified `ProductRepository` (working tree) + test-verified `tests/Feature/Wms/WmsMultiLocationTest.php`.
+
+1. **Scope guard**: variable products WITH variants skip product-level placements entirely (variant rows own the stock); variant rows with `locations[]` sync per variant.
+2. **Sum invariant**: `SUM(location quantities)` must equal the declared total (`quantity` for products / `variants[].quantity` for variants; tolerance `0.0001`) → else 422 `"The sum of location quantities (25) must equal the total product quantity (30)."` (variant message: `... the total variant quantity (30).`).
+3. **Stock centralization**: product `stock_quantity`/`in_stock` = location sum; variant `quantity`/`stock_quantity`/`in_stock` = its location sum (absent `quantity` with locations → derived); product total = `SUM(variant stock)` force-saved (test-verified `55 = 25 + 30`).
+4. **Stale-place overwrite guard**: a placement NOT in the new set is deleted ONLY when it has no open picking task (`pending|assigned|picking`) AND no allocated stock (`allocated_hint` > 0 or active `FulfillmentItem`s) → otherwise 422 `"Cannot overwrite location #N: active picking tasks exist."` (test-verified: the same message covers the allocated-without-task case).
+5. **Location binding**: missing → 422 `"Location #N not found."`, inactive → 422 `"Location {code} is not active."`, explicit `warehouse_id` ≠ the location's warehouse → 422 `"Location #N (code) belongs to warehouse #M, not warehouse #W."` (warehouse is resolved SOLELY from the location row; test-verified message pattern).
+6. **Placement write**: `updateOrCreate` per entry (`product_id`, `product_variant_id` nullable-or-variant, `location_id`) with `warehouse_id` from the location, `quantity`, `allocated_hint` reset to `0`.
+7. **Auto-allocation**: every touched placement runs `StockOperationService::autoAllocatePendingFulfillments(placement)` — pending fulfillment items whose product/variant matches receive a location automatically (test-verified: single sufficient location assigns directly; insufficient single location triggers a SPLIT of the fulfillment item across locations of the same warehouse, then picking tasks generate for BOTH locations).
 
 ## Request examples
 
@@ -161,13 +182,21 @@ Full request with every supported field (variable product with discount, flash s
     "variants": [
       {
         "price": 100,
-        "quantity": 5,
+        "quantity": 25,
         "attribute_values": [9],
         "weight": "0.5",
         "length": "5",
         "width": "5",
-        "height": "5"
+        "height": "5",
+        "locations": [
+          { "location_id": 3, "quantity": 15 },
+          { "location_id": 4, "quantity": 10 }
+        ]
       }
+    ],
+    "locations": [
+      { "location_id": 3, "quantity": 10 },
+      { "location_id": 4, "quantity": 5 }
     ]
   }
 }
@@ -193,11 +222,11 @@ Returned via `ApiResponse::apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, P
 | `data.current_price` | number | Always present (null possible) | Pre-tax effective price, rounded | e.g. `100.0` |
 | `data.tax_enabled` | boolean | Always present | Tax switch | `true` / `false` |
 | `data.tax_rate` | number \| null | Always present (nullable) | Tax percent | e.g. `15.0` or `null` |
-| `data.tax` | object | Always present | `ProductTaxPresenter::describe` output | Object |
+| `data.tax` | object \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when `tax_enabled` is `false`) | `ProductTaxPresenter::describe` output | Object or `null` |
 | `data.price_including_tax` | number | Always present (null possible) | Tax-inclusive value, rounded | e.g. `115.0` |
-| `data.price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0` |
+| `data.price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0`; runtime-probed 2026-10-17: `null` on the freshly-created instance when no discount is configured |
 | `data.price_after_flash_sale` | number | Always present (null possible) | Post-flash-sale price, rounded | e.g. `null` |
-| `data.discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null` |
+| `data.discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null`; NOTE (runtime-probed 2026-10-17): on the freshly-created instance `discount_*` may be `null` even with `has_*` flags — the DEFAULT fill (`percentage`/`0`) appears only on reloaded rows (index/show) |
 | `data.discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10` or `null` |
 | `data.start_date` | string \| null | Always present (nullable) | Window start | Date or `null` |
 | `data.end_date` | string \| null | Always present (nullable) | Window end | Date or `null` |
@@ -205,12 +234,12 @@ Returned via `ApiResponse::apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, P
 | `data.stock_quantity` | integer \| null | Always present (nullable) | Stock on hand | e.g. `10` |
 | `data.reserved_quantity` | integer | Always present | Reserved (defaults `0`) | e.g. `0` |
 | `data.available_stock` | integer \| null | Always present (nullable) | Sellable units | e.g. `10` |
-| `data.quantity` | integer \| null | Always present (nullable) | Quantity | e.g. `10` |
+| `data.quantity` | integer \| null | Always present (nullable) | Quantity — NEW FLOW: force-set to the placement sum when `locations`/variant `locations` ride the request (runtime-probed: `30 = 20 + 10`); equals the raw input when no placements | e.g. `10` |
 | `data.sold_quantity` | integer | Always present | Sold (defaults `0`) | e.g. `0` |
-| `data.in_stock` | integer | Always present | Stock flag (no model cast — raw tinyint `0`/`1`) | `1`, `0` |
-| `data.status` | integer | Always present | Publish flag (verified: `Product` casts `status` to `integer`; request only accepts `0`/`1`) | `1`, `0` |
+| `data.in_stock` | integer \| boolean | Always present (NOT a single cast — runtime-probed 2026-10-17: `1` on the freshly-created SIMPLE product; boolean `true` on the freshly-created VARIABLE product) | Stock flag | `1`, `0`, `true`, `false` |
+| `data.status` | integer \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when the create request omits `status`; the model/DB default is only reflected on RELOADED rows, e.g. index/show show `0`) | Publish flag | `1`, `0`, or `null` (fresh instance) |
 | `data.product_type` | string | Always present | Product kind | `simple`, `variable` |
-| `data.item_type` | string | Always present | Fulfillment kind | `PHYSICAL`, `DIGITAL` |
+| `data.item_type` | string \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when the create request omits `item_type`; reloaded rows show the default `PHYSICAL`) | Fulfillment kind | `PHYSICAL`, `DIGITAL`, or `null` (fresh instance) |
 | `data.height` | string \| null | Always present (nullable) | Dimension (no cast — raw value) | e.g. `"10"` or `null` |
 | `data.width` | string \| null | Always present (nullable) | Dimension (no cast — raw value) | e.g. `"20"` or `null` |
 | `data.length` | string \| null | Always present (nullable) | Dimension (no cast — raw value) | e.g. `"30"` or `null` |
@@ -244,9 +273,9 @@ Returned via `ApiResponse::apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, P
     "current_price": 100.0,
     "tax_enabled": false,
     "tax_rate": null,
-    "tax": {},
+    "tax": null,
     "price_including_tax": 100.0,
-    "price_after_discount": 100.0,
+    "price_after_discount": null,
     "price_after_flash_sale": null,
     "discount_type": null,
     "discount_amount": null,
@@ -259,9 +288,9 @@ Returned via `ApiResponse::apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, P
     "quantity": 10,
     "sold_quantity": 0,
     "in_stock": 1,
-    "status": 1,
+    "status": null,
     "product_type": "simple",
-    "item_type": "PHYSICAL",
+    "item_type": null,
     "height": null,
     "width": null,
     "length": null,
@@ -287,6 +316,7 @@ No error-code field; every error below has Error code `None`.
 | 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (strict `assertEquals(401)` in `test_guest_cannot_create_product`, `postJson`) | See 401 example |
 | 403 | Authenticated caller lacks `create-product` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | View-only user (verified by `test_view_only_user_cannot_create` → 403) | See 403 example |
 | 422 | `ProductCreateRequest` fails (missing name/description/categories/images/product_type/in_stock/flags, conditional discount/flash fields, bad relations) | `{message: string, status: boolean, errors: object}` | None | Laravel default | Field → messages | Invalid body (code-traced first-failure for permitted admins; suite hedges `[422, 403, 500]` across the requires-* tests) | See 422 example |
+| 422 | Placement synchronization fails post-validation (sum mismatch, negative per-location quantity is caught by validation; missing/inactive location; explicit `warehouse_id` ≠ location's warehouse; overwrite of a placement carrying open picking tasks or allocated stock) | `{message: string, status: boolean}` — NO `errors` key (repository `HttpException` → `Handler` envelope) | None | Exact server message, e.g. `"The sum of location quantities (25) must equal the total product quantity (30)."`, `"Cannot overwrite location #3: active picking tasks exist."`, `"Location #3 (A-01) belongs to warehouse #2, not warehouse #1."`, `"Location #3 not found."`, `"Location A-01 is not active."` | None | Valid request body whose placement rules fail (test-verified `WmsMultiLocationTest`; quantity sum messages byte-pinned) | See 422-placement example |
 | 500 | Repository failure AFTER validation (`MarvelException` rewrapped → escapes to generic 500; live cause swallowed) | `{message: string, status: boolean}` | None | Translated `ERROR.SOMETHING_WENT_WRONG`: `en` → `"Something went wrong"` | None | Post-validation failure (code-traced; explicitly allowed by the requires-* hedges) | See 500 example |
 | 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
 
@@ -318,6 +348,15 @@ No error-code field; every error below has Error code `None`.
     "name": ["The name field is required."],
     "description": ["The description field is required."]
   }
+}
+```
+
+422-placement example (post-validation placement refusal — note NO `errors` map and whole-transaction rollback: NO product exists after the failure):
+
+```json
+{
+  "message": "The sum of location quantities (25) must equal the total product quantity (30).",
+  "status": false
 }
 ```
 

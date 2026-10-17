@@ -55,6 +55,23 @@ class ProductVariant extends Model
         return $this->hasMany(AttributeProduct::class);
     }
 
+    public function productLocations(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\Fulfillment\ProductLocation::class, 'product_variant_id');
+    }
+
+    public function warehouseLocations(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Fulfillment\Location::class, 'product_locations', 'product_variant_id', 'location_id')
+            ->withPivot(['quantity', 'allocated_hint', 'warehouse_id', 'product_id'])
+            ->withTimestamps();
+    }
+
+    public function locations(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->warehouseLocations();
+    }
+
     /**
      * Get the current price attribute (alias for sale price).
      *

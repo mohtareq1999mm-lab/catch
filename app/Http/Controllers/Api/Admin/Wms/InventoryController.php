@@ -49,6 +49,14 @@ class InventoryController extends WmsAdminController
             $this->unprocessable($e->getMessage());
         }
 
+        if ($request->filled('warehouse_id') && (int) $request->input('warehouse_id') !== (int) $warehouseId) {
+            $this->unprocessable(__('wms.stock.location_warehouse', [
+                'id' => $location,
+                'warehouse' => $warehouseId,
+                'expected' => (int) $request->input('warehouse_id'),
+            ]));
+        }
+
         $this->authorizeWarehouseScope($warehouseId, 'inventory-adjust');
 
         try {
@@ -98,6 +106,14 @@ class InventoryController extends WmsAdminController
         // Same-warehouse rule is enforced in the service; scope-check the
         // source warehouse here so cross-warehouse probes cannot enumerate
         // foreign locations (403 before the 422 business refusal).
+        if ($request->filled('warehouse_id') && ((int) $request->input('warehouse_id') !== (int) $sourceWarehouseId || (int) $request->input('warehouse_id') !== (int) $destinationWarehouseId)) {
+            $this->unprocessable(__('wms.stock.location_warehouse', [
+                'id' => $sourceId,
+                'warehouse' => $sourceWarehouseId,
+                'expected' => (int) $request->input('warehouse_id'),
+            ]));
+        }
+
         $this->authorizeWarehouseScope($sourceWarehouseId, 'inventory-adjust');
         $this->authorizeWarehouseScope($destinationWarehouseId, 'inventory-adjust');
 

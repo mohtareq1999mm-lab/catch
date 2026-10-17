@@ -114,6 +114,7 @@ class DatabaseSeeder extends Seeder
             WarehouseSeeder::class,
             AdminOrderOperationsSeeder::class,
             WmsOperationsSeeder::class,
+            FulfillmentSeeder::class,
         ]);
     }
 }

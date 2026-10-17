@@ -142,25 +142,15 @@ class ProductRepository extends BaseRepository
 
             $this->syncRelation($product, $request, $data);
 
-            // Optional initial WMS placement (same transaction: product +
-            // placement commit atomically, failure rolls both back). Runs
-            // AFTER variants so variable products (whose stock lives on
-            // variants, unrepresentable in product-level placements) are
-            // rejected by the service. The service re-locks and re-validates
-            // the location, assigns the creation quantity to the stock
-            // authority exactly once, and records the placement hint.
-            if ($request->filled('location_id')) {
-                app(\App\Services\Inventory\StockOperationService::class)->placeInitialStock(
-                    $product->fresh(),
-                    (int) $request->input('location_id'),
-                    $request->filled('warehouse_id') ? (int) $request->input('warehouse_id') : null,
-                    (int) ($data['quantity'] ?? 0)
-                );
-            }
+            // Synchronize WMS placements (multiple locations or single location).
+            $this->syncProductPlacements($product->fresh(), $request, $data);
 
             DB::commit();
             Cache::forget('dashboard_product_analytics');
             return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales');
+        } catch (HttpException $e) {
+            DB::rollBack();
+            throw $e;
         } catch (Exception $e) {
             DB::rollBack();
             throw new HttpException(500, $e->getMessage());
@@ -208,29 +198,77 @@ class ProductRepository extends BaseRepository
             $product->update($data);
 
             if (!empty($variants)) {
-                $this->assertVariantsReplaceable($product);
+                $incomingVariantIds = collect($variants)->pluck('id')->filter()->map(fn ($id) => (int) $id)->all();
 
-                try {
-                    ProductVariant::where('product_id', $product->id)->delete();
-                } catch (\Illuminate\Database\QueryException $e) {
-                    // Concurrency backstop: a protected reference (e.g. a new
-                    // fulfillment/order row) pinned between the locked checks
-                    // above and this delete trips the RESTRICT FK (MySQL
-                    // 1451). Fail closed with the same actionable 422 instead
-                    // of leaking an SQL exception as HTTP 500. Anything else
-                    // is rethrown untouched.
-                    if (($e->errorInfo[1] ?? null) !== 1451) {
-                        throw $e;
+                if (!empty($incomingVariantIds)) {
+                    $existingVariants = ProductVariant::where('product_id', $product->id)->lockForUpdate()->get();
+                    $toDelete = $existingVariants->filter(fn ($v) => !in_array((int) $v->id, $incomingVariantIds, true));
+
+                    if ($toDelete->isNotEmpty()) {
+                        $toDeleteIds = $toDelete->pluck('id');
+                        $protected = \App\Models\Fulfillment\FulfillmentItem::whereIn('product_variant_id', $toDeleteIds)->exists()
+                            || OrderProduct::whereIn('product_variant_id', $toDeleteIds)->exists()
+                            || \App\Models\Fulfillment\ProductLocation::whereIn('product_variant_id', $toDeleteIds)->exists()
+                            || ProductVariant::whereIn('id', $toDeleteIds)->where('reserved_quantity', '>', 0)->exists();
+
+                        if ($protected) {
+                            throw new HttpException(422, self::VARIANTS_PROTECTED_MESSAGE);
+                        }
+
+                        ProductVariant::whereIn('id', $toDeleteIds)->delete();
                     }
 
-                    throw new HttpException(422, self::VARIANTS_PROTECTED_MESSAGE);
-                }
+                    foreach ($variants as $variantData) {
+                        if (!empty($variantData['id']) && $existing = $existingVariants->firstWhere('id', (int) $variantData['id'])) {
+                            $variantData['sale_price'] = app(ProductPricingService::class)->calculateVariantSalePrice($product, $variantData, $flashSale);
+                            $existing->update($variantData);
 
-                $this->addVariants(
-                    $product,
-                    $variants,
-                    $flashSale
-                );
+                            if (isset($variantData['attribute_values']) && is_array($variantData['attribute_values'])) {
+                                AttributeProduct::where('product_variant_id', $existing->id)->delete();
+                                foreach ($variantData['attribute_values'] as $attrId) {
+                                    AttributeProduct::create([
+                                        'product_variant_id' => $existing->id,
+                                        'attribute_value_id' => $attrId,
+                                    ]);
+                                }
+                            }
+
+                            $this->syncVariantPlacements($product, $existing, $variantData);
+                        } else {
+                            $this->addVariants($product, [$variantData], $flashSale);
+                        }
+                    }
+
+                    $totalVariantStock = (int) ProductVariant::where('product_id', $product->id)->sum('stock_quantity');
+                    $product->forceFill([
+                        'stock_quantity' => $totalVariantStock,
+                        'in_stock' => $totalVariantStock > 0,
+                    ])->save();
+                } else {
+                    $this->assertVariantsReplaceable($product);
+
+                    try {
+                        ProductVariant::where('product_id', $product->id)->delete();
+                    } catch (\Illuminate\Database\QueryException $e) {
+                        // Concurrency backstop: a protected reference (e.g. a new
+                        // fulfillment/order row) pinned between the locked checks
+                        // above and this delete trips the RESTRICT FK (MySQL
+                        // 1451). Fail closed with the same actionable 422 instead
+                        // of leaking an SQL exception as HTTP 500. Anything else
+                        // is rethrown untouched.
+                        if (($e->errorInfo[1] ?? null) !== 1451) {
+                            throw $e;
+                        }
+
+                        throw new HttpException(422, self::VARIANTS_PROTECTED_MESSAGE);
+                    }
+
+                    $this->addVariants(
+                        $product,
+                        $variants,
+                        $flashSale
+                    );
+                }
             }
 
             if ($request->has('images')) {
@@ -240,6 +278,7 @@ class ProductRepository extends BaseRepository
             }
 
             $this->syncRelation($product, $request, $data);
+            $this->syncProductPlacements($product->fresh(), $request, $data);
             DB::commit();
 
             return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales');
@@ -390,6 +429,19 @@ class ProductRepository extends BaseRepository
         foreach ($variants as $variant) {
             $variant['product_id'] = $product->id;
             $variant['sale_price'] = app(ProductPricingService::class)->calculateVariantSalePrice($product, $variant, $flashSale);
+
+            if (!empty($variant['locations']) && is_array($variant['locations'])) {
+                $locSum = 0;
+                foreach ($variant['locations'] as $loc) {
+                    $locSum += (float) ($loc['quantity'] ?? 0);
+                }
+                if (!isset($variant['quantity']) || $variant['quantity'] === null) {
+                    $variant['quantity'] = (int) $locSum;
+                }
+                $variant['stock_quantity'] = (int) $variant['quantity'];
+                $variant['in_stock'] = (int) $variant['quantity'] > 0;
+            }
+
             $productVariant = ProductVariant::create($variant);
             if (!$productVariant) {
                 throw new HttpException(500, 'Failed to create product variant');
@@ -406,7 +458,15 @@ class ProductRepository extends BaseRepository
                     }
                 }
             }
+
+            $this->syncVariantPlacements($product, $productVariant, $variant);
         }
+
+        $totalVariantStock = (int) ProductVariant::where('product_id', $product->id)->sum('stock_quantity');
+        $product->forceFill([
+            'stock_quantity' => $totalVariantStock,
+            'in_stock' => $totalVariantStock > 0,
+        ])->save();
     }
 
 
@@ -680,5 +740,273 @@ class ProductRepository extends BaseRepository
     private function calculateFlashSalePrice($flashSale, $basePrice)
     {
         return app(ProductPricingService::class)->calculateFlashSalePrice($flashSale, $basePrice);
+    }
+
+    /**
+     * Synchronize product locations and ensure total quantities match.
+     * Extracts warehouse_id solely from the specified location(s).
+     * Supports both single location_id and multiple locations array.
+     */
+    private function syncProductPlacements(Product $product, Request $request, array &$data): void
+    {
+        if ($product->product_type === ProductType::VARIABLE && $product->variations()->exists()) {
+            return;
+        }
+
+        $hasLocations = $request->has('locations') && is_array($request->input('locations'));
+        $hasSingleLocation = $request->filled('location_id');
+
+        if (!$hasLocations && !$hasSingleLocation) {
+            return;
+        }
+
+        $entries = [];
+        if ($hasLocations) {
+            foreach ($request->input('locations') as $entry) {
+                if (isset($entry['location_id'])) {
+                    $entries[] = [
+                        'location_id' => (int) $entry['location_id'],
+                        'quantity' => (float) ($entry['quantity'] ?? 0),
+                        'warehouse_id' => $entry['warehouse_id'] ?? null,
+                    ];
+                }
+            }
+        } elseif ($hasSingleLocation) {
+            $entries[] = [
+                'location_id' => (int) $request->input('location_id'),
+                'quantity' => (float) ($request->input('quantity') ?? $data['quantity'] ?? $product->stock_quantity ?? 0),
+                'warehouse_id' => $request->input('warehouse_id'),
+            ];
+        }
+
+        if (empty($entries)) {
+            return;
+        }
+
+        $sumQuantity = 0.0;
+        foreach ($entries as $e) {
+            if ($e['quantity'] < 0) {
+                throw new HttpException(422, __('validation.min.numeric', ['attribute' => 'location quantity', 'min' => 0]));
+            }
+            $sumQuantity += $e['quantity'];
+        }
+
+        // Verify that sum of quantities in locations equals total quantity
+        $expectedTotal = null;
+        if ($request->has('quantity') && $request->input('quantity') !== null) {
+            $expectedTotal = (float) $request->input('quantity');
+        } elseif (isset($data['quantity']) && $data['quantity'] !== null) {
+            $expectedTotal = (float) $data['quantity'];
+        }
+
+        if ($expectedTotal !== null && abs($sumQuantity - $expectedTotal) > 0.0001) {
+            throw new HttpException(422, "The sum of location quantities ({$sumQuantity}) must equal the total product quantity ({$expectedTotal}).");
+        }
+
+        // Sync total stock quantity on the product
+        $data['quantity'] = (int) $sumQuantity;
+        $product->forceFill([
+            'stock_quantity' => (int) $sumQuantity,
+            'in_stock' => $sumQuantity > 0,
+        ])->save();
+
+        // Check if existing placements have open picking tasks that prevent overwrite
+        $existingPlacements = \App\Models\Fulfillment\ProductLocation::where('product_id', $product->id)
+            ->whereNull('product_variant_id')
+            ->get();
+
+        $activeLocationIds = array_column($entries, 'location_id');
+
+        foreach ($existingPlacements as $existing) {
+            if (!in_array($existing->location_id, $activeLocationIds, true)) {
+                $hasOpenTask = \App\Models\Fulfillment\PickingTask::where('product_location_id', $existing->id)
+                    ->whereIn('status', ['pending', 'assigned', 'picking'])
+                    ->exists();
+
+                $hasAllocatedStock = (float) $existing->allocated_hint > 0
+                    || \App\Models\Fulfillment\FulfillmentItem::where('product_location_id', $existing->id)
+                        ->whereIn('status', ['pending', 'allocated', 'picking'])
+                        ->exists();
+
+                if ($hasOpenTask || $hasAllocatedStock) {
+                    throw new HttpException(422, "Cannot overwrite location #{$existing->location_id}: active picking tasks exist.");
+                }
+
+                $existing->delete();
+            }
+        }
+
+        // Create or update each placement entry with warehouse resolved solely from location
+        $touchedPlacements = [];
+        foreach ($entries as $entry) {
+            $location = \App\Models\Fulfillment\Location::whereKey($entry['location_id'])->first();
+            if (!$location) {
+                throw new HttpException(422, "Location #{$entry['location_id']} not found.");
+            }
+            if ($location->status !== 'active') {
+                throw new HttpException(422, "Location {$location->code} is not active.");
+            }
+
+            // Strict location & warehouse binding check:
+            $expectedWarehouse = $entry['warehouse_id'] ?? $request->input('warehouse_id');
+            if ($expectedWarehouse !== null && (int) $expectedWarehouse !== (int) $location->warehouse_id) {
+                throw new HttpException(422, "Location #{$location->id} ({$location->code}) belongs to warehouse #{$location->warehouse_id}, not warehouse #{$expectedWarehouse}.");
+            }
+
+            $placement = \App\Models\Fulfillment\ProductLocation::updateOrCreate(
+                [
+                    'product_id' => $product->id,
+                    'product_variant_id' => null,
+                    'location_id' => $location->id,
+                ],
+                [
+                    'warehouse_id' => $location->warehouse_id,
+                    'quantity' => $entry['quantity'],
+                    'allocated_hint' => 0,
+                ]
+            );
+
+            $touchedPlacements[] = $placement;
+        }
+
+        // Auto-allocate any pending fulfillment items for this product in these warehouses
+        $stockOpService = app(\App\Services\Inventory\StockOperationService::class);
+        foreach ($touchedPlacements as $placement) {
+            $stockOpService->autoAllocatePendingFulfillments($placement);
+        }
+    }
+
+    /**
+     * Synchronize WMS placements for a specific product variant across multiple locations.
+     *
+     * @param Product $product
+     * @param ProductVariant $variant
+     * @param array $variantData
+     * @return void
+     * @throws HttpException
+     */
+    private function syncVariantPlacements(Product $product, ProductVariant $variant, array &$variantData): void
+    {
+        $hasLocations = isset($variantData['locations']) && is_array($variantData['locations']);
+        $hasSingleLocation = isset($variantData['location_id']);
+
+        if (!$hasLocations && !$hasSingleLocation) {
+            return;
+        }
+
+        $entries = [];
+        if ($hasLocations) {
+            foreach ($variantData['locations'] as $entry) {
+                if (isset($entry['location_id'])) {
+                    $entries[] = [
+                        'location_id' => (int) $entry['location_id'],
+                        'quantity' => (float) ($entry['quantity'] ?? 0),
+                        'warehouse_id' => $entry['warehouse_id'] ?? null,
+                    ];
+                }
+            }
+        } elseif ($hasSingleLocation) {
+            $entries[] = [
+                'location_id' => (int) $variantData['location_id'],
+                'quantity' => (float) ($variantData['quantity'] ?? $variant->stock_quantity ?? 0),
+                'warehouse_id' => $variantData['warehouse_id'] ?? null,
+            ];
+        }
+
+        if (empty($entries)) {
+            return;
+        }
+
+        $sumQuantity = 0.0;
+        foreach ($entries as $e) {
+            if ($e['quantity'] < 0) {
+                throw new HttpException(422, __('validation.min.numeric', ['attribute' => 'variant location quantity', 'min' => 0]));
+            }
+            $sumQuantity += $e['quantity'];
+        }
+
+        // Verify that sum of quantities in locations equals total variant quantity
+        $expectedTotal = null;
+        if (isset($variantData['quantity']) && $variantData['quantity'] !== null) {
+            $expectedTotal = (float) $variantData['quantity'];
+        }
+
+        if ($expectedTotal !== null && abs($sumQuantity - $expectedTotal) > 0.0001) {
+            throw new HttpException(422, "The sum of location quantities ({$sumQuantity}) must equal the total variant quantity ({$expectedTotal}).");
+        }
+
+        // Sync total stock quantity on the variant
+        $variantData['quantity'] = (int) $sumQuantity;
+        $variantData['stock_quantity'] = (int) $sumQuantity;
+        $variant->forceFill([
+            'stock_quantity' => (int) $sumQuantity,
+            'quantity' => (int) $sumQuantity,
+            'in_stock' => $sumQuantity > 0,
+        ])->save();
+
+        // Check if existing placements have open picking tasks that prevent overwrite
+        $existingPlacements = \App\Models\Fulfillment\ProductLocation::where('product_id', $product->id)
+            ->where('product_variant_id', $variant->id)
+            ->get();
+
+        $activeLocationIds = array_column($entries, 'location_id');
+
+        foreach ($existingPlacements as $existing) {
+            if (!in_array($existing->location_id, $activeLocationIds, true)) {
+                $hasOpenTask = \App\Models\Fulfillment\PickingTask::where('product_location_id', $existing->id)
+                    ->whereIn('status', ['pending', 'assigned', 'picking'])
+                    ->exists();
+
+                $hasAllocatedStock = (float) $existing->allocated_hint > 0
+                    || \App\Models\Fulfillment\FulfillmentItem::where('product_location_id', $existing->id)
+                        ->whereIn('status', ['pending', 'allocated', 'picking'])
+                        ->exists();
+
+                if ($hasOpenTask || $hasAllocatedStock) {
+                    throw new HttpException(422, "Cannot overwrite location #{$existing->location_id}: active picking tasks exist.");
+                }
+
+                $existing->delete();
+            }
+        }
+
+        // Create or update each placement entry with warehouse resolved solely from location
+        $touchedPlacements = [];
+        foreach ($entries as $entry) {
+            $location = \App\Models\Fulfillment\Location::whereKey($entry['location_id'])->first();
+            if (!$location) {
+                throw new HttpException(422, "Location #{$entry['location_id']} not found.");
+            }
+            if ($location->status !== 'active') {
+                throw new HttpException(422, "Location {$location->code} is not active.");
+            }
+
+            // Strict location & warehouse binding check:
+            $expectedWarehouse = $entry['warehouse_id'] ?? null;
+            if ($expectedWarehouse !== null && (int) $expectedWarehouse !== (int) $location->warehouse_id) {
+                throw new HttpException(422, "Location #{$location->id} ({$location->code}) belongs to warehouse #{$location->warehouse_id}, not warehouse #{$expectedWarehouse}.");
+            }
+
+            $placement = \App\Models\Fulfillment\ProductLocation::updateOrCreate(
+                [
+                    'product_id' => $product->id,
+                    'product_variant_id' => $variant->id,
+                    'location_id' => $location->id,
+                ],
+                [
+                    'warehouse_id' => $location->warehouse_id,
+                    'quantity' => $entry['quantity'],
+                    'allocated_hint' => 0,
+                ]
+            );
+
+            $touchedPlacements[] = $placement;
+        }
+
+        // Auto-allocate any pending fulfillment items for this variant in these warehouses
+        $stockOpService = app(\App\Services\Inventory\StockOperationService::class);
+        foreach ($touchedPlacements as $placement) {
+            $stockOpService->autoAllocatePendingFulfillments($placement);
+        }
     }
 }

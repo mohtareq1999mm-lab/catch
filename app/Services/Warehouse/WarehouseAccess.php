@@ -23,10 +23,55 @@ class WarehouseAccess
         return $id === null ? null : (int) $id;
     }
 
+    /**
+     * True when the actor may read shipments ACROSS warehouses:
+     * view-all-shipments holders (auditors) or manage-warehouse holders.
+     *
+     * Fail-soft PER permission so a missing permission row
+     * (PermissionDoesNotExist) cannot short-circuit the sibling check and
+     * silently demote a global reader to warehouse-scoped visibility —
+     * the same boundary rule the substitute grant in allows() follows.
+     */
+    public function isGlobalShipmentReader(mixed $user): bool
+    {
+        if (!$user || !method_exists($user, 'hasPermissionTo')) {
+            return false;
+        }
+
+        foreach (['view-all-shipments', 'manage-warehouse'] as $permission) {
+            try {
+                if ($user->hasPermissionTo($permission, 'api')) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                // Missing/unavailable row — fail-soft, try the next grant.
+            }
+        }
+
+        return false;
+    }
+
     public function allows(mixed $user, ?int $warehouseId, string $permission): bool
     {
         if (!$user || !method_exists($user, 'hasPermissionTo')) {
             return false;
+        }
+
+        // view-all-shipments substitutes the base shipment-view permission
+        // across ALL warehouses (read-only shipment surface; both shipment
+        // read route pipes accept either). Checked BEFORE the base gate:
+        // after it, holders without view-shipment (the exact intended
+        // audience: auditors) could never reach it. Own fail-soft catch:
+        // PermissionDoesNotExist falls through to the base gate, never
+        // denies inside the boundary. Scope note: this grant is
+        // warehouse-independent by design (global reader), so it may accept
+        // where the scoped-actor rules below (home/assigned) would deny.
+        try {
+            if ($permission === 'view-shipment' && $user->hasPermissionTo('view-all-shipments', 'api')) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // Fall through to the base gate (fail-closed).
         }
 
         try {
@@ -34,27 +79,23 @@ class WarehouseAccess
                 return false;
             }
         } catch (\Throwable) {
+            // Fail-closed: a missing permission row (e.g. minimal test
+            // seeders) denies instead of throwing PermissionDoesNotExist.
             return false;
         }
 
-        // Global permission crosses warehouses. Fail-closed: a missing
-        // permission row (e.g. minimal test seeders) denies instead of
-        // throwing PermissionDoesNotExist out of the authorization boundary.
+        // Global permission crosses warehouses. The first disjunct is the
+        // self-permission case (the gate above already proved the holder);
+        // both branches share the same fail-soft catch. Fail-closed: a
+        // missing permission row (e.g. minimal test seeders) denies instead
+        // of throwing PermissionDoesNotExist out of the authorization
+        // boundary.
         try {
             if ($permission === 'manage-warehouse' || $user->hasPermissionTo('manage-warehouse', 'api')) {
                 return true;
             }
         } catch (\Throwable) {
             // Fall through to the home-warehouse check (fail-closed).
-        }
-
-        // view-all-shipments permission crosses warehouses specifically for shipment views
-        try {
-            if ($permission === 'view-shipment' && $user->hasPermissionTo('view-all-shipments', 'api')) {
-                return true;
-            }
-        } catch (\Throwable) {
-            // Fall through
         }
 
         // Otherwise the operation must be warehouse-scoped to home or assigned warehouses.

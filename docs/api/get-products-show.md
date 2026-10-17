@@ -72,12 +72,12 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
 | `data.current_price` | number | Always present (null possible) | Pre-tax effective price, rounded | e.g. `100.0` |
 | `data.tax_enabled` | boolean | Always present | Tax switch | `true` / `false` |
 | `data.tax_rate` | number \| null | Always present (nullable) | Tax percent | e.g. `15.0` or `null` |
-| `data.tax` | object | Always present | `ProductTaxPresenter::describe` output | Object |
+| `data.tax` | object \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when `tax_enabled` is `false`) | `ProductTaxPresenter::describe` output | Object or `null` |
 | `data.price_including_tax` | number | Always present (null possible) | Tax-inclusive value, rounded | e.g. `115.0` |
-| `data.price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0` |
+| `data.price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0`; runtime-probed 2026-10-17: `null` when no discount is configured — including rows with the default fill (`percentage`/`0`) |
 | `data.price_after_flash_sale` | number | Always present (null possible) | Post-flash-sale price, rounded | e.g. `null` |
-| `data.discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null` |
-| `data.discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10` or `null` |
+| `data.discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null`; NOTE (runtime-probed 2026-10-17): LOADED show rows show the DEFAULT fill (`percentage` + `discount_amount: 0`) even for products created with `has_discount=0` |
+| `data.discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10`, default fill `0` on loaded rows, or `null` |
 | `data.start_date` | string \| null | Always present (nullable) | Window start | Date or `null` |
 | `data.end_date` | string \| null | Always present (nullable) | Window end | Date or `null` |
 | `data.sku` | string \| null | Always present (nullable) | SKU | e.g. `"SH-001"` |
@@ -86,7 +86,7 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
 | `data.available_stock` | integer \| null | Always present (nullable) | Sellable units | e.g. `10` |
 | `data.quantity` | integer \| null | Always present (nullable) | Quantity | e.g. `10` |
 | `data.sold_quantity` | integer | Always present | Sold (defaults `0`) | e.g. `0` |
-| `data.in_stock` | integer | Always present | Stock flag (no model cast — raw tinyint `0`/`1`) | `1`, `0` |
+| `data.in_stock` | integer \| boolean | Always present (NO single cast — runtime-probed 2026-10-17: `1`/`0` integer on loaded rows; boolean `true`/`false` observed for variable products serialized from a fresh/updated instance) | Stock flag | `1`, `0`, `true`, `false` |
 | `data.status` | integer | Always present | Publish flag (verified: `Product` casts `status` to `integer`) | `1`, `0` |
 | `data.product_type` | string | Always present | Product kind | `simple`, `variable` |
 | `data.item_type` | string | Always present | Fulfillment kind | `PHYSICAL`, `DIGITAL` |
@@ -107,8 +107,8 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
 | `data.flash_sales` | array | Always present on show (relation loaded) | Flash-sale resources | `[]` when none |
 | `data.reviews` | array | Always present on show (relation loaded) | Review resources | `[]` when none |
 | `data.images` | array of strings | Always present (can be empty) | Media URLs | e.g. `["https://cdn.example/i.jpg"]` |
-| `data.variants` | array | Always present on show (relation loaded) | Variant rows with `id/price/current_price/stock_quantity/reserved_quantity/available_stock/quantity/height/width/length/weight/attributes[{attribute_name,value}]` | `[]` for simple products |
-| `data.related_products` | array | Always present on show (relation explicitly attached) | `ProductResource` collection limited by `?limit` (default 10) | `[]` when none |
+| `data.variants` | array | Always present on show (relation loaded) | Variant rows with `id/price/current_price/stock_quantity/reserved_quantity/available_stock/quantity/height/width/length/weight/attributes[{attribute_name,value}]` | `[]` for simple products; `attributes[].attribute_name` can be an EMPTY STRING when the attribute row has no localized name for the active locale (runtime-probed) |
+| `data.related_products` | array | Always present on show (relation explicitly attached) | Slim `ProductResource` rows — runtime-probed 2026-10-17: each item carries ONLY the product base fields + `images` (NO `categories`/`tags`/`brands`/`banners`/`sliders`/`flash_sales`/`reviews`/`variants`) | `[]` when none |
 
 ```json
 {
@@ -124,12 +124,12 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
     "current_price": 100.0,
     "tax_enabled": false,
     "tax_rate": null,
-    "tax": {},
+    "tax": null,
     "price_including_tax": 100.0,
-    "price_after_discount": 100.0,
+    "price_after_discount": null,
     "price_after_flash_sale": null,
-    "discount_type": null,
-    "discount_amount": null,
+    "discount_type": "percentage",
+    "discount_amount": 0,
     "start_date": null,
     "end_date": null,
     "sku": "SH-001",
@@ -146,8 +146,8 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
     "width": null,
     "length": null,
     "weight": null,
-    "has_flash_sale": 0,
-    "has_discount": 0,
+    "has_flash_sale": false,
+    "has_discount": false,
     "is_fast_shipping_available": false,
     "created_at": "2026-01-01T00:00:00+00:00",
     "categories": [{ "id": 2, "name": "Men", "slug": "men" }],

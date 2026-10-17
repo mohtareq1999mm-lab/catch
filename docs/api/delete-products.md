@@ -53,7 +53,7 @@ No query parameters, body fields, or `422` contract. Variant/media/pivot cleanup
 
 ## Success: product soft-deleted — HTTP 200
 
-Returned via `ApiResponse::apiResponse(DELETE_PRODUCT_SUCCESSFULLY, 200, true)` with NO data key (plus `flushTag(PRODUCTS)`).
+Returned via `ApiResponse::apiResponse(DELETE_PRODUCT_SUCCESSFULLY, 200, true)` with NO data key (plus `flushTag(PRODUCTS)`). Runtime-probed 2026-10-17: `{"status":200,"message":"Product deleted successfully","success":true}` — key set matches below exactly.
 
 | Field | Data type | Presence | Meaning | Possible values / notes |
 | --- | --- | --- | --- | --- |

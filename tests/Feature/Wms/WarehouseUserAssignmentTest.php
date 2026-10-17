@@ -95,6 +95,21 @@ class WarehouseUserAssignmentTest extends TestCase
 
         $listResponse->assertStatus(200);
         $this->assertCount(2, $listResponse->json('data'));
+        $this->assertSame(
+            'Warehouse users fetched successfully.',
+            $listResponse->json('message')
+        );
+        $item = $listResponse->json('data.0');
+        // Shape pin: selected columns only, plus pivot metadata (probe-verified);
+        // key ORDER is deliberately not asserted.
+        $this->assertEqualsCanonicalizing(
+            ['id', 'name', 'email', 'type', 'email_verified', 'pivot'],
+            array_keys($item)
+        );
+        $this->assertEqualsCanonicalizing(
+            ['warehouse_id', 'user_id', 'is_primary', 'created_at', 'updated_at'],
+            array_keys($item['pivot'])
+        );
 
         // Idempotent re-attach does not duplicate
         $reAttach = $this->actingAs($manager, 'sanctum')
@@ -104,6 +119,11 @@ class WarehouseUserAssignmentTest extends TestCase
             ]);
         $reAttach->assertStatus(200);
         $this->assertSame(3, $this->warehouseA->users()->count());
+        // Shape pin: service result contract, order-agnostic.
+        $this->assertEqualsCanonicalizing(
+            ['warehouse_id', 'user_ids', 'count', 'mode'],
+            array_keys($reAttach->json('data'))
+        );
     }
 
     public function test_manager_can_sync_and_detach_users(): void

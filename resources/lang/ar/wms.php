@@ -54,6 +54,8 @@ return [
         'retry_open_task' => 'رُفضت إعادة المحاولة: عنصر التنفيذ #:item لديه مهمة التقاط مفتوحة #:task (الحالة: :status).',
         'cancel_reason' => 'سبب الإلغاء مطلوب.',
         'cancel_status' => 'لا يمكن إلغاء الدفعة في الحالة: :status.',
+        'location_confirmed' => 'تم تأكيد التجميع في الموقع بنجاح (تم تحديث :count مهام).',
+        'location_no_tasks' => 'لا توجد مهام التقاط مفتوحة لهذا المنتج في هذا الموقع داخل الدفعة.',
     ],
 
     // Fulfillments
@@ -113,6 +115,8 @@ return [
         'verify_status' => 'لا يمكن التحقق من مهمة التغليف في الحالة: :status.',
         'verify_open_sibling' => 'لا يمكن التحقق من مهمة التغليف #:task: التنفيذ #:fulfillment لديه مهمة تغليف مفتوحة أخرى.',
         'verify_quantities' => 'لا يمكن التحقق من التغليف: عنصر التنفيذ #:item ملتقط :picked ومعبأ :packed.',
+        'verify_package_not_sealed' => 'لا يمكن التحقق من التغليف: الطرد #:id غير مختوم.',
+        'verify_no_packages' => 'لا يمكن التحقق من التغليف: التنفيذ لا يحتوي على طرود مختومة.',
         'shipment_unverified' => 'لا يمكن إنشاء شحنة من مهمة تغليف غير متحقق منها.',
         'create_package_status' => 'لا يمكن إنشاء طرد لتنفيذ في الحالة: :status.',
         'cancel_status' => 'لا يمكن إلغاء مهمة التغليف في الحالة: :status.',

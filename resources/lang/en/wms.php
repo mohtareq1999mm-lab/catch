@@ -57,6 +57,8 @@ return [
         'retry_open_task' => 'Retry refused: fulfillment item #:item already has open picking task #:task (status: :status)',
         'cancel_reason' => 'Cancellation reason is required',
         'cancel_status' => 'Cannot cancel batch in status: :status',
+        'location_confirmed' => 'Location picking confirmed successfully (:count tasks updated).',
+        'location_no_tasks' => 'No open picking tasks found for this product at this location in this batch.',
     ],
 
     // Fulfillments
@@ -116,6 +118,8 @@ return [
         'verify_status' => 'Cannot verify packing task in status: :status',
         'verify_open_sibling' => 'Cannot verify packing task #:task: fulfillment #:fulfillment has another open packing task',
         'verify_quantities' => 'Cannot verify packing: fulfillment item #:item picked :picked, packed :packed',
+        'verify_package_not_sealed' => 'Cannot verify packing: package #:id is not sealed',
+        'verify_no_packages' => 'Cannot verify packing: fulfillment has no sealed packages',
         'shipment_unverified' => 'Cannot create shipment from unverified packing task',
         'create_package_status' => 'Cannot create package for fulfillment in status: :status',
         'cancel_status' => 'Cannot cancel packing task in status: :status',

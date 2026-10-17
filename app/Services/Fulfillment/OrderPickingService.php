@@ -56,9 +56,76 @@ class OrderPickingService
                 $lockedItem = FulfillmentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
                 $totalItems++;
                 if ($lockedItem->product_location_id === null) {
-                    $skippedUnallocated++;
-                    $skippedItemIds[] = $lockedItem->id;
-                    continue; // manual assignment required (allocation fallback)
+                    $placements = \App\Models\Fulfillment\ProductLocation::query()
+                        ->forSku((int) $lockedItem->product_id, $lockedItem->product_variant_id !== null ? (int) $lockedItem->product_variant_id : null)
+                        ->where('product_locations.warehouse_id', (int) $lockedFulfillment->warehouse_id)
+                        ->whereHas('location', fn ($q) => $q->placeable())
+                        ->join('locations', 'product_locations.location_id', '=', 'locations.id')
+                        ->orderBy('locations.priority', 'desc')
+                        ->orderBy('product_locations.quantity', 'desc')
+                        ->select('product_locations.*')
+                        ->get();
+
+                    if ($placements->isEmpty()) {
+                        $skippedUnallocated++;
+                        $skippedItemIds[] = $lockedItem->id;
+                        continue; // manual assignment required (allocation fallback)
+                    }
+
+                    $remQty = (float) $lockedItem->quantity - (float) $lockedItem->quantity_picked;
+                    $sufficient = $placements->first(fn ($p) => $p->availableQuantity() >= $remQty);
+
+                    if ($sufficient) {
+                        $lockedItem->update(['product_location_id' => $sufficient->id]);
+                    } else {
+                        // Multi-location distribution: allocate across locations with available stock
+                        $toAllocate = $remQty;
+                        $firstAssigned = false;
+                        foreach ($placements as $p) {
+                            $avail = max(0, (float) $p->availableQuantity());
+                            if ($avail <= 0) {
+                                continue;
+                            }
+                            $qtyFromLoc = min($avail, $toAllocate);
+                            if (!$firstAssigned) {
+                                $lockedItem->update([
+                                    'product_location_id' => $p->id,
+                                    'quantity' => $qtyFromLoc,
+                                ]);
+                                $firstAssigned = true;
+                            } else {
+                                $splitItem = FulfillmentItem::create([
+                                    'fulfillment_id' => $lockedFulfillment->id,
+                                    'order_item_id' => $lockedItem->order_item_id,
+                                    'product_id' => $lockedItem->product_id,
+                                    'product_variant_id' => $lockedItem->product_variant_id,
+                                    'product_location_id' => $p->id,
+                                    'quantity' => $qtyFromLoc,
+                                    'quantity_picked' => 0,
+                                    'status' => $lockedItem->status,
+                                ]);
+                                $tasks[] = PickingTask::create([
+                                    'batch_id' => null,
+                                    'fulfillment_item_id' => $splitItem->id,
+                                    'product_location_id' => $p->id,
+                                    'order_id' => $lockedFulfillment->order_id,
+                                    'order_item_id' => $splitItem->order_item_id,
+                                    'quantity_to_pick' => $qtyFromLoc,
+                                    'quantity_picked' => 0,
+                                    'status' => 'pending',
+                                    'sequence' => count($tasks) + 1,
+                                ]);
+                            }
+                            $toAllocate -= $qtyFromLoc;
+                            if ($toAllocate <= 0) {
+                                break;
+                            }
+                        }
+
+                        if (!$firstAssigned) {
+                            $lockedItem->update(['product_location_id' => $placements->first()->id]);
+                        }
+                    }
                 }
                 $remaining = (float) $lockedItem->quantity - (float) $lockedItem->quantity_picked;
                 if ($remaining <= 0) {

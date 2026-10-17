@@ -82,12 +82,12 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, new P
 | `data.data[].current_price` | number | Always present (null possible) | Pre-tax effective price, rounded | e.g. `90.0` |
 | `data.data[].tax_enabled` | boolean | Always present | Tax switch | `true` / `false` |
 | `data.data[].tax_rate` | number \| null | Always present (nullable) | Tax percent | e.g. `15.0` or `null` |
-| `data.data[].tax` | object | Always present | Tax description from `ProductTaxPresenter::describe` | Object (rate/amount breakdown) |
+| `data.data[].tax` | object \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when `tax_enabled` is `false`; object only when tax is enabled) | Tax description from `ProductTaxPresenter::describe` | Object (rate/amount breakdown) or `null` |
 | `data.data[].price_including_tax` | number | Always present (null possible) | Tax-inclusive value, rounded | e.g. `103.5` |
 | `data.data[].price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0` |
 | `data.data[].price_after_flash_sale` | number | Always present (null possible) | Post-flash-sale price, rounded | e.g. `85.0` |
-| `data.data[].discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null` |
-| `data.data[].discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10` or `null` |
+| `data.data[].discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null`; NOTE (runtime-probed 2026-10-17): LOADED rows (index/show) show the DEFAULT fill (`percentage` + `discount_amount: 0`) even for products created with `has_discount=0` |
+| `data.data[].discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10`, `0` (default fill on loaded rows), or `null` |
 | `data.data[].start_date` | string \| null | Always present (nullable) | Discount/flash window start | ISO date or `null` |
 | `data.data[].end_date` | string \| null | Always present (nullable) | Discount/flash window end | ISO date or `null` |
 | `data.data[].sku` | string \| null | Always present (nullable) | Stock-keeping unit | e.g. `"SH-001"` |
@@ -129,7 +129,7 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, new P
 | `data.data[].variants[].width` | string \| null | Always present (nullable) | Variant dimension | e.g. `"5"` |
 | `data.data[].variants[].length` | string \| null | Always present (nullable) | Variant dimension | e.g. `"5"` |
 | `data.data[].variants[].weight` | string \| null | Always present (nullable) | Variant weight | e.g. `"0.5"` |
-| `data.data[].variants[].attributes` | array | Always present per variant | `[{attribute_name, value}]` | Empty array when none |
+| `data.data[].variants[].attributes` | array | Always present per variant | `[{attribute_name, value}]` | Empty array when none; `attribute_name` can be an EMPTY STRING when the linked attribute row has no localized name for the active locale (runtime-probed 2026-10-17) |
 | `data.links` | object | Always present | Laravel paginator links (code-verified `ProductCollection::toArray`) | All keys below |
 | `data.links.current_page` | integer | Always present | Current page number | e.g. `1` |
 | `data.links.from` | integer \| null | Always present (nullable) | First item index (`null` on empty page) | e.g. `1` |
@@ -159,12 +159,12 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, new P
         "current_price": 90.0,
         "tax_enabled": false,
         "tax_rate": null,
-        "tax": {},
+        "tax": null,
         "price_including_tax": 90.0,
         "price_after_discount": 90.0,
         "price_after_flash_sale": null,
-        "discount_type": null,
-        "discount_amount": null,
+        "discount_type": "percentage",
+        "discount_amount": 0,
         "start_date": null,
         "end_date": null,
         "sku": "SH-001",
@@ -181,8 +181,8 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, new P
         "width": null,
         "length": null,
         "weight": null,
-        "has_flash_sale": 0,
-        "has_discount": 0,
+        "has_flash_sale": false,
+        "has_discount": false,
         "is_fast_shipping_available": false,
         "created_at": "2026-01-01T00:00:00+00:00",
         "categories": [{ "id": 2, "name": "Men", "slug": "men" }],

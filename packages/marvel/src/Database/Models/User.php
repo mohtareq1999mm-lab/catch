@@ -89,9 +89,12 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
     protected static function boot()
     {
         parent::boot();
-        // Order by updated_at desc
+        // Order by updated_at desc. Table-qualified: users queries join the
+        // pivot/warehouse tables that also carry updated_at (e.g. the
+        // warehouse_users BelongsToMany), and an unqualified column is
+        // ambiguous there (SQLSTATE 1052).
         static::addGlobalScope('order', function (Builder $builder) {
-            $builder->orderBy('updated_at', 'desc');
+            $builder->orderBy($builder->getModel()->getTable() . '.updated_at', 'desc');
         });
     }
 

@@ -389,6 +389,44 @@ class WmsPackingTest extends TestCase
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
     }
 
+    public function test_verify_fails_if_package_is_not_sealed(): void
+    {
+        $supervisor = $this->supervisor();
+        $fulfillment = $this->pickedFulfillment('seal-test');
+        $task = $this->fullPackingTask($supervisor, $fulfillment);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
+            ->assertStatus(200);
+
+        // Create package and add all items, but do NOT seal
+        $packageId = $this->actingAs($supervisor, 'sanctum')
+            ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
+            ->assertStatus(201)->json('data.id');
+        $itemId = $fulfillment->items()->firstOrFail()->id;
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/add-item", [
+                'fulfillment_item_id' => $itemId, 'quantity' => 2,
+            ])->assertStatus(200);
+
+        // Package is open (not sealed) -> verify MUST fail with 422
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
+            ->assertStatus(422);
+        $this->assertSame('packing', $fulfillment->fresh()->status);
+
+        // Now seal the package
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])
+            ->assertStatus(200);
+
+        // Now verify succeeds
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
+            ->assertStatus(200);
+        $this->assertSame('verified', $task->fresh()->status);
+        $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
+    }
+
     public function test_cancel_task_guards_packed_work(): void
     {
         $supervisor = $this->supervisor();

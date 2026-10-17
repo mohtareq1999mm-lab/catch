@@ -33,7 +33,7 @@ Empties one location of its eligible placement hints inside a single transaction
 
 No query parameters, body fields, or validation-driven `422` (all 422s below are translated service-guard outcomes, not validation). Behavioral contracts: code-traced against `LocationController@emptyProducts` + `LocationEmptyService::empty`; route existence `route:list` verified for the documented URI; `tests/Feature/Wms/WmsLocationEmptyTest.php` authors the behavior (both URIs registered, 401/403/scope/404 statuses status-only, success + idempotency + stock/hint/tasks/commitment/history/return message assertions) but was NOT re-run green in this session (DB env failure: missing `catch.*` tables; no live HTTP verification in this session).
 
-> Scope note: this file documents ONLY the requested `api.admin.locations.products.destroy` URI above (TARGET). The sibling alias `DELETE /api/v1/admin/wms/locations/{location}/products` (`api.admin.wms.locations.products.destroy`, `Routes.php:584`, same handler + permission, `route:list` verified) is RELATED evidence and behaves identically, but is out of scope for this file.
+> Scope note: this file documents ONLY the requested `api.admin.locations.products.destroy` URI above (TARGET). The sibling alias `DELETE /api/v1/admin/wms/locations/{location}/products` (`api.admin.wms.locations.products.destroy`, same handler + permission, `route:list` verified 2026-10-17) is RELATED evidence and behaves identically, but is out of scope for this file. DRIFT FLAG (working tree, uncommitted): the sibling alias route has been COMMENTED OUT in `packages/marvel/src/Rest/Routes.php` — re-verify `route:list` after the next commit before asserting the alias resolves.
 
 ## Request examples
 

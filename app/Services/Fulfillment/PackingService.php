@@ -283,29 +283,43 @@ class PackingService
 
     /**
      * P6-3B (D6-3): every fulfillment item must satisfy
-     * SUM(non-voided package_items.quantity) == quantity_picked.
+     * SUM(sealed package_items.quantity) == quantity_picked,
+     * and every active package must be sealed (STATUS_SEALED).
      * Read-only: never mutates picking or inventory quantities.
      *
-     * @throws \RuntimeException on the first incomplete item.
+     * @throws \RuntimeException on unsealed package or incomplete item.
      */
     private function assertFullyPackaged(Fulfillment $fulfillment): void
     {
+        $packages = Package::where('fulfillment_id', $fulfillment->id)
+            ->where('status', '!=', Package::STATUS_VOIDED)
+            ->lockForUpdate()
+            ->get();
+
+        if ($packages->isEmpty()) {
+            throw new \RuntimeException(
+                __('wms.packing.verify_no_packages')
+            );
+        }
+
+        $unsealed = $packages->first(fn (Package $p) => $p->status !== Package::STATUS_SEALED);
+        if ($unsealed !== null) {
+            throw new \RuntimeException(
+                __('wms.packing.verify_package_not_sealed', ['id' => $unsealed->id])
+            );
+        }
+
+        $sealedPackageIds = $packages->pluck('id');
+
         $items = FulfillmentItem::where('fulfillment_id', $fulfillment->id)
             ->lockForUpdate()
             ->get();
 
-        $packageIds = Package::where('fulfillment_id', $fulfillment->id)
-            ->where('status', '!=', Package::STATUS_VOIDED)
-            ->lockForUpdate()
-            ->pluck('id');
-
         foreach ($items as $item) {
             $picked = (float) $item->quantity_picked;
-            $packed = $packageIds->isEmpty()
-                ? 0.0
-                : (float) PackageItem::where('fulfillment_item_id', $item->id)
-                    ->whereIn('package_id', $packageIds)
-                    ->sum('quantity');
+            $packed = (float) PackageItem::where('fulfillment_item_id', $item->id)
+                ->whereIn('package_id', $sealedPackageIds)
+                ->sum('quantity');
 
             if (abs($packed - $picked) > 0.000001) {
                 throw new \RuntimeException(

@@ -336,6 +336,9 @@ class StockOperationService
                 $placement = $this->lockedPlacement((int) $product->id, $variantId, $location->id, $warehouseId);
                 $this->placements->updateLocationQuantity($placement->id, (float) $quantity, 'stock_receipt');
 
+                // Auto-assign any pending fulfillment items waiting for this SKU in this warehouse
+                $this->autoAllocatePendingFulfillments($placement->fresh());
+
                 $result = $this->stockSnapshot($locked->fresh(), $warehouseId, $placement->fresh(), $quantity, $reference, $variantId);
 
                 ActivityAuditService::recordModel(
@@ -519,6 +522,9 @@ class StockOperationService
 
                 $this->placements->updateLocationQuantity($source->id, -(float) $quantity, 'stock_transfer_out');
                 $this->placements->updateLocationQuantity($destination->id, (float) $quantity, 'stock_transfer_in');
+
+                // Auto-assign any pending fulfillment items waiting for this SKU in this warehouse
+                $this->autoAllocatePendingFulfillments($destination->fresh());
 
                 $stockAfter = (int) $locked->fresh()->stock_quantity;
                 if ($stockAfter !== $stockBefore) {
@@ -936,5 +942,135 @@ class StockOperationService
             'quantity' => (float) $placement->quantity,
             'allocated_hint' => (float) $placement->allocated_hint,
         ];
+    }
+
+    /**
+     * Auto-assign any pending unallocated fulfillment items for this SKU in this warehouse.
+     */
+    public function autoAllocatePendingFulfillments(ProductLocation $placement): int
+    {
+        $itemsQuery = \App\Models\Fulfillment\FulfillmentItem::query()
+            ->where('product_id', $placement->product_id)
+            ->whereNull('product_location_id')
+            ->whereIn('status', ['pending', 'picking'])
+            ->whereHas('fulfillment', function ($q) use ($placement) {
+                $q->where('warehouse_id', $placement->warehouse_id)
+                    ->whereIn('status', ['pending', 'picking']);
+            });
+
+        if ($placement->product_variant_id === null) {
+            $itemsQuery->whereNull('product_variant_id');
+        } else {
+            $itemsQuery->where('product_variant_id', $placement->product_variant_id);
+        }
+
+        $items = $itemsQuery->orderBy('id')->lockForUpdate()->get();
+
+        if ($items->isEmpty()) {
+            return 0;
+        }
+
+        // Get all placeable locations for this SKU in the warehouse, ordered by priority and quantity
+        $allPlacements = ProductLocation::query()
+            ->forSku((int) $placement->product_id, $placement->product_variant_id !== null ? (int) $placement->product_variant_id : null)
+            ->where('product_locations.warehouse_id', (int) $placement->warehouse_id)
+            ->whereHas('location', fn ($q) => $q->placeable())
+            ->join('locations', 'product_locations.location_id', '=', 'locations.id')
+            ->orderBy('locations.priority', 'desc')
+            ->orderBy('product_locations.quantity', 'desc')
+            ->select('product_locations.*')
+            ->get();
+
+        $count = 0;
+        foreach ($items as $item) {
+            $remaining = (float) $item->quantity - (float) $item->quantity_picked;
+            if ($remaining <= 0) {
+                $item->update(['product_location_id' => $placement->id]);
+                $count++;
+                continue;
+            }
+
+            // If a single placement can fully satisfy the remaining quantity, choose it
+            $sufficientPlacement = $allPlacements->first(fn ($p) => $p->availableQuantity() >= $remaining);
+            if ($sufficientPlacement) {
+                $item->update(['product_location_id' => $sufficientPlacement->id]);
+                $count++;
+
+                \Illuminate\Support\Facades\Log::info('Fulfillment item auto-assigned to sufficient location on stock movement', [
+                    'fulfillment_item_id' => $item->id,
+                    'fulfillment_id' => $item->fulfillment_id,
+                    'product_location_id' => $sufficientPlacement->id,
+                    'location_id' => $sufficientPlacement->location_id,
+                    'warehouse_id' => $placement->warehouse_id,
+                ]);
+                continue;
+            }
+
+            // When no single location has sufficient stock, distribute across multiple locations with available stock
+            $toAllocate = $remaining;
+            $firstAssigned = false;
+            foreach ($allPlacements as $p) {
+                $avail = max(0, (float) $p->availableQuantity());
+                if ($avail <= 0) {
+                    continue;
+                }
+                $qtyFromThisLoc = min($avail, $toAllocate);
+                if (!$firstAssigned) {
+                    $item->update([
+                        'product_location_id' => $p->id,
+                        'quantity' => $qtyFromThisLoc,
+                    ]);
+                    $firstAssigned = true;
+                    $count++;
+                } else {
+                    \App\Models\Fulfillment\FulfillmentItem::create([
+                        'fulfillment_id' => $item->fulfillment_id,
+                        'order_item_id' => $item->order_item_id,
+                        'product_id' => $item->product_id,
+                        'product_variant_id' => $item->product_variant_id,
+                        'product_location_id' => $p->id,
+                        'quantity' => $qtyFromThisLoc,
+                        'quantity_picked' => 0,
+                        'status' => $item->status,
+                    ]);
+                    $count++;
+                }
+
+                \Illuminate\Support\Facades\Log::info('Fulfillment item split across location on stock movement', [
+                    'fulfillment_item_id' => $item->id,
+                    'fulfillment_id' => $item->fulfillment_id,
+                    'product_location_id' => $p->id,
+                    'allocated_quantity' => $qtyFromThisLoc,
+                    'warehouse_id' => $placement->warehouse_id,
+                ]);
+
+                $toAllocate -= $qtyFromThisLoc;
+                if ($toAllocate <= 0) {
+                    break;
+                }
+            }
+
+            if (!$firstAssigned) {
+                // If all locations have 0 available, assign to the destination placement or highest-quantity placement
+                $bestPlacement = $allPlacements->first() ?? $placement;
+                $item->update(['product_location_id' => $bestPlacement->id]);
+                $count++;
+            } elseif ($toAllocate > 0) {
+                // Remainder that exceeds all placement capacity is created as a remaining pending item
+                \App\Models\Fulfillment\FulfillmentItem::create([
+                    'fulfillment_id' => $item->fulfillment_id,
+                    'order_item_id' => $item->order_item_id,
+                    'product_id' => $item->product_id,
+                    'product_variant_id' => $item->product_variant_id,
+                    'product_location_id' => $placement->id,
+                    'quantity' => $toAllocate,
+                    'quantity_picked' => 0,
+                    'status' => $item->status,
+                ]);
+                $count++;
+            }
+        }
+
+        return $count;
     }
 }

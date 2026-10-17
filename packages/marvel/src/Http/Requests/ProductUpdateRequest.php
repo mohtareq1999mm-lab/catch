@@ -98,6 +98,12 @@ class ProductUpdateRequest extends FormRequest
             'tax_enabled'                  => ['sometimes', 'boolean'],
             'tax_rate'                     => ['nullable', 'numeric', 'min:0', 'max:100'],
 
+            // WMS placements: multiple locations with quantities
+            'locations'                    => ['sometimes', 'array'],
+            'locations.*.location_id'      => ['required_with:locations', 'integer', 'exists:locations,id'],
+            'locations.*.quantity'         => ['required_with:locations', 'numeric', 'min:0'],
+            'locations.*.warehouse_id'     => ['nullable', 'integer', 'exists:warehouses,id'],
+
             // variants
             'variants'                     => ['sometimes', 'array'],
             'variants.*.id'                => ['sometimes', 'exists:product_variants,id'], // مهم علشان نعرف أي Variant يتعدل
@@ -110,6 +116,10 @@ class ProductUpdateRequest extends FormRequest
             'variants.*.height'            => ['sometimes', 'string'],
             'variants.*.attribute_values'  => ['sometimes', 'array'],
             'variants.*.attribute_values.*' => ['integer', 'exists:attribute_values,id'],
+            'variants.*.locations'                    => ['sometimes', 'array'],
+            'variants.*.locations.*.location_id'      => ['required_with:variants.*.locations', 'integer', 'exists:locations,id'],
+            'variants.*.locations.*.quantity'         => ['required_with:variants.*.locations', 'numeric', 'min:0'],
+            'variants.*.locations.*.warehouse_id'      => ['nullable', 'integer', 'exists:warehouses,id'],
         ];
     }
 

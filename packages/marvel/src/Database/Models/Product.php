@@ -448,6 +448,23 @@ class Product extends Model implements HasMedia
     {
         return $this->belongsToMany(Resource::class, 'pickup_location_product', 'product_id', 'resource_id');
     }
+
+    public function productLocations(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\Fulfillment\ProductLocation::class, 'product_id');
+    }
+
+    public function warehouseLocations(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Fulfillment\Location::class, 'product_locations', 'product_id', 'location_id')
+            ->withPivot(['quantity', 'allocated_hint', 'warehouse_id'])
+            ->withTimestamps();
+    }
+
+    public function locations(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->warehouseLocations();
+    }
     /**
      * @return BelongsToMany
      */

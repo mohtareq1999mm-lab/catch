@@ -490,4 +490,513 @@ class WmsMultiLocationTest extends TestCase
         $this->assertSame(5, (int) $this->product->fresh()->stock_quantity);
         $this->assertSame(1, ProductLocation::where('product_id', $this->product->id)->where('location_id', $this->a01->id)->count());
     }
+
+    public function test_stock_receipt_auto_allocates_unplaced_fulfillment_item_and_enables_picking(): void
+    {
+        $manager = $this->manager();
+        $customer = User::factory()->create(['type' => 'customer']);
+
+        $order = Order::create([
+            'user_id' => $customer->id, 'name' => 'UNPLACED-1', 'user_email' => $customer->email,
+            'user_phone' => '010', 'status' => 'processing',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS, 'payment_method' => 'online',
+            'fulfillment_status' => 'pending', 'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'price' => 100, 'total_price' => 1000, 'currency_code' => 'EGP', 'base_currency_code' => 'EGP',
+            'fulfillment_type' => 'delivery', 'address' => ['city' => 'Cairo'],
+        ]);
+        $orderItem = $order->orderItems()->create([
+            'product_id' => $this->product->id, 'product_name' => 'A', 'product_sku' => 'SKU-ML-A',
+            'product_quantity' => 5, 'product_price' => 100, 'product_total_price' => 500,
+        ]);
+
+        $fulfillment = \App\Models\Fulfillment\Fulfillment::create([
+            'order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'fulfillment_number' => 'FN-TEST-001',
+            'status' => 'pending',
+        ]);
+        $fulfillmentItem = \App\Models\Fulfillment\FulfillmentItem::create([
+            'fulfillment_id' => $fulfillment->id,
+            'order_item_id' => $orderItem->id,
+            'product_id' => $this->product->id,
+            'product_location_id' => null, // Initially unallocated
+            'quantity' => 5,
+            'quantity_picked' => 0,
+            'status' => 'pending',
+        ]);
+
+        $this->assertNull($fulfillmentItem->product_location_id);
+
+        // Receive stock into location A-01 via stock receipt API
+        $this->receiveHttp($manager, $this->a01->id, [
+            'product_id' => $this->product->id,
+            'quantity' => 5,
+        ])->assertStatus(201);
+
+        // Verify fulfillment item was automatically allocated
+        $fulfillmentItem->refresh();
+        $this->assertNotNull($fulfillmentItem->product_location_id);
+        $this->assertSame($this->a01->id, (int) $fulfillmentItem->productLocation->location_id);
+
+        // Verify picking tasks can now be created seamlessly without zero-location errors
+        $tasks = app(\App\Services\Fulfillment\OrderPickingService::class)->createTasksForFulfillment($fulfillment);
+        $this->assertCount(1, $tasks);
+        $this->assertSame($fulfillmentItem->product_location_id, $tasks[0]->product_location_id);
+    }
+
+    public function test_stock_receipt_distributes_across_multiple_locations_when_single_location_insufficient(): void
+    {
+        $manager = $this->manager();
+        $customer = User::factory()->create(['type' => 'customer']);
+
+        // First receive 4 in A-01
+        $this->receiveHttp($manager, $this->a01->id, [
+            'product_id' => $this->product->id,
+            'quantity' => 4,
+        ])->assertStatus(201);
+
+        $order = Order::create([
+            'user_id' => $customer->id, 'name' => 'UNPLACED-MULTI', 'user_email' => $customer->email,
+            'user_phone' => '010', 'status' => 'processing',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS, 'payment_method' => 'online',
+            'fulfillment_status' => 'pending', 'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'price' => 100, 'total_price' => 1000, 'currency_code' => 'EGP', 'base_currency_code' => 'EGP',
+            'fulfillment_type' => 'delivery', 'address' => ['city' => 'Cairo'],
+        ]);
+        $orderItem = $order->orderItems()->create([
+            'product_id' => $this->product->id, 'product_name' => 'A', 'product_sku' => 'SKU-ML-A',
+            'product_quantity' => 10, 'product_price' => 100, 'product_total_price' => 1000,
+        ]);
+
+        $fulfillment = \App\Models\Fulfillment\Fulfillment::create([
+            'order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'fulfillment_number' => 'FN-TEST-002',
+            'status' => 'pending',
+        ]);
+        $fulfillmentItem = \App\Models\Fulfillment\FulfillmentItem::create([
+            'fulfillment_id' => $fulfillment->id,
+            'order_item_id' => $orderItem->id,
+            'product_id' => $this->product->id,
+            'product_location_id' => null, // Needs 10
+            'quantity' => 10,
+            'quantity_picked' => 0,
+            'status' => 'pending',
+        ]);
+
+        // Receive 6 in A-02 so warehouse now has 4 in A-01 and 6 in A-02 (total 10)
+        $this->receiveHttp($manager, $this->a02->id, [
+            'product_id' => $this->product->id,
+            'quantity' => 6,
+        ])->assertStatus(201);
+
+        // Fulfillment items should now be split across both locations
+        $items = $fulfillment->items()->orderBy('id')->get();
+        $this->assertCount(2, $items);
+        $this->assertEquals(10, $items->sum('quantity'));
+
+        $locationIds = $items->map(fn ($it) => $it->productLocation->location_id)->all();
+        $this->assertContains($this->a01->id, $locationIds);
+        $this->assertContains($this->a02->id, $locationIds);
+
+        // Picking tasks should generate tasks for both locations
+        $tasks = app(\App\Services\Fulfillment\OrderPickingService::class)->createTasksForFulfillment($fulfillment);
+        $this->assertCount(2, $tasks);
+    }
+
+    public function test_product_store_and_update_with_multiple_locations_and_quantity_sum_validation(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        // 1. Mismatched quantity validation: locations sum is 25, but quantity is 30 -> 422
+        $mismatchedReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Multi Loc Product', 'ar' => 'منتج متعدد'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 50,
+            'quantity' => 30, // mismatch
+            'product_type' => 'simple',
+            'locations' => [
+                ['location_id' => $this->a01->id, 'quantity' => 10],
+                ['location_id' => $this->a02->id, 'quantity' => 15],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $this->expectExceptionMessage('The sum of location quantities (25) must equal the total product quantity (30).');
+        $repo->storeProduct($mismatchedReq);
+    }
+
+    public function test_product_store_and_update_overwrites_locations_correctly(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        // 1. Create with multiple locations (10 in A-01, 15 in A-02, total 25)
+        $storeReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Multi Loc Valid', 'ar' => 'منتج صحيح'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 50,
+            'quantity' => 25,
+            'product_type' => 'simple',
+            'locations' => [
+                ['location_id' => $this->a01->id, 'quantity' => 10],
+                ['location_id' => $this->a02->id, 'quantity' => 15],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $product = $repo->storeProduct($storeReq);
+        $this->assertSame(25, (int) $product->fresh()->stock_quantity);
+
+        $placements = ProductLocation::where('product_id', $product->id)->get();
+        $this->assertCount(2, $placements);
+        $this->assertEquals(25, $placements->sum('quantity'));
+
+        // 2. Update and overwrite with new location B-01 (quantity 20)
+        $updateReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Multi Loc Valid Updated', 'ar' => 'منتج محدث'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 60,
+            'quantity' => 20,
+            'locations' => [
+                ['location_id' => $this->b01->id, 'quantity' => 20],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $updatedProduct = $repo->updateProduct($updateReq, $product->id);
+        $this->assertSame(20, (int) $updatedProduct->fresh()->stock_quantity);
+
+        // A-01 and A-02 should be overwritten/removed, B-01 should be present with 20
+        $newPlacements = ProductLocation::where('product_id', $product->id)->get();
+        $this->assertCount(1, $newPlacements);
+        $this->assertSame($this->b01->id, (int) $newPlacements[0]->location_id);
+        $this->assertSame($this->warehouse->id, (int) $newPlacements[0]->warehouse_id);
+        $this->assertEquals(20, (float) $newPlacements[0]->quantity);
+    }
+
+    public function test_variant_store_rejects_quantity_mismatch_with_locations(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        $mismatchedReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Variable Prod Mismatch', 'ar' => 'منتج بمتغيرات'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'product_type' => 'variable',
+            'variants' => [
+                [
+                    'price' => 50,
+                    'quantity' => 30, // specifies 30
+                    'locations' => [
+                        ['location_id' => $this->a01->id, 'quantity' => 10],
+                        ['location_id' => $this->a02->id, 'quantity' => 15], // 10 + 15 = 25 != 30
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $this->expectExceptionMessage('The sum of location quantities (25) must equal the total variant quantity (30).');
+        $repo->storeProduct($mismatchedReq);
+    }
+
+    public function test_variant_store_and_update_overwrites_locations_correctly(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        // 1. Create variable product with 2 variants, each having multiple locations
+        $storeReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Variable Multi Loc', 'ar' => 'منتج بمتغيرات متعدد المواقع'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'product_type' => 'variable',
+            'variants' => [
+                [
+                    'price' => 100,
+                    'quantity' => 25,
+                    'locations' => [
+                        ['location_id' => $this->a01->id, 'quantity' => 10],
+                        ['location_id' => $this->a02->id, 'quantity' => 15],
+                    ],
+                    'attribute_values' => [],
+                ],
+                [
+                    'price' => 150,
+                    'quantity' => 30,
+                    'locations' => [
+                        ['location_id' => $this->b01->id, 'quantity' => 30],
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $product = $repo->storeProduct($storeReq);
+        $this->assertSame(55, (int) $product->fresh()->stock_quantity);
+
+        $variants = \Marvel\Database\Models\ProductVariant::where('product_id', $product->id)->orderBy('id')->get();
+        $this->assertCount(2, $variants);
+        $this->assertSame(25, (int) $variants[0]->stock_quantity);
+        $this->assertSame(30, (int) $variants[1]->stock_quantity);
+
+        // Variant 1 placements
+        $v1Placements = ProductLocation::where('product_variant_id', $variants[0]->id)->get();
+        $this->assertCount(2, $v1Placements);
+        $this->assertEquals(25, $v1Placements->sum('quantity'));
+
+        // Variant 2 placements
+        $v2Placements = ProductLocation::where('product_variant_id', $variants[1]->id)->get();
+        $this->assertCount(1, $v2Placements);
+        $this->assertEquals(30, (float) $v2Placements[0]->quantity);
+
+        // 2. Update variant 1 with new location B-01 (overwriting A-01 and A-02)
+        $updateReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Variable Multi Loc Updated', 'ar' => 'منتج بمتغيرات محدث'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'variants' => [
+                [
+                    'id' => $variants[0]->id,
+                    'price' => 110,
+                    'quantity' => 20,
+                    'locations' => [
+                        ['location_id' => $this->b01->id, 'quantity' => 20],
+                    ],
+                    'attribute_values' => [],
+                ],
+                [
+                    'id' => $variants[1]->id,
+                    'price' => 150,
+                    'quantity' => 30,
+                    'locations' => [
+                        ['location_id' => $this->b01->id, 'quantity' => 30],
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $updatedProduct = $repo->updateProduct($updateReq, $product->id);
+        $this->assertSame(50, (int) $updatedProduct->fresh()->stock_quantity);
+
+        $newV1Placements = ProductLocation::where('product_variant_id', $variants[0]->id)->get();
+        $this->assertCount(1, $newV1Placements);
+        $this->assertSame($this->b01->id, (int) $newV1Placements[0]->location_id);
+        $this->assertEquals(20, (float) $newV1Placements[0]->quantity);
+    }
+
+    public function test_variant_location_rejects_mismatched_warehouse(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        $mismatchedReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Variable Mismatched WH', 'ar' => 'مستودع غير متطابق'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'product_type' => 'variable',
+            'variants' => [
+                [
+                    'price' => 50,
+                    'quantity' => 10,
+                    'locations' => [
+                        [
+                            'location_id' => $this->a01->id, // belongs to $this->warehouse
+                            'warehouse_id' => $this->otherWarehouse->id, // explicitly wrong warehouse
+                            'quantity' => 10,
+                        ],
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $this->expectExceptionMessageMatches('/belongs to warehouse #.*, not warehouse #.*/');
+        $repo->storeProduct($mismatchedReq);
+    }
+
+    public function test_variant_overwrite_refuses_when_active_picking_task_exists(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        $storeReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Var Picking Guard', 'ar' => 'حماية البيكينج للمتغير'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'product_type' => 'variable',
+            'variants' => [
+                [
+                    'price' => 100,
+                    'quantity' => 10,
+                    'locations' => [
+                        ['location_id' => $this->a01->id, 'quantity' => 10],
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $product = $repo->storeProduct($storeReq);
+        $variant = \Marvel\Database\Models\ProductVariant::where('product_id', $product->id)->first();
+        $placement = ProductLocation::where('product_variant_id', $variant->id)->first();
+
+        $user = User::factory()->create(['type' => 'customer']);
+        $order = Order::create([
+            'user_id' => $user->id, 'name' => 'Audit', 'user_email' => $user->email,
+            'user_phone' => '010', 'status' => 'processing',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            'payment_method' => 'online',
+            'fulfillment_status' => 'pending',
+            'inventory_state' => Order::INVENTORY_STATE_COMMITTED,
+            'price' => 100, 'total_price' => 100,
+            'currency_code' => 'EGP', 'base_currency_code' => 'EGP',
+            'fulfillment_type' => 'delivery',
+            'address' => ['city' => 'Cairo'],
+        ]);
+        $orderItem = $order->orderItems()->create([
+            'product_id' => $product->id, 'product_variant_id' => $variant->id,
+            'product_name' => 'Variant prod', 'product_sku' => 'SKU-VAR',
+            'product_quantity' => 5, 'product_price' => 100, 'product_total_price' => 500,
+        ]);
+        $fulfillment = \App\Models\Fulfillment\Fulfillment::create([
+            'order_id' => $order->id, 'warehouse_id' => $placement->warehouse_id, 'status' => 'pending',
+        ]);
+        $fItem = \App\Models\Fulfillment\FulfillmentItem::create([
+            'fulfillment_id' => $fulfillment->id,
+            'order_item_id' => $orderItem->id,
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'product_location_id' => $placement->id,
+            'quantity' => 5,
+            'quantity_picked' => 0,
+            'status' => 'pending',
+        ]);
+
+        // Create an active picking task on this placement
+        \App\Models\Fulfillment\PickingTask::create([
+            'product_location_id' => $placement->id,
+            'fulfillment_item_id' => $fItem->id,
+            'warehouse_id' => $placement->warehouse_id,
+            'status' => 'pending',
+            'quantity_to_pick' => 5,
+            'quantity_picked' => 0,
+        ]);
+
+        // Attempting to overwrite locations (removing A-01) should throw 422
+        $updateReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Var Picking Guard Upd', 'ar' => 'تحديث'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'variants' => [
+                [
+                    'id' => $variant->id,
+                    'price' => 100,
+                    'quantity' => 10,
+                    'locations' => [
+                        ['location_id' => $this->a02->id, 'quantity' => 10], // replacing A-01 with A-02
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $this->expectExceptionMessage("Cannot overwrite location #{$this->a01->id}: active picking tasks exist.");
+        $repo->updateProduct($updateReq, $product->id);
+    }
+
+    public function test_variant_overwrite_refuses_when_allocated_stock_exists_without_picking_task(): void
+    {
+        $repo = app(\Marvel\Database\Repositories\ProductRepository::class);
+
+        $storeReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Var Alloc Guard', 'ar' => 'حماية الحجز للمتغير'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'product_type' => 'variable',
+            'variants' => [
+                [
+                    'price' => 100,
+                    'quantity' => 10,
+                    'locations' => [
+                        ['location_id' => $this->a01->id, 'quantity' => 10],
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $product = $repo->storeProduct($storeReq);
+        $variant = \Marvel\Database\Models\ProductVariant::where('product_id', $product->id)->first();
+        $placement = ProductLocation::where('product_variant_id', $variant->id)->first();
+
+        // Simulate allocated stock for an order (without picking task yet)
+        $placement->update(['allocated_hint' => 4]);
+
+        $updateReq = new \Illuminate\Http\Request([
+            'name' => ['en' => 'Var Alloc Guard Upd', 'ar' => 'تحديث'],
+            'description' => ['en' => 'Desc', 'ar' => 'وصف'],
+            'price' => 0,
+            'variants' => [
+                [
+                    'id' => $variant->id,
+                    'price' => 100,
+                    'quantity' => 10,
+                    'locations' => [
+                        ['location_id' => $this->a02->id, 'quantity' => 10],
+                    ],
+                    'attribute_values' => [],
+                ],
+            ],
+            'categories' => [],
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ]);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $this->expectExceptionMessage("Cannot overwrite location #{$this->a01->id}: active picking tasks exist.");
+        $repo->updateProduct($updateReq, $product->id);
+    }
 }
+
+

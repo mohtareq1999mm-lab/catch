@@ -6,6 +6,7 @@ use App\Models\Fulfillment\FulfillmentBatch;
 use App\Models\Fulfillment\FulfillmentItem;
 use App\Models\Fulfillment\PickingTask;
 use App\Models\Fulfillment\Fulfillment;
+use App\Models\Fulfillment\ProductLocation;
 use App\Services\Warehouse\WarehouseService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
@@ -126,11 +127,31 @@ class BatchPickingService
             $remainingByItem = [];
             foreach ($lockedFulfillments as $locked) {
                 $items = FulfillmentItem::where('fulfillment_id', $locked->id)
-                    ->whereNotNull('product_location_id')
                     ->orderBy('id')
                     ->lockForUpdate()
                     ->get();
                 foreach ($items as $item) {
+                    if ($item->product_location_id === null) {
+                        $placements = ProductLocation::query()
+                            ->forSku((int) $item->product_id, $item->product_variant_id !== null ? (int) $item->product_variant_id : null)
+                            ->where('product_locations.warehouse_id', (int) $locked->warehouse_id)
+                            ->whereHas('location', fn ($q) => $q->placeable())
+                            ->join('locations', 'product_locations.location_id', '=', 'locations.id')
+                            ->orderBy('locations.priority', 'desc')
+                            ->orderBy('product_locations.quantity', 'desc')
+                            ->select('product_locations.*')
+                            ->get();
+
+                        if ($placements->isNotEmpty()) {
+                            $rem = (float) $item->quantity - (float) $item->quantity_picked;
+                            $sufficient = $placements->first(fn ($p) => $p->availableQuantity() >= $rem);
+                            $chosen = $sufficient ?? $placements->first();
+                            $item->update(['product_location_id' => $chosen->id]);
+                        } else {
+                            continue;
+                        }
+                    }
+
                     $remaining = (float) $item->quantity - (float) $item->quantity_picked;
                     if ($remaining <= 0) {
                         continue; // fully picked: no task
@@ -923,10 +944,229 @@ class BatchPickingService
      */
     public function getNextTask(FulfillmentBatch $batch): ?PickingTask
     {
-        return $batch->pickingTasks()
+        $task = $batch->pickingTasks()
             ->pending()
             ->bySequence()
             ->first();
+
+        if ($task && $task->product_location_id !== null) {
+            $taskItem = $task->fulfillmentItem;
+            $productId = $taskItem?->product_id;
+            $variantId = $taskItem?->product_variant_id;
+
+            $siblingTasks = $batch->pickingTasks()
+                ->where('product_location_id', $task->product_location_id)
+                ->whereIn('status', ['pending', 'assigned', 'picking'])
+                ->whereHas('fulfillmentItem', function ($q) use ($productId, $variantId) {
+                    $q->where('product_id', $productId);
+                    if ($variantId !== null) {
+                        $q->where('product_variant_id', $variantId);
+                    } else {
+                        $q->whereNull('product_variant_id');
+                    }
+                })
+                ->get(['id', 'order_id', 'quantity_to_pick', 'quantity_picked']);
+
+            $task->consolidated_info = [
+                'is_consolidated' => $siblingTasks->count() > 1,
+                'total_quantity' => (float) $siblingTasks->sum(fn ($t) => (float) $t->quantity_to_pick - (float) $t->quantity_picked),
+                'orders_count' => $siblingTasks->pluck('order_id')->filter()->unique()->count() ?: 1,
+                'task_ids' => $siblingTasks->pluck('id')->values()->all(),
+            ];
+        }
+
+        return $task;
+    }
+
+    /**
+     * Confirm consolidated location pick for a batch.
+     *
+     * Validates scanned location barcode and product/variant barcode/SKU,
+     * then distributes the picked quantity across all pending/assigned tasks
+     * for that location in sequence within a single atomic database transaction.
+     *
+     * @param FulfillmentBatch $batch
+     * @param array{location: string, product: string, quantity: float|int, op_seq?: int} $scan
+     * @param int $userId
+     * @param bool $override
+     * @return array
+     */
+    public function confirmLocationPick(
+        FulfillmentBatch $batch,
+        array $scan,
+        int $userId,
+        bool $override = false
+    ): array {
+        return DB::transaction(function () use ($batch, $scan, $userId, $override) {
+            $quantity = (float) ($scan['quantity'] ?? 0);
+            if ($quantity <= 0) {
+                throw new \InvalidArgumentException(__('wms.batch.pick_positive'));
+            }
+
+            /** @var \App\Services\Warehouse\BarcodeResolver $barcodes */
+            $barcodes = app(\App\Services\Warehouse\BarcodeResolver::class);
+
+            // 1. Resolve Location
+            $locationData = $barcodes->resolve((string) ($scan['location'] ?? ''));
+            if ($locationData['kind'] !== 'location') {
+                throw new \InvalidArgumentException(__('wms.picking.location_not_found', ['scanned' => $scan['location'] ?? '']));
+            }
+            $locationId = (int) $locationData['id'];
+
+            // 2. Resolve Product or Variant
+            try {
+                $productData = $barcodes->resolveProduct((string) ($scan['product'] ?? ''));
+            } catch (\App\Exceptions\UnknownBarcodeException) {
+                $productData = $barcodes->resolve((string) ($scan['product'] ?? ''));
+            }
+
+            if (($productData['kind'] ?? '') === 'variant') {
+                $variantId = (int) $productData['id'];
+                $productId = (int) ($productData['product_id'] ?? 0);
+            } else {
+                $productId = (int) ($productData['id'] ?? 0);
+                $variantId = null;
+            }
+
+            // 3. Find matching product_locations for this physical location & warehouse
+            $plQuery = ProductLocation::where('location_id', $locationId)
+                ->where('warehouse_id', $batch->warehouse_id)
+                ->where('product_id', $productId);
+
+            if ($variantId !== null) {
+                $plQuery->where('product_variant_id', $variantId);
+            } else {
+                $plQuery->whereNull('product_variant_id');
+            }
+
+            $plIds = $plQuery->pluck('id')->all();
+
+            // Fallback to any placements at that location if not found with exact variant filter
+            if (empty($plIds)) {
+                $plIds = ProductLocation::where('location_id', $locationId)
+                    ->where('warehouse_id', $batch->warehouse_id)
+                    ->pluck('id')
+                    ->all();
+            }
+
+            if (empty($plIds)) {
+                throw new \RuntimeException(__('wms.batch.location_no_tasks'));
+            }
+
+            // 4. Lock open tasks in this batch at this location
+            $tasks = PickingTask::where('batch_id', $batch->id)
+                ->whereIn('product_location_id', $plIds)
+                ->whereIn('status', ['pending', 'assigned', 'picking'])
+                ->with(['fulfillmentItem'])
+                ->orderBy('sequence')
+                ->lockForUpdate()
+                ->get();
+
+            // Filter strictly to matching product or variant
+            $matchingTasks = $tasks->filter(function ($t) use ($productId, $variantId) {
+                $item = $t->fulfillmentItem;
+                if (!$item) {
+                    return false;
+                }
+                if ($variantId !== null) {
+                    return (int) $item->product_variant_id === $variantId;
+                }
+                return (int) $item->product_id === $productId && $item->product_variant_id === null;
+            });
+
+            if ($matchingTasks->isEmpty()) {
+                throw new \RuntimeException(__('wms.batch.location_no_tasks'));
+            }
+
+            $totalRemaining = (float) $matchingTasks->sum(fn ($t) => (float) $t->quantity_to_pick - (float) $t->quantity_picked);
+            if ($quantity > $totalRemaining) {
+                throw new \RuntimeException(
+                    __('wms.batch.pick_exceeds', ['quantity' => $quantity, 'remaining' => $totalRemaining])
+                );
+            }
+
+            // 5. Distribute quantity sequentially across matching tasks
+            $qtyToAllocate = $quantity;
+            $updatedTasks = [];
+            $now = now();
+            $opSeq = (int) ($scan['op_seq'] ?? 0);
+
+            foreach ($matchingTasks as $task) {
+                if ($qtyToAllocate <= 0) {
+                    break;
+                }
+
+                $taskRemaining = (float) $task->quantity_to_pick - (float) $task->quantity_picked;
+                if ($taskRemaining <= 0) {
+                    continue;
+                }
+
+                $alloc = min($qtyToAllocate, $taskRemaining);
+                $newPicked = (float) $task->quantity_picked + $alloc;
+                $isComplete = $newPicked >= (float) $task->quantity_to_pick;
+
+                $log = is_array($task->scan_log) ? $task->scan_log : [];
+                $log[] = [
+                    'op_seq' => $opSeq,
+                    'actor_id' => $userId,
+                    'action' => 'confirm_location',
+                    'location' => $scan['location'],
+                    'product' => $scan['product'],
+                    'quantity' => $alloc,
+                    'result' => 'ok',
+                    'at' => $now->toIso8601String(),
+                ];
+
+                $task->update([
+                    'quantity_picked' => $newPicked,
+                    'status' => $isComplete ? 'picked' : 'picking',
+                    'picked_at' => $isComplete ? $now : $task->picked_at,
+                    'claimed_by' => $task->claimed_by ?? $userId,
+                    'claimed_at' => $task->claimed_at ?? $now,
+                    'op_seq' => max($opSeq, (int) $task->op_seq),
+                    'scan_log' => $log,
+                ]);
+
+                $fItem = $task->fulfillmentItem;
+                if ($fItem) {
+                    $fItem->increment('quantity_picked', $alloc);
+                    $freshItem = $fItem->fresh();
+                    $itemComplete = (float) $freshItem->quantity_picked >= (float) $freshItem->quantity;
+                    $freshItem->update([
+                        'status' => $itemComplete ? 'picked' : 'picking',
+                        'picked_at' => $itemComplete ? $now : $freshItem->picked_at,
+                    ]);
+                }
+
+                $qtyToAllocate -= $alloc;
+                $updatedTasks[] = $task->fresh();
+            }
+
+            // 6. Refresh batch progress (auto-advances fulfillments if all tasks completed)
+            $refreshedBatch = $this->refreshBatchProgress($batch->fresh());
+            $nextTask = $this->getNextTask($batch->fresh());
+
+            Log::info('Consolidated location pick confirmed', [
+                'batch_id' => $batch->id,
+                'location_id' => $locationId,
+                'product_id' => $productId,
+                'quantity' => $quantity,
+                'tasks_count' => count($updatedTasks),
+                'actor_id' => $userId,
+            ]);
+
+            return [
+                'batch_id' => $batch->id,
+                'batch_status' => $refreshedBatch->status,
+                'location_barcode' => (string) $scan['location'],
+                'scanned_product' => (string) $scan['product'],
+                'total_picked_now' => $quantity,
+                'remaining_at_location' => max(0, $totalRemaining - $quantity),
+                'tasks_completed_count' => collect($updatedTasks)->where('status', 'picked')->count(),
+                'updated_task_ids' => collect($updatedTasks)->pluck('id')->all(),
+                'next_task' => $nextTask ? \App\Http\Resources\Wms\PickingTaskResource::make($nextTask) : null,
+            ];
+        });
     }
 
     /**
