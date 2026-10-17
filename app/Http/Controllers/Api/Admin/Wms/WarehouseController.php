@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\Admin\Wms;
 
+use App\Http\Requests\Admin\Wms\AssignWarehouseUsersRequest;
 use App\Http\Requests\Admin\Wms\CreateWarehouseRequest;
+use App\Http\Requests\Admin\Wms\RemoveWarehouseUsersRequest;
 use App\Http\Requests\Admin\Wms\UpdateWarehouseRequest;
 use App\Http\Resources\Wms\WarehouseResource;
 use App\Models\Fulfillment\Warehouse;
@@ -11,6 +13,7 @@ use App\Services\Warehouse\WarehouseService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Marvel\Database\Models\User;
 
 /**
  * P9-2: warehouse HTTP adapter. Thin: permission (route) + warehouse scope
@@ -206,7 +209,7 @@ class WarehouseController extends WmsAdminController
     /**
      * POST /api/v1/admin/warehouses/{id}/users
      */
-    public function assignUsers(\App\Http\Requests\Admin\Wms\AssignWarehouseUsersRequest $request, int $id): JsonResponse
+    public function assignUsers(AssignWarehouseUsersRequest $request, int $id): JsonResponse
     {
         $warehouse = Warehouse::whereKey($id)->firstOrFail();
         $this->authorizeWarehouseScope($warehouse->id, 'manage-warehouse');
@@ -219,6 +222,52 @@ class WarehouseController extends WmsAdminController
 
         return $this->apiResponse(
             __('wms.warehouse.users_assigned'),
+            200,
+            true,
+            $result
+        );
+    }
+
+    /**
+     * DELETE /api/v1/admin/warehouses/{id}/users
+     */
+    public function removeUsers(RemoveWarehouseUsersRequest $request, int $id): JsonResponse
+    {
+        $warehouse = Warehouse::whereKey($id)->firstOrFail();
+        $this->authorizeWarehouseScope($warehouse->id, 'manage-warehouse');
+
+        $result = $this->warehouses->assignUsers(
+            $warehouse,
+            $request->validated('user_ids'),
+            'detach'
+        );
+
+        return $this->apiResponse(
+            __('wms.warehouse.users_removed'),
+            200,
+            true,
+            $result
+        );
+    }
+
+    /**
+     * DELETE /api/v1/admin/warehouses/{id}/users/{userId}
+     */
+    public function removeUser(int $id, int $userId): JsonResponse
+    {
+        $warehouse = Warehouse::whereKey($id)->firstOrFail();
+        $this->authorizeWarehouseScope($warehouse->id, 'manage-warehouse');
+
+        User::whereKey($userId)->firstOrFail();
+
+        $result = $this->warehouses->assignUsers(
+            $warehouse,
+            [$userId],
+            'detach'
+        );
+
+        return $this->apiResponse(
+            __('wms.warehouse.users_removed'),
             200,
             true,
             $result

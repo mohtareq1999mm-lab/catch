@@ -583,10 +583,13 @@ Route::prefix('admin/warehouses')->middleware(['api', 'auth:sanctum', 'throttle:
     Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.destroy');
     Route::get('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'users'])->whereNumber('id')->middleware('permission:view-warehouse')->name('api.admin.warehouses.users.index');
     Route::post('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'assignUsers'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.assign');
+    Route::delete('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'removeUsers'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.remove-bulk');
+    Route::delete('{id}/users/{userId}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'removeUser'])->whereNumber(['id', 'userId'])->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.remove');
 });
 Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'index'])->middleware('permission:view-location')->name('api.admin.locations.index');
     Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'store'])->middleware('permission:manage-location')->name('api.admin.locations.store');
+    Route::post('check-occupancy', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'checkOccupancy'])->middleware('permission:view-location')->name('api.admin.locations.check-occupancy');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'show'])->whereNumber('id')->middleware('permission:view-location')->name('api.admin.locations.show');
     Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'update'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.update');
     Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'activate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.activate');

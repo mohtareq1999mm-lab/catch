@@ -263,10 +263,12 @@ return [
         'deactivate_default' => 'Cannot deactivate default warehouse #:id (:code): promote another active warehouse first',
         'users_fetched' => 'Warehouse users fetched successfully.',
         'users_assigned' => 'Users assigned to warehouse successfully.',
+        'users_removed' => 'Users removed from warehouse successfully.',
     ],
     'location' => [
         'fetched_many' => 'Locations fetched successfully.',
         'fetched_one' => 'Location fetched successfully.',
+        'occupancy_checked' => 'Locations occupancy checked successfully.',
         'created' => 'Location created successfully.',
         'updated' => 'Location updated successfully.',
         'activated' => 'Location activated successfully.',

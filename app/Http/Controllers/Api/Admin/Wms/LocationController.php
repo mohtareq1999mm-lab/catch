@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin\Wms;
 
+use App\Http\Requests\Admin\Wms\CheckLocationOccupancyRequest;
 use App\Http\Requests\Admin\Wms\CreateLocationRequest;
 use App\Http\Requests\Admin\Wms\UpdateLocationRequest;
 use App\Http\Resources\Wms\LocationResource;
@@ -9,6 +10,7 @@ use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\PickingTask;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\LocationEmptyService;
+use App\Services\Fulfillment\LocationOccupancyService;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -352,6 +354,35 @@ class LocationController extends WmsAdminController
                 'removed_ids' => array_values($result['removed_ids'] ?? []),
                 'remaining' => (int) ($result['remaining'] ?? 0),
             ]
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/locations/check-occupancy
+     *
+     * Check occupancy status of an array of location IDs.
+     * Categorizes bins into empty, occupied (with products and variants details), and not_found.
+     */
+    public function checkOccupancy(
+        CheckLocationOccupancyRequest $request,
+        LocationOccupancyService $occupancyService
+    ): JsonResponse {
+        $warehouseId = $request->input('warehouse_id');
+        if ($warehouseId !== null) {
+            $this->authorizeWarehouseScope((int) $warehouseId, 'view-location', true);
+        }
+
+        $result = $occupancyService->checkOccupancy(
+            $request->locationIds(),
+            $warehouseId !== null ? (int) $warehouseId : null,
+            auth()->user()
+        );
+
+        return $this->apiResponse(
+            __('wms.location.occupancy_checked'),
+            200,
+            true,
+            $result
         );
     }
 }

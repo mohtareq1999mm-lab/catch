@@ -215,4 +215,109 @@ class WarehouseUserAssignmentTest extends TestCase
                 'mode' => 'invalid_mode',
             ])->assertStatus(422);
     }
+
+    public function test_guest_cannot_remove_warehouse_users(): void
+    {
+        $this->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users/1")
+            ->assertStatus(401);
+
+        $this->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users", ['user_ids' => [1]])
+            ->assertStatus(401);
+    }
+
+    public function test_staff_without_manage_permission_cannot_remove_users(): void
+    {
+        $staff = $this->createUser($this->warehouseA->id, ['view-warehouse']);
+
+        $this->actingAs($staff, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users/1")
+            ->assertStatus(403);
+
+        $this->actingAs($staff, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users", ['user_ids' => [1]])
+            ->assertStatus(403);
+    }
+
+    public function test_manager_can_remove_single_user_via_delete_endpoint(): void
+    {
+        $manager = $this->createUser($this->warehouseA->id, ['manage-warehouse', 'view-warehouse']);
+
+        $u1 = $this->createUser();
+        $u2 = $this->createUser();
+
+        $this->warehouseA->users()->attach([$u1->id, $u2->id]);
+
+        $response = $this->actingAs($manager, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users/{$u1->id}");
+
+        $response->assertStatus(200);
+        $this->assertSame('Users removed from warehouse successfully.', $response->json('message'));
+        $this->assertSame(1, $response->json('data.count'));
+        $this->assertSame('detach', $response->json('data.mode'));
+
+        $this->assertDatabaseMissing('warehouse_users', [
+            'warehouse_id' => $this->warehouseA->id,
+            'user_id' => $u1->id,
+        ]);
+        $this->assertDatabaseHas('warehouse_users', [
+            'warehouse_id' => $this->warehouseA->id,
+            'user_id' => $u2->id,
+        ]);
+    }
+
+    public function test_manager_can_bulk_remove_users_via_delete_endpoint(): void
+    {
+        $manager = $this->createUser($this->warehouseA->id, ['manage-warehouse', 'view-warehouse']);
+
+        $u1 = $this->createUser();
+        $u2 = $this->createUser();
+        $u3 = $this->createUser();
+
+        $this->warehouseA->users()->attach([$u1->id, $u2->id, $u3->id]);
+
+        $response = $this->actingAs($manager, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users", [
+                'user_ids' => [$u1->id, $u2->id],
+            ]);
+
+        $response->assertStatus(200);
+        $this->assertSame('Users removed from warehouse successfully.', $response->json('message'));
+        $this->assertSame(2, $response->json('data.count'));
+        $this->assertSame('detach', $response->json('data.mode'));
+
+        $this->assertDatabaseMissing('warehouse_users', [
+            'warehouse_id' => $this->warehouseA->id,
+            'user_id' => $u1->id,
+        ]);
+        $this->assertDatabaseMissing('warehouse_users', [
+            'warehouse_id' => $this->warehouseA->id,
+            'user_id' => $u2->id,
+        ]);
+        $this->assertDatabaseHas('warehouse_users', [
+            'warehouse_id' => $this->warehouseA->id,
+            'user_id' => $u3->id,
+        ]);
+    }
+
+    public function test_remove_user_fails_with_404_if_warehouse_or_user_not_found(): void
+    {
+        $manager = $this->createUser($this->warehouseA->id, ['manage-warehouse', 'view-warehouse']);
+        $u1 = $this->createUser();
+
+        // Warehouse not found
+        $this->actingAs($manager, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/999999/users/{$u1->id}")
+            ->assertStatus(404);
+
+        // User not found
+        $this->actingAs($manager, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users/999999")
+            ->assertStatus(404);
+
+        // Bulk with non-existent user id triggers validation 422
+        $this->actingAs($manager, 'sanctum')
+            ->deleteJson("/api/v1/admin/warehouses/{$this->warehouseA->id}/users", [
+                'user_ids' => [999999],
+            ])->assertStatus(422);
+    }
 }

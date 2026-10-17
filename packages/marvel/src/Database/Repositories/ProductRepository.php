@@ -783,6 +783,11 @@ class ProductRepository extends BaseRepository
             return;
         }
 
+        $locIds = array_column($entries, 'location_id');
+        if (count($locIds) !== count(array_unique($locIds))) {
+            throw new HttpException(422, "Duplicate locations are not allowed in placements.");
+        }
+
         $sumQuantity = 0.0;
         foreach ($entries as $e) {
             if ($e['quantity'] < 0) {
@@ -853,6 +858,13 @@ class ProductRepository extends BaseRepository
                 throw new HttpException(422, "Location #{$location->id} ({$location->code}) belongs to warehouse #{$location->warehouse_id}, not warehouse #{$expectedWarehouse}.");
             }
 
+            try {
+                app(\App\Services\Fulfillment\ProductLocationService::class)
+                    ->assertLocationVacantFor($location->id, $product->id, null);
+            } catch (\InvalidArgumentException $e) {
+                throw new HttpException(422, $e->getMessage());
+            }
+
             $placement = \App\Models\Fulfillment\ProductLocation::updateOrCreate(
                 [
                     'product_id' => $product->id,
@@ -915,6 +927,11 @@ class ProductRepository extends BaseRepository
 
         if (empty($entries)) {
             return;
+        }
+
+        $locIds = array_column($entries, 'location_id');
+        if (count($locIds) !== count(array_unique($locIds))) {
+            throw new HttpException(422, "Duplicate locations are not allowed in placements.");
         }
 
         $sumQuantity = 0.0;
@@ -985,6 +1002,13 @@ class ProductRepository extends BaseRepository
             $expectedWarehouse = $entry['warehouse_id'] ?? null;
             if ($expectedWarehouse !== null && (int) $expectedWarehouse !== (int) $location->warehouse_id) {
                 throw new HttpException(422, "Location #{$location->id} ({$location->code}) belongs to warehouse #{$location->warehouse_id}, not warehouse #{$expectedWarehouse}.");
+            }
+
+            try {
+                app(\App\Services\Fulfillment\ProductLocationService::class)
+                    ->assertLocationVacantFor($location->id, $product->id, $variant->id);
+            } catch (\InvalidArgumentException $e) {
+                throw new HttpException(422, $e->getMessage());
             }
 
             $placement = \App\Models\Fulfillment\ProductLocation::updateOrCreate(

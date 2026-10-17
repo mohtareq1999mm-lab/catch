@@ -1078,7 +1078,48 @@ class BatchPickingService
                 throw new \RuntimeException(__('wms.batch.location_no_tasks'));
             }
 
-            $totalRemaining = (float) $matchingTasks->sum(fn ($t) => (float) $t->quantity_to_pick - (float) $t->quantity_picked);
+            $opSeq = (int) ($scan['op_seq'] ?? 0);
+
+            // P9 replay parity: a task already stamped with op_seq >= this scan's
+            // sequence was processed by an earlier or duplicate scan and must never
+            // receive this scan's quantity again (duplicate-scan protection,
+            // matching PickingExecutionService::confirm behavior).
+            $applyTasks = $matchingTasks;
+            if ($opSeq > 0) {
+                $applyTasks = $matchingTasks
+                    ->filter(fn ($t) => (int) $t->op_seq < $opSeq)
+                    ->values();
+            }
+
+            if ($applyTasks->isEmpty()) {
+                // Pure replay (every affected task already carries op_seq >= this
+                // scan): no mutation, no duplicate scan_log — return the current
+                // state exactly like the legacy single-task confirm.
+                $refreshedBatch = $this->refreshBatchProgress($batch->fresh());
+                $nextTask = $this->getNextTask($batch->fresh());
+
+                Log::info('Consolidated location pick replay ignored', [
+                    'batch_id' => $batch->id,
+                    'location_id' => $locationId,
+                    'product_id' => $productId,
+                    'op_seq' => $opSeq,
+                    'actor_id' => $userId,
+                ]);
+
+                return [
+                    'batch_id' => $batch->id,
+                    'batch_status' => $refreshedBatch->status,
+                    'location_barcode' => (string) $scan['location'],
+                    'scanned_product' => (string) $scan['product'],
+                    'total_picked_now' => 0,
+                    'remaining_at_location' => (float) $matchingTasks->sum(fn ($t) => (float) $t->quantity_to_pick - (float) $t->quantity_picked),
+                    'tasks_completed_count' => 0,
+                    'updated_task_ids' => [],
+                    'next_task' => $nextTask ? \App\Http\Resources\Wms\PickingTaskResource::make($nextTask) : null,
+                ];
+            }
+
+            $totalRemaining = (float) $applyTasks->sum(fn ($t) => (float) $t->quantity_to_pick - (float) $t->quantity_picked);
             if ($quantity > $totalRemaining) {
                 throw new \RuntimeException(
                     __('wms.batch.pick_exceeds', ['quantity' => $quantity, 'remaining' => $totalRemaining])
@@ -1089,9 +1130,8 @@ class BatchPickingService
             $qtyToAllocate = $quantity;
             $updatedTasks = [];
             $now = now();
-            $opSeq = (int) ($scan['op_seq'] ?? 0);
 
-            foreach ($matchingTasks as $task) {
+            foreach ($applyTasks as $task) {
                 if ($qtyToAllocate <= 0) {
                     break;
                 }

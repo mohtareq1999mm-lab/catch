@@ -485,6 +485,45 @@ class WmsBatchConsolidatedPickingTest extends TestCase
         $this->assertEquals('ok', $entry['result']);
     }
 
+    // 15b. op_seq replay guard: duplicate consolidated scan is an idempotent no-op
+    public function test_confirm_location_op_seq_replay_is_an_idempotent_noop(): void
+    {
+        $operator = $this->batchOperator();
+        $f1 = $this->releaseFulfillment($this->product1, $this->warehouseA->id, 4);
+        $batch = $this->createAndStartBatch([$f1], $operator);
+
+        // First scan at sequence 7: 3 of 4 picked (task stays 'picking', 1 remains).
+        $first = $this->actingAs($operator, 'sanctum')->postJson("/api/v1/admin/batches/{$batch->id}/confirm-location", [
+            'location' => $this->locationA1->barcode,
+            'product' => $this->product1->sku,
+            'quantity' => 3,
+            'op_seq' => 7,
+        ]);
+        $first->assertStatus(200);
+        $this->assertEquals(3, $first->json('data.total_picked_now'));
+        $this->assertCount(1, $first->json('data.updated_task_ids'));
+
+        // Duplicate replay of the SAME scan (same op_seq 7): ignored, never double-picked.
+        $replay = $this->actingAs($operator, 'sanctum')->postJson("/api/v1/admin/batches/{$batch->id}/confirm-location", [
+            'location' => $this->locationA1->barcode,
+            'product' => $this->product1->sku,
+            'quantity' => 3,
+            'op_seq' => 7,
+        ]);
+        $replay->assertStatus(200);
+        $payload = $replay->json('data');
+        $this->assertEquals(0, $payload['total_picked_now']);
+        $this->assertEquals(0, $payload['tasks_completed_count']);
+        $this->assertEquals([], $payload['updated_task_ids']);
+        $this->assertEquals(1, $payload['remaining_at_location']);
+
+        // Database unchanged: still exactly 3/4 picked, one scan_log entry only.
+        $task = $batch->pickingTasks()->first();
+        $this->assertEquals('picking', $task->status);
+        $this->assertEquals(3.0, (float) $task->quantity_picked);
+        $this->assertCount(1, $task->scan_log);
+    }
+
     // 16. Legacy single-task confirm endpoint is not regressed
     public function test_legacy_single_task_confirm_still_works_without_regression(): void
     {
