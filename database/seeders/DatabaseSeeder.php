@@ -112,11 +112,11 @@ class DatabaseSeeder extends Seeder
             NotificationSeeder::class,
             // ActivityLogSeeder::class,
             // DashboardDataSeeder::class,
-            // WarehouseSeeder::class,
-            // WarehouseDashboardSeeder::class,
-            // AdminOrderOperationsSeeder::class,
-            // WmsOperationsSeeder::class,
-            // FulfillmentSeeder::class,
+            WarehouseSeeder::class,
+            WarehouseDashboardSeeder::class,
+            AdminOrderOperationsSeeder::class,
+            WmsOperationsSeeder::class,
+            FulfillmentSeeder::class,
         ]);
     }
 }
