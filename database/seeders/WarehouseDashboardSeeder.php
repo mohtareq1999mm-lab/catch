@@ -439,7 +439,7 @@ class WarehouseDashboardSeeder extends Seeder
             );
             $ful->update(['status' => $sc['status']]);
 
-            FulfillmentItem::firstOrCreate(
+            $fulItem = FulfillmentItem::firstOrCreate(
                 ['fulfillment_id' => $ful->id, 'order_item_id' => $orderProduct->id],
                 [
                     'product_id' => $products['DEMO-PROD-HEADSET']->id,
@@ -451,6 +451,7 @@ class WarehouseDashboardSeeder extends Seeder
             );
 
             $fulfillments[$sc['status']] = $ful;
+            $fulfillmentItems[$sc['status']] = $fulItem;
         }
 
         // -------------------------------------------------------------
@@ -487,7 +488,9 @@ class WarehouseDashboardSeeder extends Seeder
         PickingTask::updateOrCreate(
             ['batch_id' => $batchInProgress->id, 'sequence' => 1],
             [
+                'fulfillment_item_id' => $fulfillmentItems['picking']->id,
                 'order_id' => $fulfillments['picking']->order_id,
+                'order_item_id' => $fulfillmentItems['picking']->order_item_id,
                 'product_location_id' => $placements[0]->id,
                 'quantity_to_pick' => 5,
                 'quantity_picked' => 2,
@@ -501,7 +504,9 @@ class WarehouseDashboardSeeder extends Seeder
         PickingTask::updateOrCreate(
             ['batch_id' => $batchInProgress->id, 'sequence' => 2],
             [
-                'order_id' => $fulfillments['picking']->order_id,
+                'fulfillment_item_id' => $fulfillmentItems['pending']->id,
+                'order_id' => $fulfillments['pending']->order_id,
+                'order_item_id' => $fulfillmentItems['pending']->order_item_id,
                 'product_location_id' => $placements[1]->id,
                 'quantity_to_pick' => 4,
                 'quantity_picked' => 0,
@@ -515,7 +520,9 @@ class WarehouseDashboardSeeder extends Seeder
         PickingTask::updateOrCreate(
             ['batch_id' => $batchCompleted->id, 'sequence' => 1],
             [
+                'fulfillment_item_id' => $fulfillmentItems['ready_to_ship']->id,
                 'order_id' => $fulfillments['ready_to_ship']->order_id,
+                'order_item_id' => $fulfillmentItems['ready_to_ship']->order_item_id,
                 'product_location_id' => $placements[2]->id,
                 'quantity_to_pick' => 10,
                 'quantity_picked' => 10,
@@ -564,6 +571,7 @@ class WarehouseDashboardSeeder extends Seeder
             ['package_number' => 'PKG-DEMO-SEALED-001'],
             [
                 'fulfillment_id' => $fulfillments['ready_to_ship']->id,
+                'order_id' => $fulfillments['ready_to_ship']->order_id,
                 'barcode' => 'PKG-DEMO-SEALED-001',
                 'status' => Package::STATUS_SEALED,
                 'weight' => 1.5,
@@ -575,10 +583,16 @@ class WarehouseDashboardSeeder extends Seeder
             ['package_number' => 'PKG-DEMO-OPEN-002'],
             [
                 'fulfillment_id' => $fulfillments['packing']->id,
+                'order_id' => $fulfillments['packing']->order_id,
                 'barcode' => 'PKG-DEMO-OPEN-002',
                 'status' => Package::STATUS_OPEN,
                 'weight' => 0.8,
             ]
+        );
+
+        PackageItem::firstOrCreate(
+            ['package_id' => $pkg1->id, 'fulfillment_item_id' => $fulfillmentItems['ready_to_ship']->id],
+            ['order_item_id' => $fulfillmentItems['ready_to_ship']->order_item_id, 'quantity' => 1]
         );
 
         // -------------------------------------------------------------
