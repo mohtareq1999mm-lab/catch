@@ -606,7 +606,7 @@ class WarehouseDashboardSeeder extends Seeder
         // -------------------------------------------------------------
         // 9. Shipments (Created, Dispatched, Delivered)
         // -------------------------------------------------------------
-        Shipment::updateOrCreate(
+        Shipment::firstOrCreate(
             ['tracking_number' => 'TRK-DEMO-READY-001'],
             [
                 'uuid' => (string) \Illuminate\Support\Str::uuid(),
@@ -619,7 +619,7 @@ class WarehouseDashboardSeeder extends Seeder
             ]
         );
 
-        Shipment::updateOrCreate(
+        Shipment::firstOrCreate(
             ['tracking_number' => 'TRK-DEMO-DISPATCH-002'],
             [
                 'uuid' => (string) \Illuminate\Support\Str::uuid(),
@@ -633,10 +633,12 @@ class WarehouseDashboardSeeder extends Seeder
             ]
         );
 
-        Shipment::updateOrCreate(
+        Shipment::firstOrCreate(
             ['tracking_number' => 'TRK-DEMO-DELIVER-003'],
             [
                 'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'fulfillment_id' => $fulfillments['shipped']->id,
+                'order_id' => $fulfillments['shipped']->order_id,
                 'status' => 'delivered',
                 'courier' => 'FedEx Local',
                 'shipping_cost' => 60.00,
