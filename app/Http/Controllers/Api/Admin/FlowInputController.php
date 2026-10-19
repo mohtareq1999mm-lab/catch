@@ -23,6 +23,8 @@ use Marvel\Traits\ApiResponse;
  * (non-terminal) orders exist on the flow — same guard contract as
  * OrderFlowController::syncStatuses().
  */
+use Marvel\Enums\Permission;
+
 class FlowInputController extends Controller
 {
     use ApiResponse;
@@ -31,6 +33,10 @@ class FlowInputController extends Controller
         private OrderFlowService $flows,
     ) {
         $this->middleware(['auth:sanctum']);
+        $this->middleware('permission:' . Permission::ORDER_FLOWS_INPUTS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::ORDER_FLOWS_INPUTS_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::ORDER_FLOW_INPUTS_UPDATE, ['only' => ['update']]);
+        $this->middleware('permission:' . Permission::ORDER_FLOW_INPUTS_DELETE, ['only' => ['destroy']]);
     }
 
     public function index(Request $request, int $flowId): JsonResponse

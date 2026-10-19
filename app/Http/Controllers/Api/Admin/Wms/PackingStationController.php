@@ -13,12 +13,20 @@ use App\Services\Warehouse\WarehouseService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 
+use Marvel\Enums\Permission;
+
 class PackingStationController extends WmsAdminController
 {
     public function __construct(
         private WarehouseAccess $access,
         private WarehouseService $warehouses,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::PACKING_STATIONS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::PACKING_STATIONS_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::PACKING_STATIONS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::PACKING_STATIONS_UPDATE, ['only' => ['update']]);
+        $this->middleware('permission:' . Permission::PACKING_STATIONS_DELETE, ['only' => ['destroy']]);
+    }
 
     /**
      * GET /api/v1/admin/packing-stations

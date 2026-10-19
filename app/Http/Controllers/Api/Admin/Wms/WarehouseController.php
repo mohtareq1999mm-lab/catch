@@ -9,11 +9,14 @@ use App\Http\Requests\Admin\Wms\UpdateWarehouseRequest;
 use App\Http\Resources\Wms\WarehouseResource;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Warehouse\WarehouseAccess;
+use App\Services\Warehouse\WarehouseDashboardService;
 use App\Services\Warehouse\WarehouseService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Marvel\Database\Models\User;
+
+use Marvel\Enums\Permission;
 
 /**
  * P9-2: warehouse HTTP adapter. Thin: permission (route) + warehouse scope
@@ -25,7 +28,21 @@ class WarehouseController extends WmsAdminController
     public function __construct(
         private WarehouseService $warehouses,
         private WarehouseAccess $access,
-    ) {}
+        private WarehouseDashboardService $dashboardService,
+    ) {
+        $this->middleware('permission:' . Permission::WAREHOUSES_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_SHOW, ['only' => ['show', 'dashboard']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_UPDATE, ['only' => ['update']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_SET_DEFAULT, ['only' => ['setDefault']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_ACTIVATE, ['only' => ['activate']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_DEACTIVATE, ['only' => ['deactivate']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_DELETE, ['only' => ['destroy']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_USERS_VIEW, ['only' => ['users']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_USERS_ASSIGN, ['only' => ['assignUsers']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_USERS_REMOVE_BULK, ['only' => ['removeUsers']]);
+        $this->middleware('permission:' . Permission::WAREHOUSES_USERS_REMOVE, ['only' => ['removeUser']]);
+    }
 
     /**
      * GET /api/v1/admin/warehouses
@@ -273,4 +290,50 @@ class WarehouseController extends WmsAdminController
             $result
         );
     }
+
+    /**
+     * GET /api/v1/admin/warehouses/{id}/dashboard
+     * or GET /api/v1/admin/warehouses/dashboard
+     */
+    public function dashboard(Request $request, ?int $id = null): JsonResponse
+    {
+        $warehouseId = $id;
+
+        if ($warehouseId === null) {
+            $warehouseId = $this->access->warehouseIdFor(auth()->user())
+                ?? Warehouse::where('is_default', true)->value('id');
+        }
+
+        if (!$warehouseId) {
+            abort(404, __('wms.warehouse.no_default'));
+        }
+
+        $warehouse = Warehouse::whereKey($warehouseId)->firstOrFail();
+        $this->authorizeWarehouseScope($warehouse->id, 'view-warehouse', true);
+
+        $data = $this->dashboardService->getDashboard($warehouse, auth()->user());
+
+        return $this->apiResponse(
+            __('wms.warehouse.dashboard_fetched'),
+            200,
+            true,
+            $data
+        );
+    }
+
+    /**
+     * GET /api/v1/admin/warehouses/permissions
+     */
+    public function permissions(Request $request): JsonResponse
+    {
+        $data = $this->dashboardService->getPermissions(auth()->user());
+
+        return $this->apiResponse(
+            __('wms.warehouse.permissions_fetched'),
+            200,
+            true,
+            $data
+        );
+    }
 }
+

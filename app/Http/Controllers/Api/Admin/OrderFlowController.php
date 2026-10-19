@@ -13,6 +13,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Marvel\Traits\ApiResponse;
 
+use Marvel\Enums\Permission;
+
 class OrderFlowController extends Controller
 {
     use ApiResponse;
@@ -21,6 +23,10 @@ class OrderFlowController extends Controller
         private OrderFlowService $flows,
     ) {
         $this->middleware(['auth:sanctum']);
+        $this->middleware('permission:' . Permission::ORDER_FLOWS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::ORDER_FLOWS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::ORDER_FLOWS_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::ORDER_FLOWS_UPDATE, ['only' => ['update']]);
     }
 
     public function index(Request $request): JsonResponse

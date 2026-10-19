@@ -25,13 +25,20 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  *   POST /api/v1/admin/refunds/{refund}/approve
  *   POST /api/v1/admin/refunds/{refund}/reject
  */
+use Marvel\Enums\Permission;
+
 class RefundController extends Controller
 {
     use ApiResponse;
 
     public function __construct(
         private RefundService $refunds,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::ADMIN_REFUNDS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::ADMIN_REFUNDS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::ADMIN_REFUNDS_APPROVE, ['only' => ['approve']]);
+        $this->middleware('permission:' . Permission::ADMIN_REFUNDS_REJECT, ['only' => ['reject']]);
+    }
 
     public function index(Request $request): JsonResponse
     {

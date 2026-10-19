@@ -21,6 +21,8 @@ use Marvel\Traits\ApiResponse;
  * of launching a duplicate mass distribution. No per-user PII is exposed:
  * runs carry counters only.
  */
+use Marvel\Enums\Permission;
+
 class CouponDistributionAdminController extends Controller
 {
     use ApiResponse;
@@ -28,6 +30,9 @@ class CouponDistributionAdminController extends Controller
     public function __construct()
     {
         $this->middleware(['auth:sanctum']);
+        $this->middleware('permission:' . Permission::COUPONS_DISTRIBUTE, ['only' => ['distribute']]);
+        $this->middleware('permission:' . Permission::COUPONS_DISTRIBUTIONS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::COUPONS_DISTRIBUTIONS_SHOW, ['only' => ['show']]);
     }
 
     private function authorizeAdmin(Request $request): void

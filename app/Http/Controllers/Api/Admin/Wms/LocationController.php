@@ -23,12 +23,24 @@ use Illuminate\Support\Facades\DB;
  * guard), so the controller persists validated allowlists directly.
  * warehouse_id is never updatable; status moves via activate/deactivate.
  */
+use Marvel\Enums\Permission;
+
 class LocationController extends WmsAdminController
 {
     public function __construct(
         private WarehouseAccess $access,
         private LocationEmptyService $emptyService,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::LOCATIONS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_CHECK_OCCUPANCY, ['only' => ['checkOccupancy']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_UPDATE, ['only' => ['update']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_ACTIVATE, ['only' => ['activate']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_DEACTIVATE, ['only' => ['deactivate']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_DELETE, ['only' => ['destroy']]);
+        $this->middleware('permission:' . Permission::LOCATIONS_EMPTY_PRODUCTS, ['only' => ['emptyProducts']]);
+    }
 
     /**
      * GET /api/v1/admin/locations

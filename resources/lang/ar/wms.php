@@ -261,6 +261,8 @@ return [
         'users_fetched' => 'تم جلب موظفي المستودع بنجاح.',
         'users_assigned' => 'تم إسناد الموظفين للمستودع بنجاح.',
         'users_removed' => 'تمت إزالة الموظفين من المستودع بنجاح.',
+        'dashboard_fetched' => 'تم جلب لوحة بيانات المستودع بنجاح.',
+        'permissions_fetched' => 'تم جلب صلاحيات المستودعات بنجاح.',
     ],
     'location' => [
         'fetched_many' => 'تم جلب المواقع بنجاح.',
@@ -293,6 +295,7 @@ return [
     // Barcode scanning
     'barcode' => [
         'unknown' => 'باركود غير معروف: :code.',
+        'scanned' => 'تم فك شفرة الباركود بنجاح.',
     ],
 
     // Warehouse Workflow

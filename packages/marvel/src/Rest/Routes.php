@@ -310,22 +310,17 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::apiResource('coupons', CouponController::class);
     // Admin coupon configuration helpers
     // Route middleware mirrors each controller's in-controller decision
-    // (read: view|update|create; write: update|create; distribute: update).
     Route::prefix('coupons')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-        Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config')->middleware('permission:view-coupons|update-coupon|create-coupon');
-        Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info')->middleware('permission:view-coupons|update-coupon|create-coupon');
-        Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix')->middleware('permission:view-coupons|update-coupon|create-coupon');
-        Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show')->middleware('permission:view-coupons|update-coupon|create-coupon');
-        Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert')->middleware('permission:update-coupon|create-coupon');
-        Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy')->middleware('permission:update-coupon|create-coupon');
+        Route::post('validate-configuration', [CouponConfigurationController::class, 'validateConfiguration'])->name('api.admin.coupons.validate-config')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_VALIDATE_CONFIG);
+        Route::get('{id}/usage-info', [CouponConfigurationController::class, 'getUsageInfo'])->whereNumber('id')->name('api.admin.coupons.usage-info')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_USAGE_INFO);
+        Route::post('{id}/suggest-fix', [CouponConfigurationController::class, 'suggestFix'])->whereNumber('id')->name('api.admin.coupons.suggest-fix')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_SUGGEST_FIX);
+        Route::get('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'show'])->whereNumber('id')->name('api.admin.coupons.targeting.show')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_TARGETING_SHOW);
+        Route::put('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'upsert'])->whereNumber('id')->name('api.admin.coupons.targeting.upsert')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_TARGETING_UPDATE);
+        Route::delete('{id}/targeting', [\App\Http\Controllers\Api\Admin\CouponTargetingController::class, 'destroy'])->whereNumber('id')->name('api.admin.coupons.targeting.destroy')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_TARGETING_DELETE);
         // Coupon distribution (RabbitMQ event backbone): manual runs + status.
-        // Permission: update-coupon (in-controller, explicit + documented).
-        // NOTE: the controller reads config('coupon-distribution.admin_permission',
-        // default 'update-coupon') — if that config ever changes, update the
-        // hardcoded route middleware below to match.
-        Route::post('{id}/distribute', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'distribute'])->whereNumber('id')->middleware('permission:update-coupon');
-        Route::get('{id}/distributions', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'index'])->whereNumber('id')->middleware('permission:update-coupon');
-        Route::get('{id}/distributions/{runId}', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'show'])->whereNumber(['id', 'runId'])->middleware('permission:update-coupon');
+        Route::post('{id}/distribute', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'distribute'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_DISTRIBUTE);
+        Route::get('{id}/distributions', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'index'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_DISTRIBUTIONS_INDEX);
+        Route::get('{id}/distributions/{runId}', [\App\Http\Controllers\Api\Admin\CouponDistributionAdminController::class, 'show'])->whereNumber(['id', 'runId'])->middleware('permission:' . \Marvel\Enums\Permission::COUPONS_DISTRIBUTIONS_SHOW);
     });
 
     //============================= wishlists ========================/
@@ -523,100 +518,86 @@ Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admi
     // order viewing, writes require shipment management. Never leave these
     // without permission middleware (SEC-1: any authenticated caller could
     // otherwise read/mutate any order's shipment state).
-    Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->middleware('permission:view-shipment|view-shipments|view-orders|view-order')->name('api.admin.orders.shipment.show');
-    Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->middleware('permission:update-shipment|create-shipment')->name('api.admin.orders.shipment.update-status');
+    Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDERS_SHIPMENT_SHOW)->name('api.admin.orders.shipment.show');
+    Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDERS_SHIPMENT_UPDATE_STATUS)->name('api.admin.orders.shipment.update-status');
     // P9-7: during-fulfillment order cancellation. The sole writer is
     // OrderService::changeOrderStatus (Order Flow authority); warehouse scope
     // is enforced in-controller (fail-closed when the order spans warehouses).
-    Route::post('{orderId}/cancel', [\App\Http\Controllers\Api\Admin\Wms\OrderCancellationController::class, 'cancel'])->whereNumber('orderId')->middleware('permission:order.cancel-during-fulfillment')->name('api.admin.orders.cancel');
+    Route::post('{orderId}/cancel', [\App\Http\Controllers\Api\Admin\Wms\OrderCancellationController::class, 'cancel'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_CANCEL_DURING_FULFILLMENT)->name('api.admin.orders.cancel');
 });
 
 // Order Status catalog + configurable Order Flows (linear, sort_order-driven).
-// Granular flow permissions (view/create/update-order-flows, manage
-// inputs) are accepted alongside the legacy order permissions so existing
-// admins keep working without a permission migration flag-day.
 Route::prefix('admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-statuses.index');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'show'])->whereNumber('id')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-statuses.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-flows|update-order-status')->name('api.admin.order-statuses.update');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::ORDER_STATUSES_INDEX)->name('api.admin.order-statuses.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_STATUSES_SHOW)->name('api.admin.order-statuses.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'update'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_STATUSES_UPDATE)->name('api.admin.order-statuses.update');
 });
 Route::prefix('admin/order-flows')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'index'])->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'store'])->middleware('permission:create-order-flows|update-order-status')->name('api.admin.order-flows.store');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'show'])->whereNumber('id')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'update'])->whereNumber('id')->middleware('permission:update-order-flows|update-order-status')->name('api.admin.order-flows.update');
-    // Flow Input definitions (dynamic inputs). Reads ride on flow viewing;
-    // writes require the dedicated input permission (or legacy status perm).
-    Route::get('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'index'])->whereNumber('flowId')->middleware('permission:view-order-flows|view-orders|view-order')->name('api.admin.order-flows.inputs.index');
-    Route::post('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'store'])->whereNumber('flowId')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flows.inputs.store');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOWS_INDEX)->name('api.admin.order-flows.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'store'])->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOWS_CREATE)->name('api.admin.order-flows.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOWS_SHOW)->name('api.admin.order-flows.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\OrderFlowController::class, 'update'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOWS_UPDATE)->name('api.admin.order-flows.update');
+    // Flow Input definitions (dynamic inputs).
+    Route::get('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'index'])->whereNumber('flowId')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOWS_INPUTS_INDEX)->name('api.admin.order-flows.inputs.index');
+    Route::post('{flowId}/inputs', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'store'])->whereNumber('flowId')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOWS_INPUTS_CREATE)->name('api.admin.order-flows.inputs.store');
 });
 Route::prefix('admin/order-flow-inputs')->middleware(['api',"lang", 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'update'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.update');
-    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-order-flow-inputs|update-order-status')->name('api.admin.order-flow-inputs.destroy');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'update'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOW_INPUTS_UPDATE)->name('api.admin.order-flow-inputs.update');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\FlowInputController::class, 'destroy'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_FLOW_INPUTS_DELETE)->name('api.admin.order-flow-inputs.destroy');
 });
 
-// Phase 10 unification — canonical admin refund endpoints. Approval and
-// rejection record the business refund locally (no provider call, no
-// wallet movement, no payment-status change). The obsolete direct gateway
-// refund endpoint (POST payments/{order}/refund) is removed: gateway money
-// movement is disabled for this phase, so the money-moving route must not
-// exist. PaymentRefundService::refund stays available for the future
-// provider phase but is unreachable via HTTP.
+// Phase 10 unification — canonical admin refund endpoints.
 Route::prefix('admin/refunds')->middleware(['api', 'auth:sanctum', 'throttle:admin', 'lang'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\RefundController::class, 'index'])->middleware('permission:view-refunds')->name('api.admin.refunds.index');
-    Route::get('{refund}', [\App\Http\Controllers\Api\Admin\RefundController::class, 'show'])->whereNumber('refund')->middleware('permission:view-refunds')->name('api.admin.refunds.show');
-    Route::post('{refund}/approve', [\App\Http\Controllers\Api\Admin\RefundController::class, 'approve'])->whereNumber('refund')->middleware('permission:payments.refund')->name('api.admin.refunds.approve');
-    Route::post('{refund}/reject', [\App\Http\Controllers\Api\Admin\RefundController::class, 'reject'])->whereNumber('refund')->middleware('permission:payments.refund')->name('api.admin.refunds.reject');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\RefundController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::ADMIN_REFUNDS_INDEX)->name('api.admin.refunds.index');
+    Route::get('{refund}', [\App\Http\Controllers\Api\Admin\RefundController::class, 'show'])->whereNumber('refund')->middleware('permission:' . \Marvel\Enums\Permission::ADMIN_REFUNDS_SHOW)->name('api.admin.refunds.show');
+    Route::post('{refund}/approve', [\App\Http\Controllers\Api\Admin\RefundController::class, 'approve'])->whereNumber('refund')->middleware('permission:' . \Marvel\Enums\Permission::ADMIN_REFUNDS_APPROVE)->name('api.admin.refunds.approve');
+    Route::post('{refund}/reject', [\App\Http\Controllers\Api\Admin\RefundController::class, 'reject'])->whereNumber('refund')->middleware('permission:' . \Marvel\Enums\Permission::ADMIN_REFUNDS_REJECT)->name('api.admin.refunds.reject');
 });
 
-// Fulfillment Phase 9 (P9-2): Warehouse / Location admin surface. Reads ride
-// on view-*, writes require manage-*. Object-level warehouse scope is enforced
-// in-controller via WmsAdminController (permission alone is not authorization).
+// Fulfillment Phase 9 (P9-2): Warehouse / Location admin surface.
 Route::prefix('admin/warehouses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'index'])->middleware('permission:view-warehouse')->name('api.admin.warehouses.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'store'])->middleware('permission:manage-warehouse')->name('api.admin.warehouses.store');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'show'])->whereNumber('id')->middleware('permission:view-warehouse')->name('api.admin.warehouses.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'update'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.update');
-    Route::post('{id}/set-default', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'setDefault'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.set-default');
-    Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'activate'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.activate');
-    Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'deactivate'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.deactivate');
-    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.destroy');
-    Route::get('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'users'])->whereNumber('id')->middleware('permission:view-warehouse')->name('api.admin.warehouses.users.index');
-    Route::post('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'assignUsers'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.assign');
-    Route::delete('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'removeUsers'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.remove-bulk');
-    Route::delete('{id}/users/{userId}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'removeUser'])->whereNumber(['id', 'userId'])->middleware('permission:manage-warehouse')->name('api.admin.warehouses.users.remove');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_INDEX)->name('api.admin.warehouses.index');
+    Route::get('permissions', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'permissions'])->name('api.admin.warehouses.permissions');
+    Route::get('dashboard', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'dashboard'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_SHOW)->name('api.admin.warehouses.dashboard.default');
+    Route::get('{id}/dashboard', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'dashboard'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_SHOW)->name('api.admin.warehouses.dashboard');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'store'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_CREATE)->name('api.admin.warehouses.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_SHOW)->name('api.admin.warehouses.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'update'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_UPDATE)->name('api.admin.warehouses.update');
+    Route::post('{id}/set-default', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'setDefault'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_SET_DEFAULT)->name('api.admin.warehouses.set-default');
+    Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'activate'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_ACTIVATE)->name('api.admin.warehouses.activate');
+    Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'deactivate'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_DEACTIVATE)->name('api.admin.warehouses.deactivate');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'destroy'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_DELETE)->name('api.admin.warehouses.destroy');
+    Route::get('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'users'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_USERS_VIEW)->name('api.admin.warehouses.users.index');
+    Route::post('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'assignUsers'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_USERS_ASSIGN)->name('api.admin.warehouses.users.assign');
+    Route::delete('{id}/users', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'removeUsers'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_USERS_REMOVE_BULK)->name('api.admin.warehouses.users.remove-bulk');
+    Route::delete('{id}/users/{userId}', [\App\Http\Controllers\Api\Admin\Wms\WarehouseController::class, 'removeUser'])->whereNumber(['id', 'userId'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSES_USERS_REMOVE)->name('api.admin.warehouses.users.remove');
 });
 Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'index'])->middleware('permission:view-location')->name('api.admin.locations.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'store'])->middleware('permission:manage-location')->name('api.admin.locations.store');
-    Route::post('check-occupancy', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'checkOccupancy'])->middleware('permission:view-location')->name('api.admin.locations.check-occupancy');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'show'])->whereNumber('id')->middleware('permission:view-location')->name('api.admin.locations.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'update'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.update');
-    Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'activate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.activate');
-    Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'deactivate'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.deactivate');
-    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-location')->name('api.admin.locations.destroy');
-    // Empty-location: remove eligible placement hints, keep the bin itself.
-    // Conventional URI (matches the admin/locations surface above).
-    Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.locations.products.destroy');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_INDEX)->name('api.admin.locations.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'store'])->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_CREATE)->name('api.admin.locations.store');
+    Route::post('check-occupancy', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'checkOccupancy'])->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_CHECK_OCCUPANCY)->name('api.admin.locations.check-occupancy');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_SHOW)->name('api.admin.locations.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'update'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_UPDATE)->name('api.admin.locations.update');
+    Route::post('{id}/activate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'activate'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_ACTIVATE)->name('api.admin.locations.activate');
+    Route::post('{id}/deactivate', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'deactivate'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_DEACTIVATE)->name('api.admin.locations.deactivate');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'destroy'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_DELETE)->name('api.admin.locations.destroy');
+    Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:' . \Marvel\Enums\Permission::LOCATIONS_EMPTY_PRODUCTS)->name('api.admin.locations.products.destroy');
 });
-// Empty-location contract URI (mission-specified): same handler, WMS prefix.
-// Both URIs share LocationController@emptyProducts + manage-location so the
-// exact proposed contract is verified present without forking behavior.
-// Route::prefix('admin/wms/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-//     Route::delete('{location}/products', [\App\Http\Controllers\Api\Admin\Wms\LocationController::class, 'emptyProducts'])->whereNumber('location')->middleware('permission:manage-location')->name('api.admin.wms.locations.products.destroy');
-// });
+
+// WMS Barcode Scanning (Universal & Context-Aware)
+Route::prefix('admin/barcode')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::post('scan', [\App\Http\Controllers\Api\Admin\Wms\BarcodeScanController::class, 'scan'])->middleware('permission:' . \Marvel\Enums\Permission::BARCODE_SCAN)->name('api.admin.barcode.scan');
+    Route::get('scan', [\App\Http\Controllers\Api\Admin\Wms\BarcodeScanController::class, 'scan'])->middleware('permission:' . \Marvel\Enums\Permission::BARCODE_SCAN)->name('api.admin.barcode.scan.get');
+});
 
 // Warehouse Workflow (Q-08): global config, independent permission on every route.
 Route::prefix('admin/warehouse-workflow')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'show'])->middleware('permission:manage-warehouse-workflow')->name('api.admin.warehouse-workflow.show');
-    Route::get('/history', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'history'])->middleware('permission:manage-warehouse-workflow')->name('api.admin.warehouse-workflow.history');
-    Route::post('/publish', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'publish'])->middleware('permission:manage-warehouse-workflow')->name('api.admin.warehouse-workflow.publish');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'show'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSE_WORKFLOW_SHOW)->name('api.admin.warehouse-workflow.show');
+    Route::get('/history', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'history'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSE_WORKFLOW_HISTORY)->name('api.admin.warehouse-workflow.history');
+    Route::post('/publish', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'publish'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSE_WORKFLOW_PUBLISH)->name('api.admin.warehouse-workflow.publish');
 });
 
-// Fulfillment Phase 9 (P9-3): Fulfillment admin surface. Command routes only —
-// no generic status mutation. Lifecycle authority stays in FulfillmentService;
-// object-level warehouse scope is enforced in-controller via WmsAdminController.
-
+// Fulfillment Phase 9 (P9-3): Fulfillment admin surface.
 Route::get('/enum-types', function () {
     return response()->json(
         [
@@ -631,119 +612,104 @@ Route::get('/enum-types', function () {
     );
 });
 Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.fulfillments.index');
-    Route::post('/release', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'release'])->middleware('permission:fulfillment.create')->name('api.admin.fulfillments.release');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.fulfillments.show');
-    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'cancel'])->whereNumber('id')->middleware('permission:fulfillment.cancel')->name('api.admin.fulfillments.cancel');
-    Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'assign'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.fulfillments.assign');
-    Route::post('{id}/create-tasks', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'createTasks'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.fulfillments.create-tasks');
-    Route::post('{id}/complete-picking', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'completePicking'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.fulfillments.complete-picking');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_INDEX)->name('api.admin.fulfillments.index');
+    Route::post('/release', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'release'])->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENT_CREATE)->name('api.admin.fulfillments.release');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_SHOW)->name('api.admin.fulfillments.show');
+    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'cancel'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENT_CANCEL)->name('api.admin.fulfillments.cancel');
+    Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\FulfillmentController::class, 'assign'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_ASSIGN)->name('api.admin.fulfillments.assign');
+    Route::post('{id}/create-tasks', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'createTasks'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_CREATE_TASKS)->name('api.admin.fulfillments.create-tasks');
+    Route::post('{id}/complete-picking', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'completePicking'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_COMPLETE_PICKING)->name('api.admin.fulfillments.complete-picking');
 });
 Route::prefix('admin/fulfillment-items')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::post('{id}/assign-placement', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'assignPlacement'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.fulfillment-items.assign-placement');
+    Route::post('{id}/assign-placement', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'assignPlacement'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENT_ITEMS_ASSIGN_PLACEMENT)->name('api.admin.fulfillment-items.assign-placement');
 });
 
-// Fulfillment Phase 9 (P9-4.1): Picking + Batch read surface. Commands land in
-// P9-4.2/P9-4.3. Object-level warehouse scope is enforced in-controller via
-// WmsAdminController (permission alone is not authorization).
+// Fulfillment Phase 9 (P9-4.1): Picking + Batch read/write surface.
 Route::prefix('admin/picking-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'index'])->middleware('permission:picking-execute')->name('api.admin.picking-tasks.index');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'show'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.show');
-    Route::post('{id}/claim', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'claim'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.claim');
-    Route::post('{id}/release', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'releaseClaim'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.release');
-    Route::post('{id}/confirm', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'confirm'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.confirm');
-    Route::post('{id}/record-pick', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'recordPick'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.record-pick');
-    Route::post('{id}/skip', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'skip'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.skip');
-    Route::post('{id}/reallocate', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'reallocate'])->whereNumber('id')->middleware('permission:picking-execute')->name('api.admin.picking-tasks.reallocate');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_INDEX)->name('api.admin.picking-tasks.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_SHOW)->name('api.admin.picking-tasks.show');
+    Route::post('{id}/claim', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'claim'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_CLAIM)->name('api.admin.picking-tasks.claim');
+    Route::post('{id}/release', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'releaseClaim'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_RELEASE)->name('api.admin.picking-tasks.release');
+    Route::post('{id}/confirm', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'confirm'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_CONFIRM)->name('api.admin.picking-tasks.confirm');
+    Route::post('{id}/record-pick', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'recordPick'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_RECORD_PICK)->name('api.admin.picking-tasks.record-pick');
+    Route::post('{id}/skip', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'skip'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_SKIP)->name('api.admin.picking-tasks.skip');
+    Route::post('{id}/reallocate', [\App\Http\Controllers\Api\Admin\Wms\PickingController::class, 'reallocate'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PICKING_TASKS_REALLOCATE)->name('api.admin.picking-tasks.reallocate');
 });
 Route::prefix('admin/batches')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.batches.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'store'])->middleware('permission:batch.manage')->name('api.admin.batches.store');
-    Route::get('pending-fulfillments', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'pendingFulfillments'])->middleware('permission:view-fulfillment')->name('api.admin.batches.pending-fulfillments');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.batches.show');
-    Route::get('{id}/next-task', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'nextTask'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.batches.next-task');
-    Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'assign'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.assign');
-    Route::post('{id}/start', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'start'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.start');
-    Route::post('{id}/refresh-progress', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'refreshProgress'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.refresh-progress');
-    Route::post('{id}/complete', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'complete'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.complete');
-    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'cancel'])->whereNumber('id')->middleware('permission:batch.manage')->name('api.admin.batches.cancel');
-    Route::post('{id}/retry', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'retry'])->whereNumber('id')->middleware('permission:batch.manage')->name('api.admin.batches.retry');
-    Route::post('{id}/confirm-location', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'confirmLocation'])->whereNumber('id')->middleware('permission:batch.operate')->name('api.admin.batches.confirm-location');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::BATCH_INDEX)->name('api.admin.batches.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'store'])->middleware('permission:' . \Marvel\Enums\Permission::BATCH_CREATE)->name('api.admin.batches.store');
+    Route::get('pending-fulfillments', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'pendingFulfillments'])->middleware('permission:' . \Marvel\Enums\Permission::BATCH_PENDING_FULFILLMENTS)->name('api.admin.batches.pending-fulfillments');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_SHOW)->name('api.admin.batches.show');
+    Route::get('{id}/next-task', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'nextTask'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_NEXT_TASK)->name('api.admin.batches.next-task');
+    Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'assign'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_ASSIGN)->name('api.admin.batches.assign');
+    Route::post('{id}/start', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'start'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_START)->name('api.admin.batches.start');
+    Route::post('{id}/refresh-progress', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'refreshProgress'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_REFRESH_PROGRESS)->name('api.admin.batches.refresh-progress');
+    Route::post('{id}/complete', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'complete'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_COMPLETE)->name('api.admin.batches.complete');
+    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'cancel'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_CANCEL)->name('api.admin.batches.cancel');
+    Route::post('{id}/retry', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'retry'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_RETRY)->name('api.admin.batches.retry');
+    Route::post('{id}/confirm-location', [\App\Http\Controllers\Api\Admin\Wms\BatchController::class, 'confirmLocation'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::BATCH_CONFIRM_LOCATION)->name('api.admin.batches.confirm-location');
 });
 
-// Fulfillment Phase 9 (P9-6): Packing + Package surface. Packing tasks scope
-// Fulfillment Phase 9 (P9-6): Packing + Package surface. Packing tasks scope
-// via fulfillment.warehouse_id, stations carry warehouse_id directly,
-// packages scope via fulfillment.warehouse_id. Shipment creation from a
-// verified task is P9-8 territory and is NOT exposed here.
+// Fulfillment Phase 9 (P9-6): Packing + Package surface.
 Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::post('create-packing-tasks', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'bulkCreateTasks'])->middleware('permission:packing-execute')->name('api.admin.fulfillments.create-packing-tasks');
-    Route::post('{id}/create-packing-task', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'createTask'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.fulfillments.create-packing-task');
+    Route::post('create-packing-tasks', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'bulkCreateTasks'])->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_CREATE_PACKING_TASKS)->name('api.admin.fulfillments.create-packing-tasks');
+    Route::post('{id}/create-packing-task', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'createTask'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::FULFILLMENTS_CREATE_PACKING_TASK)->name('api.admin.fulfillments.create-packing-task');
 });
 Route::prefix('admin/packing-tasks')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packing-tasks.index');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.packing-tasks.show');
-    Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'assign'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.packing-tasks.assign');
-    Route::post('{id}/start', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'start'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.packing-tasks.start');
-    Route::post('{id}/pack', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'pack'])->whereNumber('id')->middleware('permission:packing.complete')->name('api.admin.packing-tasks.pack');
-    Route::post('{id}/verify', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'verify'])->whereNumber('id')->middleware('permission:packing.complete')->name('api.admin.packing-tasks.verify');
-    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'cancel'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.packing-tasks.cancel');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_INDEX)->name('api.admin.packing-tasks.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_SHOW)->name('api.admin.packing-tasks.show');
+    Route::post('{id}/assign', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'assign'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_ASSIGN)->name('api.admin.packing-tasks.assign');
+    Route::post('{id}/start', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'start'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_START)->name('api.admin.packing-tasks.start');
+    Route::post('{id}/pack', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'pack'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_PACK)->name('api.admin.packing-tasks.pack');
+    Route::post('{id}/verify', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'verify'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_VERIFY)->name('api.admin.packing-tasks.verify');
+    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\PackingController::class, 'cancel'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_TASKS_CANCEL)->name('api.admin.packing-tasks.cancel');
 });
 Route::prefix('admin/packing-stations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packing-stations.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'store'])->middleware('permission:manage-warehouse')->name('api.admin.packing-stations.store');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.packing-stations.show');
-    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'update'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.packing-stations.update');
-    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'destroy'])->whereNumber('id')->middleware('permission:manage-warehouse')->name('api.admin.packing-stations.destroy');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::PACKING_STATIONS_INDEX)->name('api.admin.packing-stations.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'store'])->middleware('permission:' . \Marvel\Enums\Permission::PACKING_STATIONS_CREATE)->name('api.admin.packing-stations.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_STATIONS_SHOW)->name('api.admin.packing-stations.show');
+    Route::put('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'update'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_STATIONS_UPDATE)->name('api.admin.packing-stations.update');
+    Route::delete('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackingStationController::class, 'destroy'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKING_STATIONS_DELETE)->name('api.admin.packing-stations.destroy');
 });
 Route::prefix('admin/packages')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'index'])->middleware('permission:view-fulfillment')->name('api.admin.packages.index');
-    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'store'])->middleware('permission:packing-execute')->name('api.admin.packages.store');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'show'])->whereNumber('id')->middleware('permission:view-fulfillment')->name('api.admin.packages.show');
-    Route::post('{id}/add-item', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'addItem'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.packages.add-item');
-    Route::post('{id}/seal', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'seal'])->whereNumber('id')->middleware('permission:packing-execute')->name('api.admin.packages.seal');
-    Route::post('{id}/void', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'void'])->whereNumber('id')->middleware('permission:manage-fulfillment')->name('api.admin.packages.void');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::PACKAGES_INDEX)->name('api.admin.packages.index');
+    Route::post('/', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'store'])->middleware('permission:' . \Marvel\Enums\Permission::PACKAGES_CREATE)->name('api.admin.packages.store');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKAGES_SHOW)->name('api.admin.packages.show');
+    Route::post('{id}/add-item', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'addItem'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKAGES_ADD_ITEM)->name('api.admin.packages.add-item');
+    Route::post('{id}/seal', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'seal'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKAGES_SEAL)->name('api.admin.packages.seal');
+    Route::post('{id}/void', [\App\Http\Controllers\Api\Admin\Wms\PackageController::class, 'void'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::PACKAGES_VOID)->name('api.admin.packages.void');
 });
 
 // Fulfillment Phase 9 (P9-8): fulfillment-scoped shipment adapter.
-// ShipmentService owns shipment rows; FulfillmentTransition owns the
-// fulfillment moves (inside the service); Order Flow owns orders. Scope
-// resolves via shipment.fulfillment_id → fulfillment.warehouse_id —
-// order-only labels (null fulfillment) 404 on this surface.
 Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::post('create-shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkCreateShipments'])->middleware('permission:create-shipment')->name('api.admin.fulfillments.create-shipments');
-    Route::post('{id}/shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'store'])->whereNumber('id')->middleware('permission:create-shipment')->name('api.admin.fulfillments.shipments.store');
+    Route::post('create-shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkCreateShipments'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_BULK_CREATE)->name('api.admin.fulfillments.create-shipments');
+    Route::post('{id}/shipments', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'store'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_CREATE)->name('api.admin.fulfillments.shipments.store');
 });
 Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:view-shipment|view-all-shipments')->name('api.admin.shipments.index');
-    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:view-shipment|view-all-shipments')->name('api.admin.shipments.show');
-    Route::post('bulk-dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDispatch'])->middleware('permission:update-shipment')->name('api.admin.shipments.bulk-dispatch');
-    Route::post('bulk-deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDeliver'])->middleware('permission:update-shipment')->name('api.admin.shipments.bulk-deliver');
-    Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.dispatch');
-    Route::post('{id}/deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'markDelivered'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.deliver');
-    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'cancelShipment'])->whereNumber('id')->middleware('permission:update-shipment')->name('api.admin.shipments.cancel');
+    Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_INDEX)->name('api.admin.shipments.index');
+    Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_SHOW)->name('api.admin.shipments.show');
+    Route::post('bulk-dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDispatch'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_BULK_DISPATCH)->name('api.admin.shipments.bulk-dispatch');
+    Route::post('bulk-deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDeliver'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_BULK_DELIVER)->name('api.admin.shipments.bulk-deliver');
+    Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_DISPATCH)->name('api.admin.shipments.dispatch');
+    Route::post('{id}/deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'markDelivered'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_DELIVER)->name('api.admin.shipments.deliver');
+    Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'cancelShipment'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_CANCEL)->name('api.admin.shipments.cancel');
 });
-// Inventory intake + relocation surface. StockOperationService owns the
-// authority moves; object-level warehouse scope is enforced in-controller
-// via WmsAdminController (permission alone is not authorization).
+// Inventory intake + relocation surface.
 Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::post('{location}/stock-receipts', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'receive'])->whereNumber('location')->middleware('permission:inventory-adjust')->name('api.admin.locations.stock-receipts');
+    Route::post('{location}/stock-receipts', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'receive'])->whereNumber('location')->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_RECEIVE)->name('api.admin.locations.stock-receipts');
 });
 Route::prefix('admin')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::post('stock-transfers', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'transfer'])->middleware('permission:inventory-adjust')->name('api.admin.stock-transfers');
+    Route::post('stock-transfers', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'transfer'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_TRANSFER)->name('api.admin.stock-transfers');
 });
 // Multi-location read model: one product with all its placements.
-// Read-only (permission:view-location); write paths above are untouched.
 Route::prefix('admin/products')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('{product}/placements', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'productPlacements'])->whereNumber('product')->middleware('permission:view-location')->name('api.admin.products.placements');
+    Route::get('{product}/placements', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'productPlacements'])->whereNumber('product')->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_PRODUCT_PLACEMENTS)->name('api.admin.products.placements');
 });
-// SKU-level inventory overview (no double-counting): simple products without
-// variants + every variant row. Read-only (permission:view-location).
-// Operation-status resolution for Case-C retries (same read permission).
+// SKU-level inventory overview.
 Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
-    Route::get('overview', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'overview'])->middleware('permission:view-location')->name('api.admin.inventory.overview');
-    Route::get('operations', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operations'])->middleware('permission:view-location')->name('api.admin.inventory.operations.index');
-    Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:view-location')->name('api.admin.inventory.operations.show');
+    Route::get('overview', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'overview'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OVERVIEW)->name('api.admin.inventory.overview');
+    Route::get('operations', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operations'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OPERATIONS_INDEX)->name('api.admin.inventory.operations.index');
+    Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OPERATIONS_SHOW)->name('api.admin.inventory.operations.show');
 });
 
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without

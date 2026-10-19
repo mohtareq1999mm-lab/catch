@@ -34,6 +34,8 @@ use Illuminate\Http\Request;
  *
  * P9-4.1: reads only. Commands land in P9-4.2.
  */
+use Marvel\Enums\Permission;
+
 class PickingController extends WmsAdminController
 {
     public function __construct(
@@ -42,7 +44,19 @@ class PickingController extends WmsAdminController
         private PickingExecutionService $execution,
         private BatchPickingService $batches,
         private FulfillmentService $fulfillments,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::PICKING_TASKS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::FULFILLMENTS_CREATE_TASKS, ['only' => ['createTasks']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_CLAIM, ['only' => ['claim']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_RELEASE, ['only' => ['releaseClaim']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_CONFIRM, ['only' => ['confirm']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_RECORD_PICK, ['only' => ['recordPick']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_SKIP, ['only' => ['skip']]);
+        $this->middleware('permission:' . Permission::PICKING_TASKS_REALLOCATE, ['only' => ['reallocate']]);
+        $this->middleware('permission:' . Permission::FULFILLMENTS_COMPLETE_PICKING, ['only' => ['completePicking']]);
+        $this->middleware('permission:' . Permission::FULFILLMENT_ITEMS_ASSIGN_PLACEMENT, ['only' => ['assignPlacement']]);
+    }
 
     /**
      * GET /api/v1/admin/picking-tasks

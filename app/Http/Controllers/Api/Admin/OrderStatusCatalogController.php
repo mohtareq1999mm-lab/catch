@@ -10,6 +10,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Marvel\Traits\ApiResponse;
 
+use Marvel\Enums\Permission;
+
 class OrderStatusCatalogController extends Controller
 {
     use ApiResponse;
@@ -17,6 +19,9 @@ class OrderStatusCatalogController extends Controller
     public function __construct()
     {
         $this->middleware(['auth:sanctum']);
+        $this->middleware('permission:' . Permission::ORDER_STATUSES_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::ORDER_STATUSES_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::ORDER_STATUSES_UPDATE, ['only' => ['update']]);
     }
 
     public function index(Request $request): JsonResponse

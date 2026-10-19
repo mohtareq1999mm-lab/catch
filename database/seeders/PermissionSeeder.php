@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Marvel\Database\Models\Role;
+use Marvel\Database\Models\User;
 use Spatie\Permission\Models\Permission;
 
 class PermissionSeeder extends Seeder
@@ -301,6 +302,162 @@ class PermissionSeeder extends Seeder
             'create-pickup-location',
             'update-pickup-location',
             'delete-pickup-location',
+
+            // 🏭 Warehouses Granular Permissions
+            'warehouses.index',
+            'warehouses.show',
+            'warehouses.create',
+            'warehouses.update',
+            'warehouses.set-default',
+            'warehouses.activate',
+            'warehouses.deactivate',
+            'warehouses.delete',
+            'warehouses.users.view',
+            'warehouses.users.assign',
+            'warehouses.users.remove-bulk',
+            'warehouses.users.remove',
+
+            // 📍 Locations Granular Permissions
+            'locations.index',
+            'locations.show',
+            'locations.check-occupancy',
+            'locations.create',
+            'locations.update',
+            'locations.activate',
+            'locations.deactivate',
+            'locations.delete',
+            'locations.empty-products',
+
+            // 🏭 Warehouse Workflow Granular Permissions
+            'warehouse-workflow.show',
+            'warehouse-workflow.history',
+            'warehouse-workflow.publish',
+
+            // 📋 Fulfillments Granular Permissions
+            'fulfillments.index',
+            'fulfillments.show',
+            'fulfillments.assign',
+            'fulfillments.create-tasks',
+            'fulfillments.complete-picking',
+            'fulfillment-items.assign-placement',
+            'fulfillments.create-packing-tasks',
+            'fulfillments.create-packing-task',
+
+            // ⛏️ Picking Tasks Granular Permissions
+            'picking-tasks.index',
+            'picking-tasks.show',
+            'picking-tasks.claim',
+            'picking-tasks.release',
+            'picking-tasks.confirm',
+            'picking-tasks.record-pick',
+            'picking-tasks.skip',
+            'picking-tasks.reallocate',
+
+            // 📦 Batches Granular Permissions
+            'batch.index',
+            'batch.show',
+            'batch.pending-fulfillments',
+            'batch.next-task',
+            'batch.create',
+            'batch.assign',
+            'batch.start',
+            'batch.refresh-progress',
+            'batch.complete',
+            'batch.confirm-location',
+            'batch.cancel',
+            'batch.retry',
+
+            // 📦 Packing Tasks Granular Permissions
+            'packing-tasks.index',
+            'packing-tasks.show',
+            'packing-tasks.assign',
+            'packing-tasks.start',
+            'packing-tasks.pack',
+            'packing-tasks.verify',
+            'packing-tasks.cancel',
+            'packing-tasks.stations',
+
+            // 🏷️ Packing Stations Granular Permissions
+            'packing-stations.index',
+            'packing-stations.show',
+            'packing-stations.create',
+            'packing-stations.update',
+            'packing-stations.delete',
+
+            // 📦 Packages Granular Permissions
+            'packages.index',
+            'packages.show',
+            'packages.create',
+            'packages.add-item',
+            'packages.seal',
+            'packages.void',
+
+            // 🚚 WMS Shipments Granular Permissions
+            'wms-shipments.index',
+            'wms-shipments.show',
+            'wms-shipments.create',
+            'wms-shipments.bulk-create',
+            'wms-shipments.bulk-dispatch',
+            'wms-shipments.bulk-deliver',
+            'wms-shipments.dispatch',
+            'wms-shipments.deliver',
+            'wms-shipments.cancel',
+
+            // 📊 Inventory Operations Granular Permissions
+            'inventory.receive',
+            'inventory.transfer',
+            'inventory.product-placements',
+            'inventory.overview',
+            'inventory.operations.index',
+            'inventory.operations.show',
+
+            // 📦 Admin Order Shipments Granular Permissions
+            'orders.shipment.show',
+            'orders.shipment.update-status',
+
+            // 🌊 Order Statuses & Flows Granular Permissions
+            'order-statuses.index',
+            'order-statuses.show',
+            'order-statuses.update',
+            'order-flows.index',
+            'order-flows.create',
+            'order-flows.show',
+            'order-flows.update',
+            'order-flows.inputs.index',
+            'order-flows.inputs.create',
+            'order-flow-inputs.update',
+            'order-flow-inputs.delete',
+
+            // 💸 Admin Refunds Granular Permissions
+            'admin-refunds.index',
+            'admin-refunds.show',
+            'admin-refunds.approve',
+            'admin-refunds.reject',
+
+            // 🎟️ Coupons Configuration & Admin Granular Permissions
+            'coupons.validate-config',
+            'coupons.usage-info',
+            'coupons.suggest-fix',
+            'coupons.targeting.show',
+            'coupons.targeting.update',
+            'coupons.targeting.delete',
+            'coupons.distribute',
+            'coupons.distributions.index',
+            'coupons.distributions.show',
+
+            // ⚡ Fast Shipping Settings Granular Permissions
+            'fast-shipping.view-settings',
+            'fast-shipping.update-settings',
+
+            // 👥 Admin Users Granular Permissions
+            'admin-users.create',
+            'admin-users.update-activation',
+            'admin-users.delete',
+            'admin-users.restore',
+            'admin-users.view-trashed',
+            'admin-users.delete-forever',
+            'users.ban',
+            'users.unblock',
 
             // 🧩 Legacy role-as-permission compatibility (verified in code audit
             // 2026-10-13: hasPermissionTo/User::permission('store_owner'|'staff'|
@@ -650,6 +807,28 @@ class PermissionSeeder extends Seeder
             $this->existingGranularForRole($roleEditor)
         ));
 
+        $adminUser = User::where('email', 'admin@demo.com')->first();
+        if (! $adminUser && ! app()->isProduction()) {
+            $adminUser = User::create([
+                'name' => 'Shop Owner',
+                'email' => 'admin@demo.com',
+                'password' => \Illuminate\Support\Facades\Hash::make('password'),
+                'is_active' => true,
+                'phone_number' => '34567890',
+                'email_verified_at' => now(),
+                'type' => 'admin',
+            ]);
+        }
+
+        if ($adminUser) {
+            if (! $adminUser->hasRole('super_admin')) {
+                $adminUser->assignRole('super_admin');
+            }
+            $adminUser->syncPermissions(
+                Permission::where('guard_name', 'api')->get()
+            );
+        }
+
         // Bust Spatie's permission cache so newly created rows (e.g.
         // delete-all-products) take effect immediately — otherwise the new
         // row stays invisible until a cache clear and gates keep 403ing.
@@ -740,6 +919,7 @@ class PermissionSeeder extends Seeder
             'packing.complete',
             'batch.manage', 'batch.operate',
             'order.cancel-during-fulfillment',
+            'barcode.scan',
         ];
         foreach ($wmsPermissions as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);

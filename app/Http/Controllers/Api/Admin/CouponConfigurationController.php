@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Marvel\Database\Models\Coupon;
 use Marvel\Traits\ApiResponse;
 
+use Marvel\Enums\Permission;
+
 class CouponConfigurationController extends Controller
 {
     use ApiResponse;
@@ -14,6 +16,9 @@ class CouponConfigurationController extends Controller
     public function __construct()
     {
         $this->middleware(['auth:sanctum']);
+        $this->middleware('permission:' . Permission::COUPONS_VALIDATE_CONFIG, ['only' => ['validateConfiguration']]);
+        $this->middleware('permission:' . Permission::COUPONS_USAGE_INFO, ['only' => ['getUsageInfo']]);
+        $this->middleware('permission:' . Permission::COUPONS_SUGGEST_FIX, ['only' => ['suggestFix']]);
     }
 
     private function authorizeAdmin(\Illuminate\Http\Request $request): void
@@ -23,7 +28,14 @@ class CouponConfigurationController extends Controller
             abort(401, 'Unauthenticated.');
         }
         try {
-            if (method_exists($user, 'hasPermissionTo') && ($user->hasPermissionTo('view-coupons') || $user->hasPermissionTo('update-coupon') || $user->hasPermissionTo('create-coupon'))) {
+            if (method_exists($user, 'hasPermissionTo') && (
+                $user->hasPermissionTo('view-coupons')
+                || $user->hasPermissionTo('update-coupon')
+                || $user->hasPermissionTo('create-coupon')
+                || $user->hasPermissionTo(Permission::COUPONS_VALIDATE_CONFIG)
+                || $user->hasPermissionTo(Permission::COUPONS_USAGE_INFO)
+                || $user->hasPermissionTo(Permission::COUPONS_SUGGEST_FIX)
+            )) {
                 return;
             }
             if (method_exists($user, 'can') && ($user->can('view-coupons') || $user->can('update-coupon'))) {

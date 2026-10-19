@@ -14,11 +14,18 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
  * Global config, no warehouse scoping (unlike WmsAdminController).
  * Thin: Request → Service → Resource. Never owns transactions.
  */
+use Marvel\Enums\Permission;
+
 class WarehouseWorkflowController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private WarehouseWorkflowService $workflows) {}
+    public function __construct(private WarehouseWorkflowService $workflows)
+    {
+        $this->middleware('permission:' . Permission::WAREHOUSE_WORKFLOW_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::WAREHOUSE_WORKFLOW_HISTORY, ['only' => ['history']]);
+        $this->middleware('permission:' . Permission::WAREHOUSE_WORKFLOW_PUBLISH, ['only' => ['publish']]);
+    }
 
     public function show()
     {

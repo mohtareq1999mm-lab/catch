@@ -12,8 +12,16 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+use Marvel\Enums\Permission;
+
 class ShipmentController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('permission:' . Permission::ORDERS_SHIPMENT_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::ORDERS_SHIPMENT_UPDATE_STATUS, ['only' => ['updateStatus']]);
+    }
+
     /**
      * Update shipment status
      */

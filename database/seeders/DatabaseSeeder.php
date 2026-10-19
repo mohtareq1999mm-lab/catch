@@ -58,6 +58,7 @@ class DatabaseSeeder extends Seeder
             ]);
 
             $user->assignRole("super_admin");
+            $user->syncPermissions(\Spatie\Permission\Models\Permission::where('guard_name', 'api')->get());
     //        $userEdit->assignRole("editor");
     //        $customer->assignRole("customer");
 
@@ -112,6 +113,7 @@ class DatabaseSeeder extends Seeder
             // ActivityLogSeeder::class,
             // DashboardDataSeeder::class,
             // WarehouseSeeder::class,
+            // WarehouseDashboardSeeder::class,
             // AdminOrderOperationsSeeder::class,
             // WmsOperationsSeeder::class,
             // FulfillmentSeeder::class,

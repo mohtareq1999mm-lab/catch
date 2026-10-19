@@ -20,11 +20,20 @@ use Illuminate\Http\JsonResponse;
  * (D6-1); voided rows remain as auditable history. Shipment creation from a
  * verified task is P9-8 territory and is deliberately NOT exposed here.
  */
+use Marvel\Enums\Permission;
+
 class PackageController extends WmsAdminController
 {
     public function __construct(
         private PackingService $packing,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::PACKAGES_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::PACKAGES_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::PACKAGES_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::PACKAGES_ADD_ITEM, ['only' => ['addItem']]);
+        $this->middleware('permission:' . Permission::PACKAGES_SEAL, ['only' => ['seal']]);
+        $this->middleware('permission:' . Permission::PACKAGES_VOID, ['only' => ['void']]);
+    }
 
     private function packageWarehouseId(Package $package): int
     {

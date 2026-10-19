@@ -30,11 +30,23 @@ use Illuminate\Http\JsonResponse;
  * Order Flow owns orders (maybeCompleteOrder is service-internal and
  * guarded; this adapter never writes orders.status).
  */
+use Marvel\Enums\Permission;
+
 class ShipmentController extends WmsAdminController
 {
     public function __construct(
         private ShipmentService $shipments,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_BULK_CREATE, ['only' => ['bulkCreateShipments']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_BULK_DISPATCH, ['only' => ['bulkDispatch']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_BULK_DELIVER, ['only' => ['bulkDeliver']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_DISPATCH, ['only' => ['dispatchShipment']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_DELIVER, ['only' => ['markDelivered']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_CANCEL, ['only' => ['cancelShipment']]);
+    }
 
     private function shipmentWarehouseId(Shipment $shipment): int
     {

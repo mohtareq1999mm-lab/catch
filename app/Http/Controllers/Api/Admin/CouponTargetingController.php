@@ -12,6 +12,8 @@ use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponTargeting;
 use Marvel\Traits\ApiResponse;
 
+use Marvel\Enums\Permission;
+
 class CouponTargetingController extends Controller
 {
     use ApiResponse;
@@ -19,6 +21,9 @@ class CouponTargetingController extends Controller
     public function __construct()
     {
         $this->middleware(['auth:sanctum']);
+        $this->middleware('permission:' . Permission::COUPONS_TARGETING_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::COUPONS_TARGETING_UPDATE, ['only' => ['upsert']]);
+        $this->middleware('permission:' . Permission::COUPONS_TARGETING_DELETE, ['only' => ['destroy']]);
     }
 
     private function authorizeAdmin(Request $request): void

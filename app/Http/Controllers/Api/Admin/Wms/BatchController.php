@@ -20,6 +20,8 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+use Marvel\Enums\Permission;
+
 /**
  * P9-4: batch HTTP adapter. Thin: permission (route) + warehouse scope on
  * batch.warehouse_id + request validation, then BatchPickingService. No
@@ -33,7 +35,20 @@ class BatchController extends WmsAdminController
         private BatchPickingService $batches,
         private WarehouseService $warehouses,
         private WarehouseAccess $access,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::BATCH_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::BATCH_CREATE, ['only' => ['store']]);
+        $this->middleware('permission:' . Permission::BATCH_PENDING_FULFILLMENTS, ['only' => ['pendingFulfillments']]);
+        $this->middleware('permission:' . Permission::BATCH_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::BATCH_NEXT_TASK, ['only' => ['nextTask']]);
+        $this->middleware('permission:' . Permission::BATCH_ASSIGN, ['only' => ['assign']]);
+        $this->middleware('permission:' . Permission::BATCH_START, ['only' => ['start']]);
+        $this->middleware('permission:' . Permission::BATCH_REFRESH_PROGRESS, ['only' => ['refreshProgress']]);
+        $this->middleware('permission:' . Permission::BATCH_COMPLETE, ['only' => ['complete']]);
+        $this->middleware('permission:' . Permission::BATCH_CANCEL, ['only' => ['cancel']]);
+        $this->middleware('permission:' . Permission::BATCH_RETRY, ['only' => ['retry']]);
+        $this->middleware('permission:' . Permission::BATCH_CONFIRM_LOCATION, ['only' => ['confirmLocation']]);
+    }
 
     /**
      * GET /api/v1/admin/batches

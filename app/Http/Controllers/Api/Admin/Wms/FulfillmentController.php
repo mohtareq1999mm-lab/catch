@@ -23,6 +23,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Marvel\Database\Models\Order;
 
+use Marvel\Enums\Permission;
+
 /**
  * P9-3: fulfillment HTTP adapter. Thin: permission (route) + warehouse scope
  * + request validation, then FulfillmentService. No transactions, no guards,
@@ -35,7 +37,13 @@ class FulfillmentController extends WmsAdminController
         private FulfillmentService $fulfillments,
         private WarehouseService $warehouses,
         private WarehouseAccess $access,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::FULFILLMENTS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::FULFILLMENTS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::FULFILLMENT_CREATE, ['only' => ['release']]);
+        $this->middleware('permission:' . Permission::FULFILLMENT_CANCEL, ['only' => ['cancel']]);
+        $this->middleware('permission:' . Permission::FULFILLMENTS_ASSIGN, ['only' => ['assign']]);
+    }
 
     /**
      * GET /api/v1/admin/fulfillments

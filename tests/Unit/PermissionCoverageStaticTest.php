@@ -100,8 +100,8 @@ class PermissionCoverageStaticTest extends TestCase
         $this->assertStringContainsString("cities', [GovernorateController::class, 'cities'])->middleware(['auth:sanctum', 'permission:view-governorate'])", $routes);
         $this->assertStringContainsString("getFlashSaleInfoByProductID'])->middleware('permission:view-flash-sale|view-products')", $routes);
         $this->assertStringContainsString("'permission:export-analytics'])->group(function () {", $routes);
-        $this->assertStringContainsString("validate-config')->middleware('permission:view-coupons|update-coupon|create-coupon')", $routes);
-        $this->assertStringContainsString("targeting.upsert')->middleware('permission:update-coupon|create-coupon')", $routes);
-        $this->assertStringContainsString("distribute'])->whereNumber('id')->middleware('permission:update-coupon')", $routes);
+        $this->assertStringContainsString("validate-config')->middleware('permission:' . \\Marvel\\Enums\\Permission::COUPONS_VALIDATE_CONFIG)", $routes);
+        $this->assertStringContainsString("targeting.upsert')->middleware('permission:' . \\Marvel\\Enums\\Permission::COUPONS_TARGETING_UPDATE)", $routes);
+        $this->assertStringContainsString("distribute'])->whereNumber('id')->middleware('permission:' . \\Marvel\\Enums\\Permission::COUPONS_DISTRIBUTE)", $routes);
     }
 }

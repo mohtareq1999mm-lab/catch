@@ -27,12 +27,21 @@ use Illuminate\Http\Request;
  * idempotency key returns 200 with the stored result; a first execution
  * returns 201. A lost duplicate-key race reloads the winner when completed.
  */
+use Marvel\Enums\Permission;
+
 class InventoryController extends WmsAdminController
 {
     public function __construct(
         private StockOperationService $stock,
         private WarehouseAccess $access,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::INVENTORY_RECEIVE, ['only' => ['receive']]);
+        $this->middleware('permission:' . Permission::INVENTORY_TRANSFER, ['only' => ['transfer']]);
+        $this->middleware('permission:' . Permission::INVENTORY_PRODUCT_PLACEMENTS, ['only' => ['productPlacements']]);
+        $this->middleware('permission:' . Permission::INVENTORY_OVERVIEW, ['only' => ['overview']]);
+        $this->middleware('permission:' . Permission::INVENTORY_OPERATIONS_INDEX, ['only' => ['operations']]);
+        $this->middleware('permission:' . Permission::INVENTORY_OPERATIONS_SHOW, ['only' => ['operationStatus']]);
+    }
 
     /**
      * POST /api/v1/admin/locations/{location}/stock-receipts

@@ -264,6 +264,8 @@ return [
         'users_fetched' => 'Warehouse users fetched successfully.',
         'users_assigned' => 'Users assigned to warehouse successfully.',
         'users_removed' => 'Users removed from warehouse successfully.',
+        'dashboard_fetched' => 'Warehouse dashboard fetched successfully.',
+        'permissions_fetched' => 'Warehouse permissions fetched successfully.',
     ],
     'location' => [
         'fetched_many' => 'Locations fetched successfully.',
@@ -296,6 +298,7 @@ return [
     // Barcode scanning
     'barcode' => [
         'unknown' => 'Unknown barcode: :code.',
+        'scanned' => 'Barcode resolved successfully.',
     ],
 
     // Warehouse Workflow (global configurable workflow, Q-01..Q-08)

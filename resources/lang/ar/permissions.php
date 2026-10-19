@@ -354,4 +354,163 @@ return [
     // 📇 جهة اتصال (مفرد)
     'view-contact' => 'عرض جهة اتصال',
 
+    // 🏭 صلاحيات تفصيلية للمستودعات
+    'warehouses.index' => 'عرض قائمة المستودعات',
+    'warehouses.show' => 'عرض تفاصيل المستودع',
+    'warehouses.create' => 'إنشاء مستودع جديد',
+    'warehouses.update' => 'تعديل بيانات المستودع',
+    'warehouses.set-default' => 'تعيين المستودع كافتراضي',
+    'warehouses.activate' => 'تفعيل المستودع',
+    'warehouses.deactivate' => 'إلغاء تفعيل المستودع',
+    'warehouses.delete' => 'حذف المستودع',
+    'warehouses.users.view' => 'عرض موظفي المستودع',
+    'warehouses.users.assign' => 'تعيين موظفين للمستودع',
+    'warehouses.users.remove-bulk' => 'إزالة موظفين من المستودع بالجملة',
+    'warehouses.users.remove' => 'إزالة موظف من المستودع',
+
+    // 📍 صلاحيات تفصيلية للمواقع والأرفف
+    'locations.index' => 'عرض قائمة المواقع والأرفف',
+    'locations.show' => 'عرض تفاصيل الموقع',
+    'locations.check-occupancy' => 'التحقق من إشغال الموقع',
+    'locations.create' => 'إنشاء موقع تخزين جديد',
+    'locations.update' => 'تعديل موقع التخزين',
+    'locations.activate' => 'تفعيل موقع التخزين',
+    'locations.deactivate' => 'إلغاء تفعيل موقع التخزين',
+    'locations.delete' => 'حذف موقع التخزين',
+    'locations.empty-products' => 'تفريغ المنتجات من الموقع',
+
+    // 🏭 صلاحيات سير عمل المستودع
+    'warehouse-workflow.show' => 'عرض إعدادات سير عمل المستودع',
+    'warehouse-workflow.history' => 'عرض سجل تغييرات سير عمل المستودع',
+    'warehouse-workflow.publish' => 'نشر وتطبيق سير عمل المستودع',
+
+    // 📋 صلاحيات تفصيلية لعمليات التنفيذ
+    'fulfillments.index' => 'عرض قائمة عمليات التنفيذ',
+    'fulfillments.show' => 'عرض تفاصيل عملية التنفيذ',
+    'fulfillments.assign' => 'تعيين عملية التنفيذ',
+    'fulfillments.create-tasks' => 'إنشاء مهام الالتقاط للتنفيذ',
+    'fulfillments.complete-picking' => 'إكمال التقاط عملية التنفيذ',
+    'fulfillment-items.assign-placement' => 'تعيين مكان تخزين لعنصر التنفيذ',
+    'fulfillments.create-packing-tasks' => 'إنشاء مهام التغليف للتنفيذ بالجملة',
+    'fulfillments.create-packing-task' => 'إنشاء مهمة تغليف للتنفيذ',
+
+    // ⛏️ صلاحيات تفصيلية لمهام الالتقاط
+    'picking-tasks.index' => 'عرض قائمة مهام الالتقاط',
+    'picking-tasks.show' => 'عرض تفاصيل مهمة الالتقاط',
+    'picking-tasks.claim' => 'المطالبة بمهمة الالتقاط واستلامها',
+    'picking-tasks.release' => 'تحرير المطالبة بمهمة الالتقاط',
+    'picking-tasks.confirm' => 'تأكيد مهمة الالتقاط',
+    'picking-tasks.record-pick' => 'تسجيل التقاط الأصناف',
+    'picking-tasks.skip' => 'تخطي مهمة الالتقاط',
+    'picking-tasks.reallocate' => 'إعادة تخصيص مهمة الالتقاط',
+
+    // 📦 صلاحيات تفصيلية للدفعات
+    'batch.index' => 'عرض قائمة الدفعات',
+    'batch.show' => 'عرض تفاصيل الدفعة',
+    'batch.pending-fulfillments' => 'عرض الطلبات المعلقة للدفعة',
+    'batch.next-task' => 'الحصول على المهمة التالية في الدفعة',
+    'batch.create' => 'إنشاء دفعة جديدة',
+    'batch.assign' => 'تعيين الدفعة',
+    'batch.start' => 'بدء تشغيل الدفعة',
+    'batch.refresh-progress' => 'تحديث تقدم الدفعة',
+    'batch.complete' => 'إكمال الدفعة',
+    'batch.confirm-location' => 'تأكيد موقع الدفعة',
+    'batch.cancel' => 'إلغاء الدفعة',
+    'batch.retry' => 'إعادة محاولة تشغيل الدفعة',
+
+    // 📦 صلاحيات تفصيلية لمهام التغليف
+    'packing-tasks.index' => 'عرض قائمة مهام التغليف',
+    'packing-tasks.show' => 'عرض تفاصيل مهمة التغليف',
+    'packing-tasks.assign' => 'تعيين مهمة التغليف',
+    'packing-tasks.start' => 'بدء مهمة التغليف',
+    'packing-tasks.pack' => 'تغليف الأصناف',
+    'packing-tasks.verify' => 'التحقق من مهمة التغليف',
+    'packing-tasks.cancel' => 'إلغاء مهمة التغليف',
+    'packing-tasks.stations' => 'عرض محطات مهمة التغليف',
+
+    // 🏷️ صلاحيات تفصيلية لمحطات التغليف
+    'packing-stations.index' => 'عرض قائمة محطات التغليف',
+    'packing-stations.show' => 'عرض تفاصيل محطة التغليف',
+    'packing-stations.create' => 'إنشاء محطة تغليف جديدة',
+    'packing-stations.update' => 'تعديل محطة التغليف',
+    'packing-stations.delete' => 'حذف محطة التغليف',
+
+    // 📦 صلاحيات تفصيلية للطرود
+    'packages.index' => 'عرض قائمة الطرود',
+    'packages.show' => 'عرض تفاصيل الطرد',
+    'packages.create' => 'إنشاء طرد جديد',
+    'packages.add-item' => 'إضافة عنصر إلى الطرد',
+    'packages.seal' => 'إغلاق الطرد وختمه',
+    'packages.void' => 'إلغاء الطرد',
+
+    // 🚚 صلاحيات تفصيلية لشحنات المستودع WMS
+    'wms-shipments.index' => 'عرض قائمة شحنات المستودع',
+    'wms-shipments.show' => 'عرض تفاصيل شحنة المستودع',
+    'wms-shipments.create' => 'إنشاء شحنة مستودع جديدة',
+    'wms-shipments.bulk-create' => 'إنشاء شحنات مستودع بالجملة',
+    'wms-shipments.bulk-dispatch' => 'إرسال شحنات المستودع بالجملة',
+    'wms-shipments.bulk-deliver' => 'تسليم شحنات المستودع بالجملة',
+    'wms-shipments.dispatch' => 'إرسال شحنة المستودع',
+    'wms-shipments.deliver' => 'تسليم شحنة المستودع',
+    'wms-shipments.cancel' => 'إلغاء شحنة المستودع',
+
+    // 📊 صلاحيات تفصيلية لعمليات المخزون
+    'inventory.receive' => 'استلام بضاعة للمخزون',
+    'inventory.transfer' => 'نقل مخزون بين المواقع',
+    'inventory.product-placements' => 'عرض أماكن تواجد المنتج في المخزن',
+    'inventory.overview' => 'عرض نظرة عامة على المخزون',
+    'inventory.operations.index' => 'عرض قائمة عمليات المخزون',
+    'inventory.operations.show' => 'عرض حالة عملية المخزون',
+
+    // 📦 صلاحيات تفصيلية لشحنات الطلبات الإدارية
+    'orders.shipment.show' => 'عرض بيانات شحنة الطلب',
+    'orders.shipment.update-status' => 'تحديث حالة شحنة الطلب',
+
+    // 🌊 صلاحيات تفصيلية لحالات ومسارات الطلبات
+    'order-statuses.index' => 'عرض قائمة حالات الطلبات',
+    'order-statuses.show' => 'عرض تفاصيل حالة الطلب',
+    'order-statuses.update' => 'تعديل حالة الطلب',
+    'order-flows.index' => 'عرض مسارات حالات الطلبات',
+    'order-flows.create' => 'إنشاء مسار حالات طلبات جديد',
+    'order-flows.show' => 'عرض تفاصيل مسار حالات الطلبات',
+    'order-flows.update' => 'تعديل مسار حالات الطلبات',
+    'order-flows.inputs.index' => 'عرض مدخلات مسار حالات الطلبات',
+    'order-flows.inputs.create' => 'إضافة مدخل لمسار حالات الطلبات',
+    'order-flow-inputs.update' => 'تعديل مدخل مسار الطلبات',
+    'order-flow-inputs.delete' => 'حذف مدخل مسار الطلبات',
+
+    // 💸 صلاحيات تفصيلية لاسترداد الأموال الإداري
+    'admin-refunds.index' => 'عرض قائمة طلبات الاسترداد الإدارية',
+    'admin-refunds.show' => 'عرض تفاصيل طلب الاسترداد الإداري',
+    'admin-refunds.approve' => 'الموافقة على طلب الاسترداد الإداري',
+    'admin-refunds.reject' => 'رفض طلب الاسترداد الإداري',
+
+    // 🎟️ صلاحيات تفصيلية لإعدادات وتوزيع الكوبونات
+    'coupons.validate-config' => 'التحقق من صحة إعدادات الكوبون',
+    'coupons.usage-info' => 'عرض معلومات استخدام الكوبون',
+    'coupons.suggest-fix' => 'اقتراح حلول لإعدادات الكوبون',
+    'coupons.targeting.show' => 'عرض قواعد استهداف الكوبون',
+    'coupons.targeting.update' => 'تعديل قواعد استهداف الكوبون',
+    'coupons.targeting.delete' => 'حذف قواعد استهداف الكوبون',
+    'coupons.distribute' => 'بدء توزيع الكوبون',
+    'coupons.distributions.index' => 'عرض قائمة عمليات توزيع الكوبونات',
+    'coupons.distributions.show' => 'عرض تفاصيل عملية توزيع الكوبون',
+
+    // ⚡ صلاحيات تفصيلية لإعدادات الشحن السريع
+    'fast-shipping.view-settings' => 'عرض إعدادات الشحن السريع',
+    'fast-shipping.update-settings' => 'تحديث إعدادات الشحن السريع',
+
+    // 👥 صلاحيات تفصيلية لإدارة المستخدمين والمشرفين
+    'admin-users.create' => 'إضافة مستخدم إداري جديد',
+    'admin-users.update-activation' => 'تعديل حالة تفعيل المستخدم الإداري',
+    'admin-users.delete' => 'حذف المستخدم الإداري مؤقتاً',
+    'admin-users.restore' => 'استعادة المستخدم الإداري المحذوف',
+    'admin-users.view-trashed' => 'عرض المستخدمين الإداريين المحذوفين',
+    'admin-users.delete-forever' => 'حذف المستخدم الإداري نهائياً',
+    'users.ban' => 'حظر المستخدم',
+    'users.unblock' => 'إلغاء حظر المستخدم',
+
+    // 📷 مسح الباركود في المستودع
+    'barcode.scan' => 'مسح الباركود',
+
 ];

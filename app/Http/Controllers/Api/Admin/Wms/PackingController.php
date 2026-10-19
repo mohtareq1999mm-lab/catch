@@ -20,6 +20,8 @@ use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 
+use Marvel\Enums\Permission;
+
 /**
  * P9-6: packing-task + station HTTP adapter. Thin: permission (route) +
  * warehouse scope (task → fulfillment.warehouse_id, station → warehouse_id)
@@ -32,7 +34,18 @@ class PackingController extends WmsAdminController
     public function __construct(
         private PackingService $packing,
         private WarehouseAccess $access,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::PACKING_TASKS_INDEX, ['only' => ['index']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_SHOW, ['only' => ['show']]);
+        $this->middleware('permission:' . Permission::FULFILLMENTS_CREATE_PACKING_TASK, ['only' => ['createTask']]);
+        $this->middleware('permission:' . Permission::FULFILLMENTS_CREATE_PACKING_TASKS, ['only' => ['bulkCreateTasks']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_ASSIGN, ['only' => ['assign']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_START, ['only' => ['start']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_PACK, ['only' => ['pack']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_VERIFY, ['only' => ['verify']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_CANCEL, ['only' => ['cancel']]);
+        $this->middleware('permission:' . Permission::PACKING_TASKS_STATIONS, ['only' => ['stations']]);
+    }
 
     private function taskWarehouseId(PackingTask $task): int
     {

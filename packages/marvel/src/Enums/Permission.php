@@ -337,4 +337,167 @@ final class Permission extends Enum
 
     // 🛂 Digital entitlement access management (Workstream 6, decision A4)
     public const MANAGE_DIGITAL_ACCESS = 'manage-digital-access';
+
+    // 🏭 Warehouses Granular Permissions
+    public const WAREHOUSES_INDEX = 'warehouses.index';
+    public const WAREHOUSES_SHOW = 'warehouses.show';
+    public const WAREHOUSES_CREATE = 'warehouses.create';
+    public const WAREHOUSES_UPDATE = 'warehouses.update';
+    public const WAREHOUSES_SET_DEFAULT = 'warehouses.set-default';
+    public const WAREHOUSES_ACTIVATE = 'warehouses.activate';
+    public const WAREHOUSES_DEACTIVATE = 'warehouses.deactivate';
+    public const WAREHOUSES_DELETE = 'warehouses.delete';
+    public const WAREHOUSES_USERS_VIEW = 'warehouses.users.view';
+    public const WAREHOUSES_USERS_ASSIGN = 'warehouses.users.assign';
+    public const WAREHOUSES_USERS_REMOVE_BULK = 'warehouses.users.remove-bulk';
+    public const WAREHOUSES_USERS_REMOVE = 'warehouses.users.remove';
+
+    // 📍 Locations Granular Permissions
+    public const LOCATIONS_INDEX = 'locations.index';
+    public const LOCATIONS_SHOW = 'locations.show';
+    public const LOCATIONS_CHECK_OCCUPANCY = 'locations.check-occupancy';
+    public const LOCATIONS_CREATE = 'locations.create';
+    public const LOCATIONS_UPDATE = 'locations.update';
+    public const LOCATIONS_ACTIVATE = 'locations.activate';
+    public const LOCATIONS_DEACTIVATE = 'locations.deactivate';
+    public const LOCATIONS_DELETE = 'locations.delete';
+    public const LOCATIONS_EMPTY_PRODUCTS = 'locations.empty-products';
+
+    // 📦 Batches Granular Permissions
+    public const BATCH_INDEX = 'batch.index';
+    public const BATCH_SHOW = 'batch.show';
+    public const BATCH_PENDING_FULFILLMENTS = 'batch.pending-fulfillments';
+    public const BATCH_NEXT_TASK = 'batch.next-task';
+    public const BATCH_CREATE = 'batch.create';
+    public const BATCH_ASSIGN = 'batch.assign';
+    public const BATCH_START = 'batch.start';
+    public const BATCH_REFRESH_PROGRESS = 'batch.refresh-progress';
+    public const BATCH_COMPLETE = 'batch.complete';
+    public const BATCH_CONFIRM_LOCATION = 'batch.confirm-location';
+    public const BATCH_CANCEL = 'batch.cancel';
+    public const BATCH_RETRY = 'batch.retry';
+
+    // 📋 Fulfillments Granular Permissions
+    public const FULFILLMENTS_INDEX = 'fulfillments.index';
+    public const FULFILLMENTS_SHOW = 'fulfillments.show';
+    public const FULFILLMENTS_ASSIGN = 'fulfillments.assign';
+    public const FULFILLMENTS_CREATE_TASKS = 'fulfillments.create-tasks';
+    public const FULFILLMENTS_COMPLETE_PICKING = 'fulfillments.complete-picking';
+    public const FULFILLMENT_ITEMS_ASSIGN_PLACEMENT = 'fulfillment-items.assign-placement';
+    public const FULFILLMENTS_CREATE_PACKING_TASKS = 'fulfillments.create-packing-tasks';
+    public const FULFILLMENTS_CREATE_PACKING_TASK = 'fulfillments.create-packing-task';
+
+    // ⛏️ Picking Tasks Granular Permissions
+    public const PICKING_TASKS_INDEX = 'picking-tasks.index';
+    public const PICKING_TASKS_SHOW = 'picking-tasks.show';
+    public const PICKING_TASKS_CLAIM = 'picking-tasks.claim';
+    public const PICKING_TASKS_RELEASE = 'picking-tasks.release';
+    public const PICKING_TASKS_CONFIRM = 'picking-tasks.confirm';
+    public const PICKING_TASKS_RECORD_PICK = 'picking-tasks.record-pick';
+    public const PICKING_TASKS_SKIP = 'picking-tasks.skip';
+    public const PICKING_TASKS_REALLOCATE = 'picking-tasks.reallocate';
+
+    // 📦 Packing Tasks Granular Permissions
+    public const PACKING_TASKS_INDEX = 'packing-tasks.index';
+    public const PACKING_TASKS_SHOW = 'packing-tasks.show';
+    public const PACKING_TASKS_CREATE = 'fulfillments.create-packing-task';
+    public const PACKING_TASKS_BULK_CREATE = 'fulfillments.create-packing-tasks';
+    public const PACKING_TASKS_ASSIGN = 'packing-tasks.assign';
+    public const PACKING_TASKS_START = 'packing-tasks.start';
+    public const PACKING_TASKS_PACK = 'packing-tasks.pack';
+    public const PACKING_TASKS_VERIFY = 'packing-tasks.verify';
+    public const PACKING_TASKS_CANCEL = 'packing-tasks.cancel';
+    public const PACKING_TASKS_STATIONS = 'packing-tasks.stations';
+
+    // 🏷️ Packing Stations Granular Permissions
+    public const PACKING_STATIONS_INDEX = 'packing-stations.index';
+    public const PACKING_STATIONS_SHOW = 'packing-stations.show';
+    public const PACKING_STATIONS_CREATE = 'packing-stations.create';
+    public const PACKING_STATIONS_UPDATE = 'packing-stations.update';
+    public const PACKING_STATIONS_DELETE = 'packing-stations.delete';
+
+    // 📦 Packages Granular Permissions
+    public const PACKAGES_INDEX = 'packages.index';
+    public const PACKAGES_SHOW = 'packages.show';
+    public const PACKAGES_CREATE = 'packages.create';
+    public const PACKAGES_ADD_ITEM = 'packages.add-item';
+    public const PACKAGES_SEAL = 'packages.seal';
+    public const PACKAGES_VOID = 'packages.void';
+
+    // 🚚 WMS Shipments Granular Permissions
+    public const WMS_SHIPMENTS_INDEX = 'wms-shipments.index';
+    public const WMS_SHIPMENTS_SHOW = 'wms-shipments.show';
+    public const WMS_SHIPMENTS_CREATE = 'wms-shipments.create';
+    public const WMS_SHIPMENTS_BULK_CREATE = 'wms-shipments.bulk-create';
+    public const WMS_SHIPMENTS_BULK_DISPATCH = 'wms-shipments.bulk-dispatch';
+    public const WMS_SHIPMENTS_BULK_DELIVER = 'wms-shipments.bulk-deliver';
+    public const WMS_SHIPMENTS_DISPATCH = 'wms-shipments.dispatch';
+    public const WMS_SHIPMENTS_DELIVER = 'wms-shipments.deliver';
+    public const WMS_SHIPMENTS_CANCEL = 'wms-shipments.cancel';
+
+    // 📊 Inventory Operations Granular Permissions
+    public const INVENTORY_RECEIVE = 'inventory.receive';
+    public const INVENTORY_TRANSFER = 'inventory.transfer';
+    public const INVENTORY_PRODUCT_PLACEMENTS = 'inventory.product-placements';
+    public const INVENTORY_OVERVIEW = 'inventory.overview';
+    public const INVENTORY_OPERATIONS_INDEX = 'inventory.operations.index';
+    public const INVENTORY_OPERATIONS_SHOW = 'inventory.operations.show';
+
+    // 🏭 Warehouse Workflow Granular Permissions
+    public const MANAGE_WAREHOUSE_WORKFLOW = 'manage-warehouse-workflow';
+    public const WAREHOUSE_WORKFLOW_SHOW = 'warehouse-workflow.show';
+    public const WAREHOUSE_WORKFLOW_HISTORY = 'warehouse-workflow.history';
+    public const WAREHOUSE_WORKFLOW_PUBLISH = 'warehouse-workflow.publish';
+
+    // ⚡ Fast Shipping Settings Granular Permissions
+    public const FAST_SHIPPING_VIEW_SETTINGS = 'fast-shipping.view-settings';
+    public const FAST_SHIPPING_UPDATE_SETTINGS = 'fast-shipping.update-settings';
+
+    // 🎟️ Coupons Configuration & Admin Granular Permissions
+    public const COUPONS_VALIDATE_CONFIG = 'coupons.validate-config';
+    public const COUPONS_USAGE_INFO = 'coupons.usage-info';
+    public const COUPONS_SUGGEST_FIX = 'coupons.suggest-fix';
+    public const COUPONS_TARGETING_SHOW = 'coupons.targeting.show';
+    public const COUPONS_TARGETING_UPDATE = 'coupons.targeting.update';
+    public const COUPONS_TARGETING_DELETE = 'coupons.targeting.delete';
+    public const COUPONS_DISTRIBUTE = 'coupons.distribute';
+    public const COUPONS_DISTRIBUTIONS_INDEX = 'coupons.distributions.index';
+    public const COUPONS_DISTRIBUTIONS_SHOW = 'coupons.distributions.show';
+
+    // 🌊 Order Statuses & Flows Granular Permissions
+    public const ORDER_STATUSES_INDEX = 'order-statuses.index';
+    public const ORDER_STATUSES_SHOW = 'order-statuses.show';
+    public const ORDER_STATUSES_UPDATE = 'order-statuses.update';
+    public const ORDER_FLOWS_INDEX = 'order-flows.index';
+    public const ORDER_FLOWS_CREATE = 'order-flows.create';
+    public const ORDER_FLOWS_SHOW = 'order-flows.show';
+    public const ORDER_FLOWS_UPDATE = 'order-flows.update';
+    public const ORDER_FLOWS_INPUTS_INDEX = 'order-flows.inputs.index';
+    public const ORDER_FLOWS_INPUTS_CREATE = 'order-flows.inputs.create';
+    public const ORDER_FLOW_INPUTS_UPDATE = 'order-flow-inputs.update';
+    public const ORDER_FLOW_INPUTS_DELETE = 'order-flow-inputs.delete';
+
+    // 📦 Admin Order Shipments Granular Permissions
+    public const ORDERS_SHIPMENT_SHOW = 'orders.shipment.show';
+    public const ORDERS_SHIPMENT_UPDATE_STATUS = 'orders.shipment.update-status';
+
+    // 💸 Admin Refunds Granular Permissions
+    public const ADMIN_REFUNDS_INDEX = 'admin-refunds.index';
+    public const ADMIN_REFUNDS_SHOW = 'admin-refunds.show';
+    public const ADMIN_REFUNDS_APPROVE = 'admin-refunds.approve';
+    public const ADMIN_REFUNDS_REJECT = 'admin-refunds.reject';
+    public const PAYMENTS_REFUND = 'payments.refund';
+
+    // 👥 Admin Users Granular Permissions
+    public const ADMIN_USERS_CREATE = 'admin-users.create';
+    public const ADMIN_USERS_UPDATE_ACTIVATION = 'admin-users.update-activation';
+    public const ADMIN_USERS_DELETE = 'admin-users.delete';
+    public const ADMIN_USERS_RESTORE = 'admin-users.restore';
+    public const ADMIN_USERS_VIEW_TRASHED = 'admin-users.view-trashed';
+    public const ADMIN_USERS_DELETE_FOREVER = 'admin-users.delete-forever';
+    public const USERS_BAN = 'users.ban';
+    public const USERS_UNBLOCK = 'users.unblock';
+
+    // 📷 WMS Barcode Scanning
+    public const BARCODE_SCAN = 'barcode.scan';
 }

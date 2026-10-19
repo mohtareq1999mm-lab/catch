@@ -25,12 +25,16 @@ use Marvel\Database\Models\Order;
  * actor would be a scope leak). Orders with no fulfillment context are
  * outside the WMS surface entirely (403 for non-global actors).
  */
+use Marvel\Enums\Permission;
+
 class OrderCancellationController extends WmsAdminController
 {
     public function __construct(
         private OrderService $orders,
         private WarehouseAccess $access,
-    ) {}
+    ) {
+        $this->middleware('permission:' . Permission::ORDER_CANCEL_DURING_FULFILLMENT, ['only' => ['cancel']]);
+    }
 
     /**
      * POST /api/v1/admin/orders/{orderId}/cancel

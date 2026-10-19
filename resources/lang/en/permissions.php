@@ -351,4 +351,163 @@ return [
     // 📇 Contact (singular — seeded, no middleware enforces it today)
     'view-contact' => 'View contact',
 
+    // 🏭 Warehouses Granular Permissions
+    'warehouses.index' => 'List warehouses',
+    'warehouses.show' => 'View warehouse details',
+    'warehouses.create' => 'Create warehouse',
+    'warehouses.update' => 'Update warehouse',
+    'warehouses.set-default' => 'Set default warehouse',
+    'warehouses.activate' => 'Activate warehouse',
+    'warehouses.deactivate' => 'Deactivate warehouse',
+    'warehouses.delete' => 'Delete warehouse',
+    'warehouses.users.view' => 'View warehouse users',
+    'warehouses.users.assign' => 'Assign users to warehouse',
+    'warehouses.users.remove-bulk' => 'Bulk remove users from warehouse',
+    'warehouses.users.remove' => 'Remove user from warehouse',
+
+    // 📍 Locations Granular Permissions
+    'locations.index' => 'List locations',
+    'locations.show' => 'View location details',
+    'locations.check-occupancy' => 'Check location occupancy',
+    'locations.create' => 'Create location',
+    'locations.update' => 'Update location',
+    'locations.activate' => 'Activate location',
+    'locations.deactivate' => 'Deactivate location',
+    'locations.delete' => 'Delete location',
+    'locations.empty-products' => 'Empty products from location',
+
+    // 🏭 Warehouse Workflow Granular Permissions
+    'warehouse-workflow.show' => 'View warehouse workflow configuration',
+    'warehouse-workflow.history' => 'View warehouse workflow history',
+    'warehouse-workflow.publish' => 'Publish warehouse workflow configuration',
+
+    // 📋 Fulfillments Granular Permissions
+    'fulfillments.index' => 'List fulfillments',
+    'fulfillments.show' => 'View fulfillment details',
+    'fulfillments.assign' => 'Assign fulfillment',
+    'fulfillments.create-tasks' => 'Create fulfillment picking tasks',
+    'fulfillments.complete-picking' => 'Complete fulfillment picking',
+    'fulfillment-items.assign-placement' => 'Assign placement to fulfillment item',
+    'fulfillments.create-packing-tasks' => 'Bulk create fulfillment packing tasks',
+    'fulfillments.create-packing-task' => 'Create fulfillment packing task',
+
+    // ⛏️ Picking Tasks Granular Permissions
+    'picking-tasks.index' => 'List picking tasks',
+    'picking-tasks.show' => 'View picking task details',
+    'picking-tasks.claim' => 'Claim picking task',
+    'picking-tasks.release' => 'Release picking task claim',
+    'picking-tasks.confirm' => 'Confirm picking task',
+    'picking-tasks.record-pick' => 'Record pick for task',
+    'picking-tasks.skip' => 'Skip picking task',
+    'picking-tasks.reallocate' => 'Reallocate picking task',
+
+    // 📦 Batches Granular Permissions
+    'batch.index' => 'List batches',
+    'batch.show' => 'View batch details',
+    'batch.pending-fulfillments' => 'View pending fulfillments for batch',
+    'batch.next-task' => 'Get next batch task',
+    'batch.create' => 'Create batch',
+    'batch.assign' => 'Assign batch',
+    'batch.start' => 'Start batch',
+    'batch.refresh-progress' => 'Refresh batch progress',
+    'batch.complete' => 'Complete batch',
+    'batch.confirm-location' => 'Confirm batch location',
+    'batch.cancel' => 'Cancel batch',
+    'batch.retry' => 'Retry batch',
+
+    // 📦 Packing Tasks Granular Permissions
+    'packing-tasks.index' => 'List packing tasks',
+    'packing-tasks.show' => 'View packing task details',
+    'packing-tasks.assign' => 'Assign packing task',
+    'packing-tasks.start' => 'Start packing task',
+    'packing-tasks.pack' => 'Pack items for packing task',
+    'packing-tasks.verify' => 'Verify packing task',
+    'packing-tasks.cancel' => 'Cancel packing task',
+    'packing-tasks.stations' => 'View packing task stations',
+
+    // 🏷️ Packing Stations Granular Permissions
+    'packing-stations.index' => 'List packing stations',
+    'packing-stations.show' => 'View packing station details',
+    'packing-stations.create' => 'Create packing station',
+    'packing-stations.update' => 'Update packing station',
+    'packing-stations.delete' => 'Delete packing station',
+
+    // 📦 Packages Granular Permissions
+    'packages.index' => 'List packages',
+    'packages.show' => 'View package details',
+    'packages.create' => 'Create package',
+    'packages.add-item' => 'Add item to package',
+    'packages.seal' => 'Seal package',
+    'packages.void' => 'Void package',
+
+    // 🚚 WMS Shipments Granular Permissions
+    'wms-shipments.index' => 'List WMS shipments',
+    'wms-shipments.show' => 'View WMS shipment details',
+    'wms-shipments.create' => 'Create WMS shipment',
+    'wms-shipments.bulk-create' => 'Bulk create WMS shipments',
+    'wms-shipments.bulk-dispatch' => 'Bulk dispatch WMS shipments',
+    'wms-shipments.bulk-deliver' => 'Bulk deliver WMS shipments',
+    'wms-shipments.dispatch' => 'Dispatch WMS shipment',
+    'wms-shipments.deliver' => 'Mark WMS shipment delivered',
+    'wms-shipments.cancel' => 'Cancel WMS shipment',
+
+    // 📊 Inventory Operations Granular Permissions
+    'inventory.receive' => 'Receive inventory stock',
+    'inventory.transfer' => 'Transfer inventory stock',
+    'inventory.product-placements' => 'View product inventory placements',
+    'inventory.overview' => 'View inventory overview',
+    'inventory.operations.index' => 'List inventory operations',
+    'inventory.operations.show' => 'View inventory operation status',
+
+    // 📦 Admin Order Shipments Granular Permissions
+    'orders.shipment.show' => 'View order shipment details',
+    'orders.shipment.update-status' => 'Update order shipment status',
+
+    // 🌊 Order Statuses & Flows Granular Permissions
+    'order-statuses.index' => 'List order statuses',
+    'order-statuses.show' => 'View order status details',
+    'order-statuses.update' => 'Update order status',
+    'order-flows.index' => 'List order flows',
+    'order-flows.create' => 'Create order flow',
+    'order-flows.show' => 'View order flow details',
+    'order-flows.update' => 'Update order flow',
+    'order-flows.inputs.index' => 'List order flow inputs',
+    'order-flows.inputs.create' => 'Create order flow input',
+    'order-flow-inputs.update' => 'Update order flow input',
+    'order-flow-inputs.delete' => 'Delete order flow input',
+
+    // 💸 Admin Refunds Granular Permissions
+    'admin-refunds.index' => 'List admin refunds',
+    'admin-refunds.show' => 'View admin refund details',
+    'admin-refunds.approve' => 'Approve admin refund',
+    'admin-refunds.reject' => 'Reject admin refund',
+
+    // 🎟️ Coupons Configuration & Admin Granular Permissions
+    'coupons.validate-config' => 'Validate coupon configuration',
+    'coupons.usage-info' => 'View coupon usage information',
+    'coupons.suggest-fix' => 'Suggest fix for coupon configuration',
+    'coupons.targeting.show' => 'View coupon targeting rules',
+    'coupons.targeting.update' => 'Update coupon targeting rules',
+    'coupons.targeting.delete' => 'Delete coupon targeting rules',
+    'coupons.distribute' => 'Distribute coupon',
+    'coupons.distributions.index' => 'List coupon distributions',
+    'coupons.distributions.show' => 'View coupon distribution details',
+
+    // ⚡ Fast Shipping Settings Granular Permissions
+    'fast-shipping.view-settings' => 'View fast shipping settings',
+    'fast-shipping.update-settings' => 'Update fast shipping settings',
+
+    // 👥 Admin Users Granular Permissions
+    'admin-users.create' => 'Create admin user',
+    'admin-users.update-activation' => 'Update admin user activation',
+    'admin-users.delete' => 'Delete admin user',
+    'admin-users.restore' => 'Restore admin user',
+    'admin-users.view-trashed' => 'View trashed admin users',
+    'admin-users.delete-forever' => 'Permanently delete admin user',
+    'users.ban' => 'Ban user',
+    'users.unblock' => 'Unblock user',
+
+    // 📷 WMS Barcode Scanning
+    'barcode.scan' => 'Scan Barcode',
+
 ];
