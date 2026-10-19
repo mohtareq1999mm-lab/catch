@@ -191,22 +191,30 @@ class WarehouseDashboardSeeder extends Seeder
         // -------------------------------------------------------------
         // 2. Warehouses (Main Default + Regional)
         // -------------------------------------------------------------
-        $warehouseMain = Warehouse::firstOrCreate(
-            ['code' => 'WH-MAIN'],
-            [
+        $existingDefault = Warehouse::where('is_default', true)->whereNull('deleted_at')->first();
+        $isDefaultMain = ($existingDefault === null || $existingDefault->code === 'WH-MAIN');
+
+        $warehouseMain = Warehouse::where('code', 'WH-MAIN')->first();
+        if (! $warehouseMain) {
+            $warehouseMain = Warehouse::create([
+                'code' => 'WH-MAIN',
                 'name' => 'Main Fulfillment Hub - Cairo',
                 'address' => 'Industrial Zone 1, Logistics Park',
                 'city' => 'Cairo',
                 'country' => 'Egypt',
                 'status' => 'active',
-                'is_default' => true,
+                'is_default' => $isDefaultMain,
                 'metadata' => [
                     'capacity' => 50000,
                     'contact' => '+20-100-000-1111',
                 ],
-            ]
-        );
-        $warehouseMain->update(['is_default' => true, 'status' => 'active']);
+            ]);
+        } else {
+            $warehouseMain->update(['status' => 'active']);
+            if ($isDefaultMain && ! $warehouseMain->is_default) {
+                $warehouseMain->update(['is_default' => true]);
+            }
+        }
 
         $warehouseAlx = Warehouse::firstOrCreate(
             ['code' => 'WH-ALX'],
