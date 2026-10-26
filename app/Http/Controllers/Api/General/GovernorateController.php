@@ -20,9 +20,14 @@ class GovernorateController extends Controller
 
     public function index(): JsonResponse
     {
-        $governorates = $this->governorateRepository->allActive();
-        $governorateCahce = $this->remember(FrontendResource::GOVERNORATES->value, md5(request()->fullUrl()), $governorates);
-        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, GovernorateResource::collection($governorateCahce));
+        // Lazy closure: the allActive() query must run only on cache miss.
+        $governorates = $this->remember(
+            FrontendResource::GOVERNORATES->value,
+            md5(request()->fullUrl()),
+            fn () => $this->governorateRepository->allActive()
+        );
+
+        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, GovernorateResource::collection($governorates));
     }
 
     public function show(int $id): JsonResponse

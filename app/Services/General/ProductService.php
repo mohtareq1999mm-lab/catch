@@ -333,8 +333,12 @@ class ProductService
             })
             ->with([
                 'products' => function ($query) use ($qty) {
-                    $query->active()->with($this->productRelations())
-                        ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+                    // G3-F-01 fix: keep flash-sale products consistent with the
+                    // active channel — same home filter every sibling strategy
+                    // query applies (see getBrandsProductsByQtySet).
+                    $query->active()->tap(fn ($qq) => $this->applyChannelHomeFilter($qq))
+                        ->with($this->productRelations())
+                        ->withAvg(['reviews' => fn ($q) => $q->approved()], 'rating')
                         ->limit($qty);
                 }
             ])->get()

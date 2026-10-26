@@ -23,8 +23,13 @@ class SiteReviewController extends Controller
 
     public function index()
     {
-        $reviews = $this->siteReviewService->getApprovedReviews();
-        $reviewsCache = $this->remember(FrontendResource::SITE_REVIEWS->value, md5(request()->fullUrl()), SiteReviewResource::collection($reviews));
+        // Lazy closure: the approved-reviews query (and resource build) must run
+        // only on cache miss; previously the query executed on every request.
+        $reviewsCache = $this->remember(
+            FrontendResource::SITE_REVIEWS->value,
+            md5(request()->fullUrl()),
+            fn () => SiteReviewResource::collection($this->siteReviewService->getApprovedReviews())
+        );
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, $reviewsCache);
     }

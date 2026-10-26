@@ -20,9 +20,14 @@ class CountryController extends Controller
 
     public function index(): JsonResponse
     {
-        $countries = $this->countryRepository->allActive();
-        $countriesCache = $this->remember(FrontendResource::COUNTRIES->value, md5(request()->fullUrl()), $countries);
-        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CountryResource::collection($countriesCache));
+        // Lazy closure: the allActive() query must run only on cache miss.
+        $countries = $this->remember(
+            FrontendResource::COUNTRIES->value,
+            md5(request()->fullUrl()),
+            fn () => $this->countryRepository->allActive()
+        );
+
+        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CountryResource::collection($countries));
     }
 
     public function show(int $id): JsonResponse

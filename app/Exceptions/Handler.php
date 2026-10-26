@@ -216,9 +216,17 @@ class Handler extends ExceptionHandler
             $message = config('app.debug') ? $exception->getMessage() : __('message.ERROR.INTERNAL');
         }
 
+        // Unified error contract (AGENTS.md standard + backward compatibility):
+        // every error carries `success:false` so clients have ONE reliable
+        // signal across the trait family {status:<int>, message, success} and
+        // this Handler family. The legacy boolean `status:false` key is kept —
+        // encoded test contracts (tests/Feature/Wms/* assertJson(['status'
+        // => false])) and existing consumers keep matching; a later
+        // approved breaking-change task may retire it.
         $responseData = [
             'message' => $message,
             'status' => false,
+            'success' => false,
         ];
 
         if (!empty($errors)) {

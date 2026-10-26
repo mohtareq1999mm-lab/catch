@@ -1,0 +1,91 @@
+{
+  "stage": "products-smoke2",
+  "base": "http://localhost:8000",
+  "mix": "products",
+  "target_rate": 6.67,
+  "actual_rate": 2.45,
+  "wall_s": 20.4,
+  "started_at": "2026-10-24T11:36:42.620Z",
+  "aborted": null,
+  "summary": {
+    "total": 50,
+    "byStatus": {
+      "200": 42,
+      "404": 8
+    },
+    "envelope_ok": 50,
+    "envelopes_failed": 0,
+    "client_errors": 0,
+    "lat_200": {
+      "n": 42,
+      "p50": 3059.5,
+      "p90": 3312,
+      "p95": 3347.1,
+      "p99": 3404.7,
+      "max": 3404.7
+    },
+    "lat_429": null,
+    "byName": {
+      "products": {
+        "n": 26,
+        "byStatus": {
+          "200": 26
+        },
+        "bytes_avg": 13507,
+        "ok200": 26,
+        "bad": [],
+        "lat_200": {
+          "n": 26,
+          "p50": 3069,
+          "p90": 3347.1,
+          "p95": 3377.1,
+          "p99": 3404.7,
+          "max": 3404.7
+        }
+      },
+      "prodFlash": {
+        "n": 8,
+        "byStatus": {
+          "200": 8
+        },
+        "bytes_avg": 6955,
+        "ok200": 8,
+        "bad": [],
+        "lat_200": {
+          "n": 8,
+          "p50": 3121.7,
+          "p90": 3206,
+          "p95": 3206,
+          "p99": 3206,
+          "max": 3206
+        }
+      },
+      "prodDetail": {
+        "n": 8,
+        "byStatus": {
+          "200": 8
+        },
+        "bytes_avg": 2514,
+        "ok200": 8,
+        "bad": [],
+        "lat_200": {
+          "n": 8,
+          "p50": 3056.6,
+          "p90": 3222,
+          "p95": 3222,
+          "p99": 3222,
+          "max": 3222
+        }
+      },
+      "prodMiss": {
+        "n": 8,
+        "byStatus": {
+          "404": 8
+        },
+        "bytes_avg": 52,
+        "ok200": 0,
+        "bad": []
+      }
+    }
+  }
+}

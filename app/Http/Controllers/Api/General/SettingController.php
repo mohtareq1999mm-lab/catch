@@ -20,19 +20,20 @@ class SettingController extends Controller
 
     public function index()
     {
-        $setting = $this->settingService->getSetting();
+        // Lazy closure: the Settings::first() query must run only on cache miss.
+        // LARAVEL MECHANICS when the settings row is ABSENT: Repository::remember
+        // still put()s the null result, FileStore writes it — but every read of a
+        // null payload resolves to MISS, so the row is re-queried each request and
+        // a cached null can never surface as data (equivalent to the historical
+        // "do not cache null" guard; tiny write noise only while the row is absent).
+        $settingCache = $this->remember(
+            FrontendResource::SETTINGS->value,
+            md5(request()->fullUrl()),
+            fn () => $this->settingService->getSetting()
+        );
 
-        // Do not cache null — it would poison HasCache and keep returning a null resource
-        // which previously crashed SettingResource::toArray with getTranslation() on null.
-        if (!$setting) {
-            return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, SettingResource::make(null));
-        }
-
-        $settingCache = $this->remember(FrontendResource::SETTINGS->value, md5(request()->fullUrl()), $setting);
-
-        // remember() can still return null if the underlying store failed; guard again
         if (!$settingCache) {
-            $settingCache = $setting;
+            return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, SettingResource::make(null));
         }
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, SettingResource::make($settingCache));

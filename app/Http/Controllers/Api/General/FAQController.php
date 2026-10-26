@@ -20,8 +20,13 @@ class FAQController extends Controller
 
     public function index()
     {
-        $faqs = $this->faqService->getfaqs();
-        $faqsCache = $this->remember(FrontendResource::FAQS->value, md5(request()->fullUrl()), $faqs);
-        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY,200 , true,FaqResource::collection($faqs));
+        // Lazy closure: the Faqs query must run only on cache miss.
+        $faqs = $this->remember(
+            FrontendResource::FAQS->value,
+            md5(request()->fullUrl()),
+            fn () => $this->faqService->getfaqs()
+        );
+
+        return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, FaqResource::collection($faqs));
     }
 }

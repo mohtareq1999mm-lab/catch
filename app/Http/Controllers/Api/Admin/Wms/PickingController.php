@@ -127,6 +127,9 @@ class PickingController extends WmsAdminController
 
         $task->loadMissing([
             'fulfillmentItem.fulfillment.assignedUser',
+            'fulfillmentItem.product',
+            'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+            'fulfillmentItem.productLocation.location',
             'batch.assignedUser',
             'productLocation.location',
         ]);
@@ -204,7 +207,13 @@ class PickingController extends WmsAdminController
             __('wms.picking.claimed'),
             200,
             true,
-            PickingTaskDetailResource::make($claimed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
+            PickingTaskDetailResource::make($claimed->fresh()->loadMissing([
+                'fulfillmentItem.fulfillment',
+                'fulfillmentItem.product',
+                'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+                'fulfillmentItem.productLocation.location',
+                'productLocation.location',
+            ]))
         );
     }
 
@@ -244,7 +253,13 @@ class PickingController extends WmsAdminController
             __('wms.picking.released'),
             200,
             true,
-            PickingTaskDetailResource::make($released->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
+            PickingTaskDetailResource::make($released->fresh()->loadMissing([
+                'fulfillmentItem.fulfillment',
+                'fulfillmentItem.product',
+                'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+                'fulfillmentItem.productLocation.location',
+                'productLocation.location',
+            ]))
         );
     }
 
@@ -281,7 +296,13 @@ class PickingController extends WmsAdminController
             __('wms.picking.confirmed'),
             200,
             true,
-            PickingTaskDetailResource::make($confirmed->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
+            PickingTaskDetailResource::make($confirmed->fresh()->loadMissing([
+                'fulfillmentItem.fulfillment',
+                'fulfillmentItem.product',
+                'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+                'fulfillmentItem.productLocation.location',
+                'productLocation.location',
+            ]))
         );
     }
 
@@ -313,7 +334,13 @@ class PickingController extends WmsAdminController
             __('wms.picking.recorded'),
             200,
             true,
-            PickingTaskDetailResource::make($recorded->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
+            PickingTaskDetailResource::make($recorded->fresh()->loadMissing([
+                'fulfillmentItem.fulfillment',
+                'fulfillmentItem.product',
+                'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+                'fulfillmentItem.productLocation.location',
+                'productLocation.location',
+            ]))
         );
     }
 
@@ -337,7 +364,13 @@ class PickingController extends WmsAdminController
             __('wms.picking.skipped'),
             200,
             true,
-            PickingTaskDetailResource::make($skipped->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
+            PickingTaskDetailResource::make($skipped->fresh()->loadMissing([
+                'fulfillmentItem.fulfillment',
+                'fulfillmentItem.product',
+                'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+                'fulfillmentItem.productLocation.location',
+                'productLocation.location',
+            ]))
         );
     }
 
@@ -362,7 +395,13 @@ class PickingController extends WmsAdminController
             __('wms.picking.reallocated'),
             200,
             true,
-            PickingTaskDetailResource::make($moved->fresh()->loadMissing(['fulfillmentItem.fulfillment', 'productLocation.location']))
+            PickingTaskDetailResource::make($moved->fresh()->loadMissing([
+                'fulfillmentItem.fulfillment',
+                'fulfillmentItem.product',
+                'fulfillmentItem.productVariant.attributeProducts.attributeValue.attribute',
+                'fulfillmentItem.productLocation.location',
+                'productLocation.location',
+            ]))
         );
     }
 

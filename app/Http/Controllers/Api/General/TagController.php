@@ -16,6 +16,14 @@ class TagController extends Controller
     public function index(Request $request)
     {
         $tags = Tag::query();
+
+        // Group-1 load-testing fix (G1-TAG): reject non-enum `order` with 422
+        // (ValidationException, app/Exceptions/Handler.php) instead of the 500
+        // previously produced by the query builder for invalid directions.
+        $request->validate([
+            'order' => ['sometimes', 'string', 'in:asc,desc'],
+        ]);
+
         $order = $request->input("order", "desc");
         $limit = min(100, max(1, (int) $request->input("limit", 15)));
 

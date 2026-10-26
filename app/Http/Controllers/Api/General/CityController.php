@@ -20,8 +20,15 @@ class CityController extends Controller
 
     public function index(): JsonResponse
     {
-        $cities = $this->cityRepository->all();
-        $citiesCache = $this->remember(FrontendResource::CITIES->value, md5(request()->fullUrl()), $cities);
+        // Lazy closure: the all() query must run only on cache miss.
+        // CITIES schema has no status column (schema-verified), so the active
+        // filter used by governorates/countries does not apply here.
+        $cities = $this->remember(
+            FrontendResource::CITIES->value,
+            md5(request()->fullUrl()),
+            fn () => $this->cityRepository->all()
+        );
+
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, CityResource::collection($cities));
     }
 

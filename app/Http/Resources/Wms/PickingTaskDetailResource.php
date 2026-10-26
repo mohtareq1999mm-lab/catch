@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Wms;
 
+use App\Http\Resources\Wms\Traits\FormatsWmsProductVariant;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -12,8 +13,16 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class PickingTaskDetailResource extends JsonResource
 {
+    use FormatsWmsProductVariant;
+
     public function toArray(Request $request): array
     {
+        $item = $this->relationLoaded('fulfillmentItem')
+            ? $this->fulfillmentItem
+            : $this->fulfillmentItem;
+
+        $formattedItem = $this->formatItem($item);
+
         return array_merge((new PickingTaskResource($this->resource))->toArray($request), [
             'fulfillment' => $this->when(
                 $this->relationLoaded('fulfillmentItem')
@@ -53,6 +62,67 @@ class PickingTaskDetailResource extends JsonResource
             'op_seq' => $this->op_seq !== null ? (int) $this->op_seq : 0,
             'scan_log' => $this->scan_log ?? [],
             'notes' => $this->notes,
+            'item' => $formattedItem,
+            'items' => $formattedItem !== null ? [$formattedItem] : [],
         ]);
+    }
+
+    private function formatItem($item): ?array
+    {
+        if (!$item) {
+            return null;
+        }
+
+        $productLocation = $item->relationLoaded('productLocation') && $item->productLocation
+            ? $item->productLocation
+            : ($this->relationLoaded('productLocation') && $this->productLocation ? $this->productLocation : null);
+
+        $loc = $productLocation && $productLocation->relationLoaded('location')
+            ? $productLocation->location
+            : ($productLocation?->location);
+
+        return [
+            'id' => (int) $item->id,
+            'order_item_id' => $item->order_item_id !== null ? (int) $item->order_item_id : null,
+            'product_id' => (int) $item->product_id,
+            'product_variant_id' => $item->product_variant_id !== null ? (int) $item->product_variant_id : null,
+            'product_location_id' => $item->product_location_id !== null ? (int) $item->product_location_id : null,
+            'quantity' => (float) $item->quantity,
+            'quantity_picked' => (float) $item->quantity_picked,
+            'status' => $this->resolveItemStatus($item),
+            'product' => $item->relationLoaded('product')
+                ? $this->formatProduct($item->product)
+                : ($item->product ? $this->formatProduct($item->product) : null),
+            'variant' => $item->relationLoaded('productVariant')
+                ? $this->formatVariant($item->productVariant)
+                : ($item->productVariant ? $this->formatVariant($item->productVariant) : null),
+            'location' => $productLocation ? [
+                'id' => (int) $productLocation->id,
+                'code' => $loc?->code,
+                'name' => $loc?->name,
+                'barcode' => $loc?->barcode,
+            ] : null,
+        ];
+    }
+
+    private function resolveItemStatus($item): string
+    {
+        if ($item->status !== null && $item->status !== 'pending') {
+            return $item->status;
+        }
+
+        if ($this->status === 'picked' || $this->picked_at !== null || $item->picked_at !== null) {
+            return 'picked';
+        }
+
+        if ((float) $item->quantity_picked >= (float) $item->quantity && (float) $item->quantity > 0) {
+            return 'picked';
+        }
+
+        if ((float) $item->quantity_picked > 0 || $this->status === 'picking') {
+            return 'picking';
+        }
+
+        return $item->status ?? ($this->status ?? 'pending');
     }
 }

@@ -18,12 +18,14 @@ class CurrencyController extends Controller
 
     public function index()
     {
-        $currencies = Currency::query()->active()->orderBy('sort_order')->orderBy('code')->get();
-
+        // Lazy closure: the currencies query (and resource build) must run only
+        // on cache miss; previously the query executed on every request.
         $currenciesCache = $this->remember(
             FrontendResource::CURRENCIES->value,
             md5(request()->fullUrl()),
-            CurrencyResource::collection($currencies),
+            fn () => CurrencyResource::collection(
+                Currency::query()->active()->orderBy('sort_order')->orderBy('code')->get()
+            ),
         );
 
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, $currenciesCache);

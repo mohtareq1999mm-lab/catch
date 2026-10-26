@@ -91,7 +91,7 @@ public function paginateFlashSales($request)
         $limit = $this->capLimit($request->query('limit', 10), 10);
         $weekEnd = now()->endOfWeek();
 
-        $products = Product::query()->active()
+        $query = Product::query()->active()
             ->with(['categories' => fn($q) => $q->active(), 'variations', 'brands' => fn($q) => $q->active(), 'media', 'flash_sales' => fn($q) => $q->valid()])
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->select([
@@ -111,7 +111,11 @@ public function paginateFlashSales($request)
                     ->where('flash_sales.status', true)
                     ->whereNotNull('flash_sales.end_date')
                     ->whereBetween('flash_sales.end_date', [today(), $weekEnd]);
-            })
+            });
+
+        $this->applyChannelHomeFilter($query);
+
+        $products = $query
             ->orderByDesc('id')
             ->limit($limit)
             ->get();
@@ -122,7 +126,7 @@ public function paginateFlashSales($request)
     {
         $limit = $this->capLimit($request->query('limit', 10), 10);
 
-        $products = Product::query()->active()
+        $query = Product::query()->active()
             ->with(['categories' => fn($q) => $q->active(), 'variations', 'brands' => fn($q) => $q->active(), 'media', 'flash_sales' => fn($q) => $q->valid()])
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
             ->select([
@@ -142,7 +146,11 @@ public function paginateFlashSales($request)
                     ->where('flash_sales.status', true)
                     ->whereNotNull('flash_sales.end_date')
                     ->whereDate('flash_sales.end_date', today());
-            })
+            });
+
+        $this->applyChannelHomeFilter($query);
+
+        $products = $query
             ->orderByDesc('id')
             ->limit($limit)
             ->get();

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\General;
 
+use App\Contexts\ChannelContext;
 use App\Enums\FrontendResource;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductIndexRequest;
@@ -171,7 +172,12 @@ class ProductController extends Controller
 
     private function currencyAwareCacheKey(Request $request): string
     {
-        return md5($request->fullUrl() . '|currency:' . app(CurrencyService::class)->getEffectiveCode());
+        // G3-F-02 fix: include the resolved channel alongside the currency —
+        // home and fast-shipping channel requests share the same URL but must
+        // never share a cache entry (live-proven cross-channel contamination).
+        $channel = app(ChannelContext::class)->getChannel()->value;
+
+        return md5($request->fullUrl() . '|currency:' . app(CurrencyService::class)->getEffectiveCode() . '|channel:' . $channel);
     }
 
     /**
