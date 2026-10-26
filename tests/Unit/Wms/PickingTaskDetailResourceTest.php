@@ -85,14 +85,14 @@ class PickingTaskDetailResourceTest extends TestCase
         $this->assertArrayHasKey('op_seq', $array);
         $this->assertArrayHasKey('scan_log', $array);
 
-        // Assert item and items keys exist
-        $this->assertArrayHasKey('item', $array);
+        // Assert items key exists and item key is absent
+        $this->assertArrayNotHasKey('item', $array);
         $this->assertArrayHasKey('items', $array);
         $this->assertIsArray($array['items']);
         $this->assertCount(1, $array['items']);
 
         // Check single item structure
-        $singleItem = $array['item'];
+        $singleItem = $array['items'][0];
         $this->assertNotNull($singleItem);
         $this->assertSame(1, $singleItem['id']);
         $this->assertSame(5, $singleItem['order_item_id']);
@@ -116,8 +116,5 @@ class PickingTaskDetailResourceTest extends TestCase
         $this->assertSame('LOC-A-01-01', $singleItem['location']['code']);
         $this->assertSame('Cairo Bin A-01-01', $singleItem['location']['name']);
         $this->assertSame('BAR-LOC-CAI-A-01-01', $singleItem['location']['barcode']);
-
-        // Check items array matches item structure
-        $this->assertSame($singleItem, $array['items'][0]);
     }
 }

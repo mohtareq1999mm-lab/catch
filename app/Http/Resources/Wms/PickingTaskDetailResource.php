@@ -19,7 +19,7 @@ class PickingTaskDetailResource extends JsonResource
     {
         $item = $this->relationLoaded('fulfillmentItem')
             ? $this->fulfillmentItem
-            : $this->fulfillmentItem;
+            : null;
 
         $formattedItem = $this->formatItem($item);
 
@@ -62,7 +62,6 @@ class PickingTaskDetailResource extends JsonResource
             'op_seq' => $this->op_seq !== null ? (int) $this->op_seq : 0,
             'scan_log' => $this->scan_log ?? [],
             'notes' => $this->notes,
-            'item' => $formattedItem,
             'items' => $formattedItem !== null ? [$formattedItem] : [],
         ]);
     }
@@ -73,13 +72,13 @@ class PickingTaskDetailResource extends JsonResource
             return null;
         }
 
-        $productLocation = $item->relationLoaded('productLocation') && $item->productLocation
-            ? $item->productLocation
-            : ($this->relationLoaded('productLocation') && $this->productLocation ? $this->productLocation : null);
+        $productLocation = $this->relationLoaded('productLocation') && $this->productLocation
+            ? $this->productLocation
+            : ($item->relationLoaded('productLocation') ? $item->productLocation : null);
 
         $loc = $productLocation && $productLocation->relationLoaded('location')
             ? $productLocation->location
-            : ($productLocation?->location);
+            : null;
 
         return [
             'id' => (int) $item->id,
@@ -92,10 +91,10 @@ class PickingTaskDetailResource extends JsonResource
             'status' => $this->resolveItemStatus($item),
             'product' => $item->relationLoaded('product')
                 ? $this->formatProduct($item->product)
-                : ($item->product ? $this->formatProduct($item->product) : null),
+                : null,
             'variant' => $item->relationLoaded('productVariant')
                 ? $this->formatVariant($item->productVariant)
-                : ($item->productVariant ? $this->formatVariant($item->productVariant) : null),
+                : null,
             'location' => $productLocation ? [
                 'id' => (int) $productLocation->id,
                 'code' => $loc?->code,
