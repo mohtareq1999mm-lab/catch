@@ -111,7 +111,7 @@ class DatabaseSeeder extends Seeder
             // WishlistSeeder::class,
             NotificationSeeder::class,
             // ActivityLogSeeder::class,
-            // DashboardDataSeeder::class,
+             DashboardDataSeeder::class,
             WarehouseSeeder::class,
             AdminOrderOperationsSeeder::class,
             WmsOperationsSeeder::class,
