@@ -118,5 +118,17 @@ class DatabaseSeeder extends Seeder
             FulfillmentSeeder::class,
             WarehouseDashboardSeeder::class,
         ]);
+
+        // Final reconciliation: guarantee super_admin role and admin user hold 100% of all permissions
+        $allApiPermissions = \Spatie\Permission\Models\Permission::where('guard_name', 'api')->get();
+        $superAdminRole = \Marvel\Database\Models\Role::where('name', 'super_admin')->where('guard_name', 'api')->first();
+        if ($superAdminRole) {
+            $superAdminRole->syncPermissions($allApiPermissions);
+        }
+        $admin = User::where('email', 'admin@demo.com')->first();
+        if ($admin) {
+            $admin->syncPermissions($allApiPermissions);
+        }
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

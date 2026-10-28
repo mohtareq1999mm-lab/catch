@@ -2,17 +2,19 @@
 
 namespace Database\Seeders;
 
+use App\Services\OrderFlow\OrderFlowService;
 use Illuminate\Database\Seeder;
 use Marvel\Database\Models\Role;
 use Marvel\Database\Models\User;
+use Marvel\Enums\Permission as MarvelPermission;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 
 class PermissionSeeder extends Seeder
 {
     /**
      * Run the database seeds.
      */
-
     public function run()
     {
         $permissions = [
@@ -28,6 +30,9 @@ class PermissionSeeder extends Seeder
             'view-type',
             'view-tags',
             'view-tag',
+            'create-tags',
+            'update-tags',
+            'delete-tags',
             'view-authors',
             'view-author',
             'view-manufacturers',
@@ -35,21 +40,22 @@ class PermissionSeeder extends Seeder
             'view-brands',
             'view-brand',
             'view-contacts',
+            'view-contact',
             'view-coupons',
             'verify-coupon',
             'view-cms-pages',
             'view-cms-page',
             'view-faqs',
             'view-settings',
-            "view-flash-sale",
+            'view-flash-sale',
             'create-flash-sale',
             'update-flash-sale',
             'delete-flash-sale',
-            "view-attributes",
-            "view-promotion",
-            "delete-promotion",
-            "create-promotion",
-            "update-promotion",
+            'view-attributes',
+            'view-promotion',
+            'delete-promotion',
+            'create-promotion',
+            'update-promotion',
             'view-country',
             'create-country',
             'update-country',
@@ -60,6 +66,7 @@ class PermissionSeeder extends Seeder
             'view-invoice',
             'view-invoice-download',
             'regenerate-invoice',
+            'correct-invoice',
             'cancel-invoice',
             'issue-debit-note',
             'view-all-shipments',
@@ -67,8 +74,6 @@ class PermissionSeeder extends Seeder
             'view-shipment',
             'create-shipment',
             'update-shipment',
-            // 🌊 Order Flows (definitions + dynamic inputs; transitions stay
-            // on update-order-status; super_admin receives all via sync below)
             'view-order-flows',
             'create-order-flows',
             'update-order-flows',
@@ -82,10 +87,6 @@ class PermissionSeeder extends Seeder
             'view-notifications',
             'manage-notifications',
 
-             'view-tags',
-            'create-tags',
-            'update-tags',
-            'delete-tags',
             'view-city',
             'create-city',
             'update-city',
@@ -97,8 +98,7 @@ class PermissionSeeder extends Seeder
             'delete-governorate',
             'manage-shipping-prices',
 
-            // 💳 Payments (F-1 hardening: financial actions are distinct from
-            // generic order-status updates; run this seeder after deploy)
+            // 💳 Payments
             'payments.mark_paid',
             'payments.refund',
             'payments.verify',
@@ -108,8 +108,6 @@ class PermissionSeeder extends Seeder
             'view-profile',
             'update-profile',
             'change-password',
-            'view-orders',
-            'view-order',
             'create-order',
             'track-order',
             'create-review',
@@ -133,23 +131,23 @@ class PermissionSeeder extends Seeder
             'manage-digital-licenses',
             'manage-digital-access',
             'delete-product',
+            'delete-all-products',
             'create-attribute',
             'update-attribute',
             'delete-attribute',
             'update-order-status',
-            // F-1: financial payment actions (mark-paid, refund, verify,
-            // reconcile) are granted alongside update-order-status.
-            'payments.mark_paid',
-            'payments.refund',
-            'payments.verify',
-            'payments.reconcile',
             'answer-question',
             'create-author',
+            'update-author',
+            'delete-author',
             'create-manufacturer',
+            'update-manufacturer',
+            'delete-manufacturer',
             'update-contact',
             'delete-contact',
             'delete-read-contacts',
             'view-analytics',
+            'export-analytics',
             'view-low-stock-products',
             'view-draft-products',
             'update-coupon',
@@ -164,8 +162,6 @@ class PermissionSeeder extends Seeder
             'create-shop',
             'update-shop',
             'delete-shop',
-            'manage-digital-licenses',
-            'manage-digital-access',
             'view-my-shops',
             'add-staff',
             'remove-staff',
@@ -175,6 +171,10 @@ class PermissionSeeder extends Seeder
             'create-withdraw',
             'create-coupon',
             'delete-coupon',
+            'approve-withdraw',
+            'approve-shop',
+            'disapprove-shop',
+            'view-new-shops',
 
             // ✏️ Editor
             'create-cms-page',
@@ -193,6 +193,8 @@ class PermissionSeeder extends Seeder
             'ban-user',
             'activate-user',
             'make-admin',
+            'edit-user',
+            'restore-user',
             'create-type',
             'update-type',
             'delete-type',
@@ -205,24 +207,16 @@ class PermissionSeeder extends Seeder
             'export-brand',
             'import-product',
             'export-product',
-            'delete-all-products',
-            'export-analytics',
             'create-brand',
             'update-brand',
             'delete-brand',
             'create-tag',
             'update-tag',
             'delete-tag',
-            'update-author',
-            'delete-author',
-            'update-manufacturer',
-            'delete-manufacturer',
-            'approve-withdraw',
-            'approve-shop',
-            'disapprove-shop',
-            'view-new-shops',
             'update-settings',
             'delete-review',
+            'delete-reviews',
+            'approve-reviews',
             'delete-question',
             'create-shipping',
             'add-points',
@@ -236,22 +230,16 @@ class PermissionSeeder extends Seeder
             'create-roles',
             'update-roles',
             'delete-roles',
+            'assign-role',
+            'remove-role',
             'view-banners',
             'create-banners',
             'update-banners',
             'delete-banners',
             'view-slider',
-            "create-slider",
-            "update-slider",
-            "delete-slider",
-            'assign-role',
-            'remove-role',
-            'edit-user',
-            'approve-reviews',
-            'delete-reviews',
-            'create-review',
-            'update-review',
-            'restore-user',
+            'create-slider',
+            'update-slider',
+            'delete-slider',
             'view-site-reviews',
             'approve-site-reviews',
             'reject-site-reviews',
@@ -268,34 +256,36 @@ class PermissionSeeder extends Seeder
             'set-base-currency',
             'set-catalog-currency',
 
-            //content-pages
+            // 🗂 Content Pages
             'view-content-pages',
             'create-content-pages',
             'update-content-pages',
             'delete-content-pages',
 
-            //sections
+            // 📦 Sections
             'view-sections',
             'create-sections',
             'update-sections',
             'delete-sections',
 
-            //section-types
+            // 🏷 Section Types
             'view-section-types',
             'create-section-types',
             'update-section-types',
             'delete-section-types',
 
-            //static-pages
+            // 📄 Static Pages
             'view-static-pages',
             'update-static-pages',
             'create-static-sections',
             'update-static-sections',
             'delete-static-sections',
 
-            //fast-shipping
+            // ⚡ Fast Shipping
             'view-fast-shipping',
             'update-fast-shipping',
+            'fast-shipping.view-settings',
+            'fast-shipping.update-settings',
 
             // 📍 Pickup Locations
             'view-pickup-locations',
@@ -316,6 +306,8 @@ class PermissionSeeder extends Seeder
             'warehouses.users.assign',
             'warehouses.users.remove-bulk',
             'warehouses.users.remove',
+            'view-warehouse',
+            'manage-warehouse',
 
             // 📍 Locations Granular Permissions
             'locations.index',
@@ -327,8 +319,11 @@ class PermissionSeeder extends Seeder
             'locations.deactivate',
             'locations.delete',
             'locations.empty-products',
+            'view-location',
+            'manage-location',
 
             // 🏭 Warehouse Workflow Granular Permissions
+            'manage-warehouse-workflow',
             'warehouse-workflow.show',
             'warehouse-workflow.history',
             'warehouse-workflow.publish',
@@ -342,6 +337,11 @@ class PermissionSeeder extends Seeder
             'fulfillment-items.assign-placement',
             'fulfillments.create-packing-tasks',
             'fulfillments.create-packing-task',
+            'view-fulfillment',
+            'manage-fulfillment',
+            'fulfillment-override',
+            'fulfillment.create',
+            'fulfillment.cancel',
 
             // ⛏️ Picking Tasks Granular Permissions
             'picking-tasks.index',
@@ -352,6 +352,9 @@ class PermissionSeeder extends Seeder
             'picking-tasks.record-pick',
             'picking-tasks.skip',
             'picking-tasks.reallocate',
+            'picking-execute',
+            'picking.claim',
+            'picking.complete',
 
             // 📦 Batches Granular Permissions
             'batch.index',
@@ -366,6 +369,8 @@ class PermissionSeeder extends Seeder
             'batch.confirm-location',
             'batch.cancel',
             'batch.retry',
+            'batch.manage',
+            'batch.operate',
 
             // 📦 Packing Tasks Granular Permissions
             'packing-tasks.index',
@@ -376,6 +381,8 @@ class PermissionSeeder extends Seeder
             'packing-tasks.verify',
             'packing-tasks.cancel',
             'packing-tasks.stations',
+            'packing-execute',
+            'packing.complete',
 
             // 🏷️ Packing Stations Granular Permissions
             'packing-stations.index',
@@ -391,6 +398,9 @@ class PermissionSeeder extends Seeder
             'packages.add-item',
             'packages.seal',
             'packages.void',
+
+            // 📷 Barcode Scanning
+            'barcode.scan',
 
             // 🚚 WMS Shipments Granular Permissions
             'wms-shipments.index',
@@ -410,6 +420,10 @@ class PermissionSeeder extends Seeder
             'inventory.overview',
             'inventory.operations.index',
             'inventory.operations.show',
+            'inventory-adjust',
+
+            // 🛑 Cancellation during fulfillment
+            'order.cancel-during-fulfillment',
 
             // 📦 Admin Order Shipments Granular Permissions
             'orders.shipment.show',
@@ -445,10 +459,6 @@ class PermissionSeeder extends Seeder
             'coupons.distributions.index',
             'coupons.distributions.show',
 
-            // ⚡ Fast Shipping Settings Granular Permissions
-            'fast-shipping.view-settings',
-            'fast-shipping.update-settings',
-
             // 👥 Admin Users Granular Permissions
             'admin-users.create',
             'admin-users.update-activation',
@@ -472,10 +482,6 @@ class PermissionSeeder extends Seeder
         ];
 
         $customerPermission = [
-            // 👤 Customer
-            // 2026-10-13 M1: `customer` legacy permission row must be granted
-            // to the customer role itself — User::permission('customer') and
-            // InstallCommand parity rely on it (role≠permission in Spatie).
             'customer',
             'view-profile',
             'update-profile',
@@ -502,10 +508,6 @@ class PermissionSeeder extends Seeder
         ];
 
         $staffAndOnwner = [
-            // 👷 Staff / Store Owner
-            // 2026-10-13 M1: `staff` legacy permission must be held by the
-            // staff role — BaseRepository/helpers gate on
-            // hasPermissionTo('staff') (permission, not hasRole).
             'staff',
             'create-product',
             'update-product',
@@ -516,8 +518,6 @@ class PermissionSeeder extends Seeder
             'update-attribute',
             'delete-attribute',
             'update-order-status',
-            // F-1: financial payment actions (mark-paid, refund, verify,
-            // reconcile) are granted alongside update-order-status.
             'payments.mark_paid',
             'payments.refund',
             'payments.verify',
@@ -550,16 +550,9 @@ class PermissionSeeder extends Seeder
             'create-coupon-assignment',
             'update-coupon-assignment',
             'delete-coupon-assignment',
-];
+        ];
 
         $onwnerPermission = [
-            // 🏪 Store Owner
-            // 2026-10-13 M1: `store_owner` legacy permission must be held by
-            // the seeded `owner` role — the runtime role is `owner` (D9-3) but
-            // legacy gates check hasPermissionTo('store_owner') /
-            // User::permission('store_owner') (StoreNoticeRepository,
-            // BaseRepository, helpers). Without this, owner users fail those
-            // gates and vendor broadcasts resolve empty.
             'store_owner',
             'create-shop',
             'update-shop',
@@ -577,12 +570,7 @@ class PermissionSeeder extends Seeder
             'delete-coupon',
         ];
 
-
         $editorPermission = [
-            // ✏️ Editor
-            // 2026-10-13 M1: `editor` legacy permission must be held by the
-            // editor role — CmsPageController gates on
-            // hasPermissionTo('editor') (permission, not hasRole).
             'editor',
             'create-cms-page',
             'update-cms-page',
@@ -608,7 +596,6 @@ class PermissionSeeder extends Seeder
         ];
 
         $superAdminPermission = [
-            // 🔐 Super Admin
             'view-admins',
             'manage-digital-licenses',
             'manage-digital-access',
@@ -702,13 +689,11 @@ class PermissionSeeder extends Seeder
             'view-settings',
         ];
 
-        // Creation set = union of the master list AND every role array.
-        // Role syncs below pass plain string names (Spatie's syncPermissions
-        // resolves them via findByName and throws PermissionDoesNotExist for
-        // any name without a row — e.g. `correct-invoice`, which is only
-        // referenced by a role array). Building the union here guarantees
-        // every referenced permission exists, no matter which list it came
-        // from. firstOrCreate keeps this idempotent across deploys.
+        // Ensure granular order status permissions exist and are merged
+        $granularPermissionNames = $this->ensureTargetStatusPermissions();
+
+        // Creation set = union of master array, role arrays, Enum values, and dynamic statuses.
+        // Guarantees every single system permission has a persistent database record.
         $allPermissionNames = array_unique(array_merge(
             $permissions,
             $customerPermission ?? [],
@@ -716,32 +701,23 @@ class PermissionSeeder extends Seeder
             $onwnerPermission ?? [],
             $editorPermission ?? [],
             $superAdminPermission ?? [],
-            $viewPermission ?? []
+            $viewPermission ?? [],
+            $granularPermissionNames ?? [],
+            MarvelPermission::getValues()
         ));
 
-        $permissionsData = [];
         foreach ($allPermissionNames as $permission) {
-            $permissionsData[] = Permission::firstOrCreate([
+            Permission::firstOrCreate([
                 'name' => $permission,
                 'guard_name' => 'api',
             ]);
         }
 
-        // P9-7a root cause: lookups MUST be name+guard only. display_name is
-        // translatable JSON whose encoding (escaped vs raw UTF-8) differs
-        // across runtimes, so including it in the lookup silently misses and
-        // duplicates roles on reseed. (WMS roles below already use this safe
-        // pattern, which is why they never drifted.)
+        // Roles Setup
         $roleSuperAdmin = Role::firstOrCreate(
             ['name' => 'super_admin', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Super Admin', 'ar' => 'مدير_النظام']],
         );
-        // D9-3: the seeded runtime role is `owner`. The Marvel
-        // `Role::STORE_OWNER` ('store_owner') constant is legacy vocabulary
-        // (GraphQL abilities, older docs/tests) and is intentionally NOT
-        // renamed or aliased here: no `store_owner` role is seeded and no
-        // runtime code references it. Renaming either side would break the
-        // other without a migration + client audit.
         $roleOwner = Role::firstOrCreate(
             ['name' => 'owner', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Owner', 'ar' => 'مالك']],
@@ -759,41 +735,23 @@ class PermissionSeeder extends Seeder
             ['display_name' => ['en' => 'Editor', 'ar' => 'محرر']],
         );
 
-        // D9-14: super_admin is synced AFTER seedWarehouseRoles() so the
-        // fresh-seed grant includes the WMS permissions. Single sync (not
-        // one before + one after) keeps reseed deterministic. Like every
-        // other role sync in this seeder, syncPermissions REPLACES the
-        // role's grant set: custom grants outside the seeded set are revoked
-        // on reseed by design — custom grants belong on custom roles.
-        // 2026-10-13: the granular `change-order-status.*` set (created by
-        // OrderFlowService::syncTargetStatusPermissions / OrderStatusPermissionSeeder)
-        // is merged here as well. Without this, re-running ONLY this seeder
-        // would REVOKE the granular grants from super_admin (sync replaces),
-        // breaking PATCH orders/{id}/status for every admin until the
-        // OrderStatusPermissionSeeder runs again.
-        $wmsPermissionNames = $this->seedWarehouseRoles();
-        $granularPermissionNames = $this->ensureTargetStatusPermissions();
-        $roleSuperAdmin->syncPermissions(array_merge(
-            $permissionsData,
-            Permission::whereIn('name', $wmsPermissionNames)
-                ->where('guard_name', 'api')
-                ->get()
-                ->all(),
-            Permission::whereIn('name', $granularPermissionNames)
-                ->where('guard_name', 'api')
-                ->get()
-                ->all()
-        ));
-        // 2026-10-13 M2: staff holds `update-order-status`, so it must keep
-        // the full granular set on reseed-only runs (same revoke bug as
-        // super_admin — OrderFlowService::userCanTransitionTo requires the
-        // granular target permission). Owner/customer/editor do NOT hold the
-        // general gate, so they keep only whatever granular rows they already
-        // hold (preserve, never wipe manually granted ones, never over-grant).
+        // Seed dedicated WMS roles
+        $this->seedWarehouseRoles();
+
+        // 🌟 CRITICAL ENTERPRISE FIX:
+        // Super Admin MUST receive 100% of all permissions with guard `api` in the database.
+        // This ensures super_admin never loses any permission on re-seed, regardless of when
+        // or where a permission was defined.
+        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $roleSuperAdmin->syncPermissions($allApiPermissions);
+
+        // Staff maintains its baseline + all granular target status transition permissions
         $roleStaff->syncPermissions(array_merge(
             $staffAndOnwner,
             $granularPermissionNames
         ));
+
+        // Owner, Customer, Editor retain their grants + preserve existing granular statuses
         $roleOwner->syncPermissions(array_merge(
             $onwnerPermission,
             $this->existingGranularForRole($roleOwner)
@@ -807,6 +765,17 @@ class PermissionSeeder extends Seeder
             $this->existingGranularForRole($roleEditor)
         ));
 
+        // Sync all existing Super Admin users with all system permissions
+        try {
+            $superAdmins = User::role('super_admin')->get();
+            foreach ($superAdmins as $superAdmin) {
+                $superAdmin->syncPermissions($allApiPermissions);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        // Demo super admin user (admin@demo.com)
         $adminUser = User::where('email', 'admin@demo.com')->first();
         if (! $adminUser && ! app()->isProduction()) {
             $adminUser = User::create([
@@ -824,27 +793,17 @@ class PermissionSeeder extends Seeder
             if (! $adminUser->hasRole('super_admin')) {
                 $adminUser->assignRole('super_admin');
             }
-            $adminUser->syncPermissions(
-                Permission::where('guard_name', 'api')->get()
-            );
+            $adminUser->syncPermissions($allApiPermissions);
         }
 
-        // Bust Spatie's permission cache so newly created rows (e.g.
-        // delete-all-products) take effect immediately — otherwise the new
-        // row stays invisible until a cache clear and gates keep 403ing.
-        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        // Bust Spatie's permission cache so newly created/synced rows take effect immediately
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
     /**
-     * Granular `change-order-status.*` preservation for super_admin.
+     * Granular `change-order-status.*` preservation for super_admin and staff.
      *
-     * The granular set is owned by OrderFlowService::syncTargetStatusPermissions()
-     * (and bridged additively by OrderStatusPermissionSeeder). This seeder runs
-     * BEFORE OrderStatusPermissionSeeder in DatabaseSeeder, so on a fresh seed
-     * the rows may not exist yet — and on a reseed-only run this seeder must
-     * NOT revoke them. Strategy: best-effort ensure via the service when its
-     * tables exist, then always merge any existing `change-order-status.%`
-     * rows from the DB. Returns permission names (possibly empty, never throws).
+     * Ensures all catalog status codes and legacy slugs have explicit permission rows.
      *
      * @return array<int, string>
      */
@@ -852,15 +811,38 @@ class PermissionSeeder extends Seeder
     {
         $names = [];
 
+        // 1. Sync through canonical OrderFlowService if available
         try {
-            if (class_exists(\App\Services\OrderFlow\OrderFlowService::class)) {
-                $names = (array) app(\App\Services\OrderFlow\OrderFlowService::class)->syncTargetStatusPermissions();
+            if (class_exists(OrderFlowService::class)) {
+                $names = (array) app(OrderFlowService::class)->syncTargetStatusPermissions();
             }
         } catch (\Throwable $e) {
             report($e);
             $names = [];
         }
 
+        // 2. Ensure default catalog status codes always exist
+        $defaultStatusCodes = [
+            'pending', 'processing', 'packed', 'shipped', 'in_transit',
+            'arrived_at_destination_country', 'customs_clearance', 'customs_hold',
+            'customs_cleared', 'export_processing', 'import_processing', 'local_carrier',
+            'out_for_delivery', 'delivered', 'failed_delivery', 'returned', 'completed',
+            'cancelled', 'confirmed', 'ready_to_ship', 'ready_for_pickup', 'picked_up',
+            'order-pending', 'order-processing', 'order-completed', 'order-cancelled',
+            'order-refunded', 'order-failed', 'order-at-local-facility', 'order-out-for-delivery',
+        ];
+
+        foreach ($defaultStatusCodes as $code) {
+            $permName = "change-order-status.{$code}";
+            try {
+                Permission::firstOrCreate(['name' => $permName, 'guard_name' => 'api']);
+                $names[] = $permName;
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        // 3. Merge any additional status permissions present in the database
         try {
             $existing = Permission::query()
                 ->where('guard_name', 'api')
@@ -877,9 +859,6 @@ class PermissionSeeder extends Seeder
 
     /**
      * Existing granular `change-order-status.*` rows already held by a role.
-     * Used to preserve (never wipe) manually granted granular targets on
-     * reseed-only runs for roles that do NOT own the full granular set
-     * (owner/customer/editor). Never throws; returns names (possibly empty).
      *
      * @return array<int, string>
      */
@@ -899,29 +878,147 @@ class PermissionSeeder extends Seeder
     }
 
     /**
-     * Phase 13: warehouse staff roles. Pickers/packers receive execution
-     * permissions ONLY — never financial permissions (update-order-status,
-     * refunds, payment administration). Supervisor holds override.
+     * Warehouse staff roles and comprehensive WMS permission assignment.
      */
     private function seedWarehouseRoles(): array
     {
-        $wmsPermissions = [
-            'view-warehouse', 'manage-warehouse',
-            'view-location', 'manage-location',
-            'view-fulfillment', 'manage-fulfillment',
-            'picking-execute', 'packing-execute',
-            'fulfillment-override', 'inventory-adjust',
-            // Q-08: independent warehouse-workflow permission.
-            'manage-warehouse-workflow',
-            // Granular operational permissions (§28 — additive, assignable).
-            'fulfillment.create', 'fulfillment.cancel',
-            'picking.claim', 'picking.complete',
+        $allWmsPermissions = [
+            // General Warehouse & Locations
+            'view-warehouse',
+            'manage-warehouse',
+            'view-location',
+            'manage-location',
+
+            // Fulfillments
+            'view-fulfillment',
+            'manage-fulfillment',
+            'fulfillment-override',
+            'fulfillment.create',
+            'fulfillment.cancel',
+
+            // Operations & Inventory
+            'picking-execute',
+            'packing-execute',
+            'inventory-adjust',
+            'picking.claim',
+            'picking.complete',
             'packing.complete',
-            'batch.manage', 'batch.operate',
+            'batch.manage',
+            'batch.operate',
             'order.cancel-during-fulfillment',
             'barcode.scan',
+
+            // Warehouse Workflow
+            'manage-warehouse-workflow',
+            'warehouse-workflow.show',
+            'warehouse-workflow.history',
+            'warehouse-workflow.publish',
+
+            // Granular Warehouses
+            'warehouses.index',
+            'warehouses.show',
+            'warehouses.create',
+            'warehouses.update',
+            'warehouses.set-default',
+            'warehouses.activate',
+            'warehouses.deactivate',
+            'warehouses.delete',
+            'warehouses.users.view',
+            'warehouses.users.assign',
+            'warehouses.users.remove-bulk',
+            'warehouses.users.remove',
+
+            // Granular Locations
+            'locations.index',
+            'locations.show',
+            'locations.check-occupancy',
+            'locations.create',
+            'locations.update',
+            'locations.activate',
+            'locations.deactivate',
+            'locations.delete',
+            'locations.empty-products',
+
+            // Granular Fulfillments
+            'fulfillments.index',
+            'fulfillments.show',
+            'fulfillments.assign',
+            'fulfillments.create-tasks',
+            'fulfillments.complete-picking',
+            'fulfillment-items.assign-placement',
+            'fulfillments.create-packing-tasks',
+            'fulfillments.create-packing-task',
+
+            // Granular Picking Tasks
+            'picking-tasks.index',
+            'picking-tasks.show',
+            'picking-tasks.claim',
+            'picking-tasks.release',
+            'picking-tasks.confirm',
+            'picking-tasks.record-pick',
+            'picking-tasks.skip',
+            'picking-tasks.reallocate',
+
+            // Granular Packing Tasks
+            'packing-tasks.index',
+            'packing-tasks.show',
+            'packing-tasks.assign',
+            'packing-tasks.start',
+            'packing-tasks.pack',
+            'packing-tasks.verify',
+            'packing-tasks.cancel',
+            'packing-tasks.stations',
+
+            // Granular Packing Stations
+            'packing-stations.index',
+            'packing-stations.show',
+            'packing-stations.create',
+            'packing-stations.update',
+            'packing-stations.delete',
+
+            // Granular Packages
+            'packages.index',
+            'packages.show',
+            'packages.create',
+            'packages.add-item',
+            'packages.seal',
+            'packages.void',
+
+            // Granular WMS Shipments
+            'wms-shipments.index',
+            'wms-shipments.show',
+            'wms-shipments.create',
+            'wms-shipments.bulk-create',
+            'wms-shipments.bulk-dispatch',
+            'wms-shipments.bulk-deliver',
+            'wms-shipments.dispatch',
+            'wms-shipments.deliver',
+            'wms-shipments.cancel',
+
+            // Granular Inventory Operations
+            'inventory.receive',
+            'inventory.transfer',
+            'inventory.product-placements',
+            'inventory.overview',
+            'inventory.operations.index',
+            'inventory.operations.show',
+
+            // Granular Batches
+            'batch.index',
+            'batch.show',
+            'batch.pending-fulfillments',
+            'batch.next-task',
+            'batch.create',
+            'batch.assign',
+            'batch.start',
+            'batch.refresh-progress',
+            'batch.complete',
+            'batch.confirm-location',
+            'batch.cancel',
+            'batch.retry',
         ];
-        foreach ($wmsPermissions as $name) {
+
+        foreach ($allWmsPermissions as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
 
@@ -929,34 +1026,64 @@ class PermissionSeeder extends Seeder
             ['name' => 'picker', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Picker', 'ar' => 'عامل التقاط']]
         );
-        $picker->syncPermissions(['view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute', 'picking.claim']);
+        $picker->syncPermissions([
+            'view-warehouse',
+            'view-location',
+            'view-fulfillment',
+            'picking-execute',
+            'picking.claim',
+            'picking.complete',
+            'barcode.scan',
+            'warehouses.show',
+            'locations.show',
+        ]);
 
         $packer = Role::firstOrCreate(
             ['name' => 'packer', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Packer', 'ar' => 'عامل تغليف']]
         );
-        $packer->syncPermissions(['view-warehouse', 'view-location', 'view-fulfillment', 'packing-execute']);
+        $packer->syncPermissions([
+            'view-warehouse',
+            'view-location',
+            'view-fulfillment',
+            'packing-execute',
+            'packing.complete',
+            'barcode.scan',
+            'warehouses.show',
+            'locations.show',
+        ]);
 
         $supervisor = Role::firstOrCreate(
             ['name' => 'warehouse-supervisor', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Warehouse Supervisor', 'ar' => 'مشرف مستودع']]
         );
         $supervisor->syncPermissions([
-            'view-warehouse', 'view-location', 'view-fulfillment', 'manage-fulfillment',
-            'picking-execute', 'packing-execute', 'fulfillment-override',
-            'fulfillment.create', 'fulfillment.cancel',
-            'picking.claim', 'picking.complete',
+            'view-warehouse',
+            'view-location',
+            'view-fulfillment',
+            'manage-fulfillment',
+            'picking-execute',
+            'packing-execute',
+            'fulfillment-override',
+            'fulfillment.create',
+            'fulfillment.cancel',
+            'picking.claim',
+            'picking.complete',
             'packing.complete',
-            'batch.manage', 'batch.operate',
+            'batch.manage',
+            'batch.operate',
             'order.cancel-during-fulfillment',
+            'barcode.scan',
+            'warehouses.show',
+            'locations.show',
         ]);
 
         $manager = Role::firstOrCreate(
             ['name' => 'warehouse-manager', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Warehouse Manager', 'ar' => 'مدير مستودع']]
         );
-        $manager->syncPermissions($wmsPermissions);
+        $manager->syncPermissions($allWmsPermissions);
 
-        return $wmsPermissions;
+        return $allWmsPermissions;
     }
 }

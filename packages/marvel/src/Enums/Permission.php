@@ -53,6 +53,7 @@ final class Permission extends Enum
     public const VIEW_BRANDS = 'view-brands';
     public const VIEW_BRAND = 'view-brand';
     public const VIEW_CONTACTS = 'view-contacts';
+    public const VIEW_CONTACT = 'view-contact';
     public const VIEW_COUPONS = 'view-coupons';
     public const VERIFY_COUPON = 'verify-coupon';
     public const VIEW_CMS_PAGES = 'view-cms-pages';
@@ -487,6 +488,9 @@ final class Permission extends Enum
     public const ADMIN_REFUNDS_APPROVE = 'admin-refunds.approve';
     public const ADMIN_REFUNDS_REJECT = 'admin-refunds.reject';
     public const PAYMENTS_REFUND = 'payments.refund';
+    public const PAYMENTS_MARK_PAID = 'payments.mark_paid';
+    public const PAYMENTS_VERIFY = 'payments.verify';
+    public const PAYMENTS_RECONCILE = 'payments.reconcile';
 
     // 👥 Admin Users Granular Permissions
     public const ADMIN_USERS_CREATE = 'admin-users.create';
