@@ -412,11 +412,9 @@ class WmsPackingTest extends TestCase
         $supervisor = $this->supervisor();
         $fulfillment = $this->pickedFulfillment('seal-test');
         $task = $this->fullPackingTask($supervisor, $fulfillment);
-        $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
-            ->assertStatus(200);
+        $this->assertSame('packing', $task->fresh()->status);
 
-        // Create open package and add all items
+        // Create open package and add all items while task is still in `packing` status
         $packageId = $this->actingAs($supervisor, 'sanctum')
             ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
             ->assertStatus(201)->json('data.id');
@@ -426,13 +424,20 @@ class WmsPackingTest extends TestCase
                 'fulfillment_item_id' => $itemId, 'quantity' => 2,
             ])->assertStatus(200);
 
-        // Verify while package is still open (before seal) -> succeeds
+        // Verify while task is in `packing` status and package is `open` (before pack & seal) -> succeeds
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
             ->assertStatus(200);
         $this->assertSame('verified', $task->fresh()->status);
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
         $this->assertSame('open', Package::find($packageId)->status);
+
+        // Record weight & dimensions via /pack after verify -> succeeds
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
+            ->assertStatus(200);
+        $this->assertSame('verified', $task->fresh()->status);
+        $this->assertEquals(2.5, (float) $task->fresh()->weight);
 
         // Now seal the package after verification -> succeeds and assigns barcode
         $seal = $this->actingAs($supervisor, 'sanctum')

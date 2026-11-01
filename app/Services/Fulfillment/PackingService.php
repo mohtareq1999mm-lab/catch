@@ -185,19 +185,21 @@ class PackingService
         return DB::transaction(function () use ($task, $weight, $dimensions, $materials, $notes) {
             $locked = PackingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->status !== 'packing') {
+            $canCompleteAfterVerify = $locked->status === 'verified' && $locked->weight === null;
+
+            if ($locked->status !== 'packing' && !$canCompleteAfterVerify) {
                 throw new \RuntimeException(
                     __('wms.packing.complete_status', ['status' => $locked->status])
                 );
             }
 
             $locked->update([
-                'status' => 'packed',
+                'status' => $locked->status === 'verified' ? 'verified' : 'packed',
                 'weight' => $weight,
                 'dimensions' => $dimensions,
                 'package_materials' => $materials,
-                'packed_at' => now(),
-                'notes' => $notes,
+                'packed_at' => $locked->packed_at ?? now(),
+                'notes' => $notes ?? $locked->notes,
             ]);
 
             FulfillmentItem::where('fulfillment_id', $locked->fulfillment_id)
@@ -221,7 +223,7 @@ class PackingService
     }
 
     /**
-     * Verify packed task.
+     * Verify packing task (allowed from `packing` or `packed` status).
      * P6-2: locked fresh state. P6-3: no sibling open task AND every picked
      * unit fully packaged (D6-3) — otherwise the fulfillment must not become
      * ready_to_ship. Lock order: task → fulfillment → siblings → packages →
@@ -232,7 +234,7 @@ class PackingService
         return DB::transaction(function () use ($task, $notes) {
             $locked = PackingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->status !== 'packed') {
+            if (!in_array($locked->status, ['packing', 'packed'], true)) {
                 throw new \RuntimeException(
                     __('wms.packing.verify_status', ['status' => $locked->status])
                 );
@@ -256,6 +258,7 @@ class PackingService
 
             $locked->update([
                 'status' => 'verified',
+                'packed_at' => $locked->packed_at ?? now(),
                 'verified_at' => now(),
                 'notes' => $notes ?? $locked->notes,
             ]);
