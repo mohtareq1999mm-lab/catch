@@ -319,7 +319,7 @@ class OrderController extends Controller
 
     public function checkoutCallback(Request $request)
     {
-        $paymentId = $request->query('paymentId', $request->input('paymentId'));
+        $paymentId = $this->paymentReference($request);
         if (!$paymentId) {
             return $this->apiResponse(MISSING_PAYMENT_ID, 400, false);
         }
@@ -619,7 +619,7 @@ class OrderController extends Controller
 
     public function checkoutErrorCallback(Request $request)
     {
-        $paymentId = $request->query('paymentId', $request->input('paymentId'));
+        $paymentId = $this->paymentReference($request);
         if (!$paymentId) {
             return $this->apiResponse(MISSING_PAYMENT_ID, 400, false);
         }
@@ -891,6 +891,43 @@ class OrderController extends Controller
             true,
             CustomerInvoiceResource::make($invoice)
         );
+    }
+
+    /**
+     * Callback reference resolution: `paymentId` keeps precedence; Tap
+     * redirects (DOC-FACT: developers.tap.company/docs/redirect) carry the
+     * charge id as `tap_id` instead; Tabby HPP redirects append `payment_id`
+     * (DOC-FACT: docs.tabby.ai payment-processing — the redirect urls are
+     * called with the payment id); Tamara merchant_urls (success/failure/
+     * cancel) carry Tamara's echo params — Tamara's own sample checkout URL
+     * carries `orderId=`, so `order_id` then `orderId` are accepted as the
+     * LOWEST-precedence fallbacks (UNVERIFIED exact param names — Tamara's
+     * current docs do not pin the appended redirect params; the webhook +
+     * reconciliation cover a customer who never returns). Fallback source
+     * only — the id stays an untrusted lookup hint; the outcome is decided
+     * by the server-side re-verification each callback performs.
+     */
+    private function paymentReference(Request $request): ?string
+    {
+        $paymentId = $request->query('paymentId', $request->input('paymentId'));
+
+        if (!$paymentId) {
+            $paymentId = $request->query('tap_id', $request->input('tap_id'));
+        }
+
+        if (!$paymentId) {
+            $paymentId = $request->query('payment_id', $request->input('payment_id'));
+        }
+
+        if (!$paymentId) {
+            $paymentId = $request->query('order_id', $request->input('order_id'));
+        }
+
+        if (!$paymentId) {
+            $paymentId = $request->query('orderId', $request->input('orderId'));
+        }
+
+        return $paymentId;
     }
 
     private function getCallbackType(?Transaction $transaction, Request $request): string

@@ -145,6 +145,24 @@ Schema::create('social_login_codes', function (Blueprint $table) {
             $table->softDeletes();
         });
 
+        // Mirrors 2026_10_31_000001 product_barcodes: ONE row per product
+        // (piece/carton barcode strings + optional pieces_per_carton).
+        // Guarded: migrated test databases already have it from the real
+        // migration; a create here is for suites that bootstrap from this
+        // trait without running migrations. Product CRUD resources always
+        // serialize these fields, so the table must exist for every
+        // product test even when no barcode is used.
+        if (!Schema::hasTable('product_barcodes')) {
+            Schema::create('product_barcodes', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('product_id')->constrained('products')->cascadeOnDelete()->unique();
+                $table->string('piece_barcode', 64)->nullable()->unique();
+                $table->string('carton_barcode', 64)->nullable()->unique();
+                $table->unsignedInteger('pieces_per_carton')->nullable();
+                $table->timestamps();
+            });
+        }
+
         Schema::create('wishlists', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('user_id');

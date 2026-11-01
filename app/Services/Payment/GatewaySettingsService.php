@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Payment;
 
+use App\Enums\FrontendResource;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Currency\CurrencyService;
+use App\Traits\HasCache;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Settings;
 
@@ -18,6 +21,7 @@ use Marvel\Database\Models\Settings;
  */
 class GatewaySettingsService
 {
+    use HasCache;
     /**
      * @return array<string, array>
      */
@@ -120,14 +124,23 @@ class GatewaySettingsService
      * Client-safe public view of every known gateway, in admin sort order.
      *
      * Same source as getAdminView() (same merge, same order), trimmed to
-     * what the storefront needs: {code, display_name,
-     * supported_currencies, supports_catalog_currency}. Internal fields
-     * (enabled, configured, methods, sort_order) stay admin-only and
-     * secrets are never present. No availability verdict is computed here —
-     * checkout stays the final authority (HTTP 422) when a setting changes
-     * between this read and order submit.
+     * what the storefront needs: {code, display_name, enabled, available,
+     * supported_currencies, supports_catalog_currency}.
      *
-     * @return array<int, array{code: string, display_name: string, supported_currencies: array<int, string>, supports_catalog_currency: bool}>
+     * enabled is the admin toggle from settings.options['payment_gateways'],
+     * so a gateway disabled from Site Settings is reported as unavailable
+     * without any frontend hard-coding. available is a DISPLAY-layer verdict:
+     * enabled && configured && supports_catalog_currency. Internal fields
+     * (configured, methods, sort_order) stay admin-only and secrets are
+     * never present.
+     *
+     * This snapshot is NOT a security boundary: the order moment may see a
+     * different setting, and per-provider eligibility (plan/amount checks,
+     * shipping method, Tamara isEligible etc.) is order-specific. Checkout
+     * stays the final authority (HTTP 422) when a setting changes between
+     * this read and order submit.
+     *
+     * @return array<int, array{code: string, display_name: string, enabled: bool, available: bool, supported_currencies: array<int, string>, supports_catalog_currency: bool}>
      */
     public function getPublicView(string $catalogCode): array
     {
@@ -135,14 +148,73 @@ class GatewaySettingsService
 
         return array_map(function (array $row) use ($catalogCode) {
             $supported = array_map('strtoupper', array_values((array) ($row['supported_currencies'] ?? [])));
+            $supportsCatalogCurrency = in_array($catalogCode, $supported, true);
 
             return [
                 'code' => $row['code'],
                 'display_name' => $row['display_name'],
+                'enabled' => (bool) $row['enabled'],
+                'available' => (bool) $row['enabled'] && (bool) ($row['configured'] ?? false) && $supportsCatalogCurrency,
                 'supported_currencies' => $supported,
-                'supports_catalog_currency' => in_array($catalogCode, $supported, true),
+                'supports_catalog_currency' => $supportsCatalogCurrency,
             ];
         }, $this->getAdminView());
+    }
+
+    /**
+     * Compact {code => {enabled, available}} map for the Settings responses
+     * (SettingResource renders it on both GET settings endpoints).
+     *
+     * available is the same display-layer verdict as getPublicView():
+     * enabled && configured && supports_catalog_currency. NOT a security
+     * boundary — checkout stays the final authority (HTTP 422). Secrets and
+     * the other internal fields (configured, methods, sort_order) never
+     * leave the service here.
+     *
+     * Caching: computed under the SAME FrontendResource::SETTINGS tag every
+     * write path flushes (settings saves, admin gateway toggles, currency
+     * catalog writes), so a toggle invalidates the map instantly. The 15min
+     * TTL bounds staleness for out-of-band DB edits only. Invalidation is
+     * correctness-complete because every legitimate mutating path flushes
+     * the tag; the TTL is purely self-healing.
+     *
+     * @return array<string, array{enabled: bool, available: bool}>
+     */
+    public function clientAvailabilityMap(): array
+    {
+        return $this->remember(
+            FrontendResource::SETTINGS->value,
+            'payment_gateways.client_availability_map',
+            fn () => $this->buildClientAvailabilityMap(),
+            now()->addMinutes(15),
+        );
+    }
+
+    /**
+     * Compute the availability map (cache-miss path). Never throws.
+     *
+     * @return array<string, array{enabled: bool, available: bool}>
+     */
+    private function buildClientAvailabilityMap(): array
+    {
+        try {
+            $catalogCode = strtoupper((string) app(CurrencyService::class)->getCatalogCode());
+        } catch (\Throwable $e) {
+            // Currency subsystem failure must never break the settings
+            // response; degrade to the payment default currency. The
+            // availability verdict then reflects that currency's support.
+            $catalogCode = strtoupper((string) config('payment.default_currency', 'KWD'));
+        }
+
+        $map = [];
+        foreach ($this->getPublicView($catalogCode) as $row) {
+            $map[$row['code']] = [
+                'enabled' => (bool) $row['enabled'],
+                'available' => (bool) $row['available'],
+            ];
+        }
+
+        return $map;
     }
 
     /**

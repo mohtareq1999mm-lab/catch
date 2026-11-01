@@ -26,6 +26,11 @@ class ProductMiniResource extends JsonResource
             'price' => $this->convertCatalogPrice($this->price),
             'has_variants' => $this->product_type !== 'simple' ? true : false,
             'item_type' => $this->item_type,
+            // Barcode attributes (one product_barcodes row per product);
+            // lists eager-load it via ProductService::productRelations().
+            'piece_barcode' => $this->barcodes?->piece_barcode,
+            'carton_barcode' => $this->barcodes?->carton_barcode,
+            'pieces_per_carton' => $this->barcodes?->pieces_per_carton,
             'current_price' => $convertedCurrentPrice,
             'currency' => $this->effectiveCurrency(),
             'quantity' => (int) $this->stock_quantity,

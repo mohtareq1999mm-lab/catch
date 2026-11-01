@@ -30,8 +30,11 @@ class PaymentGatewayController extends Controller
      * public fields) plus the identical fast-shipping status block served
      * by GET /api/v1/general/fast-shipping/status.
      *
-     * No availability verdict is computed here: a gateway disabled between
-     * this read and order submit is still rejected by checkout (HTTP 422),
+     * Each gateway row carries enabled (the Site Settings admin toggle) and
+     * available (enabled && configured && supports_catalog_currency) so the
+     * frontend can hide disabled/unconfigured/wrong-currency gateways.
+     * This snapshot is not a security boundary: checkout re-validates the
+     * gateway, credentials, method and currency at order time (HTTP 422),
      * which stays the single authority.
      *
      * Note: display_name is admin-editable free text served to unauthenticated

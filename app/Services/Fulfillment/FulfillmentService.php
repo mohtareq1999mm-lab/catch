@@ -5,6 +5,7 @@ namespace App\Services\Fulfillment;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\FulfillmentItem;
 use App\Services\Warehouse\WarehouseService;
+use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -19,6 +20,7 @@ class FulfillmentService
         private WarehouseService $warehouses,
         private BatchPickingService $batches,
         private PackingService $packing,
+        private WarehouseWorkflowSwitchService $workflowSwitch,
     ) {}
 
     /**
@@ -145,6 +147,17 @@ class FulfillmentService
                     return $active->fresh();
                 }
             }
+
+            // WAREHOUSE-WORKFLOW-SWITCH: OFF blocks the creation of a NEW
+            // fulfillment row (Orders-only mode). Continuation is never
+            // affected — every branch above returned an existing row already
+            // (keyed replay / pending reuse / active reuse), so reaching this
+            // line means a brand-new fulfillment WOULD now be created: fresh
+            // releases and custom-key split intents are both refused here.
+            // Fail-closed: an unreadable switch state also refuses. No row,
+            // item, number, or pin happened yet, so a refusal leaves zero
+            // partial state (atomic w.r.t. the restriction).
+            $this->workflowSwitch->assertNewFulfillmentAllowed();
 
             $created = $this->createFromOrder($fresh, $resolvedWarehouseId);
             if ($idempotencyKey !== null) {

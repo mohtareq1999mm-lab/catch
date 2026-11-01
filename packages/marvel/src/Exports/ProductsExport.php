@@ -7,6 +7,7 @@ use Marvel\Exports\Sheets\BrandsSheetExport;
 use Marvel\Exports\Sheets\CategoriesSheetExport;
 use Marvel\Exports\Sheets\FlashSalesSheetExport;
 use Marvel\Exports\Sheets\ImagesSheetExport;
+use Marvel\Exports\Sheets\ProductBarcodesSheetExport;
 use Marvel\Exports\Sheets\ProductsSheetExport;
 use Marvel\Exports\Sheets\ProductVariantsSheetExport;
 use Marvel\Exports\Sheets\SlidersSheetExport;
@@ -25,6 +26,7 @@ class ProductsExport implements WithMultipleSheets
     {
         return [
             'products' => new ProductsSheetExport($this->filters),
+            'product_barcodes' => new ProductBarcodesSheetExport($this->filters),
             'product_variants' => new ProductVariantsSheetExport($this->filters),
             'images' => new ImagesSheetExport($this->filters),
             'categories' => new CategoriesSheetExport($this->filters),

@@ -25,6 +25,10 @@ class PublicPaymentGatewaysTest extends CurrencyTestCase
         config(['payment.gateways.stripe.secret_key' => null]);
         config(['payment.gateways.stripe.webhook_secret' => null]);
         config(['payment.gateways.paypal.client_secret' => null]);
+        // Currency lists are env-backed: pin the ones these tests reason
+        // about so a developer .env cannot narrow the tap list and skew the
+        // available/on-catalog expectations.
+        config(['payment.gateways.tap.supported_currencies' => ['AED', 'KWD', 'USD']]);
     }
 
     /** @test */
@@ -59,10 +63,12 @@ class PublicPaymentGatewaysTest extends CurrencyTestCase
 
         foreach ($gateways as $row) {
             $this->assertEquals(
-                ['code', 'display_name', 'supported_currencies', 'supports_catalog_currency'],
+                ['code', 'display_name', 'enabled', 'available', 'supported_currencies', 'supports_catalog_currency'],
                 array_keys($row),
                 'Public gateway row must not gain/lose fields silently.'
             );
+            $this->assertIsBool($row['enabled']);
+            $this->assertIsBool($row['available']);
             $this->assertIsBool($row['supports_catalog_currency']);
         }
 
@@ -73,7 +79,10 @@ class PublicPaymentGatewaysTest extends CurrencyTestCase
         $this->assertStringNotContainsString('canary-myfatoorah-secret', $raw);
         $this->assertStringNotContainsString('canary-stripe-secret', $raw);
         $this->assertStringNotContainsString('canary-paypal-secret', $raw);
-        foreach (['enabled', 'configured', 'sort_order'] as $internal) {
+        // enabled/available are now public BY DESIGN (§6 availability
+        // exposure); configured/sort_order stay internal and the secret
+        // canaries must never leak under any key.
+        foreach (['configured', 'sort_order'] as $internal) {
             $this->assertArrayNotHasKey($internal, $gateways[0]);
         }
     }
@@ -97,8 +106,9 @@ class PublicPaymentGatewaysTest extends CurrencyTestCase
     /** @test */
     public function gateway_order_matches_admin_view_and_lists_disabled_gateways(): void
     {
-        // No availability verdict here: even a disabled gateway is listed —
-        // checkout (HTTP 422) stays the single authority at submit time.
+        // A disabled gateway is still LISTED but reports enabled=false and
+        // available=false so the frontend can hide it; checkout (HTTP 422)
+        // stays the single authority at submit time.
         config(['payment.gateways.myfatoorah.enabled' => false]);
 
         $response = $this->getJson(self::PUBLIC_PREFIX);
@@ -184,5 +194,79 @@ class PublicPaymentGatewaysTest extends CurrencyTestCase
         $response->assertOk()->assertJson(['success' => true]);
         $this->assertNotEmpty($response->json('data.gateways'));
         $this->assertFalse($response->json('data.fast_shipping.enabled'));
+    }
+
+    /**
+     * Write a settings.options['payment_gateways'][code].enabled override
+     * exactly the way the admin endpoint persists one. (The request layer
+     * never accepts null for enabled, so there is no clear path here.)
+     */
+    private function setGatewayEnabled(string $code, bool $enabled): void
+    {
+        $settings = Settings::query()->first() ?? $this->createSettings();
+        $options = is_array($settings->options) ? $settings->options : [];
+        $gateways = is_array($options['payment_gateways'] ?? null) ? $options['payment_gateways'] : [];
+
+        $gateways[$code] = array_merge($gateways[$code] ?? [], ['enabled' => $enabled]);
+
+        $options['payment_gateways'] = $gateways;
+        $settings->options = $options;
+        $settings->save();
+    }
+
+    /** @test */
+    public function admin_enabled_gateway_configured_and_currency_supported_is_available(): void
+    {
+        // Tap supports the USD catalog; only the admin toggle is missing.
+        config(['payment.gateways.tap.secret_key' => 'test-tap-secret']);
+        $this->setGatewayEnabled('tap', true);
+
+        $byCode = collect($this->getJson(self::PUBLIC_PREFIX)->json('data.gateways'))->keyBy('code');
+
+        $this->assertTrue($byCode['tap']['enabled']);
+        $this->assertTrue($byCode['tap']['available']);
+    }
+
+    /** @test */
+    public function site_settings_disable_reflects_enabled_false_and_available_false(): void
+    {
+        config(['payment.gateways.tap.secret_key' => 'test-tap-secret']);
+        $this->setGatewayEnabled('tap', true);
+        $this->setGatewayEnabled('tap', false);
+
+        $byCode = collect($this->getJson(self::PUBLIC_PREFIX)->json('data.gateways'))->keyBy('code');
+
+        // Still listed (frontend may grey it out) but flagged unavailable.
+        $this->assertContains('tap', array_keys($byCode->all()));
+        $this->assertFalse($byCode['tap']['enabled']);
+        $this->assertFalse($byCode['tap']['available']);
+    }
+
+    /** @test */
+    public function enabled_gateway_without_credentials_stays_unavailable(): void
+    {
+        config(['payment.gateways.myfatoorah.supported_currencies' => ['KWD', 'USD']]);
+        config(['payment.gateways.myfatoorah.api_key' => null]);
+
+        $byCode = collect($this->getJson(self::PUBLIC_PREFIX)->json('data.gateways'))->keyBy('code');
+
+        $this->assertTrue($byCode['myfatoorah']['enabled']);
+        $this->assertTrue($byCode['myfatoorah']['supports_catalog_currency']);
+        $this->assertFalse($byCode['myfatoorah']['available']);
+    }
+
+    /** @test */
+    public function enabled_configured_gateway_outside_catalog_currency_stays_unavailable(): void
+    {
+        config(['payment.gateways.myfatoorah.supported_currencies' => ['KWD']]);
+
+        $byCode = collect($this->getJson(self::PUBLIC_PREFIX)->json('data.gateways'))->keyBy('code');
+
+        $this->assertTrue($byCode['myfatoorah']['enabled']);
+        // configured itself stays internal; prove its TRUE state via the
+        // admin view so the ONLY public false operand is the currency.
+        $this->assertTrue(collect(app(GatewaySettingsService::class)->getAdminView())->firstWhere('code', 'myfatoorah')['configured']);
+        $this->assertFalse($byCode['myfatoorah']['supports_catalog_currency']);
+        $this->assertFalse($byCode['myfatoorah']['available']);
     }
 }

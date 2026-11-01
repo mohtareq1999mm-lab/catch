@@ -5,6 +5,7 @@ namespace App\Listeners;
 use App\Events\OrderCreated;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
@@ -28,6 +29,11 @@ use Throwable;
  *
  * Same deterministic key, warehouse (default), retry and reporting
  * semantics as the payment listener — one fulfillment per order.
+ *
+ * WAREHOUSE-WORKFLOW-SWITCH: when the workflow is disabled (Orders-only
+ * mode) the automatic release is a policy skip without retry — the hourly
+ * sweeper re-evaluates on re-enable and the automatic key converges.
+ * Fail-closed: an unreadable switch state also skips (no new fulfillment).
  */
 class ReleaseFulfillmentOnCodPlacement implements ShouldQueue
 {
@@ -52,6 +58,7 @@ class ReleaseFulfillmentOnCodPlacement implements ShouldQueue
     public function __construct(
         private FulfillmentService $fulfillments,
         private OrderReservationService $reservations,
+        private WarehouseWorkflowSwitchService $workflowSwitch,
     ) {}
 
     public function handle(OrderCreated $event): void
@@ -84,6 +91,17 @@ class ReleaseFulfillmentOnCodPlacement implements ShouldQueue
             Log::warning('Manual-payment auto-release skipped: inventory not secured', [
                 'order_id' => $order->id,
                 'inventory_state' => $order->inventory_state,
+            ]);
+
+            return;
+        }
+
+        // WAREHOUSE-WORKFLOW-SWITCH: policy skip when disabled (Orders-only
+        // mode) or unreadable — deliberately NOT a retryable error; the
+        // sweep re-evaluates after re-enable.
+        if (!$this->workflowSwitch->isEnabled()) {
+            Log::info('Manual-payment auto-release rejected: warehouse workflow disabled (Orders-only mode)', [
+                'order_id' => $order->id,
             ]);
 
             return;

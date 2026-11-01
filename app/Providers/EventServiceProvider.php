@@ -268,6 +268,11 @@ class EventServiceProvider extends ServiceProvider
         // skips, never forced). See FulfillmentOrderSyncService matrix.
         FulfillmentProgressed::class => [
             \App\Listeners\SyncOrderWithFulfillmentProgress::class,
+            // Tamara settlement: capture the authorised payment once the
+            // goods have shipped (full-shipment gated; adapter fresh-read
+            // pre-fence rejects/dedupes; capture is bookkeeping, never
+            // completion). Tamara-gated internally by payment row checks.
+            \App\Listeners\CaptureTamaraOnShipment::class,
         ],
     ];
 

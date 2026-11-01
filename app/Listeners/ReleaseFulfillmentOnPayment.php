@@ -5,6 +5,7 @@ namespace App\Listeners;
 use App\Events\PaymentSucceeded;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
@@ -20,6 +21,11 @@ use Throwable;
  * one fulfillment row. Permanent terminal states (cancelled/delivered) skip
  * without retry; anything else rethrows for queue retry and failed()
  * reporting. Never touches payment, inventory, or order lifecycle state.
+ *
+ * WAREHOUSE-WORKFLOW-SWITCH: when the workflow is disabled (Orders-only
+ * mode) the automatic release is a policy skip without retry — the hourly
+ * sweeper re-evaluates on re-enable and the automatic key converges.
+ * Fail-closed: an unreadable switch state also skips (no new fulfillment).
  */
 class ReleaseFulfillmentOnPayment implements ShouldQueue
 {
@@ -46,6 +52,7 @@ class ReleaseFulfillmentOnPayment implements ShouldQueue
     public function __construct(
         private FulfillmentService $fulfillments,
         private OrderReservationService $reservations,
+        private WarehouseWorkflowSwitchService $workflowSwitch,
     ) {}
 
     public function handle(PaymentSucceeded $event): void
@@ -61,6 +68,17 @@ class ReleaseFulfillmentOnPayment implements ShouldQueue
 
         if (!$this->reservations->hasPhysicalLines($order)) {
             Log::info('Auto-release skipped: no physical lines (digital-only)', [
+                'order_id' => $order->id,
+            ]);
+
+            return;
+        }
+
+        // WAREHOUSE-WORKFLOW-SWITCH: policy skip when disabled (Orders-only
+        // mode) or unreadable — deliberately NOT a retryable error; the
+        // sweep re-evaluates after re-enable.
+        if (!$this->workflowSwitch->isEnabled()) {
+            Log::info('Auto-release rejected: warehouse workflow disabled (Orders-only mode)', [
                 'order_id' => $order->id,
             ]);
 

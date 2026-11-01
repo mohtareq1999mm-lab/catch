@@ -128,7 +128,7 @@ class ProductController extends CoreController
         $orderBy = trim((string)$request->get('orderBy', 'created_at'));
         $orderDir = trim((string)$request->get('orderDir', 'desc'));
 
-        $products = $this->fetchProducts($request)->with(['variations', 'categories', 'flash_sales']);
+        $products = $this->fetchProducts($request)->with(['variations', 'categories', 'flash_sales', 'barcodes']);
 
         if ($term !== '') {
             $this->applyProductSearch($products, $term, app()->getLocale());
@@ -347,7 +347,7 @@ class ProductController extends CoreController
                 'variations.productLocations.warehouse',
                 'productLocations.location',
                 'productLocations.warehouse',
-                'categories', 'flash_sales', 'banners', 'sliders', 'brands', 'reviews', 'tags',
+                'categories', 'flash_sales', 'banners', 'sliders', 'brands', 'reviews', 'tags', 'barcodes',
             ]);
         } catch (Exception $e) {
             throw new MarvelNotFoundException(NOT_FOUND);

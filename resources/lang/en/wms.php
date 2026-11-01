@@ -315,5 +315,10 @@ return [
         'version_immutable' => 'Warehouse workflow version #:id is immutable and cannot be updated.',
         'invalid_version' => 'Invalid warehouse workflow version #:id.',
         'invalid_flag' => 'Invalid value for :field: expected boolean.',
+        // Runtime ON/OFF switch (Orders-only mode when disabled)
+        'switch_fetched' => 'Warehouse workflow switch fetched successfully.',
+        'switch_updated' => 'Warehouse workflow switch updated successfully.',
+        'switch_disabled' => 'Warehouse workflow is disabled: the system runs in Orders-only mode and new fulfillments cannot be created or released. Existing fulfillments are unaffected.',
+        'switch_unreadable' => 'Warehouse workflow state could not be determined: new fulfillment creation is refused for safety. Existing fulfillments are unaffected.',
     ],
 ];

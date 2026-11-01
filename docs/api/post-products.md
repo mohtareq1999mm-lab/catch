@@ -1,10 +1,12 @@
 # Endpoint Name
 
-Products – Create Product (`POST /api/v1/products`)
+`POST /api/v1/products` — create product (`products.store`)
 
 # Description
 
-Creates one simple or variable product with relations and images, returning 201 with the resource.
+Admin product creation (marvel `apiResource` store, `packages/marvel/src/Rest/Routes.php:267` → `Marvel\Http\Controllers\ProductController@store`, `ProductController.php:238-307`). Multilingual translatable name/description, simple/variable pricing, discount/flash-sale conditionals, WMS placement hints (optional initial placement fail-fast), barcode uniqueness, image uploads. Transactional repository write, followed by a `FrontendResource::PRODUCTS` cache flush.
+
+Sibling docs: `get-products.md`, `get-products-show.md`, `put-products.md`; umbrella `admin-products-crud.md`.
 
 # Request
 
@@ -12,106 +14,75 @@ Creates one simple or variable product with relations and images, returning 201 
 
 | Property | Value |
 | --- | --- |
-| HTTP method | `POST` |
-| Full path | `/api/v1/products` |
-| Path composition | `api/v1` prefix + `products` from `Route::apiResource('products', ...)` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group, plus route-level ANY-of pipe middleware (constructor `create-product` gate decides) |
-| Controller action | `Marvel\Http\Controllers\ProductController@store` → `ProductStore` helper → `ProductRepository::storeProduct` (relations, variants, media; ends with `syncProductPlacements` — SEE the placements section below); `MarvelException` failures rewrap as `MarvelException(SOMETHING_WENT_WRONG)` and ESCAPE (no catch in `store` itself → `Handler`: no NOT_FOUND/NOT_AUTHORIZED marker → 500 translated — code-verified: store failures are 500s, and the live cause is swallowed); NEW FLOW: placement `HttpException(422)`s hit the repository's own `catch (HttpException)` → transaction ROLLBACK → RETHROW (they bypass the 500 rewrap and reach `Handler` as raw 422 `{message, status:false}`); then `flushTag(PRODUCTS)` |
-| Authentication | Required. Sanctum bearer token via `auth:sanctum` |
-| Permission | Required once: `create-product` via controller constructor (applies only to `store`); `ProductCreateRequest::authorize` returns `true` |
-| Required headers | `Authorization: Bearer <sanctum-token>`, `Content-Type: multipart/form-data` (images are required files) |
-| Recommended headers | `Accept: application/json` |
-| Optional headers | `lang: en\|ar` (default `en`) |
-| Supported request formats | `multipart/form-data` (test-compatible; images are `file` rules) |
-| Rate limit | `throttle:admin`: 400 requests/minute |
-| Route name | `products.store` (apiResource default naming) |
+| URL | `/api/v1/products` |
+| Route name | `products.store` |
+| Enclosing middleware | `['auth:sanctum', 'throttle:admin', 'lang']` (`Routes.php:135`) |
+| Content type | `multipart/form-data` when `images` (files) are sent; JSON otherwise |
+| Permission | Route OR-gate + constructor STRICT `create-product` for store (`ProductController.php:110`; `Permission.php:145`) |
+| Rate limit / Locale | `throttle:admin` 400/min; `lang` header for messages |
+| FormRequest | `Marvel\Http\Requests\ProductCreateRequest` (`:62-130`, rules quoted verbatim below) |
 
-Middleware runs before validation: 401/403 precede 422/500. Dimensions pre-cast to string (both levels) before validation.
+## Validated body fields (COMPLETE — enum values verified)
 
-## Request inputs
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `name` | per-locale object | **Yes** | `array`; `name.*` required, string, `max:255`, unique across products (`UniqueTranslationRule`) |
+| `description` | per-locale object | **Yes** | `description.*` required, string, `max:10000` |
+| `product_type` | string | **Yes** | `simple` \| `variable` (`Marvel\Enums\ProductType`) |
+| `item_type` | string | No | `PHYSICAL` \| `DIGITAL` (`Marvel\Enums\ItemType`) |
+| `price` | numeric | **effective No** — validated only when present (see note below) | verbatim rules: `['sometimes', 'numeric', 'min:0', 'required_if:product_type,' . ProductType::SIMPLE]` (`ProductCreateRequest:66`) |
+| `sku` | string \| null | **optional** (see SKU note below) | verbatim rules: `['sometimes', 'nullable', 'string', 'max:255', Rule::unique('products', 'sku')]` (`ProductCreateRequest:70`) — DUPLICATE against an existing product sku → **422** on `sku` |
+| `categories` | int[] | **Yes** | `categories.*` exists:`categories,id` |
+| `images` | file[] | **Yes** | `images.*` file, `mimes:jpeg,png,jpg,gif`, `max:2048` KB |
+| `in_stock` | `1`\|`0` | **Yes** | in:`1,0` |
+| `has_discount` | `true,false,1,0` | **Yes** | if `1` → `discount_type` (`percentage`\|`fixed_rate`\|`free_shipping` — `Marvel\Enums\DiscountType`), `discount_amount` (numeric `min:1`), `discount_status` (`1,0`) required |
+| `has_flash_sale` | `true,false,1,0` | **Yes** | if `1` → `flash_sale_id` required, exists:`flash_sales,id` |
+| `status` | `0`\|`1` | No | — |
 
-`ProductCreateRequest` runs before the body. Discount flags use `in:true,false,1,0` (string forms accepted — code-verified laxity vs strict `in:1,0` elsewhere). `price` is required ONLY for simple products.
+### Validator semantics note (vendor-source verified)
 
-| Field | Location | Data type | Required | Nullable | Rules | Allowed values | Default | Conditional rules | Example | Meaning |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller |
-| `lang` | header | string | Optional | No | In `['en', 'ar']` | `en`, `ar` | `en` | None | `en` | Selects message locale |
-| `name` | body | object | Required | No | `required\|array` | Object with locales | None | None | `{"en": "Shirt"}` | Localized names |
-| `name.*` | body | string | Required | No | `required\|string\|max:255` + `UniqueTranslationRule::for('products')` (vendor text **Unverified in source**) | String ≤ 255 chars, unique | None | None | `"Shirt"` | One locale's name |
-| `description` | body | object | Required | No | `required\|array` | Object with locales | None | None | `{"en": "Cotton shirt"}` | Localized descriptions |
-| `description.*` | body | string | Required | No | `required\|string\|max:10000` (NO uniqueness — code-verified) | String ≤ 10000 chars | None | None | `"Cotton shirt"` | One locale's description |
-| `product_type` | body | string | Required | No | `required\|Rule::in(['simple', 'variable'])` (code-verified `ProductType` values) | `simple`, `variable` | None | None | `"simple"` | Product kind |
-| `item_type` | body | string | Optional | No | `sometimes\|string\|Rule::in(['PHYSICAL', 'DIGITAL'])` (code-verified `ItemType` values) | `PHYSICAL`, `DIGITAL` | Model default | None | `"PHYSICAL"` | Fulfillment kind |
-| `price` | body | number | Conditionally required | No | `sometimes\|numeric\|min:0` + `required_if:product_type,simple` | Number ≥ 0 | None | Required iff `product_type` is `simple` | `100` | Base price |
-| `type_id` | body | integer | Optional | No | `sometimes\|integer\|exists:types,id` | Existing type id | None | None | `1` | Product type reference |
-| `categories` | body | array of integers | Required | No | `required\|array` | Non-empty id arrays | None | None | `[2]` | Category links |
-| `categories.*` | body | integer | Required per element | No | `integer\|exists:categories,id` | Existing category ids | None | None | `2` | One category id |
-| `images` | body | array of files | Required | No | `required\|array` | Non-empty file arrays | None | None | `["shirt.jpg"]` | Product images |
-| `images.*` | body (file) | file | Required per element | No | `required\|file\|mimes:jpeg,png,jpg,gif\|max:2048` | jpeg/png/jpg/gif ≤ 2 MB | None | None | `shirt.jpg` | One image |
-| `quantity` | body | integer | Optional | No | `sometimes\|integer\|min:1` | Integer ≥ 1 | Model default | With `locations[]`-equivalent placement inputs: `SUM(location quantities)` must equal this value (tolerance `0.0001`) or the request fails 422 AFTER validation (`post-products.md` placements section) | `10` | Product-level stock quantity (force-updated to the location sum when placements sync) |
-| `pieces` | body | integer | Optional | No | `sometimes\|integer\|min:1` | Integer ≥ 1 | Model default | None | `1` | Pieces count |
-| `in_stock` | body | string/integer | Required | No | `required\|in:1,0` (STRICT — `true` fails; code-verified) | `1`, `0` | None | None | `1` | Stock flag |
-| `has_discount` | body | string | Required | No | `required\|in:true,false,1,0` (string forms accepted) | `true`, `false`, `1`, `0` | None | None | `0` | Discount switch |
-| `has_flash_sale` | body | string | Required | No | Same lax set as `has_discount` | `true`, `false`, `1`, `0` | None | None | `0` | Flash-sale switch |
-| `flash_sale_id` | body | integer | Conditionally required | No | `required_if:has_flash_sale,1\|exists:flash_sales,id` | Existing flash-sale id | None | Required iff `has_flash_sale` is `1` | `4` | Linked flash sale |
-| `discount_type` | body | string | Conditionally required | No | `required_if:has_discount,1\|Rule::in(['percentage', 'fixed_rate', 'free_shipping'])` (code-verified `DiscountType` values) | `percentage`, `fixed_rate`, `free_shipping` | None | Required iff `has_discount` is `1` | `"percentage"` | Discount kind |
-| `discount_amount` | body | number | Conditionally required | No | `required_if:has_discount,1\|numeric\|min:1` | Number ≥ 1 | None | Required iff `has_discount` is `1` | `10` | Discount value |
-| `discount_status` | body | string/integer | Conditionally required | No | `required_if:has_discount,1\|in:1,0` (STRICT on create — update relaxes to lax) | `1`, `0` | None | Required iff `has_discount` is `1` | `1` | Discount status |
-| `status` | body | string/integer | Optional | No | `sometimes\|in:0,1` | `0`, `1` | Model default | None | `1` | Publish flag |
-| `height` | body | string | Optional | Yes | `nullable\|string` (pre-cast to string when present and non-null) | Any string | `null` | None | `"10"` | Height dimension |
-| `length` | body | string | Optional | Yes | `nullable\|string` (pre-cast to string) | Any string | `null` | None | `"30"` | Length dimension |
-| `width` | body | string | Optional | Yes | `nullable\|string` (pre-cast to string) | Any string | `null` | None | `"20"` | Width dimension |
-| `weight` | body | string | Optional | Yes | `nullable\|string` (pre-cast to string) | Any string | `null` | None | `"1.5"` | Weight |
-| `is_fast_shipping_available` | body | boolean | Optional | Yes | `nullable\|boolean` | Booleans | Model default | None | `false` | Fast-shipping switch |
-| `start_date` | body | string (date) | Optional | No | `sometimes\|date` | Valid date | None | None | `"2026-01-01"` | Discount/flash window start |
-| `end_date` | body | string (date) | Optional | No | `sometimes\|date\|after_or_equal:start_date` | Valid date ≥ `start_date` | None | None | `"2026-02-01"` | Discount/flash window end |
-| `brands` | body | array of integers | Optional | No | `sometimes\|array` | Id arrays | Absent | None | `[1]` | Brand links |
-| `brands.*` | body | integer | Required per element | No | `integer\|exists:brands,id` | Existing brand ids | None | None | `1` | One brand id |
-| `tags` | body | array of integers | Optional | Yes | `nullable\|array` | Id arrays or explicit `null` | Absent | None | `[3]` | Tag links |
-| `tags.*` | body | integer | Required per element | No | `integer\|exists:tags,id` | Existing tag ids | None | None | `3` | One tag id |
-| `banners` | body | array of integers | Optional | No | `sometimes\|array` | Id arrays | Absent | None | `[1]` | Banner links |
-| `banners.*` | body | integer | Required per element | No | `integer\|exists:banners,id` | Existing banner ids | None | None | `1` | One banner id |
-| `sliders` | body | array of integers | Optional | No | `sometimes\|array` | Id arrays | Absent | None | `[1]` | Slider links |
-| `sliders.*` | body | integer | Required per element | No | `integer\|exists:sliders,id` | Existing slider ids | None | None | `1` | One slider id |
-| `tax_enabled` | body | boolean | Optional | No | `sometimes\|boolean` | Booleans | Model default | None | `false` | Tax switch |
-| `tax_rate` | body | number | Optional | Yes | `nullable\|numeric\|min:0\|max:100` | `0`–`100` | `null` | None | `15` | Tax percent |
-| `locations` | body | array of objects | Optional | No | `sometimes\|array` | Placement entries | Absent (no product-level placements) | Ignored (skipped) for `variable` products that already ship `variants[]` — variable stock lives on variant rows | `[{"location_id": 3, "quantity": 10}]` | NEW-FLOW product-level WMS placements |
-| `locations.*.location_id` | body | integer | Required with `locations` | No | `required_with:locations\|integer\|exists:locations,id` | Existing location ids | None | None | `3` | The stock location |
-| `locations.*.quantity` | body | number | Required with `locations` | No | `required_with:locations\|numeric\|min:0` | Number ≥ 0 (negatives fail validation; sum mismatch fails in the repository) | None | None | `10` | Units placed at this location |
-| `locations.*.warehouse_id` | body | integer | Optional | Yes | `nullable\|integer\|exists:warehouses,id` | Existing warehouse ids | Resolved SOLELY from the location row (explicit mismatch → 422) | None | `1` | Advisory binding check against the location's own warehouse |
-| `location_id` | body | integer | Optional (LEGACY single-entry path) | No | NO FormRequest rule anymore — repo only reads it when present (`syncProductPlacements` single-entry branch); unknown location ids surface as 422 `"Location #N not found."` from the repository | Existing location id | None | Only used when `locations` is absent | `3` | Legacy single-placement input (kept for compatibility; under-validated by design of the new flow — flagged open item: `warehouse_id`-only no longer 422s) |
-| `variants` | body | array of objects | Optional | No | `sometimes\|array` (variable products) | Variant arrays | Absent | None | `[{"price": 100}]` | Variant rows |
-| `variants.*.price` | body | number | Required with `variants` | No | `required_with:variants\|numeric\|min:0` | Number ≥ 0 | None | Required iff `variants` present | `100` | Variant price |
-| `variants.*.quantity` | body | integer | Optional (NEW FLOW — no longer `required_with:variants`) | No | `sometimes\|integer\|min:0` | Integer ≥ 0 | Derived | With `variants[].locations[]`: `SUM(location quantities)` must equal this value (tolerance `0.0001`) else 422 `"The sum of location quantities (S) must equal the total variant quantity (Q)."`; absent + locations → set from the location sum (code-verified `addVariants`) | `5` | Variant quantity (force-set from location sum when placements sync) |
-| `variants.*.attribute_values` | body | array of integers | Required with `variants` | No | `required_with:variants\|array` | Id arrays | None | Required iff `variants` present | `[9]` | Variant attribute links |
-| `variants.*.attribute_values.*` | body | integer | Required per value | No | `integer\|exists:attribute_values,id` | Existing value ids | None | None | `9` | One attribute value |
-| `variants.*.weight` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"0.5"` | Variant weight |
-| `variants.*.length` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"5"` | Variant length |
-| `variants.*.width` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"5"` | Variant width |
-| `variants.*.height` | body | string | Optional | No | `sometimes\|string` (pre-cast to string) | Any string | None | None | `"5"` | Variant height |
-| `variants.*.locations` | body | array of objects | Optional | No | `sometimes\|array` | Placement entries per variant | Absent | Variant-level WMS placements (variable products) | `[{"location_id": 3, "quantity": 10}]` | NEW-FLOW per-variant stock placements |
-| `variants.*.locations.*.location_id` | body | integer | Required with `variants.*.locations` | No | `required_with:variants.*.locations\|integer\|exists:locations,id` | Existing location ids | None | None | `3` | The stock location |
-| `variants.*.locations.*.quantity` | body | number | Required with `variants.*.locations` | No | `required_with:variants.*.locations\|numeric\|min:0` | Number ≥ 0 | None | None | `10` | Units placed at this location for this variant |
-| `variants.*.locations.*.warehouse_id` | body | integer | Optional | Yes | `nullable\|integer\|exists:warehouses,id` | Existing warehouse ids | Resolved from the location row (mismatch → 422) | None | `1` | Advisory binding check |
+`price` carries a `sometimes` rule. Verified from the framework source (`Illuminate\Validation\Validator::passesOptionalCheck`, `Validator.php:774-784`): a field ABSENT from the request data skips ALL of its rules — including implicit requirements like `required_if`. Consequence for this endpoint: **omitting `price` entirely passes validation for ANY `product_type`** (no 422) — `required_if:product_type,simple` only re-runs on the value when the field IS present (then the effective demand is `numeric, min:0`). The repository does not re-enforce a price floor (fillable pass-through, `ProductRepository:51`), so a simple product can be created without `price` through the validator alone.
 
-The suite pins required-ness per family with hedged statuses (`[422, 403, 500]`): empty body, name-only, and name+description bodies each assert inclusion of 422 (`test_create_product_requires_name/description/categories`) — the 422 outcome is code-traced as the first applicable failure for a permitted admin.
+### SKU semantics (save-if-provided / generate-if-absent)
 
-## Placements synchronization (NEW FLOW — after validation, inside the create transaction)
+**Contract** (implemented 2026-11-01): `sku` is a writable API field — whitelist entry in `ProductRepository::WRITABLE_FIELDS`.
 
-Runs at the END of `storeProduct` via `syncProductPlacements` (product level) and, per variant, `syncVariantPlacements`. All failures are `HttpException(422)` → transaction rollback → raw 422 envelope (NO `errors` map), NOT the legacy 500 rewrap. Evidence: code-verified `ProductRepository` (working tree) + test-verified `tests/Feature/Wms/WmsMultiLocationTest.php`.
+| Request state | Result |
+| --- | --- |
+| `sku` provided | Saved **exactly as provided** (string ≤ 255; uniqueness enforced among other products → **422** `sku` on collision). Model creating-hook does NOT intervene. |
+| `sku` absent | The `Product::creating` hook (`packages/marvel/src/Database/Models/Product.php:131-138`) auto-generates `PRD-<max(id)+1, zero-padded>` (e.g. `PRD-042`, no padding beyond 3 digits). |
+| `sku: null`? | Valid (nullable) — hit the same auto-generation branch. |
 
-1. **Scope guard**: variable products WITH variants skip product-level placements entirely (variant rows own the stock); variant rows with `locations[]` sync per variant.
-2. **Duplicate guard**: duplicate location IDs within the same product or variant placements list are rejected with 422 `"Duplicate locations are not allowed in placements."`.
-3. **Occupancy guard**: every targeted location is validated via `ProductLocationService::assertLocationVacantFor`. A location cannot be assigned if it currently hosts a different product or variant (`quantity > 0` or `allocated_hint > 0`). If occupied, the operation fails atomic rollback with 422: `Location #N is occupied by product #M and cannot receive product #P.` (retained zero-quantity history rows do not occupy).
-4. **Sum invariant**: `SUM(location quantities)` must equal the declared total (`quantity` for products / `variants[].quantity` for variants; tolerance `0.0001`) → else 422 `"The sum of location quantities (25) must equal the total product quantity (30)."` (variant message: `... the total variant quantity (30).`).
-5. **Stock centralization**: product `stock_quantity`/`in_stock` = location sum; variant `quantity`/`stock_quantity`/`in_stock` = its location sum (absent `quantity` with locations → derived); product total = `SUM(variant stock)` force-saved (test-verified `55 = 25 + 30`).
-6. **Stale-place overwrite guard**: a placement NOT in the new set is deleted ONLY when it has no open picking task (`pending|assigned|picking`) AND no allocated stock (`allocated_hint` > 0 or active `FulfillmentItem`s) → otherwise 422 `"Cannot overwrite location #N: active picking tasks exist."` (test-verified: the same message covers the allocated-without-task case).
-7. **Location binding**: missing → 422 `"Location #N not found."`, inactive → 422 `"Location {code} is not active."`, explicit `warehouse_id` ≠ the location's warehouse → 422 `"Location #N (code) belongs to warehouse #M, not warehouse #W."` (warehouse is resolved SOLELY from the location row; test-verified message pattern).
-8. **Placement write**: `updateOrCreate` per entry (`product_id`, `product_variant_id` nullable-or-variant, `location_id`) with `warehouse_id` from the location, `quantity`, `allocated_hint` reset to `0`.
-9. **Auto-allocation**: every touched placement runs `StockOperationService::autoAllocatePendingFulfillments(placement)` — pending fulfillment items whose product/variant matches receive a location automatically (test-verified: single sufficient location assigns directly; insufficient single location triggers a SPLIT of the fulfillment item across locations of the same warehouse, then picking tasks generate for BOTH locations).
+Notes:
+- SKU on the 201 payload (`data.sku`) always reflects the SAVED value (provided or generated).
+- Uniqueness is a VALIDATION rule, not a DB constraint (`products.sku` = varchar(255) nullable, no unique index in `2020_06_02_051901_create_marvel_tables.php`): model-level generation has no uniqueness check, and imports/inventory flows bypass the request rules.
+- Inventory counting columns (`stock_quantity`, `reserved_quantity`, `sold_quantity`) remain outside the request surface (excluded by `WRITABLE_FIELDS`).
+| `type_id` | int | No | exists:`types,id` |
+| `quantity` / `pieces` | int | No | `min:1` |
+| `height`/`length`/`width`/`weight` | string | No | — |
+| `brands` | int[] | No | exists:`brands,id` |
+| `tags` | int[] \| null | No | exists:`tags,id` |
+| `banners` / `sliders` | int[] | No | FK existence |
+| `is_fast_shipping_available` | boolean | No | — |
+| `tax_enabled` | boolean | No | — |
+| `tax_rate` | numeric \| null | No | `min:0`, `max:100` |
+| `start_date` / `end_date` | date | No | `end_date` `after_or_equal:start_date` |
+| `piece_barcode` / `carton_barcode` | string ≤64 | No | unique across BOTH barcode columns (`App\Rules\UniqueProductBarcode`, 'piece'/'carton' modes) |
+| `pieces_per_carton` | int | No | `min:1` |
+| `locations[]` | array | No | `locations.*.location_id` required (per row), exists; `locations.*.quantity` required, numeric `min:0`; `locations.*.warehouse_id` nullable |
+| `variants[]` | array | No | `variants.*.price` required (per variant), numeric `min:0`; `variants.*.attribute_values` required, array; `variants.*.attribute_values.*` exists:`attribute_values,id`; `variants.*.quantity` `min:0`; `variants.*.weight`/`length`/`width`/`height` optional strings; `variants.*.locations[]` same location-row rules as above |
+| `location_id` (+ optional `warehouse_id`) | int | No | **Initial WMS placement** — fail-fast pre-check BEFORE any write (`:243-291`), see conditions below |
 
-## Request examples
+### `location_id` pre-check outcomes (before persistence)
 
-Minimal valid request (required fields only, simple product):
+| Condition | Result |
+| --- | --- |
+| Warehouse not resolvable / not placeable (`StockOperationService::resolvePlaceableLocation`) | 422 (service message) |
+| User not authorized for the target warehouse (`authorizeStockOperation`) | **403** — plain `AuthorizationException` → message `This action is unauthorized.` / `هذا الإجراء غير مصرح به.` |
+| Product variable (`variants[]` non-empty) | 422 `Initial placement is not supported for variable products: receive variant stock separately.` |
+| Product digital | 422 `Digital products hold no physical stock.` |
+
+## Request example (COMPLETE)
 
 ```json
 {
@@ -120,85 +91,41 @@ Minimal valid request (required fields only, simple product):
   "headers": {
     "Authorization": "Bearer 1|abcdef123456",
     "Accept": "application/json",
-    "Content-Type": "multipart/form-data",
     "lang": "en"
   },
   "body": {
-    "name": { "en": "Shirt" },
-    "description": { "en": "Cotton shirt" },
+    "name": { "en": "New Widget", "ar": "عنصر جديد" },
+    "description": { "en": "Widget description", "ar": "وصف العنصر" },
     "product_type": "simple",
-    "price": 100,
-    "categories": [2],
-    "images": ["<file shirt.jpg>"],
-    "in_stock": 1,
-    "has_discount": 0,
-    "has_flash_sale": 0
-  }
-}
-```
-
-Full request with every supported field (variable product with discount, flash sale, tax, relations, and variants — send as `multipart/form-data`; files shown as `<file ...>` markers):
-
-```json
-{
-  "method": "POST",
-  "url": "/api/v1/products",
-  "headers": {
-    "Authorization": "Bearer 1|abcdef123456",
-    "Accept": "application/json",
-    "Content-Type": "multipart/form-data",
-    "lang": "en"
-  },
-  "body": {
-    "name": { "en": "Shirt", "ar": "قميص" },
-    "description": { "en": "Cotton shirt", "ar": "قميص قطني" },
-    "product_type": "variable",
     "item_type": "PHYSICAL",
-    "price": 100,
-    "type_id": 1,
-    "categories": [2],
-    "quantity": 10,
-    "pieces": 1,
-    "status": 1,
-    "height": "10",
-    "length": "30",
-    "width": "20",
-    "weight": "1.5",
-    "images": ["<file shirt.jpg>", "<file shirt-back.jpg>"],
+    "price": 2.5,
+    "categories": [3],
     "in_stock": 1,
     "has_discount": 1,
-    "has_flash_sale": 1,
-    "is_fast_shipping_available": false,
-    "flash_sale_id": 4,
     "discount_type": "percentage",
     "discount_amount": 10,
     "discount_status": 1,
-    "start_date": "2026-01-01",
-    "end_date": "2026-02-01",
+    "start_date": "2026-11-01",
+    "end_date": "2026-11-15",
+    "has_flash_sale": 0,
+    "status": 1,
+    "quantity": 100,
+    "images": [ "<file: widget-1.jpg>", "<file: widget-2.png>" ],
     "brands": [1],
-    "tags": [3],
-    "banners": [1],
-    "sliders": [1],
+    "tags": [7, 9],
     "tax_enabled": true,
-    "tax_rate": 15,
-    "variants": [
-      {
-        "price": 100,
-        "quantity": 25,
-        "attribute_values": [9],
-        "weight": "0.5",
-        "length": "5",
-        "width": "5",
-        "height": "5",
-        "locations": [
-          { "location_id": 3, "quantity": 15 },
-          { "location_id": 4, "quantity": 10 }
-        ]
-      }
-    ],
+    "tax_rate": 5,
+    "is_fast_shipping_available": true,
+    "height": "10",
+    "width": "5",
+    "length": "4",
+    "weight": "0.3",
+    "piece_barcode": "P-WGT-001",
+    "carton_barcode": "C-WGT-001",
+    "pieces_per_carton": 6,
     "locations": [
-      { "location_id": 3, "quantity": 10 },
-      { "location_id": 4, "quantity": 5 }
+      { "location_id": 3, "quantity": 60, "warehouse_id": 1 },
+      { "location_id": 4, "quantity": 40, "warehouse_id": 1 }
     ]
   }
 }
@@ -206,60 +133,13 @@ Full request with every supported field (variable product with discount, flash s
 
 # Responses
 
-## Success: product created — HTTP 201
+## Success — HTTP 201
 
-Returned via `ApiResponse::apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, ProductResource::make($product))`. Route is NOT `products.index`, so `name`/`description` are RAW stored values.
+Flow: placement pre-check → `ProductRepository::storeProduct` (transactional) → eager-load placement relations (`variations.productLocations.*`, `productLocations.*` — `:251-256`) → flush `FrontendResource::PRODUCTS` tag → **201**.
 
-| Field | Data type | Presence | Meaning | Possible values / notes |
-| --- | --- | --- | --- | --- |
-| `status` | integer | Always present | Mirrors the HTTP status | Always `201` on success |
-| `message` | string | Always present | Translated `MESSAGE.CREATE_PRODUCT_SUCCESSFULLY` | `en` → `"Product created successfully"` |
-| `success` | boolean | Always present | Outcome flag | Always `true` on success (verified: `apiResponse(..., 201, true, ...)` — `true` is hardcoded on this path) |
-| `data` | object | Always present on success | `ProductResource` (raw name/description because route is NOT `products.index`; `Resource` object is never `empty()`, so the `data` key is never omitted here) | Every key below |
-| `data.id` | integer | Always present | Product id | e.g. `1` |
-| `data.name` | string | Always present | Raw stored translations as JSON TEXT (verified: `getRawOriginal('name')` returns the DB JSON string, not an object — response carries an escaped string) | e.g. `"{\"en\": \"Shirt\", \"ar\": \"قميص\"}"` |
-| `data.slug` | string | Always present | Product slug | e.g. `"shirt"` |
-| `data.description` | string | Always present | Raw stored translations as JSON TEXT (same `getRawOriginal` mechanism as `name`) | e.g. `"{\"en\": \"Cotton shirt\"}"` |
-| `data.price` | number | Always present (null possible) | Base price, rounded 2 decimals | e.g. `100.0` |
-| `data.current_price` | number | Always present (null possible) | Pre-tax effective price, rounded | e.g. `100.0` |
-| `data.tax_enabled` | boolean | Always present | Tax switch | `true` / `false` |
-| `data.tax_rate` | number \| null | Always present (nullable) | Tax percent | e.g. `15.0` or `null` |
-| `data.tax` | object \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when `tax_enabled` is `false`) | `ProductTaxPresenter::describe` output | Object or `null` |
-| `data.price_including_tax` | number | Always present (null possible) | Tax-inclusive value, rounded | e.g. `115.0` |
-| `data.price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0`; runtime-probed 2026-10-17: `null` on the freshly-created instance when no discount is configured |
-| `data.price_after_flash_sale` | number | Always present (null possible) | Post-flash-sale price, rounded | e.g. `null` |
-| `data.discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null`; NOTE (runtime-probed 2026-10-17): on the freshly-created instance `discount_*` may be `null` even with `has_*` flags — the DEFAULT fill (`percentage`/`0`) appears only on reloaded rows (index/show) |
-| `data.discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10` or `null` |
-| `data.start_date` | string \| null | Always present (nullable) | Window start | Date or `null` |
-| `data.end_date` | string \| null | Always present (nullable) | Window end | Date or `null` |
-| `data.sku` | string \| null | Always present (nullable) | SKU | e.g. `"SH-001"` |
-| `data.stock_quantity` | integer \| null | Always present (nullable) | Stock on hand | e.g. `10` |
-| `data.reserved_quantity` | integer | Always present | Reserved (defaults `0`) | e.g. `0` |
-| `data.available_stock` | integer \| null | Always present (nullable) | Sellable units | e.g. `10` |
-| `data.quantity` | integer \| null | Always present (nullable) | Quantity — NEW FLOW: force-set to the placement sum when `locations`/variant `locations` ride the request (runtime-probed: `30 = 20 + 10`); equals the raw input when no placements | e.g. `10` |
-| `data.sold_quantity` | integer | Always present | Sold (defaults `0`) | e.g. `0` |
-| `data.in_stock` | integer \| boolean | Always present (NOT a single cast — runtime-probed 2026-10-17: `1` on the freshly-created SIMPLE product; boolean `true` on the freshly-created VARIABLE product) | Stock flag | `1`, `0`, `true`, `false` |
-| `data.status` | integer \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when the create request omits `status`; the model/DB default is only reflected on RELOADED rows, e.g. index/show show `0`) | Publish flag | `1`, `0`, or `null` (fresh instance) |
-| `data.product_type` | string | Always present | Product kind | `simple`, `variable` |
-| `data.item_type` | string \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when the create request omits `item_type`; reloaded rows show the default `PHYSICAL`) | Fulfillment kind | `PHYSICAL`, `DIGITAL`, or `null` (fresh instance) |
-| `data.height` | string \| null | Always present (nullable) | Dimension (no cast — raw value) | e.g. `"10"` or `null` |
-| `data.width` | string \| null | Always present (nullable) | Dimension (no cast — raw value) | e.g. `"20"` or `null` |
-| `data.length` | string \| null | Always present (nullable) | Dimension (no cast — raw value) | e.g. `"30"` or `null` |
-| `data.weight` | string \| null | Always present (nullable) | Weight (no cast — raw value) | e.g. `"1.5"` or `null` |
-| `data.has_flash_sale` | boolean | Always present | Flash-sale switch (verified: `Product` casts to `boolean`) | `true` / `false` |
-| `data.has_discount` | boolean | Always present | Discount switch (verified: `Product` casts to `boolean`) | `true` / `false` |
-| `data.is_fast_shipping_available` | boolean | Always present | Fast-shipping flag | `true` / `false` |
-| `data.discount_valid` | boolean | Conditionally present (only when `has_discount` truthy) | Discount window active | `true` / `false` |
-| `data.tags` | array | Present when `tags` loaded | Tag resources | `[]` when loaded-empty |
-| `data.brands` | array | Present when `brands` loaded | Brand resources | `[]` when loaded-empty |
-| `data.banners` | array | Present when `banners` loaded | Banner resources | `[]` when loaded-empty |
-| `data.sliders` | array | Present when `sliders` loaded | Slider resources | `[]` when loaded-empty |
-| `data.created_at` | string \| null | Always present (nullable) | Creation timestamp | ISO-8601 or `null` |
-| `data.categories` | array | Present when `categories` loaded | `[{id, name, slug}]` | `[]` when loaded-empty |
-| `data.flash_sales` | array | Present when `flash_sales` loaded | Flash-sale resources | `[]` when loaded-empty |
-| `data.reviews` | array | Present when `reviews` loaded | Review resources | `[]` when loaded-empty |
-| `data.images` | array of strings | Always present (can be empty) | Media URLs | e.g. `["https://cdn.example/i.jpg"]` |
-| `data.variants` | array | Present when `variations` loaded | Variant rows with `id/price/current_price/stock_quantity/reserved_quantity/available_stock/quantity/height/width/length/weight/attributes[{attribute_name,value}]` | `[]` for simple products |
+Message: `en` → `"Product created successfully"` (no period), `ar` → `"تم إنشاء المنتج بنجاح."`.
+
+**Response-key visibility on create** (verified `ProductResource` conditions + `loadMissing`): the `name`/`description` are **raw per-locale arrays** (not a single locale); `images` (direct media access), `locations`, `variants` are present; the relation blocks `tags`, `brands`, `banners`, `sliders`, `categories`, `flash_sales`, `reviews`, `related_products` are **ABSENT** (relations not loaded on write responses — they appear on `get-products-show.md`). `tax` = `{tax_enabled, tax_rate, amount}` or `null` (no tax config).
 
 ```json
 {
@@ -267,116 +147,109 @@ Returned via `ApiResponse::apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, P
   "message": "Product created successfully",
   "success": true,
   "data": {
-    "id": 1,
-    "name": "{\"en\": \"Shirt\", \"ar\": \"قميص\"}",
-    "slug": "shirt",
-    "description": "{\"en\": \"Cotton shirt\"}",
-    "price": 100.0,
-    "current_price": 100.0,
-    "tax_enabled": false,
-    "tax_rate": null,
-    "tax": null,
-    "price_including_tax": 100.0,
-    "price_after_discount": null,
-    "price_after_flash_sale": null,
-    "discount_type": null,
-    "discount_amount": null,
-    "start_date": null,
-    "end_date": null,
-    "sku": "SH-001",
-    "stock_quantity": 10,
+    "id": 42,
+    "name": { "en": "New Widget", "ar": "عنصر جديد" },
+    "slug": "new-widget",
+    "description": { "en": "Widget description", "ar": "وصف العنصر" },
+    "price": "2.50",
+    "current_price": "2.25",
+    "tax_enabled": true,
+    "tax_rate": 5,
+    "tax": { "tax_enabled": true, "tax_rate": 5, "amount": 0.11 },
+    "price_including_tax": "2.36",
+    "price_after_discount": "2.25",
+    "price_after_flash_sale": "2.25",
+    "discount_type": "percentage",
+    "discount_amount": 10,
+    "discount_valid": true,
+    "start_date": "2026-11-01",
+    "end_date": "2026-11-15",
+    "sku": "WGT-001",
+    "stock_quantity": 100,
     "reserved_quantity": 0,
-    "available_stock": 10,
-    "quantity": 10,
+    "available_stock": 100,
+    "quantity": 100,
     "sold_quantity": 0,
     "in_stock": 1,
-    "status": null,
+    "status": 1,
     "product_type": "simple",
-    "item_type": null,
-    "height": null,
-    "width": null,
-    "length": null,
-    "weight": null,
-    "has_flash_sale": false,
-    "has_discount": false,
-    "is_fast_shipping_available": false,
-    "created_at": "2026-01-01T00:00:00+00:00",
-    "categories": [{ "id": 2, "name": "Men", "slug": "men" }],
-    "flash_sales": [],
-    "images": [],
+    "item_type": "PHYSICAL",
+    "piece_barcode": "P-WGT-001",
+    "carton_barcode": "C-WGT-001",
+    "pieces_per_carton": 6,
+    "height": "10",
+    "width": "5",
+    "length": "4",
+    "weight": "0.3",
+    "has_flash_sale": 0,
+    "has_discount": 1,
+    "is_fast_shipping_available": true,
+    "created_at": "2026-11-01T09:15:00.000000Z",
+    "images": [
+      "http://127.0.0.1:8000/storage/product/widget-1.jpg",
+      "http://127.0.0.1:8000/storage/product/widget-2.png"
+    ],
+    "locations": [
+      {
+        "id": 71,
+        "location_id": 3,
+        "warehouse_id": 1,
+        "quantity": 60,
+        "allocated_hint": 0,
+        "location": { "id": 3, "code": "A-01", "barcode": "LOC-A01", "name": "Shelf A-01", "type": "shelf" },
+        "warehouse": { "id": 1, "code": "WH1", "name": "Main warehouse" }
+      },
+      {
+        "id": 72,
+        "location_id": 4,
+        "warehouse_id": 1,
+        "quantity": 40,
+        "allocated_hint": 0,
+        "location": { "id": 4, "code": "A-02", "barcode": "LOC-A02", "name": "Shelf A-02", "type": "shelf" },
+        "warehouse": { "id": 1, "code": "WH1", "name": "Main warehouse" }
+      }
+    ],
     "variants": []
   }
 }
 ```
 
+Simple products always return `"variants": []` (relation loaded, empty). Variable products return variant rows in the `variants[]` shape. `slug` is ALWAYS re-derived from `name` (`en` locale, else the first locale), with a uniqueness suffix — `BaseRepository::makeSlug:230-246`, invoked at `ProductRepository.php:119`; no direct `slug` input is accepted by this route (not in the validated rules). Stock: `stock_quantity` is the products-row authority value; variable products hold stock on `product_variants.stock_quantity` (variants own stock).
+
 # Errors
 
-No error-code field; every error below has Error code `None`.
+All failures → `app/Exceptions/Handler.php` unified contract `{message, status:false, success:false[, errors]}`.
 
-| HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (strict `assertEquals(401)` in `test_guest_cannot_create_product`, `postJson`) | See 401 example |
-| 403 | Authenticated caller lacks `create-product` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | View-only user (verified by `test_view_only_user_cannot_create` → 403) | See 403 example |
-| 422 | `ProductCreateRequest` fails (missing name/description/categories/images/product_type/in_stock/flags, conditional discount/flash fields, bad relations) | `{message: string, status: boolean, errors: object}` | None | Laravel default | Field → messages | Invalid body (code-traced first-failure for permitted admins; suite hedges `[422, 403, 500]` across the requires-* tests) | See 422 example |
-| 422 | Placement synchronization fails post-validation (sum mismatch, negative per-location quantity; duplicate locations in placements; target location occupied by another product/variant; missing/inactive location; explicit `warehouse_id` ≠ location's warehouse; overwrite of a placement carrying open picking tasks or allocated stock) | `{message: string, status: boolean}` — NO `errors` key (repository `HttpException` → `Handler` envelope) | None | Exact server message, e.g. `"The sum of location quantities (25) must equal the total product quantity (30)."`, `"Duplicate locations are not allowed in placements."`, `"Location #3 is occupied by product #1 and cannot receive product #2."`, `"Cannot overwrite location #3: active picking tasks exist."`, `"Location #3 (A-01) belongs to warehouse #2, not warehouse #1."`, `"Location #3 not found."`, `"Location A-01 is not active."` | None | Valid request body whose placement rules fail (test-verified `WmsMultiLocationTest`, `ProductStoreUpdateOccupancyTest`) | See 422-placement example |
-| 500 | Repository failure AFTER validation (`MarvelException` rewrapped → escapes to generic 500; live cause swallowed) | `{message: string, status: boolean}` | None | Translated `ERROR.SOMETHING_WENT_WRONG`: `en` → `"Something went wrong"` | None | Post-validation failure (code-traced; explicitly allowed by the requires-* hedges) | See 500 example |
-| 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
+| HTTP status | Trigger | Message (en / ar) | Field errors | Verification |
+| --- | --- | --- | --- | --- |
+| 401 | No/invalid token | `Unauthenticated.` / `غير مصرح. يرجى تسجيل الدخول.` | None | `Handler.php:168-171` |
+| 403 | No `create-product` (route gate or constructor) | `User does not have the required permissions.` / `لا يمتلك المستخدم الصلاحيات المطلوبة.` | None | Spatie middleware path (`Handler.php:134-141,349`); display flags OFF |
+| 403 | Initial placement denied (warehouse authorization) | `This action is unauthorized.` / `هذا الإجراء غير مصرح به.` | None | plain `AuthorizationException` → `Handler.php:173-175`; `ProductController.php:273` |
+| 422 | Validation failure | `The given data was invalid.` / `البيانات المُدخلة غير صحيحة.` | Keyed by field (e.g. `name.en`, `price`, `variants.0.price`, `locations.0.location_id`) | `Handler.php:178-186` |
+| 422 | Placement pre-check refusals (variable / digital / placeable-resolve) | Exact service messages (listed above); no `errors` key (plain apiResponse) | None | `ProductController.php:275-291` |
+| 429 | `throttle:admin` | `Too many requests. Please try again later.` / `طلبات كثيرة جدًا. يرجى المحاولة لاحقًا.` | None | Verified |
+| 500 | Repository/service failure | `Something went wrong.` / `حدث خطأ ما` | None | `:304-306` (MarvelException wrap), `Handler.php:207-208` |
 
-401 example:
-
-```json
-{
-  "message": "Unauthenticated",
-  "status": false
-}
-```
-
-403 example:
+422 example (create with a duplicated per-locale name):
 
 ```json
 {
-  "message": "User does not have the required permissions.",
-  "status": false
-}
-```
-
-422 example (empty body):
-
-```json
-{
-  "message": "The name field is required. (and 5 more errors)",
+  "message": "The given data was invalid.",
   "status": false,
+  "success": false,
   "errors": {
-    "name": ["The name field is required."],
-    "description": ["The description field is required."]
+    "name.en": ["The name.en has already been taken."]
   }
 }
 ```
 
-422-placement example (post-validation placement refusal — note NO `errors` map and whole-transaction rollback: NO product exists after the failure):
+# Invariants & notes
 
-```json
-{
-  "message": "The sum of location quantities (25) must equal the total product quantity (30).",
-  "status": false
-}
-```
+- **Flush timing**: the PRODUCTS tag flush happens after the repository transaction returns — a failed create leaves no cached-state divergence.
+- **Placement anti-race**: the pre-check is read-only (fail fast); the repository re-validates under lock inside its transaction, so a concurrent location change still fails closed (`:240-242` code comment).
+- **Images**: required on CREATE (unlike update). Each file ≤ 2048 KB, `jpeg,jpg,png,gif`.
+- **Money**: `price_after_*` fields relate to the discount/flash-sale settings stored with the product; `current_price` is the effective PRE-tax price.
 
-500 example (post-validation failure):
+# Verification source
 
-```json
-{
-  "message": "Something went wrong",
-  "status": false
-}
-```
-
-429 example:
-
-```json
-{
-  "success": false,
-  "message": "Too many requests. Please try again later.",
-  "data": null
-}
-```
+`php artisan route:list --path=products` (products.store action); `Routes.php:135,267`; `Marvel\Http\Controllers\ProductController.php` (:110, :238-307); `packages/marvel/src/Http/Requests/ProductCreateRequest.php` (:62-130); `products/ProductResource.php` (:17-151); `BaseRepository::makeSlug` (:230-246) + `ProductRepository.php` (:119, :692-701); `App\Services\Tax\ProductTaxPresenter.php`; `App\Services\Inventory\StockOperationService` (resolvePlaceableLocation/authorizeStockOperation call sites); `app/Exceptions/Handler.php`; `packages/marvel/config/constants.php`; `resources/lang/en|ar/message.php`.

@@ -82,6 +82,7 @@ return [
     'ERROR.CURRENCY_INACTIVE' => 'لا يمكن تعيين العملات غير النشطة كعملة أساسية',
     'MESSAGE.CURRENCY_SELECTED_SUCCESSFULLY' => 'تم تحديث العملة بنجاح',
     'ERROR.PAYMENT_CURRENCY_UNSUPPORTED' => 'بوابة الدفع لا تدعم العملة المحددة :currency',
+    'ERROR.PAYMENT_PROVIDER_DECLINED' => 'تم رفض العملية من مزود الدفع. يرجى المحاولة بطريقة دفع أخرى أو التواصل مع الدعم',
     'ERROR.CURRENCY_RATE_UNAVAILABLE_AT_CHECKOUT' => 'سعر الصرف غير متاح مؤقتاً للعملة :currency. يرجى المحاولة لاحقاً',
 
     'ERROR.USER_NOT_FOUND' => 'المستخدم غير موجود',

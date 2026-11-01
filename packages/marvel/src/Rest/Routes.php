@@ -595,6 +595,11 @@ Route::prefix('admin/warehouse-workflow')->middleware(['api', 'auth:sanctum', 't
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'show'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSE_WORKFLOW_SHOW)->name('api.admin.warehouse-workflow.show');
     Route::get('/history', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'history'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSE_WORKFLOW_HISTORY)->name('api.admin.warehouse-workflow.history');
     Route::post('/publish', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowController::class, 'publish'])->middleware('permission:' . \Marvel\Enums\Permission::WAREHOUSE_WORKFLOW_PUBLISH)->name('api.admin.warehouse-workflow.publish');
+
+    // WAREHOUSE-WORKFLOW-SWITCH: runtime ON/OFF switch (Orders-only mode
+    // when off). Store-wide settings permissions — not warehouse-scoped.
+    Route::get('/status', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowSwitchController::class, 'status'])->middleware('permission:' . \Marvel\Enums\Permission::VIEW_SETTINGS)->name('api.admin.warehouse-workflow.status');
+    Route::put('/status', [\App\Http\Controllers\Api\Admin\Wms\WarehouseWorkflowSwitchController::class, 'update'])->middleware('permission:' . \Marvel\Enums\Permission::UPDATE_SETTINGS)->name('api.admin.warehouse-workflow.status.update');
 });
 
 // Fulfillment Phase 9 (P9-3): Fulfillment admin surface.

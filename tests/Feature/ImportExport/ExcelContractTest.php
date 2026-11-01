@@ -12,6 +12,7 @@ use Marvel\Exports\Sheets\BrandsSheetExport;
 use Marvel\Exports\Sheets\CategoriesSheetExport;
 use Marvel\Exports\Sheets\FlashSalesSheetExport;
 use Marvel\Exports\Sheets\ImagesSheetExport;
+use Marvel\Exports\Sheets\ProductBarcodesSheetExport;
 use Marvel\Exports\Sheets\ProductsSheetExport;
 use Marvel\Exports\Sheets\ProductVariantsSheetExport;
 use Marvel\Exports\Sheets\SlidersSheetExport;
@@ -66,6 +67,14 @@ class ExcelContractTest extends TestCase
         $this->assertCount(20, $export->headings());
     }
 
+    public function test_product_barcodes_sheet_has_4_headers(): void
+    {
+        $export = new ProductBarcodesSheetExport([]);
+        $expected = ['product_sku', 'piece_barcode', 'carton_barcode', 'pieces_per_carton'];
+        $this->assertEquals($expected, $export->headings());
+        $this->assertCount(4, $export->headings());
+    }
+
     public function test_product_variants_sheet_has_9_headers(): void
     {
         $export = new ProductVariantsSheetExport([]);
@@ -113,8 +122,9 @@ class ExcelContractTest extends TestCase
     {
         $export = new ProductsExport([]);
         $sheets = $export->sheets();
-        $this->assertCount(8, $sheets);
+        $this->assertCount(9, $sheets);
         $this->assertArrayHasKey('products', $sheets);
+        $this->assertArrayHasKey('product_barcodes', $sheets);
         $this->assertArrayHasKey('product_variants', $sheets);
         $this->assertArrayHasKey('images', $sheets);
         $this->assertArrayHasKey('categories', $sheets);
@@ -136,6 +146,7 @@ class ExcelContractTest extends TestCase
 
     public function test_all_sheet_titles_match_expected(): void
     {
+        $this->assertEquals('product_barcodes', (new ProductBarcodesSheetExport([]))->title());
         $this->assertEquals('product_variants', (new ProductVariantsSheetExport([]))->title());
         $this->assertEquals('categories', (new CategoriesSheetExport([]))->title());
         $this->assertEquals('brands', (new BrandsSheetExport([]))->title());
@@ -182,11 +193,16 @@ class ExcelContractTest extends TestCase
         $reader->setReadDataOnly(true);
         $ss = $reader->load($path);
         $names = $ss->getSheetNames();
-        $this->assertCount(8, $names);
-        $expected = ['products','product_variants','images','categories','brands','flash_sales','sliders','tags'];
+        $this->assertCount(9, $names);
+        $expected = ['products','product_barcodes','product_variants','images','categories','brands','flash_sales','sliders','tags'];
         foreach ($expected as $sheet) {
             $this->assertContains($sheet, $names, "Product sample must contain sheet {$sheet}");
         }
+        $bcSheet = $ss->getSheetByName('product_barcodes');
+        $this->assertNotNull($bcSheet);
+        $headerRow = $bcSheet->rangeToArray('A1:D1', null, true, true, true);
+        $headers = array_map(fn($v) => trim((string) $v), array_values($headerRow[1]));
+        $this->assertEquals(['product_sku', 'piece_barcode', 'carton_barcode', 'pieces_per_carton'], $headers);
         $ss->disconnectWorksheets();
     }
 

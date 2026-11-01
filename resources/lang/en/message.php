@@ -181,6 +181,7 @@ return [
     'ERROR.CURRENCY_INACTIVE' => 'Inactive currencies cannot be set as the base currency',
     'MESSAGE.CURRENCY_SELECTED_SUCCESSFULLY' => 'Currency updated successfully',
     'ERROR.PAYMENT_CURRENCY_UNSUPPORTED' => 'Payment gateway does not support the selected currency :currency',
+    'ERROR.PAYMENT_PROVIDER_DECLINED' => 'The payment provider declined the transaction. Please try a different payment method or contact support',
     'ERROR.CURRENCY_RATE_UNAVAILABLE_AT_CHECKOUT' => 'Exchange rate is temporarily unavailable for :currency. Please try again later',
 
     // General Errors

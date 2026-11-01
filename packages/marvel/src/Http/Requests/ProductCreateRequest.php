@@ -65,6 +65,9 @@ class ProductCreateRequest extends FormRequest
             'description.*'                => ['required', 'string', 'max:10000'],
             'price'                        => ['sometimes', 'numeric', 'min:0', 'required_if:product_type,' . ProductType::SIMPLE],
             'product_type'                 => ['required', Rule::in($productType)],
+            // SKU is optional: saved exactly as provided; when omitted the
+            // Product::creating hook generates 'PRD-###' from max(id)+1.
+            'sku'                          => ['sometimes', 'nullable', 'string', 'max:255', Rule::unique('products', 'sku')],
             'item_type'                    => ['sometimes', 'string', Rule::in($itemTypes)],
             'type_id'                      => ['sometimes', 'integer', 'exists:types,id'],
             'categories'                   => ['required', 'array'],
@@ -98,6 +101,14 @@ class ProductCreateRequest extends FormRequest
             'sliders.*'                    => ['integer', 'exists:sliders,id'],
             'tax_enabled'                  => ['sometimes', 'boolean'],
             'tax_rate'                     => ['nullable', 'numeric', 'min:0', 'max:100'],
+
+            // Barcode attributes (product_barcodes table). Fields are
+            // independently nullable; values must be unique across BOTH
+            // columns and the current product is excluded on updates
+            // (apiResource products/{product} → route('product')).
+            'piece_barcode'                => ['nullable', 'string', 'max:64', new \App\Rules\UniqueProductBarcode('piece', $this->route('product'))],
+            'carton_barcode'               => ['nullable', 'string', 'max:64', new \App\Rules\UniqueProductBarcode('carton', $this->route('product'))],
+            'pieces_per_carton'            => ['nullable', 'integer', 'min:1'],
 
             // WMS placements: multiple locations with quantities
             'locations'                    => ['sometimes', 'array'],

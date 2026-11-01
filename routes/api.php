@@ -135,6 +135,16 @@ Route::prefix('v1/general')->group(function () {
         // PaymentWebhookController class docblock for why).
         Route::post('checkout/webhooks/stripe', [PaymentWebhookController::class, 'stripe'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.stripe');
         Route::post('checkout/webhooks/paypal', [PaymentWebhookController::class, 'paypal'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.paypal');
+        Route::post('checkout/webhooks/tap', [PaymentWebhookController::class, 'tap'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tap');
+        // Tabby webhook: self-service registered per merchant_code + key with
+        // a custom auth header (TABBY_WEBHOOK_HEADER/SECRET); Tabby retries
+        // on non-200, which the 404-unknown-transaction case relies on (see
+        // the controller docblock).
+        Route::post('checkout/webhooks/tabby', [PaymentWebhookController::class, 'tabby'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tabby');
+        // Tamara webhook: one-time registered in the partner portal
+        // (TAMARA_NOTIFICATION_TOKEN verifies the HS256 tamaraToken JWT in
+        // both query string and Authorization header).
+        Route::post('checkout/webhooks/tamara', [PaymentWebhookController::class, 'tamara'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tamara');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
         Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle:public-tracking')->name('api.tracking.public');
     });

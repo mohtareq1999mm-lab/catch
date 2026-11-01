@@ -7,6 +7,33 @@ use Illuminate\Http\Request;
 class SettingResource extends Resource
 {
     /**
+     * Per-gateway enable/availability state for the Site Settings responses
+     * (rendered on both the public and admin GET settings endpoints).
+     *
+     * Source of truth: the same GatewaySettingsService merge the admin
+     * payment-gateway API and checkout use — {code: {enabled, available}}.
+     * available = enabled && configured && supports_catalog_currency
+     * (display layer; checkout HTTP 422 stays the authority). Secrets are
+     * never included. Fault-tolerant: returns [] if the payment subsystem
+     * or currency catalog cannot resolve.
+     */
+    private function gatewayStates(): array
+    {
+        try {
+            return app(\App\Services\Payment\GatewaySettingsService::class)->clientAvailabilityMap();
+        } catch (\Throwable $e) {
+            // Fault tolerance for the settings payload: degrade to {} but
+            // leave a trace — a silent swallow would hide wiring bugs.
+            \Illuminate\Support\Facades\Log::warning(
+                'SettingResource: payment_gateways availability map unavailable.',
+                ['exception' => $e]
+            );
+
+            return [];
+        }
+    }
+
+    /**
      * Transform the resource into an array.
      *
      * @param  Request  $request
@@ -41,6 +68,7 @@ class SettingResource extends Resource
                 'order_tax_rate' => null,
                 'currency_selection_enabled' => false,
                 'options' => null,
+                'payment_gateways' => $this->gatewayStates(),
             ];
         }
 
@@ -79,6 +107,7 @@ class SettingResource extends Resource
             'order_tax_enabled' => (bool) $this->order_tax_enabled,
             'order_tax_rate' => $this->order_tax_rate !== null ? (float) $this->order_tax_rate : null,
             'currency_selection_enabled' => (bool) data_get($this->options, 'currency_selection_enabled', false),
+            'payment_gateways' => $this->gatewayStates(),
             'options' => $this->options ?? null,
         ];
     }

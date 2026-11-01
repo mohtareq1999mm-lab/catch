@@ -5,6 +5,7 @@ namespace App\Services\Warehouse;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\Package;
 use App\Models\Fulfillment\ProductLocation;
+use App\Models\ProductBarcode;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 
@@ -244,6 +245,27 @@ class BarcodeScanService
      */
     public function scanProduct(string $code, ?int $warehouseId = null): ?array
     {
+        // 0. Product piece/carton barcodes (product_barcodes — one row per
+        // product). Lookup is additive: it identifies the product and its
+        // packaging kind without touching stock, orders, or reservations.
+        $barcodeRow = ProductBarcode::query()
+            ->where(function ($query) use ($code) {
+                $query->where('piece_barcode', $code)->orWhere('carton_barcode', $code);
+            })
+            ->with('product')->first();
+
+        if ($barcodeRow !== null && $barcodeRow->product !== null) {
+            $kind = $barcodeRow->piece_barcode === $code ? 'piece' : 'carton';
+
+            return $this->formatProductPayload(
+                $barcodeRow->product,
+                null,
+                $warehouseId,
+                $kind,
+                $barcodeRow->pieces_per_carton
+            );
+        }
+
         // 1. Check ProductVariant by SKU
         $variant = ProductVariant::where('sku', $code)->with('product')->first();
         if ($variant !== null) {
@@ -302,7 +324,7 @@ class BarcodeScanService
         ];
     }
 
-    private function formatProductPayload(?Product $product, ?ProductVariant $variant, ?int $warehouseId): array
+    private function formatProductPayload(?Product $product, ?ProductVariant $variant, ?int $warehouseId, ?string $barcodeType = null, ?int $piecesPerCarton = null): array
     {
         $productId = $variant ? $variant->product_id : $product?->id;
         $variantId = $variant?->id;
@@ -354,6 +376,10 @@ class BarcodeScanService
             'stock_quantity' => $stock,
             'reserved_quantity' => $reserved,
             'available_quantity' => $available,
+            // Barcode-table matches carry the packaging kind here; SKU/ID
+            // scans stay null. pieces_per_carton is null when unknown.
+            'barcode_type' => $barcodeType,
+            'pieces_per_carton' => $barcodeType !== null ? $piecesPerCarton : null,
             'warehouse_id' => $warehouseId,
             'placements_count' => count($placements),
             'placements' => $placements,

@@ -44,6 +44,8 @@ class ProductImportService
     // tracked separately for error download but excluded from progress.
     protected array $variantErrors = [];
     protected int $variantSuccessCount = 0;
+    protected array $barcodeErrors = [];
+    protected int $barcodeSuccessCount = 0;
     protected array $imageErrors = [];
 
     protected array $keptVariantIds = [];
@@ -163,6 +165,16 @@ class ProductImportService
         return $this->variantSuccessCount;
     }
 
+    public function getBarcodeErrors(): array
+    {
+        return $this->barcodeErrors;
+    }
+
+    public function getBarcodeSuccessCount(): int
+    {
+        return $this->barcodeSuccessCount;
+    }
+
     public function getImageErrors(): array
     {
         return $this->imageErrors;
@@ -170,12 +182,12 @@ class ProductImportService
 
     public function getAllErrors(): array
     {
-        return array_merge($this->failedRows, $this->variantErrors, $this->imageErrors);
+        return array_merge($this->failedRows, $this->barcodeErrors, $this->variantErrors, $this->imageErrors);
     }
 
     public function getAllErrorCount(): int
     {
-        return count($this->failedRows) + count($this->variantErrors) + count($this->imageErrors);
+        return count($this->failedRows) + count($this->barcodeErrors) + count($this->variantErrors) + count($this->imageErrors);
     }
 
     protected function flushProgress(): void
@@ -372,6 +384,7 @@ class ProductImportService
         }
 
         if (!empty($this->createdProductIds)) {
+            \App\Models\ProductBarcode::whereIn('product_id', $this->createdProductIds)->delete();
             $createdProducts = Product::whereIn('id', $this->createdProductIds)->get();
             foreach ($createdProducts as $product) {
                 $product->categories()->detach();
@@ -453,6 +466,105 @@ class ProductImportService
         }
 
         $this->flushProgress();
+    }
+
+    /**
+     * Process a single row from the dedicated `product_barcodes` sheet.
+     *
+     * Columns: product_sku, piece_barcode, carton_barcode, pieces_per_carton.
+     * Auxiliary sheet semantics (mirrors processVariantRow): errors are
+     * captured in $barcodeErrors for error-file download without inflating
+     * product-row progress counters.
+     */
+    public function processBarcodeRow(array $row, int $rowIndex): void
+    {
+        $productSku = isset($row['product_sku']) ? \trim((string) $row['product_sku']) : '';
+        if ($productSku === '') {
+            return;
+        }
+
+        $product = Product::where('sku', $productSku)->first();
+        if (!$product) {
+            $this->barcodeErrors[] = [
+                'sheet' => 'product_barcodes',
+                'row' => $rowIndex,
+                'sku' => $productSku,
+                'error_message' => "Product with SKU '{$productSku}' not found",
+            ];
+            $this->flushAuxProgress();
+
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $this->syncRowBarcodes($product, $row);
+
+            DB::commit();
+            $this->barcodeSuccessCount++;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            $this->barcodeErrors[] = [
+                'sheet' => 'product_barcodes',
+                'row' => $rowIndex,
+                'sku' => $productSku,
+                'error_message' => $e->getMessage(),
+            ];
+        }
+
+        $this->flushAuxProgress();
+    }
+
+    /**
+     * Apply the optional barcode columns of one import row to the product.
+     *
+     * Import semantics (isset-style, mirroring other optional columns):
+     * a missing cell, NULL, or whitespace-only value means "not provided"
+     * and PRESERVES the stored value; a provided value is merged over the
+     * row state and validated (unknown fields never get defaults).
+     *
+     * @param Product $product
+     * @param array<string, mixed> $row raw sheet row keyed by heading
+     *
+     * @throws \InvalidArgumentException|\Symfony\Component\HttpKernel\Exception\HttpException
+     */
+    private function syncRowBarcodes(Product $product, array $row): void
+    {
+        $present = [];
+
+        foreach (\App\Services\Product\ProductBarcodeService::FIELDS as $field) {
+            if (\array_key_exists($field, $row) && $row[$field] !== null && \trim((string) $row[$field]) !== '') {
+                $present[$field] = $row[$field];
+            }
+        }
+
+        if ($present === []) {
+            return;
+        }
+
+        if (\array_key_exists('pieces_per_carton', $present)) {
+            $quantity = $present['pieces_per_carton'];
+            $quantityStr = \trim((string) $quantity);
+            if (!\is_numeric($quantity) || \preg_match('/^\d+(\.0+)?$/', $quantityStr) !== 1 || (int) $quantity < 1) {
+                throw new \InvalidArgumentException("Invalid pieces_per_carton '{$quantity}'. Must be a positive integer.");
+            }
+            $present['pieces_per_carton'] = (int) $quantity;
+        }
+
+        // Barcodes are varchar(64): Excel may hand over numeric cells, so
+        // normalize the column values to strings (this is type transport,
+        // not value mangling).
+        foreach (['piece_barcode', 'carton_barcode'] as $field) {
+            if (\array_key_exists($field, $present)) {
+                $present[$field] = \trim((string) $present[$field]);
+                if (\mb_strlen($present[$field]) > 64) {
+                    throw new \InvalidArgumentException("Invalid {$field}: must not exceed 64 characters.");
+                }
+            }
+        }
+
+        app(\App\Services\Product\ProductBarcodeService::class)->applyValues($product, $present);
     }
 
     public function processVariantRow(array $row, int $rowIndex): void

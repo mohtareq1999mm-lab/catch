@@ -41,14 +41,20 @@ class ProductRepository extends BaseRepository
     /**
      * Whitelist of product columns writable through the REST/GraphQL API.
      *
-     * Inventory/accounting columns (sku, stock_quantity, reserved_quantity,
-     * sold_quantity) are intentionally excluded: they are mutated only through
-     * inventory services, imports, or explicit domain flows.
+     * Inventory/accounting columns (stock_quantity, reserved_quantity,
+     * sold_quantity) remain intentionally excluded: they are mutated only
+     * through inventory services, imports, or explicit domain flows.
+     *
+     * sku IS writable through the API (2026-11-01 decision): when the request
+     * provides it, the given value is saved; when omitted on create, the
+     * Product creating hook auto-generates 'PRD-###' from max(id)+1 and an
+     * update simply leaves the existing sku untouched.
      */
     private const WRITABLE_FIELDS = [
         'name',
         'description',
         'price',
+        'sku',
         'product_type',
         'item_type',
         'type_id',
@@ -145,9 +151,13 @@ class ProductRepository extends BaseRepository
             // Synchronize WMS placements (multiple locations or single location).
             $this->syncProductPlacements($product->fresh(), $request, $data);
 
+            // Barcode attributes (piece/carton/quantity). No-op when none are
+            // present; present-with-null clears, omitted keys are not touched.
+            app(\App\Services\Product\ProductBarcodeService::class)->syncFromRequest($product, $request);
+
             DB::commit();
             Cache::forget('dashboard_product_analytics');
-            return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales');
+            return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales', 'barcodes');
         } catch (HttpException $e) {
             DB::rollBack();
             throw $e;
@@ -179,7 +189,14 @@ class ProductRepository extends BaseRepository
                 app(\App\Services\Digital\ItemTypePolicy::class)->assertChangeable($product, $data['item_type']);
             }
 
-            $data['slug'] = $this->makeSlug($request, 'slug', $product->id);
+            // Slug: regenerate only when the request actually provides a source
+            // (a slug, or a name whose regeneration is wanted). A patch without
+            // EITHER keeps the current slug — otherwise makeSlug's fallback arm
+            // would derive 'auto-generated-string' and silently rewrite the
+            // product's URLs on sku-only or status-only updates.
+            if ($request->filled('slug') || !empty($data['name'])) {
+                $data['slug'] = $this->makeSlug($request, 'slug', $product->id);
+            }
             $hasFlashSale = array_key_exists('has_flash_sale', $data) ? (bool) $data['has_flash_sale'] : $product->has_flash_sale;
             $flashSaleId = $data['flash_sale_id'] ?? null;
             $flashSale = $this->resolveFlashSale($flashSaleId, $product, $hasFlashSale);
@@ -279,9 +296,14 @@ class ProductRepository extends BaseRepository
 
             $this->syncRelation($product, $request, $data);
             $this->syncProductPlacements($product->fresh(), $request, $data);
+
+            // Barcode attributes: present-and-null clears a field, omitted
+            // keys preserve stored values (array-key presence semantics).
+            app(\App\Services\Product\ProductBarcodeService::class)->syncFromRequest($product, $request);
+
             DB::commit();
 
-            return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales');
+            return $product->load('variations', 'categories', 'tags', 'brands', 'banners', 'sliders', 'flash_sales', 'barcodes');
         } catch (HttpException $e) {
             DB::rollBack();
             throw $e;

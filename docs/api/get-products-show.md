@@ -1,10 +1,12 @@
 # Endpoint Name
 
-Products – Show Product (`GET /api/v1/products/{product}`)
+`GET /api/v1/products/{product}` — single admin product (`products.show`)
 
 # Description
 
-Returns one product by id with relations and related products loaded.
+Admin detail view for one product (marvel `apiResource` show, `packages/marvel/src/Rest/Routes.php:267` → `Marvel\Http\Controllers\ProductController@show`, `ProductController.php:317-355`). Resolves by **id OR slug**, eager-loads the full relation set and attaches `related_products`.
+
+Sibling docs: `get-products.md` (list), `post-products.md` (create), `put-products.md` (update); umbrella `admin-products-crud.md`.
 
 # Request
 
@@ -12,38 +14,33 @@ Returns one product by id with relations and related products loaded.
 
 | Property | Value |
 | --- | --- |
-| HTTP method | `GET` |
-| Full path | `/api/v1/products/{product}` |
-| Path composition | `api/v1` prefix + `products/{product}` from `Route::apiResource('products', ...)` in `packages/marvel/src/Rest/Routes.php` inside the `['auth:sanctum', 'throttle:admin', 'lang']` group, plus route-level ANY-of pipe middleware (constructor `view-products` gate decides). NOTE the sample/export single-segment GETs (`import/sample`, `export`) are registered BEFORE the apiResource precisely so they are not captured here (source comment verified) |
-| Controller action | `Marvel\Http\Controllers\ProductController@show(Request $request, $id)` → `fetchSingleProduct`: resolves product via `Product::query()->where('id', $id)->orWhere('slug', $id)->firstOrFail()` (supports both numeric ID and slug), related-products fetch (`limit` default 10) attached as `related_products` relation, then relations loaded (`productLocations.location/productLocations.warehouse/variations.productLocations.location/variations.productLocations.warehouse/variations/categories/flash_sales/banners/sliders/brands/reviews/tags`); inner miss (`Exception` incl. `ModelNotFoundException`) → `MarvelNotFoundException(NOT_FOUND)` → outer `catch (MarvelException)` → rethrown `MarvelException(NOT_FOUND)` → escapes to `Handler` → 404... via WHICH branch? `MarvelNotFoundException`/`MarvelException` are NOT `ModelNotFoundException` (name similarity is a trap — verified distinct classes) → `Handler` `MarvelException` branch: contains `NOT_FOUND` → 404 TRANSLATED `'Not found'` (code-verified chain) |
-| Authentication | Required. Sanctum bearer token via `auth:sanctum` |
-| Permission | Required once: `view-products` via controller constructor (applies to `index` and `show`) |
-| Required headers | `Authorization: Bearer <sanctum-token>` |
-| Recommended headers | `Accept: application/json` |
-| Optional headers | `lang: en\|ar` (default `en`) |
-| Supported request formats | No body is read; `Content-Type` is irrelevant |
-| Rate limit | `throttle:admin`: 400 requests/minute |
-| Route name | `products.show` (apiResource default naming — NOT `products.index`, so `name`/`description` are RAW stored values) |
+| URL | `/api/v1/products/{product}` |
+| Route name | `products.show` |
+| Path composition | `Route::prefix('api/v1')` (`RestAPIServiceProvider.php:29-31`) + `apiResource('products')` (`Routes.php:267`) |
+| Group middleware | `['auth:sanctum', 'throttle:admin', 'lang']` (`Routes.php:135`) |
+| Controller | `Marvel\Http\Controllers\ProductController` |
+| `{product}` path parameter | **Resolves as `id` OR `slug`** — `where('id', $id)->orWhere('slug', $id)->firstOrFail()` (`:338-341`). No numeric route constraint is applied on this apiResource line. Unknown → 404. |
+| Permission | Route OR-gate (5 product permissions) + constructor STRICT `view-products` for show (`ProductController.php:109`) — `view-product` alone is **403** |
+| Rate limit / Locale | `throttle:admin` 400/min; `lang` header selects message locale |
 
-## Request inputs
+## Query parameters
 
-| Field | Location | Data type | Required | Nullable | Rules | Allowed values | Default | Conditional rules | Example | Meaning |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Authorization` | header | string | Required | No | Bearer Sanctum token | Any valid token | None | None | `Bearer 1\|abcdef123456` | Authenticates the caller |
-| `lang` | header | string | Optional | No | In `['en', 'ar']` | `en`, `ar` | `en` | None | `en` | Selects message locale |
-| `product` | path | mixed id \| slug | Required | No | No route constraint; `where('id', $id)->orWhere('slug', $id)` equality (soft-deleted rows miss — `Product` uses `SoftDeletes`, code-verified) | Id or slug of a non-deleted product | None | None | `1` | Identifies the product |
-| `limit` | query | integer | Optional | No | `$request->limit ?? 10`; unvalidated (related-products page size, code-verified) | Any positive integer | `10` | None | `10` | Related-products limit |
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `limit` | integer | No | `10` | Sizes the `related_products` relation (`:337,342`) |
 
-No body fields. No `422` contract.
+- No body, no other query parameters.
 
-## Request examples
+## Eager loads (code-verified, `:345-351`)
 
-Valid request showing a product (test-verified call):
+Placement chains (`variations.productLocations.location`/`.warehouse`, `productLocations.*`), `categories`, `flash_sales`, `banners`, `sliders`, `brands`, `reviews`, `tags`, `barcodes` — plus `related_products` (`repository->fetchRelated($product->id, $limit)` attached as relation, `:342-343`).
+
+## Request example
 
 ```json
 {
   "method": "GET",
-  "url": "/api/v1/products/1",
+  "url": "/api/v1/products/42",
   "headers": {
     "Authorization": "Bearer 1|abcdef123456",
     "Accept": "application/json",
@@ -52,64 +49,21 @@ Valid request showing a product (test-verified call):
 }
 ```
 
+```json
+{
+  "method": "GET",
+  "url": "/api/v1/products/new-widget",
+  "headers": { "Authorization": "Bearer 1|abcdef123456", "Accept": "application/json" }
+}
+```
+
 # Responses
 
-## Success: product returned — HTTP 200
+## Success — HTTP 200
 
-Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, ProductResource::make($product))` with all eight relations + `related_products` loaded (all gated collections present). Verified by `test_admin_can_show_product_by_id` (`assertOk`, `data.id`, `getJson`).
+Message: `en` → `"Data fetched successfully"` / `ar` → `"تم جلب البيانات بنجاح"`. `data` = one **complete** `ProductResource` row — RELEATIONS ARE LOADED, so relation blocks appear (unlike list/create/update rows: `whenLoaded` gating, `ProductResource.php:56-67`).
 
-| Field | Data type | Presence | Meaning | Possible values / notes |
-| --- | --- | --- | --- | --- |
-| `status` | integer | Always present | Mirrors the HTTP status | Always `200` on success |
-| `message` | string | Always present | Translated `MESSAGE.FETCH_DATA_SUCCESSFULLY` | `en` → `"Data fetched successfully"` |
-| `success` | boolean | Always present | Outcome flag | Always `true` on success (verified: `apiResponse(..., 200, true, ...)` — `true` is hardcoded on this path) |
-| `data` | object | Always present on success | Full `ProductResource` (raw name/description because route is NOT `products.index`; all eight relations + `related_products` loaded, so all gated collections present; `Resource` object is never `empty()`, so the `data` key is never omitted here) | Every key below |
-| `data.id` | integer | Always present | Product id | e.g. `1` |
-| `data.name` | string | Always present | Raw stored translations as JSON TEXT (verified: `getRawOriginal('name')` — escaped string, not an object) | e.g. `"{\"en\": \"Shirt\", \"ar\": \"قميص\"}"` |
-| `data.slug` | string | Always present | Product slug | e.g. `"shirt"` |
-| `data.description` | string | Always present | Raw stored translations as JSON TEXT | e.g. `"{\"en\": \"Cotton shirt\"}"` |
-| `data.price` | number | Always present (null possible) | Base price, rounded | e.g. `100.0` |
-| `data.current_price` | number | Always present (null possible) | Pre-tax effective price, rounded | e.g. `100.0` |
-| `data.tax_enabled` | boolean | Always present | Tax switch | `true` / `false` |
-| `data.tax_rate` | number \| null | Always present (nullable) | Tax percent | e.g. `15.0` or `null` |
-| `data.tax` | object \| null | Always present (nullable — runtime-probed 2026-10-17: `null` when `tax_enabled` is `false`) | `ProductTaxPresenter::describe` output | Object or `null` |
-| `data.price_including_tax` | number | Always present (null possible) | Tax-inclusive value, rounded | e.g. `115.0` |
-| `data.price_after_discount` | number | Always present (null possible) | Post-discount price, rounded | e.g. `90.0`; runtime-probed 2026-10-17: `null` when no discount is configured — including rows with the default fill (`percentage`/`0`) |
-| `data.price_after_flash_sale` | number | Always present (null possible) | Post-flash-sale price, rounded | e.g. `null` |
-| `data.discount_type` | string \| null | Always present (nullable) | Discount kind | `percentage`, `fixed_rate`, `free_shipping`, or `null`; NOTE (runtime-probed 2026-10-17): LOADED show rows show the DEFAULT fill (`percentage` + `discount_amount: 0`) even for products created with `has_discount=0` |
-| `data.discount_amount` | number \| null | Always present (nullable) | Discount value | e.g. `10`, default fill `0` on loaded rows, or `null` |
-| `data.start_date` | string \| null | Always present (nullable) | Window start | Date or `null` |
-| `data.end_date` | string \| null | Always present (nullable) | Window end | Date or `null` |
-| `data.sku` | string \| null | Always present (nullable) | SKU | e.g. `"SH-001"` |
-| `data.stock_quantity` | integer \| null | Always present (nullable) | Stock on hand | e.g. `10` |
-| `data.reserved_quantity` | integer | Always present | Reserved (defaults `0`) | e.g. `0` |
-| `data.available_stock` | integer \| null | Always present (nullable) | Sellable units | e.g. `10` |
-| `data.quantity` | integer \| null | Always present (nullable) | Quantity | e.g. `10` |
-| `data.sold_quantity` | integer | Always present | Sold (defaults `0`) | e.g. `0` |
-| `data.in_stock` | integer \| boolean | Always present (NO single cast — runtime-probed 2026-10-17: `1`/`0` integer on loaded rows; boolean `true`/`false` observed for variable products serialized from a fresh/updated instance) | Stock flag | `1`, `0`, `true`, `false` |
-| `data.status` | integer | Always present | Publish flag (verified: `Product` casts `status` to `integer`) | `1`, `0` |
-| `data.product_type` | string | Always present | Product kind | `simple`, `variable` |
-| `data.item_type` | string | Always present | Fulfillment kind | `PHYSICAL`, `DIGITAL` |
-| `data.height` | string \| null | Always present (nullable) | Dimension | e.g. `"10"` or `null` |
-| `data.width` | string \| null | Always present (nullable) | Dimension | e.g. `"20"` or `null` |
-| `data.length` | string \| null | Always present (nullable) | Dimension | e.g. `"30"` or `null` |
-| `data.weight` | string \| null | Always present (nullable) | Weight | e.g. `"1.5"` or `null` |
-| `data.has_flash_sale` | boolean | Always present | Flash-sale switch (verified model boolean cast) | `true` / `false` |
-| `data.has_discount` | boolean | Always present | Discount switch (verified model boolean cast) | `true` / `false` |
-| `data.is_fast_shipping_available` | boolean | Always present | Fast-shipping flag | `true` / `false` |
-| `data.discount_valid` | boolean | Conditionally present (only when `has_discount` truthy) | Discount window active | `true` / `false` |
-| `data.tags` | array | Always present on show (relation loaded) | Tag resources | `[]` when none |
-| `data.brands` | array | Always present on show (relation loaded) | Brand resources | `[]` when none |
-| `data.banners` | array | Always present on show (relation loaded) | Banner resources | `[]` when none |
-| `data.sliders` | array | Always present on show (relation loaded) | Slider resources | `[]` when none |
-| `data.created_at` | string \| null | Always present (nullable) | Creation timestamp | ISO-8601 or `null` |
-| `data.categories` | array | Always present on show (relation loaded) | `[{id, name, slug}]` | `[]` when none |
-| `data.flash_sales` | array | Always present on show (relation loaded) | Flash-sale resources | `[]` when none |
-| `data.reviews` | array | Always present on show (relation loaded) | Review resources | `[]` when none |
-| `data.images` | array of strings | Always present (can be empty) | Media URLs | e.g. `["https://cdn.example/i.jpg"]` |
-| `data.locations` | array | Always present on show | Location placement rows: `[{id, location_id, warehouse_id, quantity, allocated_hint, location: {id, code, barcode, name, type}, warehouse: {id, code, name}}]` (direct placements for simple products; empty array for variable products whose placements are assigned to variants) | `[]` when none |
-| `data.variants` | array | Always present on show (relation loaded) | Variant rows with `id/price/current_price/stock_quantity/reserved_quantity/available_stock/quantity/height/width/length/weight/locations/attributes[{attribute_name,value}]` where each location contains `id, location_id, warehouse_id, quantity, allocated_hint, location, warehouse` | `[]` for simple products; `attributes[].attribute_name` can be an EMPTY STRING when the attribute row has no localized name for the active locale (runtime-probed) |
-| `data.related_products` | array | Always present on show (relation explicitly attached) | Slim `ProductResource` rows — runtime-probed 2026-10-17: each item carries ONLY the product base fields + `images` (NO `categories`/`tags`/`brands`/`banners`/`sliders`/`flash_sales`/`reviews`/`variants`) | `[]` when none |
+On show, `name`/`description` come as the **raw per-locale arrays** (`getRawOriginal`, `:19,21`).
 
 ```json
 {
@@ -117,130 +71,112 @@ Returned via `ApiResponse::apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, Produ
   "message": "Data fetched successfully",
   "success": true,
   "data": {
-    "id": 1,
-    "name": "{\"en\": \"Shirt\", \"ar\": \"قميص\"}",
-    "slug": "shirt",
-    "description": "{\"en\": \"Cotton shirt\"}",
-    "price": 100.0,
-    "current_price": 100.0,
-    "tax_enabled": false,
-    "tax_rate": null,
-    "tax": null,
-    "price_including_tax": 100.0,
-    "price_after_discount": null,
-    "price_after_flash_sale": null,
+    "id": 42,
+    "name": { "en": "New Widget", "ar": "عنصر جديد" },
+    "description": { "en": "Widget description", "ar": "وصف العنصر" },
+    "slug": "new-widget",
+    "price": "2.50",
+    "current_price": "2.25",
+    "tax_enabled": true,
+    "tax_rate": 5,
+    "tax": { "tax_enabled": true, "tax_rate": 5, "amount": 0.11 },
+    "price_including_tax": "2.36",
+    "price_after_discount": "2.25",
+    "price_after_flash_sale": "2.25",
     "discount_type": "percentage",
-    "discount_amount": 0,
-    "start_date": null,
-    "end_date": null,
-    "sku": "SH-001",
-    "stock_quantity": 10,
+    "discount_amount": 10,
+    "discount_valid": true,
+    "start_date": "2026-11-01",
+    "end_date": "2026-11-15",
+    "sku": "WGT-001",
+    "stock_quantity": 100,
     "reserved_quantity": 0,
-    "available_stock": 10,
-    "quantity": 10,
+    "available_stock": 100,
+    "quantity": 100,
     "sold_quantity": 0,
     "in_stock": 1,
     "status": 1,
     "product_type": "simple",
     "item_type": "PHYSICAL",
-    "height": null,
-    "width": null,
-    "length": null,
-    "weight": null,
-    "has_flash_sale": false,
-    "has_discount": false,
-    "is_fast_shipping_available": false,
-    "created_at": "2026-01-01T00:00:00+00:00",
-    "categories": [{ "id": 2, "name": "Men", "slug": "men" }],
-    "flash_sales": [],
-    "tags": [],
-    "brands": [],
-    "banners": [],
-    "sliders": [],
-    "reviews": [],
-    "images": [],
+    "piece_barcode": "P-WGT-001",
+    "carton_barcode": "C-WGT-001",
+    "pieces_per_carton": 6,
+    "height": "10",
+    "width": "5",
+    "length": "4",
+    "weight": "0.3",
+    "has_flash_sale": 0,
+    "has_discount": 1,
+    "is_fast_shipping_available": true,
+    "tags": [
+      { "id": 7, "name": "best-seller", "slug": "best-seller", "image": null, "icon": null }
+    ],
+    "brands": [
+      {
+        "id": 1,
+        "name": "Meem",
+        "slug": "meem",
+        "image": { "desktop": "…", "mobile": "…" },
+        "details": "…",
+        "status": true
+      }
+    ],
+    "banners": [ "<BannerResource row>" ],
+    "sliders": [ "<SliderResource row>" ],
+    "created_at": "2026-11-01T09:15:00.000000Z",
+    "categories": [ { "id": 3, "name": "Grocery", "slug": "grocery" } ],
+    "flash_sales": [ "<FlashSaleResource row>" ],
+    "reviews": [ "<ReviewResource row>" ],
+    "images": [ "http://127.0.0.1:8000/storage/product/widget-1.jpg" ],
     "locations": [
       {
-        "id": 101,
-        "location_id": 12,
+        "id": 71,
+        "location_id": 3,
         "warehouse_id": 1,
-        "quantity": 10.0,
-        "allocated_hint": 0.0,
-        "location": {
-          "id": 12,
-          "code": "LOC-A-01",
-          "barcode": "BAR-LOC-A01",
-          "name": "Bin A-01",
-          "type": "picking"
-        },
-        "warehouse": {
-          "id": 1,
-          "code": "WH-MAIN",
-          "name": "Main Warehouse"
-        }
+        "quantity": 60,
+        "allocated_hint": 0,
+        "location": { "id": 3, "code": "A-01", "barcode": "LOC-A01", "name": "Shelf A-01", "type": "shelf" },
+        "warehouse": { "id": 1, "code": "WH1", "name": "Main warehouse" }
       }
     ],
     "variants": [],
-    "related_products": []
+    "related_products": [ "<ProductResource rows — abridged single-locale rows>" ]
   }
 }
 ```
 
+Relation-sub-shape facts (verified from the individual resources):
+
+| Block | Shape (verified / abridged) |
+| --- | --- |
+| `categories[]` | `{id, name (locale string), slug}` — flattened, NOT a CategoryResource (`:72-81`) |
+| `tags[]` (`TagResource`) | `{id, name (locale string), slug, image (URL \| null), icon (URL \| null)}` — `products` sub-block omitted unless that relation is loaded |
+| `brands[]` (`BrandResource`) | `{id, name (locale string), slug, image:{desktop, mobile}, details (locale string), status (bool)}` |
+| `variants[]` | `{id, price, current_price, stock_quantity, reserved_quantity, available_stock, quantity, height, width, length, weight, locations[], attributes:[{attribute_name, value}]}` (`:101-122`) |
+| `locations[]` | `{id, location_id, warehouse_id, quantity, allocated_hint, location{id, code, barcode, name, type}, warehouse{id, code, name}}` (`:124-151`) |
+| `images[]` | plain URL strings (media collection `products`) |
+| `banners[]`/`sliders[]`/`flash_sales[]`/`reviews[]`/`related_products[]` | their own resources (`packages/marvel/src/Http/Resources/{Banner,Slider,FlashSale,Review}Resource.php`, `related_products` = `ProductResource` rows) — abridged in the sample above on purpose |
+
 # Errors
 
-No error-code field; every error below has Error code `None`. No validation, so no `422`.
+| HTTP status | Trigger | Message (en / ar) | Verification |
+| --- | --- | --- | --- |
+| 401 / 403 / 429 | Same shared matrix as `get-products.md` | — | Verified there |
+| 404 | Unknown id/slug value | `Not found` / `غير موجود` — the ` MarvelException(NOT_FOUND)` branch maps to 404 | `Handler.php:202-203`, `ProductController.php:322-323`; exceptions from `fetchSingleProduct` (`MarvelNotFoundException`) map through the HttpException/translate path (`Handler.php:111-121,188-192`) to the same text family |
 
-| HTTP status | Trigger | Response body | Error code | Message | Field errors | Conditions | Example |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 401 | Missing/invalid token | `{message: string, status: boolean}` | None | `"Unauthenticated"` | None | No valid token (guest show hedges `[401, 403]` in `test_guest_cannot_show_product` — 401 is the code-traced outcome for a bare guest) | See 401 example |
-| 403 | Authenticated caller lacks `view-products` | `{message: string, status: boolean}` | None | Translated `ERROR.PERMISSION_MISSING_PERMISSIONS` | None | Valid token without `view-products` (same constructor gate as index, test-verified on the index sibling) | See 403 example |
-| 404 | No product with id (double-wrapped `MarvelException(NOT_FOUND)` → `Handler` `MarvelException` branch → TRANSLATED — code-verified chain through the name-trap classes) | `{status: integer, message: string, success: boolean}` (ApiResponse shape) | None | Translated `ERROR.NOT_FOUND`: `en` → `"Not found"` | None | Unknown id (suite hedges `[404, 500]` in `test_show_nonexistent_product_returns_404` for `99999` — 404 is the code-traced outcome) | See 404 example |
-| 500 | Related-products fetch failure inside `fetchSingleProduct` (any `Exception` there takes the same rethrow path... still lands 404-translated, NOT 500 — so a true 500 here needs a post-lookup failure; explicitly allowed by the hedge, code-traced as possible-but-unshaped) | `{message: string, status: boolean}` | None | `"Internal Server Error"` (or the live message when debug is on) | None | Post-lookup failure (allowed by the `[404, 500]` hedge) | See 500 example |
-| 429 | Exceeding `throttle:admin` | `{success: boolean, message: string, data: null}` | None | `__('message.too_many_requests')` | None | Rate limit exceeded | See 429 example |
-
-401 example:
+404 body has NO `data` key:
 
 ```json
-{
-  "message": "Unauthenticated",
-  "status": false
-}
+{ "message": "Not found", "status": false, "success": false }
 ```
 
-403 example:
+# Invariants & notes
 
-```json
-{
-  "message": "User does not have the required permissions.",
-  "status": false
-}
-```
+- **id-vs-slug ambiguity**: when the requested value could match both columns (e.g. slug `"42"` while id 42 exists), plain `first()` row order decides — no first-match guarantee should be assumed.
+- **N+1 awareness**: `fetchRelated` runs its own query; `limit` huge values follow the repository contract (`fetchRelated($id, $limit)` default 10 from `:337`).
+- **`tax` object**: same semantics as the list doc (`describe` on `current_price`).
+- **Storefront counterpart**: public detail endpoint is `GET /api/v1/general/products/{slug}` — different controller/resource and visibility (published-only).
 
-404 example:
+# Verification source
 
-```json
-{
-  "status": 404,
-  "message": "Not found",
-  "success": false
-}
-```
-
-500 example (hedge-allowed):
-
-```json
-{
-  "message": "Internal Server Error",
-  "status": false
-}
-```
-
-429 example:
-
-```json
-{
-  "success": false,
-  "message": "Too many requests. Please try again later.",
-  "data": null
-}
-```
+`php artisan route:list --path=products` (products.show action); `Routes.php:135,267`; `Marvel\Http\Controllers\ProductController.php` (:109, :317-355); `products/ProductResource.php` (:17-160); `TagResource.php` (:16-35); `BrandResource.php` (:15-40); `app/Exceptions/Handler.php` (:105-121, :188-236); `resources/lang/en|ar/message.php`; `resources/lang/en|ar/wms.php` NOT used here (admin placements doc covers those).

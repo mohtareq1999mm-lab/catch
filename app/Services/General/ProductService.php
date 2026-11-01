@@ -78,6 +78,9 @@ class ProductService
             'media',
             'flash_sales' => fn($q) => $q->valid(),
             'tags',
+            // One barcode row per product (piece/carton/quantity); consumed
+            // by ProductMiniResource/ProductResource for every list strategy.
+            'barcodes',
         ];
     }
 

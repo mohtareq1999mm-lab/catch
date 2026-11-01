@@ -2,7 +2,9 @@
 
 namespace Marvel\Imports;
 
+use Maatwebsite\Excel\Concerns\SkipsUnknownSheets;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
+use Marvel\Imports\Sheets\ProductBarcodesSheetImport;
 use Marvel\Imports\Sheets\ProductBrandsSheetImport;
 use Marvel\Imports\Sheets\ProductCategoriesSheetImport;
 use Marvel\Imports\Sheets\FlashSalesSheetImport;
@@ -13,7 +15,7 @@ use Marvel\Imports\Sheets\SlidersSheetImport;
 use Marvel\Imports\Sheets\TagsSheetImport;
 use Marvel\Services\Import\ProductImportService;
 
-class ProductsImport implements WithMultipleSheets
+class ProductsImport implements WithMultipleSheets, SkipsUnknownSheets
 {
     protected ProductImportService $service;
     protected bool $withImages;
@@ -28,6 +30,7 @@ class ProductsImport implements WithMultipleSheets
     {
         $sheets = [
             'products' => new ProductsSheetImport($this->service),
+            'product_barcodes' => new ProductBarcodesSheetImport($this->service),
             'product_variants' => new ProductVariantsSheetImport($this->service),
             'categories' => new ProductCategoriesSheetImport($this->service),
             'brands' => new ProductBrandsSheetImport($this->service),
@@ -39,5 +42,10 @@ class ProductsImport implements WithMultipleSheets
             $sheets['images'] = new ImagesSheetImport($this->service);
         }
         return $sheets;
+    }
+
+    public function onUnknownSheet($sheetName): void
+    {
+        // Intentionally ignore unknown or omitted sheets (e.g. legacy 8-sheet workbooks without product_barcodes)
     }
 }

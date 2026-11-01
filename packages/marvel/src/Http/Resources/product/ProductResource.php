@@ -41,6 +41,10 @@ class ProductResource extends Resource
             'status'                 => $this->status,
             'product_type'           => $this->product_type,
             'item_type'              => $this->item_type,
+            // Barcode attributes (one product_barcodes row per product).
+            'piece_barcode'          => $product->barcodes?->piece_barcode,
+            'carton_barcode'         => $product->barcodes?->carton_barcode,
+            'pieces_per_carton'      => $product->barcodes?->pieces_per_carton,
             'height'                 => $this->height,
             'width'                  => $this->width,
             'length'                 => $this->length,

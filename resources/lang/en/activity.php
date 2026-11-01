@@ -93,6 +93,7 @@ return [
     'pickup_location_deactivated' => 'Pickup location deactivated',
 
     'settings_updated' => 'Settings updated',
+    'warehouse_workflow_switch_updated' => 'Warehouse workflow switch updated',
     'destroy_all_products' => 'All products soft deleted',
     'products_bulk_deleted' => 'Products bulk deleted',
     'product_categories_synced' => 'Product categories synchronized',

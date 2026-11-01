@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -387,6 +388,17 @@ class Product extends Model implements HasMedia
     public function questions(): HasMany
     {
         return $this->hasMany(Question::class, 'product_id');
+    }
+
+    /**
+     * Piece/carton barcode attributes (one row per product, created on
+     * first use). Products without barcode info have no related row.
+     *
+     * @return HasOne
+     */
+    public function barcodes(): HasOne
+    {
+        return $this->hasOne(\App\Models\ProductBarcode::class, 'product_id');
     }
 
     /**

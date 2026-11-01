@@ -54,6 +54,15 @@ class SettingsRequest extends FormRequest
             'order_tax_enabled' => ['sometimes', 'boolean'],
             'order_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'options' => ['sometimes', 'array'],
+            // Per-gateway toggles through the Site Settings endpoint:
+            // {payment_gateways: {code: {enabled: bool}}}. Mirrors the
+            // shape the settings GET responses expose; `available` is a
+            // derived display verdict and is NOT writable. Unknown gateway
+            // codes are rejected by the controller so the error can name
+            // the offending code.
+            'payment_gateways' => ['sometimes', 'array'],
+            'payment_gateways.*' => ['array'],
+            'payment_gateways.*.enabled' => ['required', 'boolean'],
         ];
     }
 

@@ -42,6 +42,10 @@ class ProductResource extends JsonResource
             'in_stock'               => $this->in_stock,
             'product_type'           => $this->product_type,
             'item_type'              => $this->item_type,
+            // Barcode attributes (one product_barcodes row per product).
+            'piece_barcode'          => $this->barcodes?->piece_barcode,
+            'carton_barcode'         => $this->barcodes?->carton_barcode,
+            'pieces_per_carton'      => $this->barcodes?->pieces_per_carton,
             'height'                 => $this->height,
             'width'                  => $this->width,
             'length'                 => $this->length,

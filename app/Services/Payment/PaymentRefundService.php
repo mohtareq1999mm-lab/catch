@@ -22,11 +22,16 @@ use Marvel\Database\Models\Transaction;
  * transaction-level partial-refund idempotency, so it is intentionally not
  * used here.
  *
- * IDEMPOTENCY SCOPE: per-transaction, not global. The replay check scans only
- * THIS transaction's ledger, so the same idempotency key on a different
- * order/transaction is an independent refund (new provider call, own ledger
- * row) — never a replay of the other row. Cross-order key reuse is safe by
- * construction; keys only need to be unique per transaction.
+ * IDEMPOTENCY SCOPE: per-order, not global. The replay check scans the
+ * ledgers of EVERY transaction of THIS order (paid / partially_refunded /
+ * refunded), so a key recorded on one transaction also replays against
+ * sibling transactions of the same order — the original summary is
+ * returned with no provider call (F-TAP-REPLAY; a full refund sets the
+ * order to payment-refunded, which the terminal-state guards below would
+ * otherwise reject even for the key that performed the refund). Keys on a
+ * DIFFERENT order are independent refunds (new provider call, own ledger
+ * row) — never a replay. Cross-order key reuse is safe by construction;
+ * keys only need to be unique per order.
  *
  * Full refunds reuse the paid-cancel side-effect path from
  * OrderService::changeOrderStatus() (committed-inventory restore + coupon
@@ -39,7 +44,10 @@ use Marvel\Database\Models\Transaction;
  * lockForUpdate — the global ordering shared with callbacks/webhooks/
  * mark-paid. The previous Order-then-Transaction order deadlocked (MySQL
  * 1213, measured) when an admin refund overlapped a duplicate gateway
- * callback on the same order.
+ * callback on the same order. The F-TAP-REPLAY ledger scan also locks its
+ * transaction rows (orderByDesc('id'), deterministic) BEFORE the Order
+ * lock so the refund path never holds the Order row while waiting on a
+ * transaction row.
  */
 class PaymentRefundService
 {
@@ -76,14 +84,63 @@ class PaymentRefundService
             // F-AUDIT-01: GLOBAL lock order is Transaction -> Order (same as
             // callbacks/webhooks). Locking the txn row first eliminates the
             // MySQL 1213 deadlock measured when an admin refund overlapped a
-            // duplicate gateway callback on the same order.
+            // duplicate gateway callback on the same order. EVERY Transaction
+            // lock below is acquired before the Order lock — including the
+            // F-TAP-REPLAY ledger scan — so no refund path can hold the Order
+            // row while waiting on a transaction row.
             $txn = Transaction::query()->where('order_id', $order->getKey())
                 ->whereIn('status', ['paid', 'partially_refunded'])
                 ->latest()
                 ->lockForUpdate()
                 ->first();
 
+            // F-TAP-REPLAY: idempotent replay is checked BEFORE the
+            // terminal-state guards. A retry with an already-executed key
+            // must return the original summary without a provider call —
+            // a full refund leaves payment_status=payment-refunded and the
+            // transaction status 'refunded', which the guards below reject
+            // even for the key that performed the refund. The scan covers
+            // every order transaction (paid / partially_refunded /
+            // refunded) so the key is found on the transaction its entry
+            // was recorded on, not just the latest refundable row. It runs
+            // BEFORE the Order lock (F-AUDIT-01) with a deterministic
+            // orderByDesc('id') scan order, so concurrent refunds and
+            // callbacks can never form a lock-order cycle. The rows are
+            // already locked, so the match can be returned as-is.
+            $ledgerTxns = Transaction::query()->where('order_id', $order->getKey())
+                ->whereIn('status', ['paid', 'partially_refunded', 'refunded'])
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->get();
+
+            $replayCandidate = null;
+            $replayEntry = null;
+
+            foreach ($ledgerTxns as $ledgerTxn) {
+                foreach ($this->readLedger($ledgerTxn) as $entry) {
+                    if (is_array($entry) && ($entry['idempotency_key'] ?? null) === $idempotencyKey) {
+                        $replayCandidate = $ledgerTxn;
+                        $replayEntry = $entry;
+
+                        break 2;
+                    }
+                }
+            }
+
             $lockedOrder = Order::query()->whereKey($order->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($replayCandidate !== null) {
+                return $this->summaryFor(
+                    $lockedOrder,
+                    $replayCandidate,
+                    $this->readLedger($replayCandidate),
+                    (float) ($replayEntry['amount'] ?? 0),
+                    strtoupper(trim((string) $replayCandidate->currency)),
+                    (bool) ($replayEntry['full_refund'] ?? false),
+                    $replayEntry['provider_ref'] ?? null,
+                    true,
+                );
+            }
 
             if ($lockedOrder->payment_status === Order::PAYMENT_STATUS_REFUNDED) {
                 throw new \RuntimeException(__('message.ERROR.ALREADY_REFUNDED'));
@@ -123,18 +180,6 @@ class PaymentRefundService
 
             $decimals = CurrencyPrecision::decimalsFor($txnCurrency);
             $ledger = $this->readLedger($txn);
-
-            foreach ($ledger as $entry) {
-                if (is_array($entry) && ($entry['idempotency_key'] ?? null) === $idempotencyKey) {
-                    // Idempotent replay: the original result, no provider call.
-                    // Re-read the txn row under lock so the summary reflects
-                    // committed ledger state, not the pre-lock snapshot.
-                    $replayTxn = Transaction::query()->whereKey($txn->getKey())->lockForUpdate()->firstOrFail();
-                    $replayLedger = $this->readLedger($replayTxn);
-
-                    return $this->summaryFor($lockedOrder, $replayTxn, $replayLedger, (float) ($entry['amount'] ?? 0), $txnCurrency, (bool) ($entry['full_refund'] ?? false), $entry['provider_ref'] ?? null, true);
-                }
-            }
 
             $requestMinor = CurrencyPrecision::toMinorUnits($amount, $txnCurrency);
             $paidMinor = CurrencyPrecision::toMinorUnits((float) $txn->amount, $txnCurrency);

@@ -93,6 +93,7 @@ return [
     'pickup_location_deactivated' => 'تم تعطيل موقع الاستلام',
 
     'settings_updated' => 'تم تحديث الإعدادات',
+    'warehouse_workflow_switch_updated' => 'تم تحديث مفتاح سير عمل المستودع',
     'destroy_all_products' => 'تم حذف جميع المنتجات (حذف مؤقت)',
     'products_bulk_deleted' => 'تم حذف المنتجات بشكل جماعي',
     'product_categories_synced' => 'تمت مزامنة فئات المنتج',

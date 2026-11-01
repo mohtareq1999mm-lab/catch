@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Fulfillment\Fulfillment;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Console\Command;
 use Marvel\Database\Models\Order;
 
@@ -30,6 +31,14 @@ use Marvel\Database\Models\Order;
  *   the same row instead of duplicating (UNIQUE backstop stays final).
  * - Poison orders never abort the run: per-order try/catch, counted and
  *   reported at the end for ops follow-up.
+ *
+ * WAREHOUSE-WORKFLOW-SWITCH: when the workflow is disabled (Orders-only
+ * mode) the sweep suppresses entirely. Without this guard the hourly
+ * schedule would silently re-create fulfillments against the operator's
+ * decision. Suppression re-evaluates on the next tick after re-enable;
+ * nothing is replayed (existing orders keep their rows — the select predi-
+ * cate only targets orders with NO non-cancelled fulfillment). Fail-closed:
+ * an unreadable switch state suppresses too (no new fulfillment).
  */
 class ReleaseReadyFulfillments extends Command
 {
@@ -40,12 +49,21 @@ class ReleaseReadyFulfillments extends Command
     public function __construct(
         private FulfillmentService $fulfillments,
         private OrderReservationService $reservations,
+        private WarehouseWorkflowSwitchService $workflowSwitch,
     ) {
         parent::__construct();
     }
 
     public function handle(): int
     {
+        // WAREHOUSE-WORKFLOW-SWITCH: Orders-only hardening — never re-create
+        // fulfillment rows against the operator's intent.
+        if (!$this->workflowSwitch->isEnabled()) {
+            $this->info('Ready-fulfillment sweep suppressed: warehouse workflow disabled (Orders-only mode).');
+
+            return self::SUCCESS;
+        }
+
         $released = 0;
         $skipped = 0;
         $failed = 0;

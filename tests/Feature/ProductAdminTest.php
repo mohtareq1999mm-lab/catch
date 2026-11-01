@@ -125,6 +125,127 @@ class ProductAdminTest extends TestCase
     }
 
     // =========================================================================
+    // SKU — save-if-provided / generate-if-absent (2026-11-01 contract)
+    // =========================================================================
+
+    private function createCategory(): \Marvel\Database\Models\Category
+    {
+        return \Marvel\Database\Models\Category::create([
+            'name' => 'Sku Test Category',
+            'slug' => 'sku-cat-' . Str::random(8),
+        ]);
+    }
+
+    private function skuCreatePayload(?string $sku = null): array
+    {
+        $payload = [
+            'name' => ['en' => 'Sku Contract Product ' . Str::random(6)],
+            'description' => ['en' => 'Sku contract test description.'],
+            'categories' => [$this->createCategory()->id],
+            'images' => [\Illuminate\Http\UploadedFile::fake()->image('sku.jpg')],
+            'price' => 10,
+            'product_type' => ProductType::SIMPLE,
+            'in_stock' => 1,
+            'has_discount' => 0,
+            'has_flash_sale' => 0,
+        ];
+        if ($sku !== null) {
+            $payload['sku'] = $sku;
+        }
+
+        return $payload;
+    }
+
+    public function test_create_product_saves_provided_sku()
+    {
+        $this->authAdmin();
+
+        $response = $this->postJson(self::PREFIX . '/products', $this->skuCreatePayload('MANUAL-SKU-42'));
+
+        $response->assertStatus(201);
+        $this->assertSame('MANUAL-SKU-42', $response->json('data.sku'));
+        $this->assertDatabaseHas('products', ['sku' => 'MANUAL-SKU-42']);
+    }
+
+    public function test_create_product_generates_sku_when_absent()
+    {
+        $this->authAdmin();
+
+        $response = $this->postJson(self::PREFIX . '/products', $this->skuCreatePayload(null));
+
+        $response->assertStatus(201);
+        $sku = $response->json('data.sku');
+        $this->assertNotEmpty($sku);
+        $this->assertMatchesRegularExpression('/^PRD-\d+$/u', (string) $sku);
+    }
+
+    public function test_create_product_rejects_duplicate_provided_sku()
+    {
+        $this->authAdmin();
+        Product::create([
+            'name' => ['en' => 'Existing Sku Owner'],
+            'slug' => 'existing-sku-owner-' . Str::random(6),
+            'sku' => 'TAKEN-SKU-01']);
+
+        $response = $this->postJson(self::PREFIX . '/products', $this->skuCreatePayload('TAKEN-SKU-01'));
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['sku']);
+    }
+
+    public function test_update_product_changes_sku_when_provided()
+    {
+        $this->authAdmin();
+        $product = Product::create([
+            'name' => ['en' => 'Sku Patch Target'],
+            'slug' => 'sku-patch-target-' . Str::random(6),
+            'sku' => 'OLD-SKU-A']);
+
+        $response = $this->putJson(self::PREFIX . "/products/{$product->id}", ['sku' => 'NEW-SKU-B']);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('products', ['id' => $product->id, 'sku' => 'NEW-SKU-B']);
+        $this->assertDatabaseMissing('products', ['id' => $product->id, 'sku' => 'OLD-SKU-A']);
+    }
+
+    public function test_update_product_keeps_sku_and_slug_when_absent()
+    {
+        $this->authAdmin();
+        $slug = 'sku-absent-patch-' . Str::random(8);
+        $product = Product::create([
+            'name' => ['en' => 'Sku Absent Patch'],
+            'slug' => $slug,
+            'sku' => 'KEEP-SKU-C']);
+
+        $response = $this->putJson(self::PREFIX . "/products/{$product->id}", ['status' => 1]);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('products', [
+            'id' => $product->id,
+            'sku' => 'KEEP-SKU-C',
+            'slug' => $slug,
+        ]);
+    }
+
+    public function test_update_product_rejects_duplicate_sku()
+    {
+        $this->authAdmin();
+        Product::create([
+            'name' => ['en' => 'Sibling With Sku'],
+            'slug' => 'sibling-with-sku-' . Str::random(6),
+            'sku' => 'CLASH-SKU-Z']);
+        $product = Product::create([
+            'name' => ['en' => 'Target Product Two'],
+            'slug' => 'target-product-two-' . Str::random(6),
+            'sku' => 'OWN-SKU-Z']);
+
+        $response = $this->putJson(self::PREFIX . "/products/{$product->id}", ['sku' => 'CLASH-SKU-Z']);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['sku']);
+    }
+
+    // =========================================================================
     // PUT /products/{id} — Update
     // =========================================================================
 

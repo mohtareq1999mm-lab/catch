@@ -32,6 +32,8 @@ class GatewaySettingsAdminTest extends CurrencyTestCase
         config(['payment.gateways.stripe.secret_key' => null]);
         config(['payment.gateways.stripe.webhook_secret' => null]);
         config(['payment.gateways.paypal.client_secret' => null]);
+        config(['payment.gateways.tamara.api_token' => null]);
+        config(['payment.gateways.tamara.notification_token' => null]);
     }
 
     private function actingAdmin(array $permissions = self::PERMISSIONS)
@@ -64,7 +66,10 @@ class GatewaySettingsAdminTest extends CurrencyTestCase
         $this->assertSame('USD', $response->json('data.catalog_currency'));
 
         $gateways = $response->json('data.gateways');
-        $this->assertCount(3, $gateways);
+        // The registry grows with every gateway configured in
+        // config/payment.php — tap, tabby and tamara joined (all three
+        // disabled by default).
+        $this->assertCount(6, $gateways);
 
         foreach ($gateways as $row) {
             $this->assertArrayHasKey('code', $row);
@@ -89,6 +94,19 @@ class GatewaySettingsAdminTest extends CurrencyTestCase
         $this->assertArrayHasKey('myfatoorah', $byCode);
         $this->assertArrayHasKey('stripe', $byCode);
         $this->assertArrayHasKey('paypal', $byCode);
+        $this->assertArrayHasKey('tap', $byCode);
+        $this->assertArrayHasKey('tabby', $byCode);
+        $this->assertArrayHasKey('tamara', $byCode);
+
+        // Tamara's env-backed currency list (SAR/AED/BHD/KWD/OMR) does not
+        // cover the USD catalog, and the tamara adapter has no secrets
+        // configured hermetically here.
+        $this->assertFalse($byCode['tamara']['supports_catalog_currency']);
+        $this->assertFalse($byCode['tamara']['configured']);
+        $this->assertFalse($byCode['tamara']['enabled']);
+
+        // Tabby's env-backed currency list (AED/SAR) does not cover the USD catalog.
+        $this->assertFalse($byCode['tabby']['supports_catalog_currency']);
 
         // MyFatoorah's env list (KWD..EGP) does not cover the USD catalog.
         $this->assertFalse($byCode['myfatoorah']['supports_catalog_currency']);
@@ -114,13 +132,19 @@ class GatewaySettingsAdminTest extends CurrencyTestCase
 
         $this->putJson(self::ADMIN_PREFIX . '/myfatoorah', ['sort_order' => 5])->assertStatus(200);
         $this->putJson(self::ADMIN_PREFIX . '/stripe', ['sort_order' => 9])->assertStatus(200);
+        // Pin every added gateway's sort_order so the exact order assertion
+        // stays hermetic regardless of config defaults (paypal 1 → tabby 4
+        // → myfatoorah 5 → tamara 6 → stripe 9 → tap 20).
+        $this->putJson(self::ADMIN_PREFIX . '/tap', ['sort_order' => 20])->assertStatus(200);
+        $this->putJson(self::ADMIN_PREFIX . '/tabby', ['sort_order' => 4])->assertStatus(200);
+        $this->putJson(self::ADMIN_PREFIX . '/tamara', ['sort_order' => 6])->assertStatus(200);
 
         $options = $this->gatewayOptions();
         $this->assertSame('PayPal Express', $options['paypal']['display_name']);
         $this->assertSame(1, $options['paypal']['sort_order']);
 
         $codes = collect($this->getJson(self::ADMIN_PREFIX)->json('data.gateways'))->pluck('code')->all();
-        $this->assertSame(['paypal', 'myfatoorah', 'stripe'], $codes);
+        $this->assertSame(['paypal', 'tabby', 'myfatoorah', 'tamara', 'stripe', 'tap'], $codes);
     }
 
     /** @test */
@@ -146,6 +170,94 @@ class GatewaySettingsAdminTest extends CurrencyTestCase
         $gate = app(PaymentGatewayRegistry::class)->canInitiate('myfatoorah', 'online', 'KWD');
         $this->assertTrue($gate['ok']);
         $this->assertSame('ok', $gate['reason']);
+    }
+
+    /** @test */
+    public function enabled_toggles_are_independent_across_gateways(): void
+    {
+        $this->actingAdmin();
+
+        // Prove toggling one gateway's enabled state never flips another's
+        // (§A: update each gateway independently, preserve the rest).
+        foreach (['stripe', 'tap', 'tabby', 'tamara'] as $code) {
+            $before = collect($this->getJson(self::ADMIN_PREFIX)->json('data.gateways'))->keyBy('code');
+            $target = !$before[$code]['enabled'];
+
+            $this->putJson(self::ADMIN_PREFIX . '/' . $code, ['enabled' => $target])
+                ->assertStatus(200)
+                ->assertJson(['success' => true, 'data' => ['code' => $code, 'enabled' => $target]]);
+
+            $after = collect($this->getJson(self::ADMIN_PREFIX)->json('data.gateways'))->keyBy('code');
+
+            foreach ($before as $other => $row) {
+                if ($other === $code) {
+                    continue; // the toggled gateway itself MUST have moved
+                }
+                $this->assertSame(
+                    $row['enabled'],
+                    $after[$other]['enabled'],
+                    "Gateway '{$other}' must keep its enabled value when '{$code}' is updated."
+                );
+            }
+            $this->assertNotSame($before[$code]['enabled'], $after[$code]['enabled']);
+        }
+    }
+
+    /** @test */
+    public function site_settings_cache_is_flushed_so_website_sees_the_toggle(): void
+    {
+        $this->actingAdmin();
+
+        // Prime the tagged site-settings cache served by
+        // GET /api/v1/general/settings, then toggle tap twice: each PUT must
+        // be visible to the website payload immediately, or the flush in
+        // PaymentGatewaySettingsController::update is missing (json() would
+        // resolve to null and these asserts would fail).
+        $this->getJson('/api/v1/general/settings')->assertOk();
+
+        $this->putJson(self::ADMIN_PREFIX . '/tap', ['enabled' => true])->assertStatus(200);
+        $this->assertTrue(
+            $this->getJson('/api/v1/general/settings')->json('data.options.payment_gateways.tap.enabled')
+        );
+
+        $this->putJson(self::ADMIN_PREFIX . '/tap', ['enabled' => false])->assertStatus(200);
+        $this->assertFalse(
+            $this->getJson('/api/v1/general/settings')->json('data.options.payment_gateways.tap.enabled')
+        );
+    }
+
+    /** @test */
+    public function admin_toggle_reflects_immediately_on_public_gateway_endpoint(): void
+    {
+        // The task's headline chain driven end-to-end through the REAL admin
+        // API: PUT enable/disable on /admin/payment-gateways must be visible
+        // to the unauthenticated /general/payment-gateways snapshot (which
+        // reads settings uncached). Currency/profile are pinned hermetically
+        // so available only depends on the admin toggle + configured secret.
+        config(['payment.gateways.tap.secret_key' => 'test-tap-secret']);
+        config(['payment.gateways.tap.supported_currencies' => ['AED', 'KWD', 'USD']]);
+        $this->actingAdmin();
+
+        $tapRow = fn () => collect(
+            $this->getJson('/api/v1/general/payment-gateways')->json('data.gateways')
+        )->firstWhere('code', 'tap');
+
+        // Read the CURRENT state (the shared dev DB may already carry a tap
+        // override), flip it through the REAL admin API, and require the
+        // public snapshot to follow immediately in both directions.
+        $initialEnabled = $tapRow()['enabled'];
+
+        $this->putJson(self::ADMIN_PREFIX . '/tap', ['enabled' => !$initialEnabled])->assertStatus(200);
+
+        $row = $tapRow();
+        $this->assertSame(!$initialEnabled, $row['enabled']);
+        $this->assertSame(!$initialEnabled, $row['available']);
+
+        $this->putJson(self::ADMIN_PREFIX . '/tap', ['enabled' => $initialEnabled])->assertStatus(200);
+
+        $row = $tapRow();
+        $this->assertSame($initialEnabled, $row['enabled']);
+        $this->assertSame($initialEnabled, $row['available']);
     }
 
     /** @test */

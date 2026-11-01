@@ -6,17 +6,19 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Audit\ActivityAuditService;
 use App\Audit\ActivitySnapshot;
+use App\Enums\FrontendResource;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Payment\UpdateGatewaySettingsRequest;
 use App\Services\Currency\CurrencyService;
 use App\Services\Payment\GatewaySettingsService;
+use App\Traits\HasCache;
 use Illuminate\Http\JsonResponse;
 use Marvel\Database\Models\Settings;
 use Marvel\Traits\ApiResponse;
 
 class PaymentGatewaySettingsController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, HasCache;
 
     public function __construct(
         private GatewaySettingsService $gateways,
@@ -52,7 +54,8 @@ class PaymentGatewaySettingsController extends Controller
      *
      * Persists ONLY the {enabled, display_name, sort_order} allowlist into
      * settings.options['payment_gateways'][code]. Audited asynchronously via
-     * the canonical ActivitySnapshot dispatch.
+     * the canonical ActivitySnapshot dispatch. Flushes the tagged
+     * site-settings cache so the website payload reflects the new state.
      */
     public function update(UpdateGatewaySettingsRequest $request, string $code): JsonResponse
     {
@@ -63,6 +66,13 @@ class PaymentGatewaySettingsController extends Controller
         }
 
         $row = $this->gateways->updateOverride($code, $request->validated());
+
+        // Drop the tagged site-settings payload served by
+        // GET /api/v1/general/settings so a gateway toggle is reflected for
+        // everyone immediately (same flush the settings update path performs).
+        // The public payment-gateways endpoint and checkout itself read the
+        // settings row uncached, so they were never stale.
+        $this->flushTag(FrontendResource::SETTINGS->value);
 
         $user = $request->user();
 

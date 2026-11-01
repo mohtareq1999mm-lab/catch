@@ -5,9 +5,11 @@ namespace Marvel\Http\Controllers;
 use App\Enums\FrontendResource;
 use App\Audit\ActivityAuditService;
 use App\Services\Currency\CurrencyService;
+use App\Services\Payment\GatewaySettingsService;
 use App\Traits\HasCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Marvel\Database\Repositories\SettingsRepository;
 use Marvel\Enums\Permission;
 use Marvel\Exceptions\MarvelException;
@@ -22,10 +24,12 @@ class SettingsController extends CoreController
 {
     use ApiResponse,  MediaManager, HasCache;
     public $repository;
+    private GatewaySettingsService $gateways;
 
-    public function __construct(SettingsRepository $repository)
+    public function __construct(SettingsRepository $repository, GatewaySettingsService $gateways)
     {
         $this->repository = $repository;
+        $this->gateways = $gateways;
         $this->middleware("permission:" . Permission::VIEW_SETTINGS, ["only" => ["index"]]);
         $this->middleware("permission:" . Permission::UPDATE_SETTINGS, ["only" => ["update"]]);
     }
@@ -74,7 +78,36 @@ class SettingsController extends CoreController
             $data['options'] = $options;
         }
 
+        // Gateway toggles submitted through the Site Settings endpoint.
+        // Validated (incl. unknown codes) BEFORE anything is persisted so a
+        // bad gateway block can never partly save.
+        $gatewayPatches = $this->gatewayPatchesFromRequest($request);
+
+        // Options round-trip protection: `options` is replaced verbatim
+        // below, so a settings save that sends its own options subset (a
+        // typical dashboard payload) must not silently drop stored gateway
+        // toggles.
+        if (is_array($data['options'] ?? null)
+            && !array_key_exists('payment_gateways', $data['options'])) {
+            $existingOptions = $settings->options;
+            if (is_array($existingOptions) && array_key_exists('payment_gateways', $existingOptions)) {
+                $data['options']['payment_gateways'] = $existingOptions['payment_gateways'];
+            }
+        }
+
         $settings->update($data);
+
+        // Apply the gateway patches through the canonical write service
+        // (allowlist {enabled, ...}, lockForUpdate transaction). The audit
+        // record and the cache flush below then observe the final state.
+        foreach ($gatewayPatches as $code => $enabled) {
+            $this->gateways->updateOverride($code, ['enabled' => $enabled]);
+        }
+
+        // Flush BEFORE the media-handling blocks below: an image failure
+        // throws after the row/toggles persisted, and the tagged cache must
+        // reflect persisted state the moment anything is committed.
+        $this->flushTag(FrontendResource::SETTINGS->value);
 
         if ($request->has('currency_selection_enabled')) {
             app(CurrencyService::class)->forgetEffectiveCode();
@@ -96,7 +129,6 @@ class SettingsController extends CoreController
                 throw new HttpException(422, __('message.ERROR.FAVICON_UPLOAD_FAILED'));
             }
         }
-        $this->flushTag(FrontendResource::SETTINGS->value);
         $settings = Settings::first();
 
         ActivityAuditService::recordModel(
@@ -109,6 +141,51 @@ class SettingsController extends CoreController
         );
 
         return $this->apiResponse(SETTINGS_UPDATED_SUCCESSFULLY, 200, true, SettingResource::make($settings));
+    }
+
+    /**
+     * payment_gateways may be toggled from PUT /api/v1/settings using the
+     * same shape the settings GET responses expose, minus the read-only
+     * verdicts: {"payment_gateways": {"tap": {"enabled": true}}}.
+     *
+     * Only {enabled} is honored (write allowlist; `available` is computed
+     * and never writable, unknown keys inside a per-gateway entry are
+     * ignored). Unknown gateway codes raise a validation error BEFORE any
+     * settings field is persisted, so the save is all-or-nothing from the
+     * caller's perspective.
+     *
+     * @return array<string, bool> code => enabled
+     */
+    private function gatewayPatchesFromRequest(Request $request): array
+    {
+        $payload = $request->input('payment_gateways');
+
+        if ($payload === null) {
+            return [];
+        }
+
+        if (!is_array($payload)) {
+            throw new HttpException(422, 'payment_gateways must be an object keyed by gateway code.');
+        }
+
+        $patches = [];
+        foreach ($payload as $code => $state) {
+            $code = (string) $code;
+
+            if (!is_array($state) || !array_key_exists('enabled', $state)) {
+                throw new HttpException(422, "payment_gateways.{$code}.enabled must be a boolean.");
+            }
+
+            if ($this->gateways->adminRow($code) === null) {
+                throw ValidationException::withMessages([
+                    "payment_gateways.{$code}" => ['Unknown payment gateway.'],
+                ]);
+            }
+
+            $patches[$code] = (bool) $state['enabled'];
+        }
+
+        return $patches;
     }
 
     /**

@@ -18,6 +18,7 @@ use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Warehouse\WarehouseAccess;
 use App\Services\Warehouse\WarehouseService;
+use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -37,6 +38,7 @@ class FulfillmentController extends WmsAdminController
         private FulfillmentService $fulfillments,
         private WarehouseService $warehouses,
         private WarehouseAccess $access,
+        private WarehouseWorkflowSwitchService $workflowSwitch,
     ) {
         $this->middleware('permission:' . Permission::FULFILLMENTS_INDEX, ['only' => ['index']]);
         $this->middleware('permission:' . Permission::FULFILLMENTS_SHOW, ['only' => ['show']]);
@@ -123,6 +125,16 @@ class FulfillmentController extends WmsAdminController
      */
     public function release(ReleaseFulfillmentRequest $request): JsonResponse
     {
+        // WAREHOUSE-WORKFLOW-SWITCH: refuse the whole request when the
+        // workflow is disabled — manual release/creation is blocked for
+        // single AND bulk payloads alike, BEFORE any warehouse resolution
+        // or per-order loop (a rejected batch leaves zero partial rows).
+        try {
+            $this->workflowSwitch->assertNewFulfillmentAllowed();
+        } catch (\RuntimeException $e) {
+            $this->unprocessable($e->getMessage());
+        }
+
         $data = $request->validated();
 
         // Resolve-then-scope: the request's warehouse_id only identifies the

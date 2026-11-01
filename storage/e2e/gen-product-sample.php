@@ -28,6 +28,14 @@ $mk('products',
         ['PRD-SAMPLE-003','Cotton T-Shirt','تي شيرت قطني','100% cotton t-shirt','تي شيرت قطن 100%',19.50,'simple','PHYSICAL',100,'1','1','1','percentage',10,'','','','',''],
     ]
 );
+$bcSheet = $mk('product_barcodes',
+    ['product_sku','piece_barcode','carton_barcode','pieces_per_carton'],
+    [
+        ['PRD-SAMPLE-001','6287029972752','6287029972769',24],
+    ]
+);
+$bcSheet->getCell('B2')->setValueExplicit('6287029972752', \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+$bcSheet->getCell('C2')->setValueExplicit('6287029972769', \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
 $mk('product_variants',
     ['variant_sku','product_sku','price','sale_price','quantity','in_stock','height','width','length','weight','attributes'],
     [
