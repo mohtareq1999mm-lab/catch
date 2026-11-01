@@ -48,7 +48,7 @@ class SectionTypeSettingSeeder extends Seeder
             ],
             [
                 'type' => 'products',
-                'front' =>[],
+                'front' => [],
                 'back'  => [
                     'limit' => 20,
                     'order' => 'desc',
@@ -94,6 +94,15 @@ class SectionTypeSettingSeeder extends Seeder
                     'limit' => 10,
                     'couponsId' => [],
                     'order' => 'desc',
+                ],
+            ],
+            [
+                'type' => 'tags',
+                'front' => ['autoplay' => true, 'slider_speed' => 5000],
+                'back' => [
+                    "limit" => 10,
+                    "tagsId" => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    "order" => "desc",
                 ],
             ],
         ];
