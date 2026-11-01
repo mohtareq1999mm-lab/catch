@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             PermissionSeeder::class,
             SettingSeeder::class,
+            PaymentGatewaySeeder::class,
             CurrencySeeder::class,
         ]);
 
