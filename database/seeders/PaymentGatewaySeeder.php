@@ -142,3 +142,4 @@ class PaymentGatewaySeeder extends Seeder
         $this->flushTag(FrontendResource::SETTINGS->value);
     }
 }
+

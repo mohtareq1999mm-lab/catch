@@ -8,6 +8,7 @@ use App\Audit\ActivitySnapshot;
 use App\Jobs\LogActivityJob;
 use App\Services\Payment\GatewaySettingsService;
 use App\Services\Payment\PaymentGatewayRegistry;
+use Database\Seeders\PaymentGatewaySeeder;
 use Illuminate\Support\Facades\Bus;
 use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Settings;
@@ -421,5 +422,53 @@ class GatewaySettingsAdminTest extends CurrencyTestCase
         // The row's injected api_key must not override the env-backed one.
         $this->assertSame(config('payment.gateways.myfatoorah.api_key'), $definition['api_key']);
         $this->assertNotSame('leaked?', $definition['api_key'] ?? null);
+    }
+
+    /** @test */
+    public function payment_gateway_seeder_populates_all_gateways_idempotently(): void
+    {
+        config([
+            'payment.gateways.myfatoorah.enabled' => true,
+            'payment.gateways.stripe.enabled' => false,
+            'payment.gateways.paypal.enabled' => false,
+            'payment.gateways.tap.enabled' => false,
+            'payment.gateways.tabby.enabled' => false,
+            'payment.gateways.tamara.enabled' => false,
+        ]);
+        $this->actingAdmin();
+
+        $this->seed(PaymentGatewaySeeder::class);
+
+        $stored = $this->gatewayOptions();
+        $this->assertCount(6, $stored);
+        $this->assertEquals([
+            'myfatoorah' => ['enabled' => true, 'display_name' => 'MyFatoorah', 'sort_order' => 0],
+            'stripe' => ['enabled' => false, 'display_name' => 'Stripe', 'sort_order' => 1],
+            'paypal' => ['enabled' => false, 'display_name' => 'PayPal', 'sort_order' => 2],
+            'tap' => ['enabled' => false, 'display_name' => 'Tap', 'sort_order' => 3],
+            'tabby' => ['enabled' => false, 'display_name' => 'Tabby', 'sort_order' => 4],
+            'tamara' => ['enabled' => false, 'display_name' => 'Tamara', 'sort_order' => 5],
+        ], $stored);
+
+        // Customize one gateway via the admin PUT endpoint, then re-run seeder:
+        // existing admin overrides must be preserved (idempotent).
+        $this->putJson(self::ADMIN_PREFIX . '/tap', [
+            'enabled' => true,
+            'display_name' => 'Tap MENA',
+            'sort_order' => 10,
+        ])->assertStatus(200);
+
+        $this->seed(PaymentGatewaySeeder::class);
+
+        $afterReseed = $this->gatewayOptions();
+        $this->assertTrue($afterReseed['tap']['enabled']);
+        $this->assertSame('Tap MENA', $afterReseed['tap']['display_name']);
+        $this->assertSame(10, $afterReseed['tap']['sort_order']);
+
+        $response = $this->getJson(self::ADMIN_PREFIX)->assertStatus(200);
+        $byCode = collect($response->json('data.gateways'))->keyBy('code');
+        $this->assertSame('MyFatoorah', $byCode['myfatoorah']['display_name']);
+        $this->assertSame('Tap MENA', $byCode['tap']['display_name']);
+        $this->assertTrue($byCode['tap']['enabled']);
     }
 }
