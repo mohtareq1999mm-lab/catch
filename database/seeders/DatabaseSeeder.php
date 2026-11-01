@@ -60,8 +60,8 @@ class DatabaseSeeder extends Seeder
 
             $user->assignRole("super_admin");
             $user->syncPermissions(\Spatie\Permission\Models\Permission::where('guard_name', 'api')->get());
-    //        $userEdit->assignRole("editor");
-    //        $customer->assignRole("customer");
+            //        $userEdit->assignRole("editor");
+            //        $customer->assignRole("customer");
 
             // if ($seedDemoData) {
             //     User::factory(10000)->create();
@@ -76,8 +76,9 @@ class DatabaseSeeder extends Seeder
             // CategorySeeder::class,
             // AttributeSeeder::class,
             // TagSeeder::class,
+            // AseelTagSeeder::class,
             // LocationSeeder::class,
-            // ContentPageSeeder::class,
+            ContentPageSeeder::class,
             // StaticPageSeeder::class,
             SectionSeeder::class,
             // PickupLocationSeeder::class,
@@ -133,3 +134,6 @@ class DatabaseSeeder extends Seeder
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }
+// SectionTypeSettingSeeder
+//            SectionSeeder::class,
+//            ContentPageSeeder::class,

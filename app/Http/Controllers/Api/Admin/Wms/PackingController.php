@@ -58,7 +58,10 @@ class PackingController extends WmsAdminController
     public function index(ListPackingTasksRequest $request): JsonResponse
     {
         $query = PackingTask::query()->orderByDesc('id')
-            ->with(['packingStation:id,code,name,warehouse_id']);
+            ->with([
+                'packingStation:id,code,name,warehouse_id',
+                'fulfillment:id,warehouse_id',
+            ]);
 
         if (auth()->user()->can('manage-warehouse')) {
             $filter = (int) $request->validated('warehouse_id', 0) ?: null;
@@ -112,6 +115,7 @@ class PackingController extends WmsAdminController
 
         $task->loadMissing([
             'packingStation:id,code,name,warehouse_id',
+            'fulfillment:id,warehouse_id',
             'fulfillment.items.product',
             'fulfillment.items.productVariant.attributeProducts.attributeValue.attribute',
             'fulfillment.items.productLocation.location',
@@ -149,7 +153,7 @@ class PackingController extends WmsAdminController
             __('wms.packing.created'),
             201,
             true,
-            PackingTaskDetailResource::make($task->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+            PackingTaskDetailResource::make($task->fresh()->loadMissing(['packingStation:id,code,name,warehouse_id', 'fulfillment:id,warehouse_id']))
         );
     }
 
@@ -203,7 +207,7 @@ class PackingController extends WmsAdminController
             __('wms.packing.assigned'),
             200,
             true,
-            PackingTaskDetailResource::make($assigned->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+            PackingTaskDetailResource::make($assigned->fresh()->loadMissing(['packingStation:id,code,name,warehouse_id', 'fulfillment:id,warehouse_id']))
         );
     }
 
@@ -225,7 +229,7 @@ class PackingController extends WmsAdminController
             __('wms.packing.started'),
             200,
             true,
-            PackingTaskDetailResource::make($started->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+            PackingTaskDetailResource::make($started->fresh()->loadMissing(['packingStation:id,code,name,warehouse_id', 'fulfillment:id,warehouse_id']))
         );
     }
 
@@ -257,7 +261,7 @@ class PackingController extends WmsAdminController
             __('wms.packing.completed'),
             200,
             true,
-            PackingTaskDetailResource::make($packed->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+            PackingTaskDetailResource::make($packed->fresh()->loadMissing(['packingStation:id,code,name,warehouse_id', 'fulfillment:id,warehouse_id']))
         );
     }
 
@@ -283,7 +287,7 @@ class PackingController extends WmsAdminController
             __('wms.packing.verified'),
             200,
             true,
-            PackingTaskDetailResource::make($verified->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+            PackingTaskDetailResource::make($verified->fresh()->loadMissing(['packingStation:id,code,name,warehouse_id', 'fulfillment:id,warehouse_id']))
         );
     }
 
@@ -310,7 +314,7 @@ class PackingController extends WmsAdminController
             __('wms.packing.cancelled'),
             200,
             true,
-            PackingTaskDetailResource::make($cancelled->fresh()->loadMissing('packingStation:id,code,name,warehouse_id'))
+            PackingTaskDetailResource::make($cancelled->fresh()->loadMissing(['packingStation:id,code,name,warehouse_id', 'fulfillment:id,warehouse_id']))
         );
     }
 

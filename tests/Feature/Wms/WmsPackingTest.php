@@ -224,9 +224,13 @@ class WmsPackingTest extends TestCase
         $list = $this->actingAs($packer, 'sanctum')->getJson('/api/v1/admin/packing-tasks');
         $list->assertStatus(200);
         $this->assertNotEmpty($list->json('data'));
+        $this->assertEquals($this->warehouseA->id, $list->json('data.0.warehouse_id'));
+        $this->assertArrayNotHasKey('warehouse', $list->json('data.0'));
 
-        $this->actingAs($packer, 'sanctum')
+        $detail = $this->actingAs($packer, 'sanctum')
             ->getJson("/api/v1/admin/packing-tasks/{$taskId}")->assertStatus(200);
+        $this->assertEquals($this->warehouseA->id, $detail->json('data.warehouse_id'));
+        $this->assertArrayNotHasKey('warehouse', $detail->json('data'));
 
         // Foreign-homed packer probing task + fulfillment filter → 404.
         $foreign = $this->packer($this->warehouseB->id);
@@ -361,10 +365,30 @@ class WmsPackingTest extends TestCase
         $supervisor = $this->supervisor();
         $task = $this->fullPackingTask($supervisor);
 
+        // Unverified task cannot be packed (weighed) -> 422
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
+            ->assertStatus(422);
+
+        // Package items and verify
+        $packageId = $this->actingAs($supervisor, 'sanctum')
+            ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $task->fulfillment_id])
+            ->assertStatus(201)->json('data.id');
+        $itemId = $task->fulfillment->items()->firstOrFail()->id;
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/add-item", [
+                'fulfillment_item_id' => $itemId, 'quantity' => 2,
+            ])->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
+            ->assertStatus(200);
+
+        // Now pack (weigh) succeeds
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
             ->assertStatus(200);
-        $this->assertSame('packed', $task->fresh()->status);
+        $this->assertSame('verified', $task->fresh()->status);
+        $this->assertNotNull($task->fresh()->packed_at);
 
         // Second completion → 422, original weight survives.
         $this->actingAs($supervisor, 'sanctum')
@@ -379,16 +403,13 @@ class WmsPackingTest extends TestCase
         $supervisor = $this->supervisor();
         $fulfillment = $this->pickedFulfillment();
         $task = $this->fullPackingTask($supervisor, $fulfillment);
-        $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
-            ->assertStatus(200);
 
-        // Nothing packaged yet → 422, fulfillment stays packing.
+        // Nothing packaged yet → verify 422, fulfillment stays packing.
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])->assertStatus(422);
         $this->assertSame('packing', $fulfillment->fresh()->status);
 
-        // Package the full picked quantity, seal, then verify.
+        // Package the full picked quantity (box is still open)
         $packageId = $this->actingAs($supervisor, 'sanctum')
             ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
             ->assertStatus(201)->json('data.id');
@@ -397,24 +418,35 @@ class WmsPackingTest extends TestCase
             ->postJson("/api/v1/admin/packages/{$packageId}/add-item", [
                 'fulfillment_item_id' => $itemId, 'quantity' => 2,
             ])->assertStatus(200);
-        $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
 
+        // Step 1: Verify while carton is open
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", ['notes' => 'ok'])
             ->assertStatus(200);
         $this->assertSame('verified', $task->fresh()->status);
+        $this->assertSame('packing', $fulfillment->fresh()->status);
+
+        // Step 2: Weigh (pack)
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
+            ->assertStatus(200);
+        $this->assertSame('verified', $task->fresh()->status);
+        $this->assertNotNull($task->fresh()->packed_at);
+        $this->assertSame('packing', $fulfillment->fresh()->status);
+
+        // Step 3: Seal package -> now fulfillment becomes ready_to_ship!
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
     }
 
-    public function test_verify_succeeds_while_package_is_open_before_seal(): void
+    public function test_seal_fails_if_task_is_not_verified_or_not_packed(): void
     {
         $supervisor = $this->supervisor();
         $fulfillment = $this->pickedFulfillment('seal-test');
         $task = $this->fullPackingTask($supervisor, $fulfillment);
-        $this->assertSame('packing', $task->fresh()->status);
 
-        // Create open package and add all items while task is still in `packing` status
+        // Create package and add all items
         $packageId = $this->actingAs($supervisor, 'sanctum')
             ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
             ->assertStatus(201)->json('data.id');
@@ -424,27 +456,31 @@ class WmsPackingTest extends TestCase
                 'fulfillment_item_id' => $itemId, 'quantity' => 2,
             ])->assertStatus(200);
 
-        // Verify while task is in `packing` status and package is `open` (before pack & seal) -> succeeds
+        // Cannot seal before verify -> 422
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])
+            ->assertStatus(422);
+
+        // Verify task -> 200
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
             ->assertStatus(200);
-        $this->assertSame('verified', $task->fresh()->status);
-        $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
-        $this->assertSame('open', Package::find($packageId)->status);
 
-        // Record weight & dimensions via /pack after verify -> succeeds
+        // Cannot seal before weigh (pack) -> 422
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])
+            ->assertStatus(422);
+
+        // Weigh task -> 200
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
             ->assertStatus(200);
-        $this->assertSame('verified', $task->fresh()->status);
-        $this->assertEquals(2.5, (float) $task->fresh()->weight);
 
-        // Now seal the package after verification -> succeeds and assigns barcode
-        $seal = $this->actingAs($supervisor, 'sanctum')
+        // Now seal succeeds -> 200 and fulfillment moves to ready_to_ship
+        $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])
             ->assertStatus(200);
-        $this->assertSame('sealed', Package::find($packageId)->status);
-        $this->assertNotEmpty($seal->json('data.barcode'));
+        $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
     }
 
     public function test_cancel_task_guards_packed_work(): void
@@ -457,15 +493,26 @@ class WmsPackingTest extends TestCase
             ->assertStatus(200);
         $this->assertSame('cancelled', $task->fresh()->status);
 
-        // Packed task cannot silently downgrade → 422.
-        $packed = $this->fullPackingTask($supervisor, $this->pickedFulfillment('cx'));
+        // Packed/verified task cannot silently downgrade → 422.
+        $fulCx = $this->pickedFulfillment('cx');
+        $packed = $this->fullPackingTask($supervisor, $fulCx);
+        $pkgId = $this->actingAs($supervisor, 'sanctum')
+            ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulCx->id])
+            ->assertStatus(201)->json('data.id');
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$pkgId}/add-item", [
+                'fulfillment_item_id' => $fulCx->items()->firstOrFail()->id, 'quantity' => 2,
+            ])->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$packed->id}/verify", [])
+            ->assertStatus(200);
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$packed->id}/pack", $this->packDims())
             ->assertStatus(200);
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$packed->id}/cancel", ['reason' => 'too late'])
             ->assertStatus(422);
-        $this->assertSame('packed', $packed->fresh()->status);
+        $this->assertSame('verified', $packed->fresh()->status);
     }
 
     // ---------- packages ----------
@@ -554,9 +601,6 @@ class WmsPackingTest extends TestCase
         $shipmentsBefore = \App\Models\Shipment::count();
 
         $task = $this->fullPackingTask($supervisor, $fulfillment);
-        $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
-            ->assertStatus(200);
 
         $packageId = $this->actingAs($supervisor, 'sanctum')
             ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
@@ -566,9 +610,12 @@ class WmsPackingTest extends TestCase
                 'fulfillment_item_id' => $fulfillment->items()->firstOrFail()->id, 'quantity' => 2,
             ])->assertStatus(200);
         $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
-        $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
+            ->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
 
         // Only the fulfillment moves (packing → ready_to_ship). Order,
         // inventory, and shipment rows are untouched by packing commands.

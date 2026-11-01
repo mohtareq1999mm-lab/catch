@@ -122,6 +122,8 @@ class PackingPhase6Test extends TestCase
         $task = $this->packing()->createPackingTaskFromFulfillment($this->fulfillment);
         $task = $this->packing()->assignToStation($task, $this->station->id, $this->operator->id);
         $task = $this->packing()->startPacking($task);
+        $this->packAll(10);
+        $task = $this->packing()->verifyPacking($task);
 
         return $this->packing()->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
     }
@@ -182,7 +184,8 @@ class PackingPhase6Test extends TestCase
     public function test_verified_terminal_recreation_follows_lifecycle_gate(): void
     {
         $task = $this->fullTaskFlow();
-        $this->packAll();
+        $pkg = $this->packAll();
+        $this->packing()->sealPackage($pkg);
         $this->packing()->verifyPacking($task);
         $this->assertEquals('ready_to_ship', $this->fulfillment->refresh()->status);
 
@@ -328,7 +331,8 @@ class PackingPhase6Test extends TestCase
     public function test_verify_allowed_when_fully_packaged(): void
     {
         $task = $this->fullTaskFlow();
-        $this->packAll(10);
+        $pkg = $this->packAll(10);
+        $this->packing()->sealPackage($pkg);
 
         $verified = $this->packing()->verifyPacking($task);
         $this->assertEquals('verified', $verified->status);
@@ -580,7 +584,8 @@ class PackingPhase6Test extends TestCase
         $reservedBefore = (float) $this->product->refresh()->reserved_quantity;
 
         $task = $this->fullTaskFlow();
-        $this->packAll(10);
+        $pkg = $this->packAll(10);
+        $this->packing()->sealPackage($pkg);
         $this->packing()->verifyPacking($task);
 
         $this->assertEquals('ready_to_ship', $this->fulfillment->refresh()->status);

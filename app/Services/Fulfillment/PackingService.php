@@ -19,7 +19,7 @@ class PackingService
      * Phase 6 (P6-1/P6-3): a fulfillment may carry at most one OPEN packing
      * task. Terminal states (verified, cancelled) never block a new task.
      */
-    private const OPEN_TASK_STATUSES = ['pending', 'assigned', 'packing', 'packed'];
+    private const OPEN_TASK_STATUSES = ['pending', 'assigned', 'packing', 'packed', 'verified'];
 
     public function __construct(
         private FulfillmentTransition $transitions,
@@ -185,20 +185,24 @@ class PackingService
         return DB::transaction(function () use ($task, $weight, $dimensions, $materials, $notes) {
             $locked = PackingTask::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
-            $canCompleteAfterVerify = $locked->status === 'verified' && $locked->weight === null;
+            if ($locked->status !== 'verified' && $locked->verified_at === null) {
+                throw new \RuntimeException(
+                    __('wms.packing.complete_unverified')
+                );
+            }
 
-            if ($locked->status !== 'packing' && !$canCompleteAfterVerify) {
+            if ($locked->packed_at !== null) {
                 throw new \RuntimeException(
                     __('wms.packing.complete_status', ['status' => $locked->status])
                 );
             }
 
             $locked->update([
-                'status' => $locked->status === 'verified' ? 'verified' : 'packed',
+                'status' => 'verified',
                 'weight' => $weight,
                 'dimensions' => $dimensions,
                 'package_materials' => $materials,
-                'packed_at' => $locked->packed_at ?? now(),
+                'packed_at' => now(),
                 'notes' => $notes ?? $locked->notes,
             ]);
 
@@ -208,9 +212,6 @@ class PackingService
                     'status' => 'packed',
                     'packed_at' => now(),
                 ]);
-
-            // Fulfillment stays `packing` until verification: `packed` is a
-            // task-level state only (Phase 6 ghost-state removal).
 
             Log::info('Packing completed', [
                 'task_id' => $locked->id,
@@ -223,11 +224,10 @@ class PackingService
     }
 
     /**
-     * Verify packing task (allowed from `packing` or `packed` status).
-     * P6-2: locked fresh state. P6-3: no sibling open task AND every picked
-     * unit fully packaged (D6-3) — otherwise the fulfillment must not become
-     * ready_to_ship. Lock order: task → fulfillment → siblings → packages →
-     * items, then the canonical transition (which re-locks the same row).
+     * Verify packed task.
+     * P6-2: locked fresh state (`packed` required). P6-3: no sibling open task
+     * AND every picked unit fully packaged inside a SEALED package (D6-3) —
+     * otherwise the fulfillment must not become ready_to_ship.
      */
     public function verifyPacking(PackingTask $task, ?string $notes = null): PackingTask
     {
@@ -254,26 +254,13 @@ class PackingService
                 );
             }
 
-            $this->assertFullyPackaged($fulfillment);
+            $this->assertFullyPackaged($fulfillment, false);
 
             $locked->update([
                 'status' => 'verified',
-                'packed_at' => $locked->packed_at ?? now(),
                 'verified_at' => now(),
                 'notes' => $notes ?? $locked->notes,
             ]);
-
-            FulfillmentItem::where('fulfillment_id', $fulfillment->id)
-                ->where('status', '!=', 'cancelled')
-                ->update([
-                    'status' => 'packed',
-                    'packed_at' => now(),
-                ]);
-
-            $this->transitions->transition($fulfillment, 'ready_to_ship', ['reason' => 'packing_verified']);
-
-            app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
-                ->announce((int) $fulfillment->order_id, 'ready_to_ship', (int) $fulfillment->id);
 
             Log::info('Packing verified', [
                 'task_id' => $locked->id,
@@ -286,13 +273,13 @@ class PackingService
 
     /**
      * P6-3B (D6-3): every fulfillment item must satisfy
-     * SUM(active package_items.quantity) == quantity_picked.
-     * Verification is allowed while the package is still open (before seal)
-     * as well as after sealing. Read-only: never mutates picking or inventory quantities.
+     * SUM(sealed package_items.quantity) == quantity_picked,
+     * and every active package must be sealed (STATUS_SEALED).
+     * Read-only: never mutates picking or inventory quantities.
      *
-     * @throws \RuntimeException on missing package or incomplete item.
+     * @throws \RuntimeException on unsealed package or incomplete item.
      */
-    private function assertFullyPackaged(Fulfillment $fulfillment): void
+    private function assertFullyPackaged(Fulfillment $fulfillment, bool $requireSealed = false): void
     {
         $packages = Package::where('fulfillment_id', $fulfillment->id)
             ->where('status', '!=', Package::STATUS_VOIDED)
@@ -303,6 +290,15 @@ class PackingService
             throw new \RuntimeException(
                 __('wms.packing.verify_no_packages')
             );
+        }
+
+        if ($requireSealed) {
+            $unsealed = $packages->first(fn (Package $p) => $p->status !== Package::STATUS_SEALED);
+            if ($unsealed !== null) {
+                throw new \RuntimeException(
+                    __('wms.packing.verify_package_not_sealed', ['id' => $unsealed->id])
+                );
+            }
         }
 
         $activePackageIds = $packages->pluck('id');
@@ -624,13 +620,41 @@ class PackingService
                 throw new \Exception(__('wms.packing.seal_empty'));
             }
 
+            $task = $locked->packingTask ?? PackingTask::where('fulfillment_id', $locked->fulfillment_id)
+                ->whereIn('status', ['packing', 'packed', 'verified'])
+                ->latest('id')
+                ->first();
+
+            if ($task !== null) {
+                if ($task->verified_at === null && $task->status !== 'verified') {
+                    throw new \RuntimeException(__('wms.packing.seal_unverified'));
+                }
+                if ($task->packed_at === null && $task->weight === null && $weight === null && $locked->weight === null) {
+                    throw new \RuntimeException(__('wms.packing.seal_unpacked'));
+                }
+            }
+
             $locked->update([
                 'status' => Package::STATUS_SEALED,
                 'barcode' => $locked->barcode ?? $this->generatePackageBarcode(),
-                'weight' => $weight ?? $locked->weight,
-                'dimensions' => $dimensions ?? $locked->dimensions,
+                'weight' => $weight ?? $locked->weight ?? $task?->weight,
+                'dimensions' => $dimensions ?? $locked->dimensions ?? $task?->dimensions,
                 'sealed_at' => now(),
             ]);
+
+            $fulfillment = Fulfillment::whereKey($locked->fulfillment_id)->lockForUpdate()->first();
+            if ($fulfillment && $fulfillment->status === 'packing') {
+                $packages = Package::where('fulfillment_id', $fulfillment->id)
+                    ->where('status', '!=', Package::STATUS_VOIDED)
+                    ->get();
+                $allSealed = $packages->isNotEmpty() && $packages->every(fn (Package $p) => $p->status === Package::STATUS_SEALED);
+
+                if ($allSealed) {
+                    $this->transitions->transition($fulfillment, 'ready_to_ship', ['reason' => 'packing_sealed']);
+                    app(\App\Services\Fulfillment\FulfillmentOrderSyncService::class)
+                        ->announce((int) $fulfillment->order_id, 'ready_to_ship', (int) $fulfillment->id);
+                }
+            }
 
             Log::info('Package sealed', ['package_id' => $locked->id]);
 

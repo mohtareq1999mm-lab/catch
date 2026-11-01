@@ -207,13 +207,18 @@ class PackingServiceTest extends TestCase
         $task = $this->service->assignToStation($task, $this->station->id, $this->user->id);
         $task = $this->service->startPacking($task);
 
+        // Package items and verify before weigh/pack
+        $package = $this->service->createPackage($this->fulfillment);
+        $this->service->addItemToPackage($package, $this->fulfillment->items()->firstOrFail()->id, 5);
+        $task = $this->service->verifyPacking($task);
+
         $weight = 2.5;
         $dimensions = ['length' => 30, 'width' => 20, 'height' => 10];
         $materials = ['box_type' => 'medium', 'padding' => 'bubble_wrap'];
 
         $task = $this->service->completePacking($task, $weight, $dimensions, $materials);
 
-        $this->assertEquals('packed', $task->status);
+        $this->assertEquals('verified', $task->status);
         $this->assertEquals($weight, $task->weight);
         $this->assertEquals($dimensions, $task->dimensions);
         $this->assertEquals($materials, $task->package_materials);
@@ -227,17 +232,23 @@ class PackingServiceTest extends TestCase
         $task = $this->service->createPackingTaskFromFulfillment($this->fulfillment);
         $task = $this->service->assignToStation($task, $this->station->id, $this->user->id);
         $task = $this->service->startPacking($task);
-        $task = $this->service->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
 
-        // D6-3: all 5 picked units must be packaged before verification.
+        // D6-3: all 5 picked units packaged in open carton
         $package = $this->service->createPackage($this->fulfillment);
         $this->service->addItemToPackage($package, $this->fulfillment->items()->firstOrFail()->id, 5);
 
+        // Step 1: verify while open
         $task = $this->service->verifyPacking($task, 'Quality check passed');
-
         $this->assertEquals('verified', $task->status);
         $this->assertNotNull($task->verified_at);
         $this->assertEquals('Quality check passed', $task->notes);
+        $this->assertEquals('packing', $task->fulfillment->fresh()->status);
+
+        // Step 2: weigh
+        $task = $this->service->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
+
+        // Step 3: seal
+        $this->service->sealPackage($package);
         $this->assertEquals('ready_to_ship', $task->fulfillment->fresh()->status);
     }
 
@@ -247,11 +258,12 @@ class PackingServiceTest extends TestCase
         $task = $this->service->createPackingTaskFromFulfillment($this->fulfillment);
         $task = $this->service->assignToStation($task, $this->station->id, $this->user->id);
         $task = $this->service->startPacking($task);
-        $task = $this->service->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
-        // D6-3: all 5 picked units must be packaged before verification.
+
         $package = $this->service->createPackage($this->fulfillment);
         $this->service->addItemToPackage($package, $this->fulfillment->items()->firstOrFail()->id, 5);
         $task = $this->service->verifyPacking($task);
+        $task = $this->service->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
+        $this->service->sealPackage($package);
 
         $shipmentData = [
             'courier' => 'DHL',

@@ -12,9 +12,12 @@ class PackingTaskDetailResource extends JsonResource
 
     public function toArray(Request $request): array
     {
+        $warehouseId = $this->fulfillment?->warehouse_id ?? $this->packingStation?->warehouse_id;
+
         return [
             'id' => $this->id,
             'fulfillment_id' => $this->fulfillment_id,
+            'warehouse_id' => $warehouseId !== null ? (int) $warehouseId : null,
             'packing_station_id' => $this->packing_station_id,
             'station' => $this->whenLoaded('packingStation', fn () => [
                 'id' => $this->packingStation->id,
