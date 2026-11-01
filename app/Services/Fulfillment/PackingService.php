@@ -283,11 +283,11 @@ class PackingService
 
     /**
      * P6-3B (D6-3): every fulfillment item must satisfy
-     * SUM(sealed package_items.quantity) == quantity_picked,
-     * and every active package must be sealed (STATUS_SEALED).
-     * Read-only: never mutates picking or inventory quantities.
+     * SUM(active package_items.quantity) == quantity_picked.
+     * Verification is allowed while the package is still open (before seal)
+     * as well as after sealing. Read-only: never mutates picking or inventory quantities.
      *
-     * @throws \RuntimeException on unsealed package or incomplete item.
+     * @throws \RuntimeException on missing package or incomplete item.
      */
     private function assertFullyPackaged(Fulfillment $fulfillment): void
     {
@@ -302,14 +302,7 @@ class PackingService
             );
         }
 
-        $unsealed = $packages->first(fn (Package $p) => $p->status !== Package::STATUS_SEALED);
-        if ($unsealed !== null) {
-            throw new \RuntimeException(
-                __('wms.packing.verify_package_not_sealed', ['id' => $unsealed->id])
-            );
-        }
-
-        $sealedPackageIds = $packages->pluck('id');
+        $activePackageIds = $packages->pluck('id');
 
         $items = FulfillmentItem::where('fulfillment_id', $fulfillment->id)
             ->lockForUpdate()
@@ -318,7 +311,7 @@ class PackingService
         foreach ($items as $item) {
             $picked = (float) $item->quantity_picked;
             $packed = (float) PackageItem::where('fulfillment_item_id', $item->id)
-                ->whereIn('package_id', $sealedPackageIds)
+                ->whereIn('package_id', $activePackageIds)
                 ->sum('quantity');
 
             if (abs($packed - $picked) > 0.000001) {

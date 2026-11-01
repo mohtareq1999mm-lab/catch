@@ -51,6 +51,13 @@ class WmsPackingTest extends TestCase
         foreach ([
             'view-warehouse', 'view-location', 'view-fulfillment', 'manage-fulfillment',
             'picking-execute', 'packing-execute', 'packing.complete',
+            'packing-tasks.index', 'packing-tasks.show', 'fulfillments.create-packing-task',
+            'fulfillments.create-packing-tasks', 'packing-tasks.assign', 'packing-tasks.start',
+            'packing-tasks.pack', 'packing-tasks.verify', 'packing-tasks.cancel',
+            'packing-tasks.stations', 'packing-stations.index', 'packing-stations.show',
+            'packing-stations.create', 'packing-stations.update', 'packing-stations.delete',
+            'packages.index', 'packages.show', 'packages.create', 'packages.add-item',
+            'packages.seal', 'packages.void',
         ] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
@@ -101,6 +108,10 @@ class WmsPackingTest extends TestCase
     {
         return $this->user($home ?? $this->warehouseA->id, [
             'view-warehouse', 'view-location', 'view-fulfillment', 'packing-execute',
+            'packing-tasks.index', 'packing-tasks.show', 'packing-tasks.assign',
+            'packing-tasks.start', 'packing-tasks.stations', 'packing-stations.index',
+            'packing-stations.show', 'packages.index', 'packages.show',
+            'packages.create', 'packages.add-item', 'packages.seal',
         ]);
     }
 
@@ -109,6 +120,13 @@ class WmsPackingTest extends TestCase
         return $this->user($home ?? $this->warehouseA->id, [
             'view-warehouse', 'view-location', 'view-fulfillment', 'manage-fulfillment',
             'picking-execute', 'packing-execute', 'packing.complete',
+            'packing-tasks.index', 'packing-tasks.show', 'fulfillments.create-packing-task',
+            'fulfillments.create-packing-tasks', 'packing-tasks.assign', 'packing-tasks.start',
+            'packing-tasks.pack', 'packing-tasks.verify', 'packing-tasks.cancel',
+            'packing-tasks.stations', 'packing-stations.index', 'packing-stations.show',
+            'packing-stations.create', 'packing-stations.update', 'packing-stations.delete',
+            'packages.index', 'packages.show', 'packages.create', 'packages.add-item',
+            'packages.seal', 'packages.void',
         ]);
     }
 
@@ -389,7 +407,7 @@ class WmsPackingTest extends TestCase
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
     }
 
-    public function test_verify_fails_if_package_is_not_sealed(): void
+    public function test_verify_succeeds_while_package_is_open_before_seal(): void
     {
         $supervisor = $this->supervisor();
         $fulfillment = $this->pickedFulfillment('seal-test');
@@ -398,7 +416,7 @@ class WmsPackingTest extends TestCase
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())
             ->assertStatus(200);
 
-        // Create package and add all items, but do NOT seal
+        // Create open package and add all items
         $packageId = $this->actingAs($supervisor, 'sanctum')
             ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
             ->assertStatus(201)->json('data.id');
@@ -408,23 +426,20 @@ class WmsPackingTest extends TestCase
                 'fulfillment_item_id' => $itemId, 'quantity' => 2,
             ])->assertStatus(200);
 
-        // Package is open (not sealed) -> verify MUST fail with 422
-        $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
-            ->assertStatus(422);
-        $this->assertSame('packing', $fulfillment->fresh()->status);
-
-        // Now seal the package
-        $this->actingAs($supervisor, 'sanctum')
-            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])
-            ->assertStatus(200);
-
-        // Now verify succeeds
+        // Verify while package is still open (before seal) -> succeeds
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])
             ->assertStatus(200);
         $this->assertSame('verified', $task->fresh()->status);
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
+        $this->assertSame('open', Package::find($packageId)->status);
+
+        // Now seal the package after verification -> succeeds and assigns barcode
+        $seal = $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])
+            ->assertStatus(200);
+        $this->assertSame('sealed', Package::find($packageId)->status);
+        $this->assertNotEmpty($seal->json('data.barcode'));
     }
 
     public function test_cancel_task_guards_packed_work(): void
