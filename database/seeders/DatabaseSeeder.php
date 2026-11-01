@@ -79,7 +79,7 @@ class DatabaseSeeder extends Seeder
             // LocationSeeder::class,
             // ContentPageSeeder::class,
             // StaticPageSeeder::class,
-            // SectionSeeder::class,
+            SectionSeeder::class,
             // PickupLocationSeeder::class,
             // OrderFlowSeeder::class,
             // FlowInputSeeder::class,
