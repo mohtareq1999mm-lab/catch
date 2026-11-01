@@ -33,8 +33,8 @@ class CategoryUpdateRequest extends FormRequest
         return [
             'name'         => ['sometimes', 'array'],
             'name.*'       => ['sometimes', 'string', UniqueTranslationRule::for('categories')->ignore($id)],
-            'image-desktop' => ['sometimes', 'file', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
-            'image-mobile' => ['sometimes', 'file', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
+            'image-desktop' => ['sometimes', 'file', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:2048'],
+            'image-mobile' => ['sometimes', 'file', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:2048'],
             'parent_id'    => [
                 'nullable',
                 'integer',
