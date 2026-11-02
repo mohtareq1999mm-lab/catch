@@ -89,6 +89,15 @@ class BarcodeResolver
         if (!$product && ctype_digit($code)) {
             $product = Product::find((int) $code);
         }
+        if (!$product) {
+            $barcodeRow = \App\Models\ProductBarcode::where('piece_barcode', $code)
+                ->orWhere('carton_barcode', $code)
+                ->with('product')
+                ->first();
+            if ($barcodeRow?->product) {
+                $product = $barcodeRow->product;
+            }
+        }
         if ($product) {
             return ['kind' => 'product', 'id' => $product->id, 'label' => (string) $product->sku];
         }

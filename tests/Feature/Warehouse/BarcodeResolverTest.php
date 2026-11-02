@@ -68,6 +68,32 @@ class BarcodeResolverTest extends TestCase
         $this->assertEquals($product->id, $result['id']);
     }
 
+    public function test_resolves_product_by_piece_and_carton_barcode(): void
+    {
+        $product = Product::create([
+            'name' => 'Barcode Product', 'slug' => 'p-bar-' . uniqid(), 'sku' => 'SKU-BAR-100',
+            'price' => 20, 'product_type' => 'simple', 'status' => true,
+            'in_stock' => true, 'stock_quantity' => 10,
+        ]);
+
+        \App\Models\ProductBarcode::create([
+            'product_id' => $product->id,
+            'piece_barcode' => '6221000099991',
+            'carton_barcode' => '6222000099998',
+            'pieces_per_carton' => 12,
+        ]);
+
+        $pieceResult = app(BarcodeResolver::class)->resolve('6221000099991');
+        $this->assertEquals('product', $pieceResult['kind']);
+        $this->assertEquals($product->id, $pieceResult['id']);
+        $this->assertEquals('SKU-BAR-100', $pieceResult['label']);
+
+        $cartonResult = app(BarcodeResolver::class)->resolve('6222000099998');
+        $this->assertEquals('product', $cartonResult['kind']);
+        $this->assertEquals($product->id, $cartonResult['id']);
+        $this->assertEquals('SKU-BAR-100', $cartonResult['label']);
+    }
+
     public function test_rejects_blank_and_unknown_codes(): void
     {
         $this->expectException(UnknownBarcodeException::class);
