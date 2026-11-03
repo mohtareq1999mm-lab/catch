@@ -395,7 +395,8 @@ class CategoriesEndpointTest extends TestCase
 
         $this->getJson(self::LIST_URL)->assertOk();
 
-        $key = md5($this->app['request']->fullUrl());
+        // HasCache appends the active locale; headerless test requests use `en`.
+        $key = md5($this->app['request']->fullUrl()) . '|lang:en';
         $this->assertTrue(
             Cache::tags([FrontendResource::CATEGORIES->value])->has($key),
             'list result must be stored under the categories tag'
@@ -418,7 +419,8 @@ class CategoriesEndpointTest extends TestCase
 
         $this->getJson(self::LIST_URL)->assertOk();
 
-        $key = md5($this->app['request']->fullUrl());
+        // HasCache appends the active locale; headerless test requests use `en`.
+        $key = md5($this->app['request']->fullUrl()) . '|lang:en';
         $cached = Cache::tags([FrontendResource::CATEGORIES->value])->get($key);
 
         $this->assertInstanceOf(\Illuminate\Pagination\LengthAwarePaginator::class, $cached);

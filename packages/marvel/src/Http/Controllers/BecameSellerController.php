@@ -28,6 +28,12 @@ use Prettus\Validator\Exceptions\ValidatorException;
  */
 class BecameSellerController extends CoreController
 {
+    /**
+     * Locales the public page can be cached in (same set CheckLangMiddleware
+     * accepts — `lang` header / `language` query param are the `en|ar` codes).
+     */
+    private const SUPPORTED_LOCALES = ['en', 'ar'];
+
     public $repository;
     public $commission;
 
@@ -78,9 +84,6 @@ class BecameSellerController extends CoreController
     public function store(BecameSellersRequest $request)
     {
         $language = $request->language ? $request->language : DEFAULT_LANGUAGE;
-        if (Cache::has('cached_became_seller_' . $language)) {
-            Cache::forget('cached_became_seller_' . $language);
-        }
 
         $request->merge([
             'page_options' => [
@@ -97,6 +100,9 @@ class BecameSellerController extends CoreController
         } else {
             $becomeSeller =  $this->repository->create(['page_options' => $request['page_options'], 'language' => $language]);
         }
+        // Invalidate AFTER the write: forgetting first lets a concurrent read
+        // re-populate the old payload, which then survives the write.
+        $this->forgetSellerPageCache($language);
         return $becomeSeller;
     }
 
@@ -127,9 +133,32 @@ class BecameSellerController extends CoreController
     {
         $settings = $this->repository->first();
         if (isset($settings->id)) {
-            return $this->repository->update($request->only(['page_options']), $settings->id);
+            $becomeSeller = $this->repository->update($request->only(['page_options']), $settings->id);
         } else {
-            return $this->repository->create(['page_options' => $request['page_options']]);
+            $becomeSeller = $this->repository->create(['page_options' => $request['page_options']]);
+        }
+
+        $this->forgetSellerPageCache($request->language);
+
+        return $becomeSeller;
+    }
+
+    /**
+     * Drop the cached public page for every locale, not only the one being
+     * written: `page_options` and `commissions` are read back per language, and
+     * the old code only cleared the key of the current request. Entries live
+     * forever (rememberForever), so a missed variant never self-heals.
+     */
+    private function forgetSellerPageCache(?string $language = null): void
+    {
+        $locales = self::SUPPORTED_LOCALES;
+
+        if (is_string($language) && $language !== '' && !in_array($language, $locales, true)) {
+            $locales[] = $language;
+        }
+
+        foreach ($locales as $locale) {
+            Cache::forget('cached_became_seller_' . $locale);
         }
     }
 

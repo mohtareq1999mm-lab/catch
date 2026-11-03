@@ -49,7 +49,14 @@ class ProductCacheTest extends TestCase
             $fullUrl .= '?' . http_build_query($query);
         }
 
-        return md5($fullUrl . '|currency:' . app(CurrencyService::class)->getEffectiveCode());
+        // Mirror ProductController::currencyAwareCacheKey(): md5(fullUrl +
+        // currency + channel), then HasCache's locale suffix. Headerless test
+        // requests resolve to the documented `en` default.
+        return md5(
+            $fullUrl
+            . '|currency:' . app(CurrencyService::class)->getEffectiveCode()
+            . '|channel:' . app(\App\Contexts\ChannelContext::class)->getChannel()->value
+        ) . '|lang:en';
     }
 
     public function test_products_endpoint_writes_response_to_cache_without_search_parameter(): void

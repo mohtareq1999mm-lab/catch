@@ -696,7 +696,8 @@ public function test_filter_by_rating_min(): void
         $this->makeProduct(['slug' => 'search-cache-target', 'name' => ['en' => 'SearchCacheHit']]);
         $this->makeProduct(['slug' => 'search-cache-other']);
 
-        $key = md5($this->fullUrl(self::LIST_URL, ['search' => 'SearchCacheHit']));
+        // HasCache appends the active locale; headerless test requests use `en`.
+        $key = md5($this->fullUrl(self::LIST_URL, ['search' => 'SearchCacheHit'])) . '|lang:en';
         Cache::tags([FrontendResource::PRODUCTS->value . '_index'])->put($key, ['__stale__' => 'stale'], now()->addHour());
 
         $response = $this->getJson(self::LIST_URL . '?search=SearchCacheHit');
@@ -712,7 +713,8 @@ public function test_filter_by_rating_min(): void
         $this->getJson(self::LIST_URL)->assertOk();
 
         $tag = FrontendResource::PRODUCTS->value . '_index';
-        $key = md5($this->fullUrl(self::LIST_URL) . '|currency:' . app(\App\Services\Currency\CurrencyService::class)->getEffectiveCode());
+        $channel = app(\App\Contexts\ChannelContext::class)->getChannel()->value;
+        $key = md5($this->fullUrl(self::LIST_URL) . '|currency:' . app(\App\Services\Currency\CurrencyService::class)->getEffectiveCode() . '|channel:' . $channel) . '|lang:en';
 
         $this->assertTrue(Cache::tags([$tag])->has($key));
         $cached = Cache::tags([$tag])->get($key);
@@ -750,7 +752,8 @@ public function test_filter_by_rating_min(): void
         $this->getJson(self::LIST_URL . '?type=index')->assertOk();
 
         $currency = app(\App\Services\Currency\CurrencyService::class)->getEffectiveCode();
-        $indexKey = md5($this->fullUrl(self::LIST_URL, ['type' => 'index']) . '|currency:' . $currency);
+        $channel = app(\App\Contexts\ChannelContext::class)->getChannel()->value;
+        $indexKey = md5($this->fullUrl(self::LIST_URL, ['type' => 'index']) . '|currency:' . $currency . '|channel:' . $channel) . '|lang:en';
 
         $this->assertTrue(Cache::tags([FrontendResource::PRODUCTS->value . '_index'])->has($indexKey));
         $this->assertFalse(

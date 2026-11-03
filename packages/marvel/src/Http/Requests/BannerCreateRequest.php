@@ -67,14 +67,14 @@ class BannerCreateRequest extends FormRequest
             "image_desktop" => [
                 "required",
                 "image",
-                "mimes:jpeg,png,jpg,gif",
+                "mimes:jpeg,png,jpg,gif,webp",
                 "max:2048",
             ],
             
             "image_mobile" => [
                 "required",
                 "image",
-                "mimes:jpeg,png,jpg,gif",
+                "mimes:jpeg,png,jpg,gif,webp",
                 "max:2048",
             ],
             "status" => ["sometimes", "in:0,1"],

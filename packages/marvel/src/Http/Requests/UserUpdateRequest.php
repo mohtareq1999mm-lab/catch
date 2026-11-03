@@ -30,7 +30,7 @@ class UserUpdateRequest extends FormRequest
         return [
             'name'    => ['string', 'max:255'],
             'email'   => ['email', 'unique:users,email,' . $this->route('id')],
-            'avatar' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
+            'avatar' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:2048'],
             'profile' => ['array'],
             'address' => ['array'],
         ];

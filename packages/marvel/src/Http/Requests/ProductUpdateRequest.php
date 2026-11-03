@@ -73,7 +73,7 @@ class ProductUpdateRequest extends FormRequest
             'categories.*'                 => ['integer', 'exists:categories,id'],
             'quantity'                     => ['sometimes', 'integer', 'min:1'],
             'images'                       => ['sometimes', 'array'],
-            'images.*'                     => ['sometimes', 'image', 'mimes:jpeg,png,jpg,gif', "max:2048"],
+            'images.*'                     => ['sometimes', 'image', 'mimes:jpeg,png,jpg,gif,webp', "max:2048"],
             'status'                       => ['sometimes', 'in:0,1'],
             'pieces'                       => ['sometimes', 'integer', 'min:1'],
             'height'                       => ['nullable', 'string'],

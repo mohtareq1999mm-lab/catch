@@ -29,6 +29,14 @@ trait HasCache
 
         $callback = $data instanceof Closure ? $data : fn() => $data;
 
+        // REST responses are localized (CheckLangMiddleware sets the locale per
+        // request from the `lang` header). Cache entries must vary by the ACTIVE
+        // locale, otherwise a lang switch replays a response cached in the
+        // previous language until TTL. Every key gets a locale suffix so ar/en
+        // never share an entry; data-change invalidation is unaffected because
+        // tag flushes clear every variant.
+        $key = $key . '|lang:' . app()->getLocale();
+
         // Preferred path for redis/memcached etc. — fallback for file/database/array
         // which throw BadMethodCallException during artisan db:seed.
         try {

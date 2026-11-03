@@ -103,7 +103,7 @@ class StaticPageCacheTest extends TestCase
 
     private function indexCacheKey(): string
     {
-        return md5(url(self::PUBLIC_INDEX));
+        return md5(url(self::PUBLIC_INDEX)) . '|lang:en';
     }
 
     public function test_public_index_populates_cache_with_tag(): void
@@ -124,7 +124,7 @@ class StaticPageCacheTest extends TestCase
 
         $this->getJson(self::PUBLIC_INDEX . '/about-us')->assertOk();
 
-        $key = md5(url(self::PUBLIC_INDEX . '/about-us'));
+        $key = md5(url(self::PUBLIC_INDEX . '/about-us')) . '|lang:en';
         $this->assertTrue(
             Cache::tags([FrontendResource::STATIC_PAGES->value])->has($key)
         );

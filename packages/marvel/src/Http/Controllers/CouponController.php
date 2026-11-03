@@ -144,7 +144,10 @@ class CouponController extends CoreController
     {
         try {
             $coupon =  $this->repository->storeCoupon($request);
-            $this->forget(FrontendResource::COUPONS->value);
+            // Tag flush (not forget('coupons')): HasCache stores localized
+            // listing payloads under a suffixed key, so only a tag flush retires
+            // every locale variant (and it works on tag-less stores too).
+            $this->flushTag(FrontendResource::COUPONS->value);
             return $this->apiResponse(CREATED_COUPON_SUCCESSFULLY, 201, true, CouponResource::make($coupon));
         } catch (MarvelException $e) {
             return $this->apiResponse(COULD_NOT_CREATE_THE_RESOURCE, 400, false);
@@ -182,7 +185,7 @@ class CouponController extends CoreController
     {
         try {
             $coupon = $this->repository->updateCoupon($id, $request);
-            $this->forget(FrontendResource::COUPONS->value);
+            $this->flushTag(FrontendResource::COUPONS->value);
             return $this->apiResponse(UPDATED_COUPON_SUCCESSFULLY, 200, true, CouponResource::make($coupon));
         } catch (MarvelException $th) {
             return $this->apiResponse(COULD_NOT_UPDATE_THE_RESOURCE, 400, false);
@@ -194,7 +197,7 @@ class CouponController extends CoreController
     {
         try {
             $this->repository->findOrFail($id)->delete();
-            $this->forget(FrontendResource::COUPONS->value);
+            $this->flushTag(FrontendResource::COUPONS->value);
             return $this->apiResponse(DELETED_COUPON_SUCCESSFULLY, 200, true);
         } catch (MarvelException $e) {
             throw new MarvelException(NOT_FOUND);

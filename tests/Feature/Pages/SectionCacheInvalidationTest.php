@@ -135,7 +135,7 @@ class SectionCacheInvalidationTest extends TestCase
         $this->createContentPage();
 
         $this->assertSame([], $this->getPublicHomeSections());
-        $key = md5(url(self::PUBLIC_HOME));
+        $key = md5(url(self::PUBLIC_HOME)) . '|lang:en';
         $this->assertTrue(Cache::tags([FrontendResource::CONTENT_PAGES->value])->has($key));
 
         $this->actAsAdmin();
@@ -290,7 +290,7 @@ class SectionCacheInvalidationTest extends TestCase
         $this->createContentPage();
 
         $this->assertSame([], $this->getPublicHomeSections());
-        $key = md5(url(self::PUBLIC_HOME));
+        $key = md5(url(self::PUBLIC_HOME)) . '|lang:en';
         $this->assertTrue(Cache::tags([FrontendResource::CONTENT_PAGES->value])->has($key));
 
         $this->createSection();

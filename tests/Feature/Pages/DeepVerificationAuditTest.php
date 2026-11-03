@@ -236,7 +236,7 @@ class DeepVerificationAuditTest extends TestCase
 
         // observer: public index cache must be flushed by creation
         $this->getJson(self::PUBLIC_INDEX)->assertOk();
-        $key = md5(url(self::PUBLIC_INDEX));
+        $key = md5(url(self::PUBLIC_INDEX)) . '|lang:en';
         $this->assertTrue(Cache::tags([FrontendResource::CONTENT_PAGES->value])->has($key), 'public index cached');
         $this->actAsAdmin();
         $this->postJson(self::PREFIX . '/content-pages', [
@@ -282,7 +282,7 @@ class DeepVerificationAuditTest extends TestCase
 
         // cache invalidation + public reflects new state
         $this->getJson(self::PUBLIC_HOME)->assertOk();
-        $key = md5(url(self::PUBLIC_HOME));
+        $key = md5(url(self::PUBLIC_HOME)) . '|lang:en';
         $this->assertTrue(Cache::tags([FrontendResource::CONTENT_PAGES->value])->has($key));
         $this->assertSame('New Title', $this->getJson(self::PUBLIC_HOME)->json('data.title'), 'public reflects updated title');
         $this->actAsAdmin();
@@ -872,7 +872,7 @@ class DeepVerificationAuditTest extends TestCase
         $s3 = $this->makeSection('banners');
         $page->sections()->saveMany([$s1, $s2, $s3]);
 
-        $key = md5(url(self::PUBLIC_HOME));
+        $key = md5(url(self::PUBLIC_HOME)) . '|lang:en';
 
         $this->assertSame([$s1->id, $s2->id, $s3->id], array_column($this->publicHomeSections(), 'id'));
         $this->assertTrue(Cache::tags([FrontendResource::CONTENT_PAGES->value])->has($key), 'cached before');
@@ -944,7 +944,7 @@ class DeepVerificationAuditTest extends TestCase
         // populate the content_pages cache too
         $this->getJson(self::PUBLIC_HOME)->assertOk();
 
-        $contentKey = md5(url(self::PUBLIC_HOME));
+        $contentKey = md5(url(self::PUBLIC_HOME)) . '|lang:en';
         // plant direct markers so we can prove tag-level isolation regardless of internal cache keys
         Cache::tags([FrontendResource::PRODUCTS->value])->put('isolation-marker-products', 'still-here', 60);
         Cache::tags([FrontendResource::CONTENT_PAGES->value])->put('isolation-marker-content', 'flushed-expected', 60);

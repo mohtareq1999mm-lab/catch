@@ -29,8 +29,8 @@ class BrandCreateRequest extends FormRequest
         return [
             'name' => ['required', 'array'],
             'name.*' => ['required', 'string', UniqueTranslationRule::for('brands', 'name')],
-            'image-desktop' => ['required', 'file', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
-            'image-mobile' => ['required', 'file', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
+            'image-desktop' => ['required', 'file', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:2048'],
+            'image-mobile' => ['required', 'file', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:2048'],
             'details' => ['sometimes', 'array'],
             'details.*' => ['required_with:details', 'string', 'min:3', 'max:2500'],
             'status' => ['sometimes', 'in:1,0'],

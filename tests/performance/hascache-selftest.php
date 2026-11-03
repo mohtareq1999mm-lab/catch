@@ -37,11 +37,11 @@ $subject = new class {
 $tag = 'SELFTEST_TAG';
 $key = md5('selftest-' . microtime());
 
-// 1) remember() closure path must NOT pre-execute; value cached.
+// 1) remember() closure path must NOT pre-execute; value cached (locale-suffixed key).
 $value = $subject->pubRemember($tag, $key, fn () => 'HELLO-' . random_int(100, 999));
 echo "[1] remember($tag, $key) => {$value}\n";
 
-$cacheKey = $tag . ':' . $key;
+$cacheKey = $tag . ':' . $key . '|lang:' . app()->getLocale();
 $cached = Cache::get($cacheKey);
 echo '[2] direct key read (' . $cacheKey . ') => ' . var_export($cached, true) . "\n";
 
@@ -70,13 +70,31 @@ $second = $subject->pubRemember($tag, $key, $lazy);  // hit   -> must NOT execut
 echo "[5] lazy run count => {$executions} ; miss={$first} hit={$second}\n";
 $subject->pubFlushTag($tag);
 
+// 6) LOCALE ISOLATION: the same tag+key built in another locale is a distinct
+//    entry, and a single flushTag retires every locale variant.
+app()->setLocale('en');
+$en = $subject->pubRemember($tag, $key, 'EN-PAYLOAD');
+app()->setLocale('ar');
+$ar = $subject->pubRemember($tag, $key, 'AR-PAYLOAD');
+$enRaw = Cache::get($tag . ':' . $key . '|lang:en');
+$arRaw = Cache::get($tag . ':' . $key . '|lang:ar');
+$subject->pubFlushTag($tag);
+$enGone = Cache::get($tag . ':' . $key . '|lang:en');
+$arGone = Cache::get($tag . ':' . $key . '|lang:ar');
+echo "[6] en={$en} ar={$ar} raw_en=" . var_export($enRaw, true) . ' raw_ar=' . var_export($arRaw, true)
+    . ' after_flush_en=' . var_export($enGone, true) . ' after_flush_ar=' . var_export($arGone, true) . "\n";
+
 $pass = $cached === $value
     && $after === null
     && $again === 'ROUND2'
     && $gone2 === null
     && $executions === 1
-    && $first === $second;
+    && $first === $second
+    && $enRaw === 'EN-PAYLOAD'
+    && $arRaw === 'AR-PAYLOAD'
+    && $enGone === null
+    && $arGone === null;
 
-echo $pass ? "SELFTEST PASS (registry invalidation + lazy closure on '{$store}' store)\n"
+echo $pass ? "SELFTEST PASS (registry invalidation + lazy closure + locale isolation on '{$store}' store)\n"
            : "SELFTEST FAIL\n";
 exit($pass ? 0 : 1);

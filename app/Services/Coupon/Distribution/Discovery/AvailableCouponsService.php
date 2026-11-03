@@ -52,7 +52,10 @@ class AvailableCouponsService
             (string) CouponAssignment::query()->max('updated_at'),
             (string) CouponDiscoveryCache::version(),
         ]);
-        $cacheKey = implode(':', ['coupon:available', $user->getKey(), $page, $limit, md5($version)]);
+        // Locale component: the payload contains coupon names resolved through
+        // Spatie HasTranslations, so an entry built in one language must never
+        // be served to another (60s TTL used to leak the previous language).
+        $cacheKey = implode(':', ['coupon:available', $user->getKey(), $page, $limit, app()->getLocale(), md5($version)]);
 
         return Cache::remember($cacheKey, (int) config('coupon-distribution.available_cache_ttl', 60), function () use ($user, $page, $limit) {
             return $this->computeForUser($user, $page, $limit);

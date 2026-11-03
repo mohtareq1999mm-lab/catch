@@ -34,7 +34,7 @@ class UserCreateRequest extends FormRequest
             'phone_number'    => ['required', 'string', 'max:20', "min:10", 'unique:users,phone_number'],
             'password' => ['required', 'string', 'min:8', 'max:50', 'confirmed'],
             'password_confirmation' => ['required', 'string', 'min:8', 'max:50'],
-             'avatar' => ['sometimes', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
+             'avatar' => ['sometimes', 'image', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:2048'],
             'policy' => ['required', 'in:1,true'],
         ];
     }

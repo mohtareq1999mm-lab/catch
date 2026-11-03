@@ -223,8 +223,9 @@ class UserCurrencyPreferenceTest extends CurrencyTestCase
         $this->assertEquals(375.0, $response->json('data.data.0.current_price'));
 
         $tag = FrontendResource::PRODUCTS->value . '_index';
-        $kwdKey = md5(url(self::GENERAL_PREFIX . '/products') . '|currency:KWD');
-        $sarKey = md5(url(self::GENERAL_PREFIX . '/products') . '|currency:SAR');
+        $channel = app(\App\Contexts\ChannelContext::class)->getChannel()->value;
+        $kwdKey = md5(url(self::GENERAL_PREFIX . '/products') . '|currency:KWD' . '|channel:' . $channel) . '|lang:en';
+        $sarKey = md5(url(self::GENERAL_PREFIX . '/products') . '|currency:SAR' . '|channel:' . $channel) . '|lang:en';
 
 $this->assertNotSame($kwdKey, $sarKey);
         $this->assertTrue(Cache::tags([$tag])->has($kwdKey));

@@ -3,6 +3,8 @@
 namespace Marvel\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Enums\FrontendResource;
+use App\Traits\HasCache;
 use Marvel\Database\Repositories\BannerRepository;
 use Marvel\Enums\Permission;
 use Marvel\Http\Requests\BannerCreateRequest;
@@ -12,7 +14,7 @@ use Marvel\Traits\ApiResponse;
 
 class BannerController extends CoreController
 {
-    use ApiResponse;
+    use ApiResponse, HasCache;
     public $repository;
     public function __construct(BannerRepository $repository)
     {
@@ -52,6 +54,7 @@ class BannerController extends CoreController
         try{
             $banner = $this->repository->createBanner($request);
             $banner->load('products');
+            $this->flushTag(FrontendResource::BANNERS->value);
             return $this->apiResponse(BANNER_CREATED_SUCCESSFULLY,200, true, BannerResource::make($banner));
         }catch(\Exception $e){
             return $this->apiResponse(SOMETHING_WENT_WRONG,500, false);
@@ -79,6 +82,7 @@ class BannerController extends CoreController
         try{
             $banner = $this->repository->updateBanner($request, $id);
             $banner->load('products');
+            $this->flushTag(FrontendResource::BANNERS->value);
             return $this->apiResponse(BANNER_UPDATED_SUCCESSFULLY,200, true, BannerResource::make($banner));
         }catch(\Exception $e){
             return $this->apiResponse(NOT_FOUND,404, false);
@@ -93,6 +97,7 @@ class BannerController extends CoreController
         try{
             $banner = $this->repository->findOrFail($id);
             $banner->delete();
+            $this->flushTag(FrontendResource::BANNERS->value);
             return $this->apiResponse(BANNER_DELETED_SUCCESSFULLY,200, true);
         }catch(\Exception $e){
             return $this->apiResponse(NOT_FOUND,404, false, null);
@@ -108,6 +113,7 @@ class BannerController extends CoreController
         if(!$banner){
             return $this->apiResponse(SOMETHING_WENT_WRONG,500, false);
         }
+        $this->flushTag(FrontendResource::BANNERS->value);
         return $this->apiResponse(BANNER_STATUS_CHANGED,200, true, BannerResource::make($banner));
     }
 
@@ -120,6 +126,7 @@ class BannerController extends CoreController
         ]);
         try {
             $this->repository->reorder($request->banners);
+            $this->flushTag(FrontendResource::BANNERS->value);
 
             return $this->apiResponse(BANNERS_REORDERED_SUCCESSFULLY, 200, true);
         } catch (\Exception $e) {
