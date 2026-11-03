@@ -142,17 +142,54 @@ class RawdAlAseelProductsSeeder extends Seeder
                 // 2. Attach Category #6
                 $product->categories()->syncWithoutDetaching([$category->id]);
 
-                // 3. Attach Barcodes (if specified)
+                // 3. Attach Barcodes (if specified) - Clean conflicting/stale barcode rows to prevent 1062 duplicates
                 if (!empty($item['piece'])) {
-                    ProductBarcode::updateOrCreate(
-                        ['product_id' => $product->id],
+                    ProductBarcode::where('product_id', $product->id)
+                        ->orWhere('piece_barcode', $item['piece'])
+                        ->when(!empty($item['carton']), fn ($q) => $q->orWhere('carton_barcode', $item['carton']))
+                        ->delete();
+
+                    ProductBarcode::create([
+                        'product_id' => $product->id,
+                        'piece_barcode' => $item['piece'],
+                        'carton_barcode' => $item['carton'] ?? null,
+                        'pieces_per_carton' => $item['pieces'] ?? 24,
+                    ]);
+                    $barcodesCount++;
+                }
+
+                // 4. Provision WMS Picking Location & Stock Placement (if warehouse exists)
+                if ($warehouse) {
+                    $locCode = 'PICK-' . $item['sku'];
+                    $locBarcode = 'LOC-PICK-' . $item['sku'];
+
+                    $location = Location::firstOrCreate(
                         [
-                            'piece_barcode' => $item['piece'],
-                            'carton_barcode' => $item['carton'] ?? null,
-                            'pieces_per_carton' => $item['pieces'] ?? 24,
+                            'warehouse_id' => $warehouse->id,
+                            'code' => $locCode,
+                        ],
+                        [
+                            'barcode' => $locBarcode,
+                            'name' => 'موقع التقاط - ' . $item['name_ar'],
+                            'type' => Location::TYPE_PICKING,
+                            'status' => Location::STATUS_ACTIVE,
+                            'priority' => 15,
                         ]
                     );
-                    $barcodesCount++;
+                    $locationsCount++;
+
+                    ProductLocation::updateOrCreate(
+                        [
+                            'warehouse_id' => $warehouse->id,
+                            'product_id' => $product->id,
+                            'location_id' => $location->id,
+                            'product_variant_id' => null,
+                        ],
+                        [
+                            'quantity' => 100.00,
+                            'allocated_hint' => 0.00,
+                        ]
+                    );
                 }
             }
         });
