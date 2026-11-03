@@ -362,11 +362,13 @@ class AutoReleaseWiringTest extends TestCase
     {
         $payment = new ReleaseFulfillmentOnPayment(
             app(FulfillmentService::class),
-            app(\App\Services\Inventory\OrderReservationService::class)
+            app(\App\Services\Inventory\OrderReservationService::class),
+            app(\App\Services\Warehouse\WarehouseWorkflowSwitchService::class)
         );
         $cod = new ReleaseFulfillmentOnCodPlacement(
             app(FulfillmentService::class),
-            app(\App\Services\Inventory\OrderReservationService::class)
+            app(\App\Services\Inventory\OrderReservationService::class),
+            app(\App\Services\Warehouse\WarehouseWorkflowSwitchService::class)
         );
 
         $this->assertSame(config('queue.queues.high'), $payment->viaQueue());

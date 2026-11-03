@@ -16,6 +16,7 @@ use App\Services\Fulfillment\FulfillmentService;
 use App\Services\General\OrderService;
 use App\Services\Inventory\OrderReservationService;
 use App\Services\OrderFlow\OrderFlowService;
+use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
@@ -361,11 +362,13 @@ class Phase3ReleaseHardeningTest extends TestCase
     {
         $payment = new ReleaseFulfillmentOnPayment(
             app(FulfillmentService::class),
-            app(OrderReservationService::class)
+            app(OrderReservationService::class),
+            app(WarehouseWorkflowSwitchService::class)
         );
         $manual = new ReleaseFulfillmentOnCodPlacement(
             app(FulfillmentService::class),
-            app(OrderReservationService::class)
+            app(OrderReservationService::class),
+            app(WarehouseWorkflowSwitchService::class)
         );
 
         foreach ([$payment, $manual] as $listener) {
