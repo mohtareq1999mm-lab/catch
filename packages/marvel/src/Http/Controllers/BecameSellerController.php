@@ -28,12 +28,6 @@ use Prettus\Validator\Exceptions\ValidatorException;
  */
 class BecameSellerController extends CoreController
 {
-    /**
-     * Locales the public page can be cached in (same set CheckLangMiddleware
-     * accepts — `lang` header / `language` query param are the `en|ar` codes).
-     */
-    private const SUPPORTED_LOCALES = ['en', 'ar'];
-
     public $repository;
     public $commission;
 
@@ -61,12 +55,17 @@ class BecameSellerController extends CoreController
      */
     public function index(Request $request)
     {
-        $language = $request->language ? $request->language : DEFAULT_LANGUAGE;
+        // Bind the cache key to the supported locale set. `language` is
+        // untrusted input (GraphQL `becameSeller(language:)` is public and
+        // unauthenticated), so using it raw would let any caller create a
+        // permanent rememberForever entry per arbitrary string.
+        $language = $this->resolveLanguage($request->language);
+
         return Cache::rememberForever(
             'cached_became_seller_' . $language,
-            function () use ($request) {
+            function () use ($language) {
                 return [
-                    'page_options' => $this->repository->getData($request->language),
+                    'page_options' => $this->repository->getData($language),
                     'commissions' => $this->commission->get()
                 ];
             }
@@ -83,7 +82,7 @@ class BecameSellerController extends CoreController
 
     public function store(BecameSellersRequest $request)
     {
-        $language = $request->language ? $request->language : DEFAULT_LANGUAGE;
+        $language = $this->resolveLanguage($request->language);
 
         $request->merge([
             'page_options' => [
@@ -102,7 +101,7 @@ class BecameSellerController extends CoreController
         }
         // Invalidate AFTER the write: forgetting first lets a concurrent read
         // re-populate the old payload, which then survives the write.
-        $this->forgetSellerPageCache($language);
+        $this->forgetSellerPageCache();
         return $becomeSeller;
     }
 
@@ -138,28 +137,78 @@ class BecameSellerController extends CoreController
             $becomeSeller = $this->repository->create(['page_options' => $request['page_options']]);
         }
 
-        $this->forgetSellerPageCache($request->language);
+        $this->forgetSellerPageCache();
 
         return $becomeSeller;
     }
 
     /**
-     * Drop the cached public page for every locale, not only the one being
-     * written: `page_options` and `commissions` are read back per language, and
-     * the old code only cleared the key of the current request. Entries live
-     * forever (rememberForever), so a missed variant never self-heals.
+     * Drop the cached public page for every locale the read path can write.
+     *
+     * The read path clamps `language` to the supported set (falling back to
+     * the default language), so this bounded set is the complete key space.
+     * Entries live forever (rememberForever): a missed variant would serve a
+     * stale page until the cache is flushed manually.
      */
-    private function forgetSellerPageCache(?string $language = null): void
+    private function forgetSellerPageCache(): void
     {
-        $locales = self::SUPPORTED_LOCALES;
-
-        if (is_string($language) && $language !== '' && !in_array($language, $locales, true)) {
-            $locales[] = $language;
-        }
-
-        foreach ($locales as $locale) {
+        foreach ($this->cacheLocales() as $locale) {
             Cache::forget('cached_became_seller_' . $locale);
         }
+    }
+
+    /**
+     * Locales that can own a cache entry: the supported set plus the default
+     * content language (`shop.default_language`), which the read path falls
+     * back to for missing/unsupported input.
+     *
+     * @return list<string>
+     */
+    private function cacheLocales(): array
+    {
+        return array_values(array_unique(array_merge(
+            $this->supportedLocales(),
+            [$this->defaultLocale()],
+        )));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function supportedLocales(): array
+    {
+        $locales = config('app.supported_locales', ['en', 'ar']);
+        $locales = is_array($locales) ? $locales : [];
+
+        $normalized = [];
+        foreach ($locales as $locale) {
+            if (!is_string($locale)) {
+                continue;
+            }
+
+            $locale = strtolower(trim($locale));
+            if ($locale !== '') {
+                $normalized[] = $locale;
+            }
+        }
+
+        return array_values(array_unique($normalized));
+    }
+
+    private function defaultLocale(): string
+    {
+        $default = strtolower(trim((string) config('shop.default_language', 'en')));
+
+        return $default !== '' ? $default : 'en';
+    }
+
+    private function resolveLanguage(?string $language): string
+    {
+        $candidate = is_string($language) ? strtolower(trim($language)) : '';
+
+        return in_array($candidate, $this->cacheLocales(), true)
+            ? $candidate
+            : $this->defaultLocale();
     }
 
     /**

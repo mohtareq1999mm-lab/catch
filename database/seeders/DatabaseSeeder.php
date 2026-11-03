@@ -120,10 +120,7 @@ class DatabaseSeeder extends Seeder
             FulfillmentSeeder::class,
             WarehouseDashboardSeeder::class,
             ProductBarcodeLocationSeeder::class,
-            RawdAlAseelProductsSeeder::class,
-            MazaqProductsSeeder::class,
-            CannedLegumesProductsSeeder::class,
-            
+       
         ]);
 
         // Final reconciliation: guarantee super_admin role and admin user hold 100% of all permissions
@@ -144,3 +141,4 @@ class DatabaseSeeder extends Seeder
 //            ContentPageSeeder::class,
 // RawdAlAseelProductsSeeder::class,
             // MazaqProductsSeeder::class,
+            //            CannedLegumesProductsSeeder::class,

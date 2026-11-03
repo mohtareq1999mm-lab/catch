@@ -28,7 +28,9 @@ class CheckLangMiddleware
         $lang = $request->header('lang', 'en');
         $lang = is_string($lang) ? strtolower(trim($lang)) : '';
 
-        $languages = ['en', 'ar'];
+        // Single source of truth for the accepted locales: response caches
+        // bound their key space to the same list (config/app.php).
+        $languages = (array) config('app.supported_locales', ['en', 'ar']);
 
         if ($lang !== '' && in_array($lang, $languages, true)) {
             $locale = $lang;

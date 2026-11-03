@@ -158,3 +158,4 @@ class CannedLegumesProductsSeeder extends Seeder
         $this->command?->info('====================================================');
     }
 }
+

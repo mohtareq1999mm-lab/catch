@@ -87,3 +87,4 @@ class CannedLegumesSeederTest extends TestCase
         $this->assertCount(5, $category->products()->get(), 'Product count in Category #7 remains 5 after re-seeding');
     }
 }
+

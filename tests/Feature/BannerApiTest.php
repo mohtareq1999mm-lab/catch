@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
+use App\Enums\FrontendResource;
 use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Banner;
 use Marvel\Database\Models\Product;
@@ -34,6 +36,8 @@ class BannerApiTest extends TestCase
         parent::setUp();
 
         app()->setLocale('en');
+
+        Cache::flush();
 
         config(['scout.driver' => 'null']);
         config(['filesystems.disks.banners' => [
@@ -590,5 +594,107 @@ class BannerApiTest extends TestCase
 
         $response->assertOk();
         $this->assertDatabaseMissing('banners', ['id' => 99999]);
+    }
+
+    // =========================================================================
+    // Cache Invalidation
+    // =========================================================================
+
+    public function test_every_admin_write_retires_the_public_banner_cache_for_every_locale(): void
+    {
+        // The public listing (/api/v1/general/banners) caches already-resolved
+        // models per locale under FrontendResource::BANNERS. Each admin write
+        // must retire both the `en` and `ar` variants; otherwise a language can
+        // keep replaying a banner catalog that no longer exists for 4 hours.
+        $publicUrl = url(self::PREFIX . '/general/banners');
+        $cacheKey = fn (string $locale) => md5($publicUrl) . '|lang:' . $locale;
+
+        $warm = function (): void use ($publicUrl) {
+            $this->getJson($publicUrl, ['lang' => 'en'])->assertOk();
+            $this->getJson($publicUrl, ['lang' => 'ar'])->assertOk();
+        };
+
+        $assertRetired = function (string $context) use ($cacheKey): void {
+            foreach (['en', 'ar'] as $locale) {
+                $this->assertFalse(
+                    Cache::tags([FrontendResource::BANNERS->value])->has($cacheKey($locale)),
+                    "{$context} left the {$locale} public banner cache alive",
+                );
+            }
+        };
+
+        // --- create ------------------------------------------------------
+        Sanctum::actingAs($this->viewUser, ['*']);
+        $warm();
+        $this->assertTrue(Cache::tags([FrontendResource::BANNERS->value])->has($cacheKey('en')));
+
+        Sanctum::actingAs($this->adminUser, ['*']);
+        $created = $this->call('POST', self::PREFIX . '/banners', [
+            'title' => ['en' => 'Cached banner', 'ar' => 'بانر مخزن'],
+            'description' => ['en' => 'Description', 'ar' => 'وصف'],
+        ], [], [
+            'image_desktop' => UploadedFile::fake()->image('desktop.jpg', 100, 100),
+            'image_mobile' => UploadedFile::fake()->image('mobile.jpg', 100, 100),
+        ], ['HTTP_ACCEPT' => 'application/json', 'CONTENT_TYPE' => 'multipart/form-data']);
+
+        $created->assertOk();
+        $assertRetired('store');
+
+        $bannerId = (int) $created->json('data.id');
+        Sanctum::actingAs($this->viewUser, ['*']);
+        $this->getJson($publicUrl, ['lang' => 'en'])
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'Cached banner');
+
+        // --- update ------------------------------------------------------
+        $warm();
+        Sanctum::actingAs($this->adminUser, ['*']);
+        $this->putJson(self::PREFIX . '/banners/' . $bannerId, [
+            'title' => ['en' => 'Updated banner', 'ar' => 'بانر محدث'],
+        ])->assertOk();
+        $assertRetired('update');
+
+        Sanctum::actingAs($this->viewUser, ['*']);
+        $this->getJson($publicUrl, ['lang' => 'en'])
+            ->assertOk()
+            ->assertJsonPath('data.0.title', 'Updated banner');
+
+        // --- change status -------------------------------------------------
+        // Active banners only are listed, so flipping the flag must be visible
+        // immediately instead of after the cache TTL.
+        $warm();
+        Sanctum::actingAs($this->adminUser, ['*']);
+        $this->putJson(self::PREFIX . '/banner/change-status', ['id' => $bannerId])->assertOk();
+        $assertRetired('change-status');
+
+        Sanctum::actingAs($this->viewUser, ['*']);
+        $this->getJson($publicUrl, ['lang' => 'en'])->assertOk()->assertJsonCount(0, 'data');
+
+        // Restore it (also exercises change-status invalidation from the
+        // inactive side) and confirm the public list sees it again.
+        $warm();
+        Sanctum::actingAs($this->adminUser, ['*']);
+        $this->putJson(self::PREFIX . '/banner/change-status', ['id' => $bannerId])->assertOk();
+        $assertRetired('change-status (restore)');
+
+        Sanctum::actingAs($this->viewUser, ['*']);
+        $this->getJson($publicUrl, ['lang' => 'en'])->assertOk()->assertJsonCount(1, 'data');
+
+        // --- reorder -------------------------------------------------------
+        // The public listing orders by id, so reorder is not observable in the
+        // response; assert the cached entries are retired instead.
+        $warm();
+        Sanctum::actingAs($this->adminUser, ['*']);
+        $this->postJson(self::PREFIX . '/banner/reorder', ['banners' => [$bannerId]])->assertOk();
+        $assertRetired('reorder');
+
+        // --- delete -------------------------------------------------------
+        $warm();
+        $this->deleteJson(self::PREFIX . '/banners/' . $bannerId)->assertOk();
+        $assertRetired('destroy');
+
+        Sanctum::actingAs($this->viewUser, ['*']);
+        $this->getJson($publicUrl, ['lang' => 'en'])->assertOk()->assertJsonCount(0, 'data');
     }
 }

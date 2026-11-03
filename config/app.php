@@ -84,6 +84,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Supported Content Locales
+    |--------------------------------------------------------------------------
+    |
+    | Locales accepted through the `lang` request header. CheckLangMiddleware
+    | resolves the request locale from this list, and locale-keyed response
+    | caches bound their key space to it, so adding a locale here is enough
+    | for both the read and the invalidation paths to pick it up.
+    |
+    */
+
+    'supported_locales' => ['en', 'ar'],
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Fallback Locale
     |--------------------------------------------------------------------------
     |
