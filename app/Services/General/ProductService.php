@@ -281,6 +281,7 @@ class ProductService
         $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->where(function ($query) {
                 $query->where(function ($q) {
                     $q->where('has_discount', true)
@@ -342,6 +343,7 @@ class ProductService
                     $query->active()->tap(fn ($qq) => $this->applyChannelHomeFilter($qq))
                         ->with($this->productRelations())
                         ->withAvg(['reviews' => fn ($q) => $q->approved()], 'rating')
+                        ->withCount(['reviews' => fn ($q) => $q->approved()])
                         ->limit($qty);
                 }
             ])->get()
@@ -364,6 +366,7 @@ class ProductService
         $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->select([
                 'id', 'name', 'slug', 'price', 'quantity',
                 'has_discount', 'discount_type', 'discount_amount', 'discount_status',
@@ -404,6 +407,7 @@ class ProductService
         $query = Product::query()->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->select([
                 'id', 'name', 'slug', 'price', 'quantity',
                 'has_discount', 'discount_type', 'discount_amount', 'discount_status',
@@ -448,6 +452,7 @@ class ProductService
             ])
             ->with(array_merge($this->productRelations(), ['reviews']))
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->whereNull('deleted_at')
             ->where('has_discount', true);
 
@@ -482,6 +487,7 @@ class ProductService
                 $query->active()->tap(fn($qq) => $this->applyChannelHomeFilter($qq));
                 $query->with($this->productRelations())
                     ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+                    ->withCount(['reviews' => fn($q) => $q->approved()])
                     ->limit($qty);
             }])
             ->get()
@@ -507,6 +513,7 @@ class ProductService
             ])
             ->with(array_merge($this->productRelations(), ['reviews']))
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->whereNull('deleted_at')
             ->where('has_flash_sale', false)
             ->whereDate('created_at', '>=', now()->subDays(15));
@@ -590,7 +597,8 @@ class ProductService
         $query = Product::query()
             ->active()
             ->with($this->productRelations())
-            ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating');
+            ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()]);
 
         $this->applyChannelHomeFilter($query);
 
@@ -615,6 +623,7 @@ class ProductService
             ->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->whereHas('categories', function (Builder $query) use ($ParentCategories) {
                 $query->whereIn('categories.id', $ParentCategories);
             });
@@ -645,6 +654,7 @@ class ProductService
             ->active()
             ->with($this->productRelations())
             ->withAvg(['reviews' => fn($q) => $q->approved()], 'rating')
+            ->withCount(['reviews' => fn($q) => $q->approved()])
             ->whereHas('categories', function (Builder $query) use ($categories) {
                 $query->whereIn('categories.id', $categories);
             })

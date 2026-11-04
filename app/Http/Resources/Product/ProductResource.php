@@ -56,6 +56,10 @@ class ProductResource extends JsonResource
             $this->mergeWhen($this->has_discount, fn() => ['discount_valid' => (bool) $this->discount_active]),
             'discount_active' => (bool) $this->discount_active,
             'flash_sale_active' => (bool) $this->flash_sale_active,
+            'ratings' => round((float) ($this->reviews_avg_rating ?? 0), 2),
+            // Number of approved reviews (one review = one rating).
+            'ratings_count' => $this->whenCounted('reviews'),
+            'brands'                 => BrandResource::collection($this->whenLoaded('brands')),
             'categories'             => $this->whenLoaded('categories', fn() => $this->getFlatCategoryHierarchy()),
             "images"                 => [
                 'thumbnail'  => $this->getFirstMediaUrl('products'),

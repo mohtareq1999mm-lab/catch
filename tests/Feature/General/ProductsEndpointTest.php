@@ -141,8 +141,79 @@ class ProductsEndpointTest extends TestCase
         $this->assertArrayHasKey('flash_sale_active', $item);
         $this->assertArrayHasKey('is_fast_shipping_available', $item);
         $this->assertArrayHasKey('ratings', $item);
+        $this->assertArrayHasKey('ratings_count', $item);
+        $this->assertArrayHasKey('brands', $item);
         $this->assertArrayHasKey('tags', $item);
         $this->assertArrayHasKey('image', $item);
+    }
+
+    public function test_list_and_detail_expose_brands_relation_and_approved_ratings_count(): void
+    {
+        $brand = Brand::create([
+            'name' => ['en' => 'Acme', 'ar' => 'أكمي'],
+            'slug' => 'acme-' . uniqid(),
+        ]);
+
+        $product = $this->makeProduct(['slug' => 'branded-with-reviews']);
+        $product->brands()->attach($brand->id);
+
+        $firstReviewer = User::create([
+            'name' => 'First Reviewer',
+            'email' => 'first-reviewer-' . uniqid() . '@example.com',
+            'password' => bcrypt('secret'),
+        ]);
+        $secondReviewer = User::create([
+            'name' => 'Second Reviewer',
+            'email' => 'second-reviewer-' . uniqid() . '@example.com',
+            'password' => bcrypt('secret'),
+        ]);
+        $pendingReviewer = User::create([
+            'name' => 'Pending Reviewer',
+            'email' => 'pending-reviewer-' . uniqid() . '@example.com',
+            'password' => bcrypt('secret'),
+        ]);
+
+        foreach ([$firstReviewer, $secondReviewer] as $reviewer) {
+            Review::create([
+                'product_id' => $product->id,
+                'user_id' => $reviewer->id,
+                'rating' => 5,
+                'comment' => 'Excellent',
+                'approved' => true,
+            ]);
+        }
+
+        // Pending reviews must not inflate the public "people who rated" count.
+        Review::create([
+            'product_id' => $product->id,
+            'user_id' => $pendingReviewer->id,
+            'rating' => 1,
+            'comment' => 'Awaiting moderation',
+            'approved' => false,
+        ]);
+
+        $list = $this->getJson(self::LIST_URL . '?limit=100');
+        $list->assertOk();
+
+        $item = collect($list->json('data.data'))->firstWhere('slug', 'branded-with-reviews');
+        $this->assertNotNull($item);
+        $this->assertSame(2, $item['ratings_count']);
+        $this->assertCount(1, $item['brands']);
+        $this->assertSame($brand->id, $item['brands'][0]['id']);
+        $this->assertSame('Acme', $item['brands'][0]['name']);
+
+        $detail = $this->getJson(self::LIST_URL . '/' . $product->slug);
+        $detail->assertOk();
+        $this->assertSame(2, $detail->json('data.ratings_count'));
+        $this->assertCount(1, $detail->json('data.brands'));
+        $this->assertSame($brand->id, $detail->json('data.brands.0.id'));
+        $this->assertSame('Acme', $detail->json('data.brands.0.name'));
+        // Nested brand is brand data only — never its product list.
+        $this->assertArrayNotHasKey('products', $detail->json('data.brands.0'));
+        $this->assertArrayNotHasKey('products', $item['brands'][0]);
+        // Regression: is_approved read a non-existent attribute and was always false.
+        $this->assertCount(2, $detail->json('data.reviews'));
+        $this->assertTrue($detail->json('data.reviews.0.is_approved'));
     }
 
     public function test_response_exposes_links_pagination_metadata(): void

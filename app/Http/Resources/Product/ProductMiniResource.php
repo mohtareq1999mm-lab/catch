@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Product;
 
+use App\Http\Resources\Brand\BrandResource;
 use App\Traits\HasProductFilters;
 use Marvel\Http\Resources\TagResource;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -39,6 +40,10 @@ class ProductMiniResource extends JsonResource
             'flash_sale_active' => (bool) $this->flash_sale_active,
             'is_fast_shipping_available' =>(bool)$this->is_fast_shipping_available,
             'ratings' => round((float) ($this->reviews_avg_rating ?? 0), 2),
+            // Number of approved reviews (one review = one rating).
+            // Loaded via withCount() in ProductService list queries.
+            'ratings_count' => $this->whenCounted('reviews'),
+            'brands' => BrandResource::collection($this->whenLoaded('brands')),
             'tags' => $this->relationLoaded('tags') ? TagResource::collection($this->tags) : TagResource::collection(collect()),
             'image' => [
                 'thumbnail' => $this->getFirstMediaUrl('products'),

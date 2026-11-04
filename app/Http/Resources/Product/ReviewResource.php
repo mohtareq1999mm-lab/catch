@@ -23,7 +23,8 @@ class ReviewResource extends JsonResource
             "images"            => $this->getmedia('reviews') ? $this->getmedia('reviews')->map(function ($media) {
                 return $media->getUrl();
             }) : [],
-            "is_approved"        => (bool)$this->is_approved,
+            // Column is `approved` (Review::scopeApproved); `is_approved` does not exist.
+            "is_approved"        => (bool) $this->approved,
         ];
     }
 }
