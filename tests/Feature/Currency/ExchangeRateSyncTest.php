@@ -14,7 +14,7 @@ class ExchangeRateSyncTest extends CurrencyTestCase
     private function configureProvider(): void
     {
         config([
-            'currency.enabled' => true,
+            'currency.exchange_api.enabled' => true,
             'currency.anchor' => 'USD',
             'currency.provider.name' => 'frankfurter',
             'currency.provider.base_url' => 'https://provider.test',

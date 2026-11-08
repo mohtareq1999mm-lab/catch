@@ -9,6 +9,13 @@ use Illuminate\Support\Facades\Http;
 
 class ExchangeRateProviderTest extends CurrencyTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['currency.exchange_api.enabled' => true]);
+    }
+
     public function test_provider_returns_a_normalized_snapshot(): void
     {
         config([

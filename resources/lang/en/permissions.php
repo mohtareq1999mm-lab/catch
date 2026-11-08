@@ -275,6 +275,7 @@ return [
     // 📦 Shipments
     'view-shipments' => 'View shipments',
     'view-shipment' => 'View shipment',
+    'view-all-shipments' => 'View all shipments',
     'create-shipment' => 'Create shipment',
     'update-shipment' => 'Update shipment',
 

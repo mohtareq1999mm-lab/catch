@@ -15,13 +15,19 @@ class SyncCurrencyRates extends Command
     {
         $dryRun = (bool) $this->option('dry-run');
 
-        if (!config('currency.enabled', false) && !$dryRun) {
+        if (!(bool) config('currency.exchange_api.enabled', false)) {
             $this->warn('Currency rate synchronization is disabled.');
 
             return self::SUCCESS;
         }
 
         $result = $syncService->sync($dryRun);
+
+        if ($result['status'] === 'disabled') {
+            $this->warn('Currency rate synchronization is disabled.');
+
+            return self::SUCCESS;
+        }
 
         if ($result['status'] === 'skipped') {
             $this->warn('Currency rate synchronization was skipped because another run is active.');

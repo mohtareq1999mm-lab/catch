@@ -279,6 +279,7 @@ return [
     // الشحنات
     'view-shipments' => 'عرض الشحنات',
     'view-shipment' => 'عرض شحنة',
+    'view-all-shipments' => 'عرض جميع الشحنات',
     'create-shipment' => 'إنشاء شحنة',
     'update-shipment' => 'تحديث شحنة',
 

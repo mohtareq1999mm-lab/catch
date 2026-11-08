@@ -25,6 +25,18 @@ class ExchangeRateSyncService
      */
     public function sync(bool $dryRun = false): array
     {
+        if (!(bool) config('currency.exchange_api.enabled', false)) {
+            Log::notice('currency.sync.skipped', ['reason' => 'api_disabled']);
+
+            return [
+                'status' => 'disabled',
+                'reason' => 'api_disabled',
+                'changed' => 0,
+                'manual' => 0,
+                'anomalies' => 0,
+            ];
+        }
+
         $lock = Cache::lock(
             'currency-rate-sync',
             (int) config('currency.sync.lock_ttl', 3600),

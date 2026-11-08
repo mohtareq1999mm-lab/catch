@@ -10,6 +10,7 @@
 | الاسم الكامل | البريد الإلكتروني (Email) | كلمة المرور (Password) | نوع الحساب (Type) | الدور الوظيفي (Role) | المستودع المرتبط |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **WMS General Admin** | `wms.admin@example.com` | `password123` | `admin` | `super_admin`<br>`warehouse-manager` | `WH-MAIN` (القاهرة) |
+| **WMS Supervisor** | `wms.supervisor@example.com` | `password123` | `admin` | `warehouse-supervisor` | `WH-MAIN` (القاهرة) |
 | **Mostafa Picker** | `wms.picker@example.com` | `password123` | `admin` | `picker` | `WH-MAIN` (القاهرة) |
 | **Khaled Packer** | `wms.packer@example.com` | `password123` | `admin` | `packer` | `WH-MAIN` (القاهرة) |
 | **Customer Demo** | `wms.customer@example.com` | `password123` | `user` | `customer` | — (عميل متجر) |
@@ -62,21 +63,24 @@
 * **الدور الممنوح:** `picker`
 
 #### الصلاحيات الممنوحة (Permissions):
-* `view-warehouse` و `warehouses.show` (استعراض بيانات المستودع الخاص به).
-* `view-location` و `locations.show` (استعراض بيانات المواقع والرفوف).
-* `view-fulfillment` (استعراض بيانات أمر التجهيز المكلف به).
-* `picking-execute` (تنفيذ عمليات جمع المنتجات).
-* `picking.claim` (حجز مهمة الالتقاط لنفسه لمنع التضارب بين العمال).
-* `barcode.scan` (استخدام قارئ الباركود لمسح الرف والمنتج).
-
-#### ما يعرف يعمله عملياً (Operational Flow):
-1. تسجيل الدخول على جهاز الماسح اليدوي (Handheld Scanner / PDA).
-2. استعراض قائمة مهام الالتقاط المعلقة والمخصصة له ضمن الدفعة (Batch).
-3. حجز المهمة (`POST /picking-tasks/{id}/claim`).
-4. التوجه للموقع ومسح باركود الرف (`LOC-PICK-01`) للتأكد من الموقع الصحيح.
-5. مسح باركود المنتج (`Piece Barcode`) وإدخال الكمية المجمعة (`POST /picking-tasks/{id}/confirm`).
-6. تخطي مهمة متعذرة مع تسجيل السبب في حال وجود مانع بالرف.
-> **ما لا يستطيع فعله:** لا يمكنه تعديل بيانات المستودعات، ولا يمكنه تغليف الطرود أو إصدار بوالص الشحن أو تعديل المخزون مباشرة.
+* **نطاق المستودع:** `view-warehouse` و `warehouses.show`, `view-location` و `locations.show`, `view-fulfillment`, `barcode.scan`.
+* **صلاحيات الالتقاط التشغيلية:** `picking-execute`, `picking.claim`, `picking.complete`, `batch.operate`.
+* **صلاحيات مسارات الـ API (Route Permissions):**
+  - `picking-tasks.index` (استعراض قائمة مهام الالتقاط).
+  - `picking-tasks.show` (استعراض تفاصيل مهمة التقاط).
+  - `picking-tasks.claim` (حجز مهمة الالتقاط).
+  - `picking-tasks.release` (إلغاء حجز المهمة).
+  - `picking-tasks.confirm` (تأكيد التقاط صنف).
+  - `picking-tasks.record-pick` (تسجيل كمية ملتقطة).
+  - `picking-tasks.skip` (تخطي المهمة لتعذر الالتقاط).
+  - `picking-tasks.reallocate` (إعادة توجيه المهمة لموقع آخر).
+  - `batch.index` (استعراض دفعات الالتقاط).
+  - `batch.show` (استعراض تفاصيل الدفعة).
+  - `batch.next-task` (سحب المهمة التالية بالدفعة).
+  - `batch.start` (بدء تنفيذ الدفعة).
+  - `batch.refresh-progress` (تحديث نسبة إنجاز الدفعة).
+  - `batch.complete` (إنهاء الدفعة).
+  - `batch.confirm-location` (تأكيد الوصول لرف الدفعة).
 
 ---
 
@@ -87,55 +91,82 @@
 * **الدور الممنوح:** `packer`
 
 #### الصلاحيات الممنوحة (Permissions):
-* `view-warehouse` و `warehouses.show` (استعراض بيانات المستودع ومحطات التغليف).
-* `view-location` و `locations.show` (استعراض بيانات المواقع).
-* `view-fulfillment` (استعراض الطلب المُراد تغليفه ومكوناته).
-* `packing-execute` (تنفيذ مراحل التغليف والتحقق).
-* `packing.complete` (إنهاء مهمة التغليف).
-* `barcode.scan` (فحص باركود المنتجات والكراتين).
-
-#### ما يعرف يعمله عملياً (Operational Flow):
-1. تسجيل الدخول والعمل من خلال محطة تغليف محددة (مثل `STATION-01`).
-2. استلام طلبات التجهيز التي اكتمل التقاطها (`status: packing`).
-3. إنشاء وتجهيز كرتونة/طرد جديد (`Package`) وتوزيع المنتجات بداخله.
-4. إجراء التحقق الإلزامي (Verification): فحص باركود المنتجات وهي مفتوحة في الكرتونة لمطابقة الكميات والأصناف (`POST /packing-tasks/{id}/verify`).
-5. وزن الطرد وتحديد أبعاده وتسجيل بيانات الوزن (`POST /packing-tasks/{id}/pack`).
-6. غلق ولصق بوليصة الطرد برقم باركود فريد (`POST /packages/{id}/seal`)، وعند إغلاق جميع طرود الطلب يتحول الفولفيلمنت تلقائياً إلى جاهز للشحن (`ready_to_ship`).
-> **ما لا يستطيع فعله:** لا يمكنه استلام شحنات الموردين، ولا حجز مهام الالتقاط من الرفوف، ولا إرسال شحنات للخارج بدون شركة الشحن.
+* **نطاق المستودع:** `view-warehouse` و `warehouses.show`, `view-location` و `locations.show`, `view-fulfillment`, `barcode.scan`.
+* **صلاحيات التغليف التشغيلية:** `packing-execute`, `packing.complete`, `manage-fulfillment` (لإبطال كرتونة مفتوحة عند الحاجة).
+* **صلاحيات مسارات الـ API (Route Permissions):**
+  - `packing-tasks.index` (استعراض قائمة مهام التغليف).
+  - `packing-tasks.show` (استعراض تفاصيل مهمة التغليف).
+  - `packing-tasks.assign` (إسناد المهمة لمحطة التغليف).
+  - `packing-tasks.start` (بدء التغليف).
+  - `packing-tasks.pack` (تسجيل وزن وأبعاد الكرتونة).
+  - `packing-tasks.verify` (تأكيد محتويات الكرتونة).
+  - `packing-tasks.cancel` (إلغاء المهمة مع ذكر السبب).
+  - `packing-tasks.stations` (استعراض محطات التغليف).
+  - `packing-stations.index` & `packing-stations.show` (استعراض محطات التغليف).
+  - `packages.index` & `packages.show` (استعراض الطرود والكراتين).
+  - `packages.create` (فتح كرتونة جديدة).
+  - `packages.add-item` (إضافة أصناف داخل الكرتونة).
+  - `packages.seal` (تشميع الكرتونة وتوليد باركود الشحن).
+  - `packages.void` (إبطال كرتونة مفتوحة لتصحيح التعبئة).
 
 ---
 
-### 4. عميل المتجر التجريبي (Customer Demo)
+### 4. مشرف المستودع (WMS Supervisor)
+* **البريد الإلكتروني:** `wms.supervisor@example.com`
+* **كلمة المرور:** `password123`
+* **نوع الحساب:** `admin`
+* **الدور الممنوح:** `warehouse-supervisor`
+
+#### الصلاحيات الممنوحة (Permissions):
+* يجمع صلاحيات الالتقاط والتغليف كاملة (`picker` + `packer`).
+* إدارة الدفعات (`batch.create`, `batch.assign`, `batch.cancel`, `batch.retry`, `batch.pending-fulfillments`).
+* إدارة أوامر التجهيز (`fulfillments.index`, `fulfillments.show`, `fulfillments.assign`, `fulfillments.create-tasks`, `fulfillments.complete-picking`, `fulfillments.create-packing-task`, `fulfillments.create-packing-tasks`).
+* إدارة محطات التغليف (`packing-stations.create`, `packing-stations.update`, `packing-stations.delete`).
+* الصلاحيات الإشرافية (`fulfillment-override`, `fulfillment.create`, `fulfillment.cancel`, `manage-warehouse`, `manage-location`, `manage-fulfillment`).
+
+---
+
+### 5. عميل المتجر التجريبي (Customer Demo)
 * **البريد الإلكتروني:** `wms.customer@example.com`
 * **كلمة المرور:** `password123`
 * **نوع الحساب:** `user`
-* **الدور الممنوح:** عميل متجر عادي (Customer)
-
-#### الصلاحيات الممنوحة (Permissions):
-* لا يملك أي صلاحيات إدارية أو صلاحيات تخص الـ WMS.
-
-#### ما يعرف يعمله عملياً (Operational Flow):
-1. تسجيل الدخول في واجهة المتجر الإلكتروني (Storefront) أو تطبيق الموبايل.
-2. تصفح كتالوج المنتجات وإضافة السلع للسلة.
-3. إنشاء الطلبات والدفع الإلكتروني أو الدفع عند الاستلام.
-4. تتبع حالة طلبه الشخصي (`ORD-WMS-001` إلى `ORD-WMS-006`) من قيد التجهيز إلى التوصيل.
-
----
-
-### 5. دور مشرف المستودع (Warehouse Supervisor Role)
-*(مُعرّف في النظام كدور رقابي وتنفيذي متوسط)*:
-* **الدور:** `warehouse-supervisor`
-* **الصلاحيات:** يجمع بين متابعة الالتقاط والتغليف، ويملك صلاحية التجاوز الإداري (`fulfillment-override`)، وإدارة الدفعات (`batch.manage`, `batch.operate`)، وإلغاء أو إعادة جدولة مهام التجهيز دون الحاجة لصلاحيات الـ Super Admin الكاملة.
+* **الدور الممنوح:** `customer`
 
 ---
 
 ## 3. نقاط فحص الـ API للمصادقة وتجربة الحسابات
 
+### أ) تسجيل الدخول (Authentication)
+* **المسار:** `POST /api/v1/admin-login` (أو `POST /api/v1/token`)
+* **الـ Body:**
+```json
+{
+  "email": "wms.packer@example.com",
+  "password": "password123"
+}
+```
+* **الـ Response:**
+```json
+{
+  "status": 200,
+  "message": "تم تسجيل دخول الأدمن بنجاح",
+  "success": true,
+  "data": {
+    "token": "1|xxxxxxxxxxxxxxxxxxxxxxxx",
+    "permissions": [...],
+    "role": ["packer"]
+  }
+}
+```
+
+### ب) تجربة المسارات الأساسية مع كل مستخدم
+
 | الرابط (Endpoint) | الطريقة (Method) | المستخدم المناسب | الوصف |
 | :--- | :--- | :--- | :--- |
 | `/api/v1/admin/warehouses/dashboard` | `GET` | `wms.admin` | لوحة التحكم والمؤشرات الإحصائية العامة |
 | `/api/v1/admin/warehouses/permissions` | `GET` | الجميع | استعراض قائمة الصلاحيات الخاصة بالمستخدم المسجل |
-| `/api/v1/admin/picking-tasks` | `GET` | `wms.picker` / `wms.admin` | مهام الالتقاط المعلقة والجاري تنفيذها |
-| `/api/v1/admin/packing-tasks` | `GET` | `wms.packer` / `wms.admin` | مهام التغليف المفتوحة والجاهزة للفحص والوزن |
-| `/api/v1/admin/barcode/scan` | `POST` | `wms.picker` / `wms.packer` | فحص باركود الرف أو المنتج أو الطرد |
+| `/api/v1/admin/picking-tasks` | `GET` | `wms.picker` / `wms.supervisor` / `wms.admin` | مهام الالتقاط المعلقة والجاري تنفيذها |
+| `/api/v1/admin/packing-tasks` | `GET` | `wms.packer` / `wms.supervisor` / `wms.admin` | مهام التغليف المفتوحة والجاهزة للفحص والوزن |
+| `/api/v1/admin/packages?fulfillment_id={id}` | `GET` | `wms.packer` / `wms.supervisor` / `wms.admin` | طرود أمر التجهيز ومحتوياتها |
+| `/api/v1/admin/barcode/scan` | `POST` | `wms.picker` / `wms.packer` | فحص باركود الرف أو المنتج (إرسال `{"code": "LOC-PICK-01"}`) |
 

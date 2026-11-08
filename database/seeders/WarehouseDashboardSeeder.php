@@ -169,24 +169,93 @@ class WarehouseDashboardSeeder extends Seeder
         $rolePicker = Role::firstOrCreate(['name' => 'picker', 'guard_name' => 'api']);
         $rolePacker = Role::firstOrCreate(['name' => 'packer', 'guard_name' => 'api']);
 
+        $pickerPermissions = [
+            'view-warehouse',
+            'view-location',
+            'view-fulfillment',
+            'picking-execute',
+            'picking.claim',
+            'picking.complete',
+            'batch.operate',
+            MarvelPermission::BARCODE_SCAN,
+            MarvelPermission::WAREHOUSES_SHOW,
+            MarvelPermission::LOCATIONS_SHOW,
+            MarvelPermission::PICKING_TASKS_INDEX,
+            MarvelPermission::PICKING_TASKS_SHOW,
+            MarvelPermission::PICKING_TASKS_CLAIM,
+            MarvelPermission::PICKING_TASKS_RELEASE,
+            MarvelPermission::PICKING_TASKS_CONFIRM,
+            MarvelPermission::PICKING_TASKS_RECORD_PICK,
+            MarvelPermission::PICKING_TASKS_SKIP,
+            MarvelPermission::PICKING_TASKS_REALLOCATE,
+            MarvelPermission::BATCH_INDEX,
+            MarvelPermission::BATCH_SHOW,
+            MarvelPermission::BATCH_NEXT_TASK,
+            MarvelPermission::BATCH_START,
+            MarvelPermission::BATCH_REFRESH_PROGRESS,
+            MarvelPermission::BATCH_COMPLETE,
+            MarvelPermission::BATCH_CONFIRM_LOCATION,
+        ];
+
+        $packerPermissions = [
+            'view-warehouse',
+            'view-location',
+            'view-fulfillment',
+            'manage-fulfillment',
+            'packing-execute',
+            'packing.complete',
+            MarvelPermission::BARCODE_SCAN,
+            MarvelPermission::WAREHOUSES_SHOW,
+            MarvelPermission::LOCATIONS_SHOW,
+            MarvelPermission::PACKING_TASKS_INDEX,
+            MarvelPermission::PACKING_TASKS_SHOW,
+            MarvelPermission::PACKING_TASKS_ASSIGN,
+            MarvelPermission::PACKING_TASKS_START,
+            MarvelPermission::PACKING_TASKS_PACK,
+            MarvelPermission::PACKING_TASKS_VERIFY,
+            MarvelPermission::PACKING_TASKS_CANCEL,
+            MarvelPermission::PACKING_TASKS_STATIONS,
+            MarvelPermission::PACKING_STATIONS_INDEX,
+            MarvelPermission::PACKING_STATIONS_SHOW,
+            MarvelPermission::PACKAGES_INDEX,
+            MarvelPermission::PACKAGES_SHOW,
+            MarvelPermission::PACKAGES_CREATE,
+            MarvelPermission::PACKAGES_ADD_ITEM,
+            MarvelPermission::PACKAGES_SEAL,
+            MarvelPermission::PACKAGES_VOID,
+        ];
+
+        $supervisorPermissions = array_unique(array_merge($pickerPermissions, $packerPermissions, [
+            'manage-warehouse',
+            'manage-location',
+            'manage-fulfillment',
+            'fulfillment-override',
+            'batch.manage',
+            'batch.operate',
+            'fulfillment.create',
+            'fulfillment.cancel',
+            MarvelPermission::BATCH_CREATE,
+            MarvelPermission::BATCH_ASSIGN,
+            MarvelPermission::BATCH_CANCEL,
+            MarvelPermission::BATCH_RETRY,
+            MarvelPermission::BATCH_PENDING_FULFILLMENTS,
+            MarvelPermission::FULFILLMENTS_INDEX,
+            MarvelPermission::FULFILLMENTS_SHOW,
+            MarvelPermission::FULFILLMENTS_ASSIGN,
+            MarvelPermission::FULFILLMENTS_CREATE_TASKS,
+            MarvelPermission::FULFILLMENTS_COMPLETE_PICKING,
+            MarvelPermission::FULFILLMENTS_CREATE_PACKING_TASK,
+            MarvelPermission::FULFILLMENTS_CREATE_PACKING_TASKS,
+            MarvelPermission::PACKING_STATIONS_CREATE,
+            MarvelPermission::PACKING_STATIONS_UPDATE,
+            MarvelPermission::PACKING_STATIONS_DELETE,
+        ]));
+
         $roleManager->syncPermissions($wmsPermissions);
-        $roleSupervisor->syncPermissions([
-            'view-warehouse', 'view-location', 'view-fulfillment', 'manage-fulfillment',
-            'picking-execute', 'packing-execute', 'fulfillment-override',
-            'fulfillment.create', 'fulfillment.cancel', 'picking.claim', 'picking.complete',
-            'packing.complete', 'batch.manage', 'batch.operate', MarvelPermission::BARCODE_SCAN,
-            MarvelPermission::WAREHOUSES_SHOW, MarvelPermission::LOCATIONS_SHOW
-        ]);
-        $rolePicker->syncPermissions([
-            'view-warehouse', 'view-location', 'view-fulfillment',
-            'picking-execute', 'picking.claim', MarvelPermission::BARCODE_SCAN,
-            MarvelPermission::WAREHOUSES_SHOW, MarvelPermission::LOCATIONS_SHOW
-        ]);
-        $rolePacker->syncPermissions([
-            'view-warehouse', 'view-location', 'view-fulfillment',
-            'packing-execute', 'packing.complete', MarvelPermission::BARCODE_SCAN,
-            MarvelPermission::WAREHOUSES_SHOW, MarvelPermission::LOCATIONS_SHOW
-        ]);
+        $roleSupervisor->syncPermissions($supervisorPermissions);
+        $rolePicker->syncPermissions($pickerPermissions);
+        $rolePacker->syncPermissions($packerPermissions);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         // -------------------------------------------------------------
         // 2. Warehouses (Main Default + Regional)
@@ -235,7 +304,7 @@ class WarehouseDashboardSeeder extends Seeder
         // -------------------------------------------------------------
         // 3. WMS Test Users & Tokens
         // -------------------------------------------------------------
-        $admin = User::firstOrCreate(
+        $admin = User::updateOrCreate(
             ['email' => 'wms.admin@example.com'],
             [
                 'name' => 'WMS General Admin',
@@ -243,12 +312,25 @@ class WarehouseDashboardSeeder extends Seeder
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
+                'warehouse_id' => $warehouseMain->id,
             ]
         );
         $admin->syncRoles(['super_admin', 'warehouse-manager']);
-        $admin->update(['warehouse_id' => $warehouseMain->id]);
 
-        $picker = User::firstOrCreate(
+        $supervisor = User::updateOrCreate(
+            ['email' => 'wms.supervisor@example.com'],
+            [
+                'name' => 'WMS Supervisor',
+                'password' => Hash::make('password123'),
+                'type' => 'admin',
+                'is_active' => true,
+                'email_verified_at' => now(),
+                'warehouse_id' => $warehouseMain->id,
+            ]
+        );
+        $supervisor->syncRoles(['warehouse-supervisor']);
+
+        $picker = User::updateOrCreate(
             ['email' => 'wms.picker@example.com'],
             [
                 'name' => 'Mostafa Picker',
@@ -256,12 +338,12 @@ class WarehouseDashboardSeeder extends Seeder
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
+                'warehouse_id' => $warehouseMain->id,
             ]
         );
         $picker->syncRoles(['picker']);
-        $picker->update(['warehouse_id' => $warehouseMain->id]);
 
-        $packer = User::firstOrCreate(
+        $packer = User::updateOrCreate(
             ['email' => 'wms.packer@example.com'],
             [
                 'name' => 'Khaled Packer',
@@ -269,12 +351,12 @@ class WarehouseDashboardSeeder extends Seeder
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
+                'warehouse_id' => $warehouseMain->id,
             ]
         );
         $packer->syncRoles(['packer']);
-        $packer->update(['warehouse_id' => $warehouseMain->id]);
 
-        $customer = User::firstOrCreate(
+        $customer = User::updateOrCreate(
             ['email' => 'wms.customer@example.com'],
             [
                 'name' => 'Customer Demo',
@@ -284,18 +366,29 @@ class WarehouseDashboardSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
+        if (Role::where('name', 'customer')->where('guard_name', 'api')->exists()) {
+            $customer->syncRoles(['customer']);
+        }
 
         // Assign users to warehouse pivot table
-        $warehouseMain->users()->syncWithoutDetaching([$admin->id, $picker->id, $packer->id]);
+        $warehouseMain->users()->syncWithoutDetaching([$admin->id, $supervisor->id, $picker->id, $packer->id]);
 
         // Mint Sanctum Bearer tokens for immediate API testing
         $adminToken = $admin->tokens()->first()?->token
             ? '[already generated]'
             : $admin->createToken('wms_admin_token', ['*'], now()->addDays(30))->plainTextToken;
 
+        $supervisorToken = $supervisor->tokens()->first()?->token
+            ? '[already generated]'
+            : $supervisor->createToken('wms_supervisor_token', ['*'], now()->addDays(30))->plainTextToken;
+
         $pickerToken = $picker->tokens()->first()?->token
             ? '[already generated]'
             : $picker->createToken('wms_picker_token', ['*'], now()->addDays(30))->plainTextToken;
+
+        $packerToken = $packer->tokens()->first()?->token
+            ? '[already generated]'
+            : $packer->createToken('wms_packer_token', ['*'], now()->addDays(30))->plainTextToken;
 
         // -------------------------------------------------------------
         // 4. Locations & Bins (Storage, Picking, Staging, Inactive)

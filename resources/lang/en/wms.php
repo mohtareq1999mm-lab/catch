@@ -116,6 +116,7 @@ return [
         'start_station_inactive' => 'Cannot start packing task #:id: packing station is no longer active',
         'complete_status' => 'Cannot complete packing task in status: :status',
         'complete_unverified' => 'Cannot complete packing: task must be verified first',
+        'complete_sealed' => 'Cannot record weight: package is already sealed (no return after seal)',
         'verify_status' => 'Cannot verify packing task in status: :status',
         'verify_open_sibling' => 'Cannot verify packing task #:task: fulfillment #:fulfillment has another open packing task',
         'verify_quantities' => 'Cannot verify packing: fulfillment item #:item picked :picked, packed :packed',

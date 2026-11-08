@@ -171,9 +171,9 @@ class WmsFulfillmentOrderSyncTest extends TestCase
         foreach ($fulfillment->items()->get() as $item) {
             $packing->addItemToPackage($package, (int) $item->id, (float) $item->quantity_picked);
         }
-        $packing->sealPackage($package);
-        $packing->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
         $packing->verifyPacking($task);
+        $packing->completePacking($task, 2.5, ['length' => 30, 'width' => 20, 'height' => 10]);
+        $packing->sealPackage($package);
     }
 
     // ---------- A. unpaid COD walks logistics via fulfillment ----------

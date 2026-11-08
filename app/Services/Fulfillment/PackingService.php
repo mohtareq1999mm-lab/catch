@@ -191,10 +191,13 @@ class PackingService
                 );
             }
 
-            if ($locked->packed_at !== null) {
-                throw new \RuntimeException(
-                    __('wms.packing.complete_status', ['status' => $locked->status])
-                );
+            // Re-weigh is allowed until a package is sealed (point of no return).
+            $sealedExists = Package::where('fulfillment_id', $locked->fulfillment_id)
+                ->where('status', Package::STATUS_SEALED)
+                ->exists();
+
+            if ($sealedExists) {
+                throw new \RuntimeException(__('wms.packing.complete_sealed'));
             }
 
             $locked->update([
@@ -629,7 +632,8 @@ class PackingService
                 if ($task->verified_at === null && $task->status !== 'verified') {
                     throw new \RuntimeException(__('wms.packing.seal_unverified'));
                 }
-                if ($task->packed_at === null && $task->weight === null && $weight === null && $locked->weight === null) {
+                // verify → pack (weigh) → seal: pack is mandatory before seal.
+                if ($task->packed_at === null) {
                     throw new \RuntimeException(__('wms.packing.seal_unpacked'));
                 }
             }
@@ -677,6 +681,18 @@ class PackingService
         }
 
         return DB::transaction(function () use ($package, $reason) {
+            // Lock order task → package (same as verify: task → fulfillment →
+            // packages). The task id is immutable enough to read unlocked.
+            $taskId = $package->packing_task_id
+                ?? PackingTask::where('fulfillment_id', $package->fulfillment_id)
+                    ->where('status', 'verified')
+                    ->latest('id')
+                    ->value('id');
+
+            $task = $taskId !== null
+                ? PackingTask::whereKey($taskId)->lockForUpdate()->first()
+                : null;
+
             $locked = Package::whereKey($package->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->status === Package::STATUS_VOIDED) {
@@ -699,6 +715,19 @@ class PackingService
                 if ($fItem && $fItem->status === 'packed') {
                     $fItem->update(['status' => 'picked']);
                 }
+            }
+
+            // Rollback: a verified/weighed task whose package is voided goes
+            // back to `packing` so verify → pack → seal can run again.
+            if ($task !== null && $task->status === 'verified') {
+                $task->update([
+                    'status' => 'packing',
+                    'verified_at' => null,
+                    'packed_at' => null,
+                    'weight' => null,
+                    'dimensions' => null,
+                    'package_materials' => null,
+                ]);
             }
 
             Log::warning('Package voided', [

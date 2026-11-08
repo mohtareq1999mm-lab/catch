@@ -85,7 +85,7 @@ class Kernel extends ConsoleKernel
             ->timezone('UTC')
             ->withoutOverlapping(60)
             ->onOneServer()
-            ->when(fn () => (bool) config('currency.enabled', false));
+            ->when(fn () => (bool) config('currency.exchange_api.enabled', false));
 
         $schedule->call(function () {
             \App\Services\Metrics\OrderTrackingMetrics::reset();

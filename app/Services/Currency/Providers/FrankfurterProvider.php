@@ -4,6 +4,7 @@ namespace App\Services\Currency\Providers;
 
 use App\Contracts\ExchangeRateProviderInterface;
 use App\DTOs\ExchangeRateSnapshot;
+use App\Exceptions\ExchangeRateApiDisabledException;
 use App\Exceptions\ExchangeRateProviderException;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
@@ -18,6 +19,10 @@ class FrankfurterProvider implements ExchangeRateProviderInterface
 
     public function getLatestRates(string $baseCurrency, array $quotes = []): ExchangeRateSnapshot
     {
+        if (!(bool) config('currency.exchange_api.enabled', false)) {
+            throw new ExchangeRateApiDisabledException('Currency exchange API is disabled.');
+        }
+
         $baseCurrency = strtoupper(trim($baseCurrency));
         $anchor = strtoupper((string) config('currency.anchor', 'USD'));
 

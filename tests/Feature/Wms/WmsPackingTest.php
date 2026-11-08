@@ -360,7 +360,7 @@ class WmsPackingTest extends TestCase
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/start", [])->assertStatus(422);
     }
 
-    public function test_pack_refuses_double_completion_without_overwrite(): void
+    public function test_pack_allows_reweigh_before_seal_and_refuses_after_seal(): void
     {
         $supervisor = $this->supervisor();
         $task = $this->fullPackingTask($supervisor);
@@ -390,12 +390,96 @@ class WmsPackingTest extends TestCase
         $this->assertSame('verified', $task->fresh()->status);
         $this->assertNotNull($task->fresh()->packed_at);
 
-        // Second completion → 422, original weight survives.
+        // Re-weigh before seal is allowed → latest values win.
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", [
+                'weight' => 3.1, 'dimensions' => ['length' => 31],
+            ])->assertStatus(200);
+        $this->assertEquals(3.1, (float) $task->fresh()->weight);
+
+        // After seal there is no return: pack → 422, weight untouched.
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
         $this->actingAs($supervisor, 'sanctum')
             ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", [
                 'weight' => 9.9, 'dimensions' => ['length' => 1],
             ])->assertStatus(422);
-        $this->assertEquals(2.5, (float) $task->fresh()->weight);
+        $this->assertEquals(3.1, (float) $task->fresh()->weight);
+    }
+
+    public function test_void_open_package_after_verify_and_pack_rolls_task_back_and_allows_full_rerun(): void
+    {
+        $supervisor = $this->supervisor();
+        $fulfillment = $this->pickedFulfillment('void-rollback');
+        $task = $this->fullPackingTask($supervisor, $fulfillment);
+        $itemId = $fulfillment->items()->firstOrFail()->id;
+
+        $pack = function () use ($supervisor, $fulfillment, $itemId): int {
+            $id = $this->actingAs($supervisor, 'sanctum')
+                ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
+                ->assertStatus(201)->json('data.id');
+            $this->actingAs($supervisor, 'sanctum')
+                ->postJson("/api/v1/admin/packages/{$id}/add-item", [
+                    'fulfillment_item_id' => $itemId, 'quantity' => 2,
+                ])->assertStatus(200);
+
+            return $id;
+        };
+
+        $first = $pack();
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())->assertStatus(200);
+
+        // Void while still open → task rolled back to a clean `packing`.
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$first}/void", ['reason' => 'torn box'])
+            ->assertStatus(200);
+        $fresh = $task->fresh();
+        $this->assertSame('packing', $fresh->status);
+        $this->assertNull($fresh->verified_at);
+        $this->assertNull($fresh->packed_at);
+        $this->assertNull($fresh->weight);
+        $this->assertSame('packing', $fulfillment->fresh()->status);
+
+        // Full re-run: replacement package → verify → pack → seal.
+        $second = $pack();
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/pack", $this->packDims())->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$second}/seal", [])->assertStatus(200);
+        $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
+
+        // Sealed = point of no return: void refused, task stays verified.
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$second}/void", ['reason' => 'late'])
+            ->assertStatus(422);
+        $this->assertSame('verified', $task->fresh()->status);
+        $this->assertSame('sealed', Package::find($second)->status);
+    }
+
+    public function test_seal_requires_pack_even_when_weight_is_sent_with_seal(): void
+    {
+        $supervisor = $this->supervisor();
+        $fulfillment = $this->pickedFulfillment('seal-needs-pack');
+        $task = $this->fullPackingTask($supervisor, $fulfillment);
+        $packageId = $this->actingAs($supervisor, 'sanctum')
+            ->postJson('/api/v1/admin/packages', ['fulfillment_id' => $fulfillment->id])
+            ->assertStatus(201)->json('data.id');
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/add-item", [
+                'fulfillment_item_id' => $fulfillment->items()->firstOrFail()->id, 'quantity' => 2,
+            ])->assertStatus(200);
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packing-tasks/{$task->id}/verify", [])->assertStatus(200);
+
+        $this->actingAs($supervisor, 'sanctum')
+            ->postJson("/api/v1/admin/packages/{$packageId}/seal", ['weight' => 2.0])
+            ->assertStatus(422);
+        $this->assertSame('packing', $fulfillment->fresh()->status);
     }
 
     public function test_verify_requires_full_packaging_then_readies_shipment(): void

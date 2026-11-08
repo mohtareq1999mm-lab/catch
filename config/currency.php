@@ -2,7 +2,13 @@
 
 return [
     'anchor' => env('CURRENCY_RATE_ANCHOR', 'USD'),
-    'enabled' => filter_var(env('CURRENCY_RATE_SYNC_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
+    'exchange_api' => [
+        'enabled' => filter_var(
+            env('CURRENCY_EXCHANGE_API_ENABLED', env('CURRENCY_RATE_SYNC_ENABLED', false)),
+            FILTER_VALIDATE_BOOLEAN,
+        ),
+    ],
 
     'provider' => [
         'base_url' => env('FRANKFURTER_BASE_URL', 'https://api.frankfurter.dev'),

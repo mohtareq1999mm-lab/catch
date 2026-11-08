@@ -236,9 +236,9 @@ class PackingController extends WmsAdminController
     /**
      * POST /api/v1/admin/packing-tasks/{id}/pack
      *
-     * Completion is supervisor-gated (packing.complete): the packer executes,
-     * a supervisor records completion. Double completion is refused (422):
-     * no last-writer-wins on weight/dimensions.
+     * Records weight/dimensions after verify (verify → pack → seal). Re-weigh
+     * is allowed until a package is sealed; after seal there is no return
+     * (422). Only the seal moves the fulfillment to ready_to_ship.
      */
     public function pack(CompletePackingRequest $request, int $id): JsonResponse
     {
@@ -268,9 +268,10 @@ class PackingController extends WmsAdminController
     /**
      * POST /api/v1/admin/packing-tasks/{id}/verify
      *
-     * Verification advances the fulfillment to ready_to_ship inside the
-     * service — only when no sibling task is open and every picked unit is
-     * fully packaged (D6-3). Both refusals surface as 422.
+     * Confirms every picked unit is packaged and no sibling task is open
+     * (D6-3), else 422. Does NOT advance the fulfillment: pack (weigh) and
+     * seal must follow. Voiding the open package rolls the task back to
+     * `packing`.
      */
     public function verify(VerifyPackingRequest $request, int $id): JsonResponse
     {

@@ -572,6 +572,12 @@ class FulfillmentService
                     ]);
             }
 
+            // P6-7: open packages are voided through the packing authority
+            // (rows retained for audit; sealed custody refused above). Runs
+            // BEFORE the task mass-cancel: voiding an open package rolls a
+            // verified task back to `packing`, so it is then cancelled below.
+            $this->packing->voidOpenPackagesForFulfillment($cancelled, 'Fulfillment cancelled: ' . $reason);
+
             // P7-6: packed excluded (guard above refused when packed exist;
             // this is the concurrent-verify race backstop). Leftovers are
             // reported, never force-cancelled.
@@ -587,10 +593,6 @@ class FulfillmentService
                     'fulfillment_id' => $cancelled->id,
                 ]);
             }
-
-            // P6-7: open packages are voided through the packing authority
-            // (rows retained for audit; sealed custody refused above).
-            $this->packing->voidOpenPackagesForFulfillment($cancelled, 'Fulfillment cancelled: ' . $reason);
 
             Log::warning('Fulfillment cancelled operationally', [
                 'fulfillment_id' => $cancelled->id,

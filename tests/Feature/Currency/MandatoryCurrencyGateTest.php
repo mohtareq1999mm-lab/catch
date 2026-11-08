@@ -25,6 +25,7 @@ class MandatoryCurrencyGateTest extends CurrencyTestCase
         ]);
 
         config([
+            'currency.exchange_api.enabled' => true,
             'currency.anchor' => 'USD',
             'currency.provider.name' => 'frankfurter',
             'currency.provider.base_url' => 'https://provider.test',
@@ -68,6 +69,7 @@ class MandatoryCurrencyGateTest extends CurrencyTestCase
         $this->assertTrue(bccomp((string) $kwd->fresh()->effectiveRate(), '0.2210000000', 10) === 0);
 
         config([
+            'currency.exchange_api.enabled' => true,
             'currency.provider.name' => 'frankfurter',
             'currency.provider.base_url' => 'https://provider.test',
         ]);
@@ -148,13 +150,13 @@ class MandatoryCurrencyGateTest extends CurrencyTestCase
 
     public function test_mandatory_scheduler_disabled_when_flag_false(): void
     {
-        config(['currency.enabled' => false]);
+        config(['currency.exchange_api.enabled' => false]);
         $kernelContent = file_get_contents(app_path('Console/Kernel.php'));
         $this->assertStringContainsString("currency:sync-rates", $kernelContent);
         $this->assertStringContainsString("everySixHours", $kernelContent);
         $this->assertStringContainsString("withoutOverlapping", $kernelContent);
         $this->assertStringContainsString("onOneServer", $kernelContent);
         $this->assertStringContainsString("when", $kernelContent);
-        $this->assertStringContainsString("currency.enabled", $kernelContent);
+        $this->assertStringContainsString("currency.exchange_api.enabled", $kernelContent);
     }
 }

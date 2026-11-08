@@ -2,6 +2,8 @@
 
 namespace App\Services\Currency;
 
+use App\Audit\ActivityAuditService;
+use App\Audit\ActivitySnapshot;
 use App\DTOs\CurrencyConversionResult;
 use App\Enums\FrontendResource;
 use App\Enums\RateMode;
@@ -9,12 +11,12 @@ use App\Enums\RateSource;
 use App\Exceptions\CurrencyInactiveException;
 use App\Exceptions\CurrencyInUseException;
 use App\Exceptions\CurrencyRateNotFoundException;
+use App\Exceptions\ExchangeRateApiDisabledException;
 use App\Models\Currency;
 use App\Models\CurrencyRate;
 use App\Traits\HasCache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Jobs\LogActivityJob;
 use Marvel\Database\Models\Settings;
 use Marvel\Database\Models\User;
 
@@ -340,6 +342,10 @@ $user ??= auth()->user() ?? auth('sanctum')->user();
             }
 
             if ($needsFresh) {
+                if (!(bool) config('currency.exchange_api.enabled', false)) {
+                    throw new ExchangeRateApiDisabledException('Currency exchange API is disabled.');
+                }
+
                 $provider = app(\App\Contracts\ExchangeRateProviderInterface::class);
                 $snapshot = $provider->getLatestRates($anchor, [strtoupper($current->code)]);
                 $code = strtoupper($current->code);
@@ -449,20 +455,24 @@ $user ??= auth()->user() ?? auth('sanctum')->user();
 
         $this->invalidatePriceCaches();
 
-        LogActivityJob::dispatch(
-            get_class($updated),
-            $updated->getKey(),
-            auth('sanctum')->id() ?? auth()->id(),
-            'rateModeChanged',
-            'currencies',
-            __('activity.currency_rate_mode_changed'),
-            ['old' => $before, 'new' => [
+        $causer = auth('sanctum')->user() ?? auth()->user();
+
+        ActivityAuditService::dispatch(new ActivitySnapshot(
+            logName: 'currencies',
+            event: 'rateModeChanged',
+            description: (string) __('activity.currency_rate_mode_changed'),
+            subjectType: get_class($updated),
+            subjectId: (int) $updated->getKey(),
+            causerType: $causer ? get_class($causer) : null,
+            causerId: $causer?->getKey(),
+            old: $before,
+            new: [
                 'rate_mode' => $updated->rate_mode?->value,
                 'manual_rate' => $updated->manual_rate,
                 'provider_rate' => $updated->provider_rate,
                 'effective_rate' => $updated->effectiveRate(),
-            ]],
-        );
+            ],
+        ));
 
         return $updated;
     }
