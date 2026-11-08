@@ -231,17 +231,17 @@ class WmsOperationsSeeder extends Seeder
             ['email' => 'admin@demo.com'],
             [
                 'name' => 'Shop Owner & Super Admin',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
             ]
         );
         $adminDemo->update([
-            'password' => Hash::make('password123'),
+            'password' => Hash::make('password'),
             'type' => 'admin',
             'is_active' => true,
-            'warehouse_id' => $warehouse->id,
+            'warehouse_id' => null,
         ]);
         $adminDemo->syncRoles(['super_admin', 'warehouse-manager']);
         $adminDemo->givePermissionTo($allPermissions);
@@ -849,7 +849,7 @@ class WmsOperationsSeeder extends Seeder
         $this->command?->info('');
         $this->command?->info('  [SUCCESS] All Testing Scenarios Seeded Successfully!');
         $this->command?->info('----------------------------------------------------------------');
-        $this->command?->info("  Super Admins:             admin@demo.com / password123 | admin@gmail.com / password123");
+        $this->command?->info("  Super Admins:             admin@demo.com / password | admin@gmail.com / password123");
         $this->command?->info("  Warehouse Leadership:     manager@wms.com (Manager) | supervisor@wms.com (Supervisor) / password123");
         $this->command?->info("  Pickers (Assigned):       picker1@wms.com, picker2@wms.com, picker3@wms.com, picker@wms.com / password123");
         $this->command?->info("  Packers (Assigned):       packer1@wms.com, packer2@wms.com, packer3@wms.com, packer@wms.com / password123");
