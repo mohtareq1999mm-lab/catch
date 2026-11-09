@@ -20,6 +20,7 @@ class CategoryNavbarResource extends JsonResource
             'name' => $this->getTranslation('name', app()->getLocale()),
             'slug' => $this->slug,
             'level' => $level,
+            'active_nav' => (bool) $this->active_nav,
             'image' => [
                 'desktop' => $this->getFirstMediaUrl('categories-desktop'),
                 'mobile' => $this->getFirstMediaUrl('categories-mobile'),

@@ -16,6 +16,17 @@ class NavDataEndpointTest extends TestCase
 
     private const PREFIX = '/api/v1/general/nav-data';
 
+    public function createApplication()
+    {
+        if ((getenv('DB_DATABASE') ?: 'catch') === 'catch') {
+            putenv('DB_DATABASE=catch_verify');
+            $_ENV['DB_DATABASE'] = 'catch_verify';
+            $_SERVER['DB_DATABASE'] = 'catch_verify';
+        }
+
+        return parent::createApplication();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -525,6 +536,56 @@ class NavDataEndpointTest extends TestCase
 
         $response = $this->getJson(self::PREFIX . '?level=3')->assertOk();
         $this->assertCount(2, $response->json('data'), 'no second cache layer may retain stale nav data');
+    }
+
+    public function test_nav_data_returns_active_nav_boolean_for_parents_and_children_and_admin_can_manage_it(): void
+    {
+        $activeParent = Category::create([
+            'name' => ['en' => 'Active Nav Parent', 'ar' => 'قسم مفعل'],
+            'slug' => 'active-nav-parent',
+            'active_nav' => true,
+        ]);
+
+        $inactiveParent = Category::create([
+            'name' => ['en' => 'Inactive Nav Parent', 'ar' => 'قسم غير مفعل'],
+            'slug' => 'inactive-nav-parent',
+        ]);
+
+        Category::create([
+            'name' => ['en' => 'Active Child', 'ar' => 'فرع مفعل'],
+            'slug' => 'active-child',
+            'parent_id' => $activeParent->id,
+            'active_nav' => true,
+        ]);
+
+        Category::create([
+            'name' => ['en' => 'Inactive Child', 'ar' => 'فرع غير مفعل'],
+            'slug' => 'inactive-child',
+            'parent_id' => $activeParent->id,
+            'active_nav' => false,
+        ]);
+
+        $response = $this->getJson(self::PREFIX)->assertOk();
+        $data = collect($response->json('data'));
+
+        $parent1 = $data->firstWhere('slug', 'active-nav-parent');
+        $parent2 = $data->firstWhere('slug', 'inactive-nav-parent');
+
+        $this->assertNotNull($parent1);
+        $this->assertTrue($parent1['active_nav']);
+
+        $this->assertNotNull($parent2);
+        $this->assertFalse($parent2['active_nav']);
+
+        $children = collect($parent1['children']);
+        $this->assertTrue($children->firstWhere('slug', 'active-child')['active_nav']);
+        $this->assertFalse($children->firstWhere('slug', 'inactive-child')['active_nav']);
+
+        // Update active_nav and verify cache invalidation + updated value in nav-data
+        $inactiveParent->update(['active_nav' => true]);
+        $updatedResponse = $this->getJson(self::PREFIX)->assertOk();
+        $updatedParent2 = collect($updatedResponse->json('data'))->firstWhere('slug', 'inactive-nav-parent');
+        $this->assertTrue($updatedParent2['active_nav']);
     }
 
     private function countCategoriesQueries(): int

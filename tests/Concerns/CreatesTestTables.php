@@ -25,6 +25,12 @@ trait CreatesTestTables
             });
         }
 
+        if (Schema::hasTable('categories') && !Schema::hasColumn('categories', 'active_nav')) {
+            Schema::table('categories', function (Blueprint $table) {
+                $table->boolean('active_nav')->default(false)->index();
+            });
+        }
+
         if (!Schema::hasTable('content_pages')) {
             Schema::create('content_pages', function (Blueprint $table) {
                 $table->id();
@@ -252,6 +258,7 @@ Schema::create('categories', function (Blueprint $table) {
             $table->unsignedBigInteger('parent_id')->nullable();
             $table->boolean('status')->default(true);
             $table->boolean('is_featured')->default(false);
+            $table->boolean('active_nav')->default(false)->index();
             $table->unsignedSmallInteger('level')->default(1);
             $table->timestamps();
             $table->softDeletes();
@@ -342,6 +349,12 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->json('description')->nullable();
                 $table->boolean('is_active')->default(true)->index();
                 $table->timestamps();
+            });
+        }
+
+        if (Schema::hasTable('categories') && !Schema::hasColumn('categories', 'active_nav')) {
+            Schema::table('categories', function (Blueprint $table) {
+                $table->boolean('active_nav')->default(false)->index();
             });
         }
 

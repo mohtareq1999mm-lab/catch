@@ -34,6 +34,7 @@ class CategoryResource extends Resource
                 'mobile'  => $this->getFirstMediaUrl('categories-mobile') ?: null,
             ],
             'is_featured'          => (bool) $this->is_featured,
+            'active_nav'           => (bool) $this->active_nav,
             'products_count'       => (int) ($this->products_count ?? 0),
             'status'               => (bool)$this->status,
             $this->mergeWhen(!request()->routeIs('categories.index'), [

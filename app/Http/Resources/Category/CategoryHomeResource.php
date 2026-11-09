@@ -18,6 +18,7 @@ class CategoryHomeResource extends JsonResource
             'id'                   => $this->id,
             'name'                 => $this->getTranslation('name', app()->getLocale()),
             'slug'                 => $this->slug,
+            'active_nav'           => (bool) $this->active_nav,
             'image'                => [
                 'desktop' =>   $this->getFirstMediaUrl('categories-desktop'),
                 'mobile' =>   $this->getFirstMediaUrl('categories-mobile'),

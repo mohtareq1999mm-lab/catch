@@ -55,6 +55,7 @@ class CategoryController extends CoreController
         $level = $request->input('level', $request->query('level'));
         $parentId = $request->input('parent_id', $request->query('parent_id'));
         $statusParam = $request->input('status', $request->query('status'));
+        $activeNavParam = $request->input('active_nav', $request->query('active_nav'));
         $order = $request->order;
         $sortedBy = $request->sortedBy ?? 'asc';
         $categoriesQuery = $this->repository
@@ -63,6 +64,13 @@ class CategoryController extends CoreController
 
         if ($featureCategory) {
             $categoriesQuery = $categoriesQuery->where('is_featured', true);
+        }
+        if ($activeNavParam !== null && $activeNavParam !== '') {
+            if (in_array($activeNavParam, [1, '1', true, 'true', 'True', 'TRUE'], true)) {
+                $categoriesQuery = $categoriesQuery->where('active_nav', true);
+            } elseif (in_array($activeNavParam, [0, '0', false, 'false', 'False', 'FALSE'], true)) {
+                $categoriesQuery = $categoriesQuery->where('active_nav', false);
+            }
         }
         if ($order && in_array($order, ['id', 'name', 'slug', 'products_count', 'created_at', 'updated_at', 'level'])) {
             $categoriesQuery = $categoriesQuery->orderBy($order, $sortedBy === 'desc' ? 'desc' : 'asc');

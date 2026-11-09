@@ -30,6 +30,7 @@ class CategoryRepository extends BaseRepository
         'details',
         'parent_id',
         'is_featured',
+        'active_nav',
         'status',
     ];
 
