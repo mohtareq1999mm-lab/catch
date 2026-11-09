@@ -121,8 +121,8 @@ class DatabaseSeeder extends Seeder
              DashboardDataSeeder::class,
             WarehouseSeeder::class,
             AdminOrderOperationsSeeder::class,
-            WmsOperationsSeeder::class,
             FulfillmentSeeder::class,
+            WmsOperationsSeeder::class,
             WarehouseDashboardSeeder::class,
             ProductBarcodeLocationSeeder::class,
        

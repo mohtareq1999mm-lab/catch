@@ -215,7 +215,7 @@ class FulfillmentSeeder extends Seeder
         // 5. Staff Accounts (Cairo & Alexandria Operations)
         $admin = User::firstOrCreate(
             ['email' => 'admin@gmail.com'],
-            ['name' => 'General Operations Supervisor', 'password' => Hash::make('password123'), 'is_active' => true, 'type' => 'admin', 'warehouse_id' => $warehouse1->id]
+            ['name' => 'General Operations Supervisor', 'password' => Hash::make('password'), 'is_active' => true, 'type' => 'admin', 'warehouse_id' => $warehouse1->id]
         );
         $admin->assignRole($superAdminRole);
 
@@ -223,7 +223,7 @@ class FulfillmentSeeder extends Seeder
         foreach ([1 => 'Ahmed Tarek', 2 => 'Mohamed Youssef', 3 => 'Khaled Hassan'] as $idx => $name) {
             $pickersWh1[$idx] = User::firstOrCreate(
                 ['email' => "picker{$idx}@wms.com"],
-                ['name' => $name . ' (Cairo Picker)', 'password' => Hash::make('password123'), 'is_active' => true, 'type' => 'staff', 'warehouse_id' => $warehouse1->id]
+                ['name' => $name . ' (Cairo Picker)', 'password' => Hash::make('password'), 'is_active' => true, 'type' => 'admin', 'warehouse_id' => $warehouse1->id]
             );
             $pickersWh1[$idx]->givePermissionTo(['picking-execute', 'picking.claim', 'picking.complete', 'view-fulfillment']);
         }
@@ -232,7 +232,7 @@ class FulfillmentSeeder extends Seeder
         foreach ([1 => 'Mahmoud Sayed', 2 => 'Ibrahim Adel', 3 => 'Tamer Fathy'] as $idx => $name) {
             $packersWh1[$idx] = User::firstOrCreate(
                 ['email' => "packer{$idx}@wms.com"],
-                ['name' => $name . ' (Cairo Packer)', 'password' => Hash::make('password123'), 'is_active' => true, 'type' => 'staff', 'warehouse_id' => $warehouse1->id]
+                ['name' => $name . ' (Cairo Packer)', 'password' => Hash::make('password'), 'is_active' => true, 'type' => 'admin', 'warehouse_id' => $warehouse1->id]
             );
             $packersWh1[$idx]->givePermissionTo(['packing-execute', 'packing.complete', 'view-fulfillment']);
         }
@@ -241,7 +241,7 @@ class FulfillmentSeeder extends Seeder
         foreach ([1 => 'Yasser Galal', 2 => 'Mostafa Amar'] as $idx => $name) {
             $pickersWh2[$idx] = User::firstOrCreate(
                 ['email' => "picker.alex{$idx}@wms.com"],
-                ['name' => $name . ' (Alex Picker)', 'password' => Hash::make('password123'), 'is_active' => true, 'type' => 'staff', 'warehouse_id' => $warehouse2->id]
+                ['name' => $name . ' (Alex Picker)', 'password' => Hash::make('password'), 'is_active' => true, 'type' => 'admin', 'warehouse_id' => $warehouse2->id]
             );
             $pickersWh2[$idx]->givePermissionTo(['picking-execute', 'picking.claim', 'picking.complete', 'view-fulfillment']);
         }
@@ -250,23 +250,23 @@ class FulfillmentSeeder extends Seeder
         foreach ([1 => 'Nader Hamdy', 2 => 'Karim Fahmy'] as $idx => $name) {
             $packersWh2[$idx] = User::firstOrCreate(
                 ['email' => "packer.alex{$idx}@wms.com"],
-                ['name' => $name . ' (Alex Packer)', 'password' => Hash::make('password123'), 'is_active' => true, 'type' => 'staff', 'warehouse_id' => $warehouse2->id]
+                ['name' => $name . ' (Alex Packer)', 'password' => Hash::make('password'), 'is_active' => true, 'type' => 'admin', 'warehouse_id' => $warehouse2->id]
             );
             $packersWh2[$idx]->givePermissionTo(['packing-execute', 'packing.complete', 'view-fulfillment']);
         }
 
         // 6. Comprehensive Egyptian Customer Profiles
         $customers = [
-            User::firstOrCreate(['email' => 'cairo.client1@gmail.com'], ['name' => 'Kareem Abdelaziz', 'phone_number' => '+201011112222', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'alex.client2@gmail.com'], ['name' => 'Sara Mansour', 'phone_number' => '+201022223333', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'giza.client3@gmail.com'], ['name' => 'Hany Ramzy', 'phone_number' => '+201033334444', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'mansoura.client4@gmail.com'], ['name' => 'Nour El-Din', 'phone_number' => '+201044445555', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'tanta.client5@gmail.com'], ['name' => 'Mona Zaki', 'phone_number' => '+201055556666', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'portsaid.client6@gmail.com'], ['name' => 'Amr Diab', 'phone_number' => '+201066667777', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'ismailia.client7@gmail.com'], ['name' => 'Dina El Sherbiny', 'phone_number' => '+201077778888', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'assiut.client8@gmail.com'], ['name' => 'Tarek Lotfy', 'phone_number' => '+201088889999', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'aswan.client9@gmail.com'], ['name' => 'Salma Abu Deif', 'phone_number' => '+201099990000', 'type' => 'customer', 'password' => Hash::make('password123')]),
-            User::firstOrCreate(['email' => 'zagazig.client10@gmail.com'], ['name' => 'Sherif Mounir', 'phone_number' => '+201012345678', 'type' => 'customer', 'password' => Hash::make('password123')]),
+            User::firstOrCreate(['email' => 'cairo.client1@gmail.com'], ['name' => 'Kareem Abdelaziz', 'phone_number' => '+201011112222', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'alex.client2@gmail.com'], ['name' => 'Sara Mansour', 'phone_number' => '+201022223333', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'giza.client3@gmail.com'], ['name' => 'Hany Ramzy', 'phone_number' => '+201033334444', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'mansoura.client4@gmail.com'], ['name' => 'Nour El-Din', 'phone_number' => '+201044445555', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'tanta.client5@gmail.com'], ['name' => 'Mona Zaki', 'phone_number' => '+201055556666', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'portsaid.client6@gmail.com'], ['name' => 'Amr Diab', 'phone_number' => '+201066667777', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'ismailia.client7@gmail.com'], ['name' => 'Dina El Sherbiny', 'phone_number' => '+201077778888', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'assiut.client8@gmail.com'], ['name' => 'Tarek Lotfy', 'phone_number' => '+201088889999', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'aswan.client9@gmail.com'], ['name' => 'Salma Abu Deif', 'phone_number' => '+201099990000', 'type' => 'customer', 'password' => Hash::make('password')]),
+            User::firstOrCreate(['email' => 'zagazig.client10@gmail.com'], ['name' => 'Sherif Mounir', 'phone_number' => '+201012345678', 'type' => 'customer', 'password' => Hash::make('password')]),
         ];
 
         $addresses = [

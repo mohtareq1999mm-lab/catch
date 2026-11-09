@@ -68,14 +68,14 @@ class AdminOrderOperationsSeeder extends Seeder
             ['email' => 'admin@gmail.com'],
             [
                 'name' => 'Super Administrator',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
             ]
         );
 
         $admin->update([
-            'password' => Hash::make('password123'),
+            'password' => Hash::make('password'),
             'type' => 'admin',
             'is_active' => true,
         ]);

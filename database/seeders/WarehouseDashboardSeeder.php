@@ -320,7 +320,7 @@ class WarehouseDashboardSeeder extends Seeder
             ['email' => 'wms.admin@example.com'],
             [
                 'name' => 'WMS General Admin',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
@@ -333,7 +333,7 @@ class WarehouseDashboardSeeder extends Seeder
             ['email' => 'wms.supervisor@example.com'],
             [
                 'name' => 'WMS Supervisor',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
@@ -346,7 +346,7 @@ class WarehouseDashboardSeeder extends Seeder
             ['email' => 'wms.picker@example.com'],
             [
                 'name' => 'Mostafa Picker',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
@@ -359,7 +359,7 @@ class WarehouseDashboardSeeder extends Seeder
             ['email' => 'wms.packer@example.com'],
             [
                 'name' => 'Khaled Packer',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
@@ -372,7 +372,7 @@ class WarehouseDashboardSeeder extends Seeder
             ['email' => 'wms.customer@example.com'],
             [
                 'name' => 'Customer Demo',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'user',
                 'is_active' => true,
                 'email_verified_at' => now(),

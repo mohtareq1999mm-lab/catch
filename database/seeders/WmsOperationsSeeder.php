@@ -85,6 +85,9 @@ class WmsOperationsSeeder extends Seeder
             // Refunds
             'view-refunds',
             'payments.refund',
+
+            // Barcode scanning
+            'barcode.scan',
         ];
 
         foreach ($allPermissions as $perm) {
@@ -116,7 +119,7 @@ class WmsOperationsSeeder extends Seeder
             'packing-execute', 'packing.complete',
             'batch.manage', 'batch.operate',
             'fulfillment-override', 'fulfillment.create', 'fulfillment.cancel',
-            'view-shipments', 'view-shipment',
+            'view-shipments', 'view-shipment', 'barcode.scan',
         ]);
 
         $pickerRole = Role::firstOrCreate(
@@ -124,7 +127,7 @@ class WmsOperationsSeeder extends Seeder
             ['display_name' => ['en' => 'Picker', 'ar' => 'عامل التقاط']]
         );
         $pickerRole->givePermissionTo([
-            'view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute', 'picking.claim', 'picking.complete',
+            'view-warehouse', 'view-location', 'view-fulfillment', 'picking-execute', 'picking.claim', 'picking.complete', 'barcode.scan',
         ]);
 
         $packerRole = Role::firstOrCreate(
@@ -132,12 +135,13 @@ class WmsOperationsSeeder extends Seeder
             ['display_name' => ['en' => 'Packer', 'ar' => 'عامل تغليف']]
         );
         $packerRole->givePermissionTo([
-            'view-warehouse', 'view-location', 'view-fulfillment', 'packing-execute', 'packing.complete',
+            'view-warehouse', 'view-location', 'view-fulfillment', 'packing-execute', 'packing.complete', 'barcode.scan',
         ]);
 
         // 3. Default Warehouse (Defensive to respect single default warehouse constraint)
         $existingDefault = Warehouse::where('is_default', true)->whereNull('deleted_at')->first();
-        $warehouse = Warehouse::where('code', 'MAIN')->first()
+        $warehouse = Warehouse::find(1)
+            ?? Warehouse::whereIn('code', ['WH-CAIRO-CENTRAL', 'MAIN'])->first()
             ?? $existingDefault
             ?? Warehouse::where('status', 'active')->first();
 
@@ -241,7 +245,6 @@ class WmsOperationsSeeder extends Seeder
             'password' => Hash::make('password'),
             'type' => 'admin',
             'is_active' => true,
-            'warehouse_id' => null,
         ]);
         $adminDemo->syncRoles(['super_admin', 'warehouse-manager']);
         $allApiPermissions = Permission::where('guard_name', 'api')->get();
@@ -252,14 +255,14 @@ class WmsOperationsSeeder extends Seeder
             ['email' => 'admin@gmail.com'],
             [
                 'name' => 'Super Administrator',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
             ]
         );
         $admin->update([
-            'password' => Hash::make('password123'),
+            'password' => Hash::make('password'),
             'type' => 'admin',
             'is_active' => true,
             'warehouse_id' => $warehouse->id,
@@ -276,14 +279,14 @@ class WmsOperationsSeeder extends Seeder
             ['email' => 'manager@wms.com'],
             [
                 'name' => 'مصطفى كامل (مدير المستودع)',
-                'password' => Hash::make('password123'),
-                'type' => 'staff',
+                'password' => Hash::make('password'),
+                'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
                 'warehouse_id' => $warehouse->id,
             ]
         );
-        $manager->update(['warehouse_id' => $warehouse->id, 'type' => 'staff', 'is_active' => true]);
+        $manager->update(['warehouse_id' => $warehouse->id, 'type' => 'admin', 'is_active' => true]);
         $manager->syncRoles(['warehouse-manager']);
         $manager->givePermissionTo($allPermissions);
 
@@ -291,14 +294,14 @@ class WmsOperationsSeeder extends Seeder
             ['email' => 'supervisor@wms.com'],
             [
                 'name' => 'كريم سامي (مشرف العمليات)',
-                'password' => Hash::make('password123'),
-                'type' => 'staff',
+                'password' => Hash::make('password'),
+                'type' => 'admin',
                 'is_active' => true,
                 'email_verified_at' => now(),
                 'warehouse_id' => $warehouse->id,
             ]
         );
-        $supervisor->update(['warehouse_id' => $warehouse->id, 'type' => 'staff', 'is_active' => true]);
+        $supervisor->update(['warehouse_id' => $warehouse->id, 'type' => 'admin', 'is_active' => true]);
         $supervisor->syncRoles(['warehouse-supervisor']);
 
         // 6.3 Picking Operations Staff (Pickers)
@@ -314,18 +317,18 @@ class WmsOperationsSeeder extends Seeder
                 ['email' => $email],
                 [
                     'name' => $name,
-                    'password' => Hash::make('password123'),
-                    'type' => 'staff',
+                    'password' => Hash::make('password'),
+                    'type' => 'admin',
                     'is_active' => true,
                     'email_verified_at' => now(),
                     'warehouse_id' => $warehouse->id,
                 ]
             );
             $user->update([
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'warehouse_id' => $warehouse->id,
                 'is_active' => true,
-                'type' => 'staff',
+                'type' => 'admin',
             ]);
             $user->syncRoles(['picker']);
             $pickers[$email] = $user;
@@ -345,18 +348,18 @@ class WmsOperationsSeeder extends Seeder
                 ['email' => $email],
                 [
                     'name' => $name,
-                    'password' => Hash::make('password123'),
-                    'type' => 'staff',
+                    'password' => Hash::make('password'),
+                    'type' => 'admin',
                     'is_active' => true,
                     'email_verified_at' => now(),
                     'warehouse_id' => $warehouse->id,
                 ]
             );
             $user->update([
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'warehouse_id' => $warehouse->id,
                 'is_active' => true,
-                'type' => 'staff',
+                'type' => 'admin',
             ]);
             $user->syncRoles(['packer']);
             $packers[$email] = $user;
@@ -367,7 +370,7 @@ class WmsOperationsSeeder extends Seeder
             ['email' => 'test@g.com'],
             [
                 'name' => 'Test Customer',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'customer',
                 'is_active' => true,
                 'phone_number' => '+201011112222',
@@ -379,13 +382,17 @@ class WmsOperationsSeeder extends Seeder
             ['email' => 'customer@wms.com'],
             [
                 'name' => 'محمد العميل التجريبي',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
                 'type' => 'customer',
                 'is_active' => true,
                 'phone_number' => '+201099887766',
                 'email_verified_at' => now(),
             ]
         );
+
+        $customerRole = Role::firstOrCreate(['name' => 'customer', 'guard_name' => 'api']);
+        $customerDemo->syncRoles([$customerRole]);
+        $customer->syncRoles([$customerRole]);
 
         // 6.6 Attach All Warehouse Staff to Pivot Table (warehouse_users) for Task Assignment
         $staffToAttach = array_merge(
@@ -398,6 +405,9 @@ class WmsOperationsSeeder extends Seeder
             $syncData[$uid] = ['is_primary' => true];
         }
         $warehouse->users()->syncWithoutDetaching($syncData);
+        foreach (Warehouse::whereIn('code', ['MAIN', 'WH-CAIRO-CENTRAL', 'WH-MAIN'])->get() as $wh) {
+            $wh->users()->syncWithoutDetaching($syncData);
+        }
 
         // 7. Products (Physical)
         $productAlpha = Product::firstOrCreate(
