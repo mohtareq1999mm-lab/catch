@@ -356,6 +356,43 @@ class Product extends Model implements HasMedia
         return $this->belongsToMany(Tag::class, 'product_tag');
     }
 
+    /**
+     * Directional manual cross-sell targets for this product (source side).
+     * Ordered by the merchant-defined pivot sort order.
+     *
+     * Eager-load with `crossSellProductsAdmin` when saved IDs (including
+     * soft-deleted targets) must survive global scopes.
+     *
+     * @return BelongsToMany
+     */
+    public function crossSellProducts(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            self::class,
+            'product_cross_sells',
+            'product_id',
+            'related_product_id'
+        )
+            ->withPivot('sort_order')
+            ->withTimestamps()
+            ->orderByPivot('sort_order')
+            ->orderBy('product_cross_sells.id');
+    }
+
+    /**
+     * Admin-side view of the same cross-sell links: kept exactly as saved —
+     * soft-deleted targets included — with channel scopes removed, so
+     * `cross_sell_ids`/`saved_cross_sell_count` reflect every saved row (Q-02).
+     *
+     * @return BelongsToMany
+     */
+    public function crossSellProductsAdmin(): BelongsToMany
+    {
+        return $this->crossSellProducts()
+            ->withTrashed()
+            ->withoutGlobalScope(FastShippingScope::class);
+    }
+
 
 
     /**

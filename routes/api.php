@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\General\FAQController;
 use App\Http\Controllers\Api\General\FastShippingController;
 use App\Http\Controllers\Api\General\FlashSaleController;
 use App\Http\Controllers\Api\General\GovernorateController;
+use App\Http\Controllers\Api\General\HeroController;
 use App\Http\Controllers\Api\General\HomeController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\General\OrderController;
@@ -65,6 +66,8 @@ Route::prefix('v1/general')->group(function () {
         //======================== slider ========================/
         Route::get('sliders', [SliderController::class, 'index']);
         Route::get('sliders/{slug}', [SliderController::class, 'getSliderBySlug']);
+        //======================== hero ========================/
+        Route::get('hero', [HeroController::class, 'index']);
         //======================== tags ========================/
         Route::get('tags', [TagController::class, 'index']);
         Route::get('tags/{slug}', [TagController::class, 'show']);

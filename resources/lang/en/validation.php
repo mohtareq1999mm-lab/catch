@@ -101,6 +101,14 @@ return [
     'uploaded' => 'The :attribute failed to upload.',
     'url' => 'The :attribute format is invalid.',
 
+    // Manual cross-selling (Q-02): each failure key maps to exactly one
+    // ValidCrossSellIds failure state; the default covers the generic list
+    // contract (non-list, bad item type, unresolvable update source).
+    'cross_sell_self'    => 'A product cannot recommend itself.',
+    'cross_sell_missing' => 'The selected product does not exist.',
+    'cross_sell_deleted' => 'A deleted product cannot be newly added as a recommendation.',
+    'cross_sell_invalid' => 'The selected recommendation is invalid.',
+
     'custom' => [
         'attribute-name' => [
             'rule-name' => 'custom-message',

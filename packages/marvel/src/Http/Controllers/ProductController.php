@@ -253,6 +253,10 @@ class ProductController extends CoreController
             'variations.productLocations.warehouse',
             'productLocations.location',
             'productLocations.warehouse',
+            // Manual cross-sell: saved list (including soft-deleted targets)
+            // drives cross_sell_ids/saved_cross_sell_count; the eligible
+            // list/count is built inside ProductResource (plan rev.3 §8.2).
+            'crossSellProductsAdmin',
         ]);
         $this->flushTag(FrontendResource::PRODUCTS->value);
         return $this->apiResponse(CREATE_PRODUCT_SUCCESSFULLY, 201, true, ProductResource::make($product));
@@ -348,6 +352,8 @@ class ProductController extends CoreController
                 'productLocations.location',
                 'productLocations.warehouse',
                 'categories', 'flash_sales', 'banners', 'sliders', 'brands', 'reviews', 'tags', 'barcodes',
+                // Manual cross-sell saved list for cross_sell_ids/saved_cross_sell_count.
+                'crossSellProductsAdmin',
             ]);
         } catch (Exception $e) {
             throw new MarvelNotFoundException(NOT_FOUND);
@@ -371,6 +377,8 @@ class ProductController extends CoreController
                 'variations.productLocations.warehouse',
                 'productLocations.location',
                 'productLocations.warehouse',
+                // Manual cross-sell saved list for cross_sell_ids/saved_cross_sell_count.
+                'crossSellProductsAdmin',
             ]);
             $this->flushTag(FrontendResource::PRODUCTS->value);
             return $this->apiResponse(UPDATE_PRODUCT_SUCCESSFULLY, 200, true, ProductResource::make($product));

@@ -41,8 +41,16 @@ class SectionTypeController extends CoreController
         }
     }
 
-    public function show(SectionType $sectionType)
+    public function show(string $section_type)
     {
+        $sectionType = is_numeric($section_type)
+            ? $this->sectionTypeService->getById((int) $section_type)
+            : $this->sectionTypeService->getByType($section_type);
+
+        if (!$sectionType) {
+            return $this->apiResponse(NOT_FOUND, 404, false);
+        }
+
         $grouped = $this->sectionTypeService->getSettingsGrouped($sectionType->type);
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, $grouped);
     }

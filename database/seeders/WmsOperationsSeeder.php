@@ -244,7 +244,9 @@ class WmsOperationsSeeder extends Seeder
             'warehouse_id' => null,
         ]);
         $adminDemo->syncRoles(['super_admin', 'warehouse-manager']);
-        $adminDemo->givePermissionTo($allPermissions);
+        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $superAdminRole->syncPermissions($allApiPermissions);
+        $adminDemo->syncPermissions($allApiPermissions);
 
         $admin = User::firstOrCreate(
             ['email' => 'admin@gmail.com'],

@@ -15,6 +15,61 @@ trait CreatesTestTables
         // untouched; DatabaseTransactions still isolates each test).
         $this->dropLegacySingleFlowUniqueIndex();
 
+        if (!Schema::hasTable('heroes')) {
+            Schema::create('heroes', function (Blueprint $table) {
+                $table->id();
+                $table->string('type', 20)->default('image');
+                $table->json('description')->nullable();
+                $table->boolean('is_active')->default(true)->index();
+                $table->timestamps();
+            });
+        }
+
+        if (!Schema::hasTable('content_pages')) {
+            Schema::create('content_pages', function (Blueprint $table) {
+                $table->id();
+                $table->string('title')->unique();
+                $table->string('slug')->unique();
+                $table->boolean('is_active')->default(true);
+                $table->timestamps();
+            });
+        }
+
+        if (!Schema::hasTable('section_types')) {
+            Schema::create('section_types', function (Blueprint $table) {
+                $table->id();
+                $table->string('type', 255)->unique();
+                $table->timestamps();
+            });
+        }
+
+        if (!Schema::hasTable('section_type_settings')) {
+            Schema::create('section_type_settings', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('section_type_id')->constrained('section_types')->cascadeOnDelete();
+                $table->string('setting_key', 50);
+                $table->json('value');
+                $table->timestamps();
+                $table->unique(['section_type_id', 'setting_key']);
+            });
+        }
+
+        if (!Schema::hasTable('sections')) {
+            Schema::create('sections', function (Blueprint $table) {
+                $table->id();
+                $table->string('type');
+                $table->string('title');
+                $table->integer('order')->default(0);
+                $table->string('endpoint');
+                $table->foreignId('content_page_id')->nullable()->constrained('content_pages')->nullOnDelete();
+                $table->boolean('is_active')->default(true);
+                $table->boolean('title_visible')->default(true);
+                $table->json('setting')->nullable();
+                $table->index('content_page_id');
+                $table->timestamps();
+            });
+        }
+
         if (Schema::hasTable('users')) {
             return;
         }
@@ -163,6 +218,23 @@ Schema::create('social_login_codes', function (Blueprint $table) {
             });
         }
 
+        // Mirrors 2026_11_08_000002_create_product_cross_sells_table:
+        // directional manual cross-sell links with a merchant-defined sort
+        // order. Guarded like product_barcodes: migrated test databases
+        // already have it from the real migration; a create here covers
+        // suites that bootstrap from this trait without migrations.
+        if (!Schema::hasTable('product_cross_sells')) {
+            Schema::create('product_cross_sells', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
+                $table->foreignId('related_product_id')->constrained('products')->cascadeOnDelete();
+                $table->unsignedInteger('sort_order')->default(0);
+                $table->timestamps();
+                $table->unique(['product_id', 'related_product_id']);
+                $table->index(['product_id', 'sort_order']);
+            });
+        }
+
         Schema::create('wishlists', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('user_id');
@@ -262,6 +334,16 @@ Schema::create('categories', function (Blueprint $table) {
             $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
             $table->timestamps();
         });
+
+        if (!Schema::hasTable('heroes')) {
+            Schema::create('heroes', function (Blueprint $table) {
+                $table->id();
+                $table->string('type', 20)->default('image');
+                $table->json('description')->nullable();
+                $table->boolean('is_active')->default(true)->index();
+                $table->timestamps();
+            });
+        }
 
         Schema::create('personal_access_tokens', function (Blueprint $table) {
             $table->id();

@@ -105,6 +105,11 @@ class SectionTypeSettingSeeder extends Seeder
                     "order" => "desc",
                 ],
             ],
+            [
+                'type' => 'hero',
+                'front' => ['autoplay' => true, 'loop' => true, 'muted' => true],
+                'back' => [],
+            ],
         ];
 
         foreach ($types as $item) {

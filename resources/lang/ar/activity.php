@@ -102,6 +102,7 @@ return [
     'product_sliders_synced' => 'تمت مزامنة سلايدرات المنتج',
     'product_tags_synced' => 'تمت مزامنة وسوم المنتج',
     'product_flash_sales_synced' => 'تمت مزامنة التخفيضات الفورية للمنتج',
+    'product_cross_sells_synced' => 'تمت مزامنة توصيات البيع المتقاطع للمنتج',
     'inventory_decremented' => 'تم خصم المخزون',
     'invoice_created' => 'تم إنشاء الفاتورة',
     'activity_pruned' => 'تم تنقية سجل النشاط',

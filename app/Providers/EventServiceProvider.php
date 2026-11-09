@@ -95,6 +95,7 @@ use App\Observers\SectionTypeObserver;
 use App\Observers\SectionTypeSettingObserver;
 use App\Observers\StaticPageObserver;
 use App\Observers\StaticSectionObserver;
+use App\Observers\HeroObserver;
 use App\Observers\UserObserver;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
@@ -114,6 +115,7 @@ use Marvel\Database\Models\SectionType;
 use Marvel\Database\Models\SectionTypeSetting;
 use Marvel\Database\Models\Shop;
 use Marvel\Database\Models\Slider;
+use Marvel\Database\Models\Hero;
 use Marvel\Database\Models\User;
 use Marvel\Models\ContentPage;
 use Marvel\Models\Section;
@@ -302,6 +304,7 @@ class EventServiceProvider extends ServiceProvider
         Review::class         => [MediaCleanupObserver::class],
         Shop::class           => [MediaCleanupObserver::class],
         Slider::class         => [MediaCleanupObserver::class],
+        Hero::class           => [HeroObserver::class, MediaCleanupObserver::class],
     ];
 
     /**

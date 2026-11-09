@@ -4,6 +4,7 @@
 namespace Marvel\Database\Repositories;
 
 use App\Audit\ActivityAuditService;
+use App\Models\Scopes\FastShippingScope;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -395,6 +396,13 @@ class ProductRepository extends BaseRepository
             $this->syncRelationAudited($product, 'tags', $request->input('tags'), 'product_tags_synced', 'activity.product_tags_synced');
         }
 
+        // Manual cross-sell: NOT syncRelationAudited — that helper sorts ids
+        // and destroys the submitted merchant order (plan rev.3 §11.3).
+        // Ordered, directional sync with Q-02 soft-delete semantics instead.
+        if ($request->has('cross_sell_ids')) {
+            $this->syncCrossSellRelation($product, $request->input('cross_sell_ids'));
+        }
+
         if (!empty($data['has_flash_sale']) && $data['has_flash_sale'] === true) {
             $flashSaleId = $data['flash_sale_id'] ?? null;
 
@@ -433,6 +441,121 @@ class ProductRepository extends BaseRepository
             old: ['ids' => $oldIds],
             new: ['ids' => $sortedNew],
         );
+    }
+
+    /**
+     * Ordered, directional cross-sell sync (plan rev.3 §11.4).
+     *
+     * Input is the raw `cross_sell_ids` value:
+     * - non-array / non-list / invalid item → HttpException 422 (never coerced to [], C-05)
+     * - deduplicated preserving first occurrence
+     * - self-reference rejected
+     * - unchanged ordered list → no-op (no write, no audit)
+     * - missing ids / NEW soft-deleted ids → 422 (defense-in-depth below)
+     * - already-attached soft-deleted ids retained (Q-02)
+     *
+     * Runs inside the caller's existing transaction.
+     */
+    private function syncCrossSellRelation(Product $product, $ids): void
+    {
+        if (!is_array($ids) || array_values($ids) !== $ids) {
+            throw new HttpException(422, __('validation.cross_sell_invalid'));
+        }
+
+        $newIds = [];
+        foreach ($ids as $raw) {
+            if (is_int($raw)) {
+                $id = $raw;
+            } elseif (is_string($raw) && $raw !== '' && ctype_digit($raw)) {
+                $id = (int) $raw;
+            } else {
+                throw new HttpException(422, __('validation.cross_sell_invalid'));
+            }
+
+            if ($id < 1) {
+                throw new HttpException(422, __('validation.cross_sell_invalid'));
+            }
+
+            $newIds[] = $id;
+        }
+
+        $newIds = array_values(array_unique($newIds));
+
+        if (in_array((int) $product->id, $newIds, true)) {
+            throw new HttpException(422, __('validation.cross_sell_self'));
+        }
+
+        // Saved rows as currently stored, INCLUDING soft-deleted targets,
+        // ordered by pivot sort order (drives no-op detection + Q-02 retention).
+        //
+        // MUST use crossSellProductsAdmin(): the plain relation inherits the
+        // global FastShippingScope, which would silently drop non-fast saved
+        // targets under `X-Channel: fast-shipping` — breaking retention,
+        // explicit removal, no-op detection and audit ids (review B1).
+        $oldIds = $product->crossSellProductsAdmin()
+            ->get()
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
+        if ($oldIds === $newIds) {
+            return;
+        }
+
+        $this->assertCrossSellTargetsAreAttachable($newIds, $oldIds);
+
+        $sync = [];
+        foreach ($newIds as $index => $id) {
+            $sync[$id] = ['sort_order' => $index + 1];
+        }
+
+        $product->crossSellProducts()->sync($sync);
+
+        // Best-effort: record() swallows Throwable and never breaks the
+        // business transaction (plan rev.3 §12.5).
+        ActivityAuditService::recordModel(
+            $product,
+            'product_cross_sells_synced',
+            'products',
+            __('activity.product_cross_sells_synced') ?: 'product_cross_sells_synced',
+            old: ['ids' => $oldIds],
+            new: ['ids' => $newIds],
+        );
+    }
+
+    /**
+     * Defense-in-depth inside the transaction (plan rev.3 §11.5):
+     * rejects missing products and NEW soft-deleted targets even if
+     * validation was bypassed; already-attached soft-deleted passes (Q-02).
+     *
+     * FastShippingScope is disabled so a non-fast target under a
+     * fast-shipping request is never mistaken for "missing" (C-02).
+     */
+    private function assertCrossSellTargetsAreAttachable(array $newIds, array $oldIds): void
+    {
+        $found = [];
+
+        foreach (array_chunk($newIds, 500) as $chunk) {
+            $rows = Product::withTrashed()
+                ->withoutGlobalScope(FastShippingScope::class)
+                ->whereIn('id', $chunk)
+                ->get(['id', 'deleted_at']);
+
+            foreach ($rows as $row) {
+                $found[(int) $row->id] = $row;
+            }
+        }
+
+        foreach ($newIds as $id) {
+            if (!isset($found[$id])) {
+                throw new HttpException(422, __('validation.cross_sell_missing'));
+            }
+
+            if ($found[$id]->trashed() && !in_array($id, $oldIds, true)) {
+                throw new HttpException(422, __('validation.cross_sell_deleted'));
+            }
+        }
     }
 
     /**

@@ -61,19 +61,19 @@ class SectionTypeService
     {
         SectionTypeSetting::where('section_type_id', $sectionTypeId)->delete();
 
-        if ($front = $setting['front'] ?? null) {
+        if (array_key_exists('front', $setting) && is_array($setting['front'])) {
             SectionTypeSetting::create([
                 'section_type_id' => $sectionTypeId,
                 'setting_key' => 'front',
-                'value' => $front,
+                'value' => $setting['front'],
             ]);
         }
 
-        if ($back = $setting['back'] ?? null) {
+        if (array_key_exists('back', $setting) && is_array($setting['back'])) {
             SectionTypeSetting::create([
                 'section_type_id' => $sectionTypeId,
                 'setting_key' => 'back',
-                'value' => $back,
+                'value' => $setting['back'],
             ]);
         }
 

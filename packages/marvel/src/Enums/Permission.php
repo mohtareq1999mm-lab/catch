@@ -23,6 +23,11 @@ final class Permission extends Enum
     public const CREATE_SLIDER = 'create-slider';
     public const UPDATE_SLIDER = 'update-slider';
     public const DELETE_SLIDER = 'delete-slider';
+
+    public const VIEW_HERO = 'view-hero';
+    public const CREATE_HERO = 'create-hero';
+    public const UPDATE_HERO = 'update-hero';
+    public const DELETE_HERO = 'delete-hero';
     public const VIEW_NOTIFICATTIONS = 'view-notifications';
     public const MANAGE_NOTIFICATTIONS = 'manage-notifications';
 

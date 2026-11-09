@@ -18,6 +18,7 @@ enum FrontendResource: string
     case FAQS = 'faqs';
     case SLIDERS = 'sliders';
     case BANNERS = 'banners';
+    case HERO = 'hero';
     case TAGS = 'tags';
     case CONTENT_PAGES = 'content_pages';
     case STATIC_PAGES = 'static_pages';

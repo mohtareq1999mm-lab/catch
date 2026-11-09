@@ -34,6 +34,7 @@ use Marvel\Http\Controllers\ReviewController;
 use Marvel\Http\Controllers\RoleAndPermissionController;
 use Marvel\Http\Controllers\SettingsController;
 use Marvel\Http\Controllers\SliderController;
+use Marvel\Http\Controllers\HeroController;
 use Marvel\Http\Controllers\SectionController;
 use Marvel\Http\Controllers\SectionTypeController;
 use Marvel\Http\Controllers\TagController;
@@ -172,6 +173,11 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::patch('sliders/change-status', [SliderController::class, 'changeStatus'])->middleware('permission:update-slider');
     Route::put('sliders/reorder', [SliderController::class, 'reorder'])->middleware('permission:update-slider');
     Route::apiResource('sliders', SliderController::class)->middleware('permission:view-slider|create-slider|update-slider|delete-slider');
+
+    //======================== heroes ========================/
+    Route::patch('hero/change-status', [HeroController::class, 'changeStatus'])->middleware('permission:update-hero');
+    Route::patch('hero/{id}/toggle-active', [HeroController::class, 'toggleActive'])->whereNumber('id')->middleware('permission:update-hero');
+    Route::apiResource('hero', HeroController::class)->middleware('permission:view-hero|create-hero|update-hero|delete-hero');
 
     //======================== categories ========================/
     Route::put('categories/feature', [CategoryController::class, 'addOrRemoveCategoryFromFeature'])->middleware('permission:update-category');
@@ -362,7 +368,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::patch('sections/{section}/toggle-active', [SectionController::class, 'toggleStatus']);
     Route::apiResource('sections', SectionController::class);
     Route::apiResource('section-types', SectionTypeController::class)->except(['update', 'store', 'destroy']);
-    Route::post('section-types/{type}/settings', [SectionTypeController::class, 'updateSettings']);
+    Route::match(['post', 'put', 'patch'], 'section-types/{type}/settings', [SectionTypeController::class, 'updateSettings']);
     Route::get('section-types/{type}/settings', [SectionTypeController::class, 'settings']);
 
     //============================= static pages ========================/

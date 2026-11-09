@@ -2,10 +2,14 @@
 
 namespace Marvel\Http\Resources;
 
+use App\Services\General\ProductService;
 use App\Services\Tax\ProductTaxPresenter;
+use App\Traits\HasChannelFilter;
 
 class ProductResource extends Resource
 {
+    use HasChannelFilter;
+
     public function toArray($request): array
     {
         $product = $this->resource instanceof \Marvel\Database\Models\Product ? $this->resource : $this;
@@ -65,6 +69,83 @@ class ProductResource extends Resource
             'locations'              => $this->formatLocations($this->productLocations),
             "variants"               => $this->whenLoaded('variations', fn() => $this->getVariants()),
             $this->mergeWhen($this->relationLoaded('related_products'), fn() => ['related_products' => ProductResource::collection($this->related_products)]),
+            // Manual cross-selling (Q-01/Q-02/Q-03, plan rev.3 §8.2/§10.6):
+            // present on Admin show/store/update only (relation anchored there);
+            // index stays untouched and the block must never run per-row on lists.
+            $this->mergeWhen($product->relationLoaded('crossSellProductsAdmin'), fn() => $this->crossSellBlock($product)),
+        ];
+    }
+
+    /**
+     * Admin cross-sell block: full saved management source (`cross_sell_ids`,
+     * `saved_cross_sell_count`) plus the eligible-only list and count for the
+     * CURRENT REQUEST CHANNEL. The count equals the eligible list length
+     * (no separate COUNT query) and is NOT capped by the 8-item storefront
+     * display limit.
+     */
+    private function crossSellBlock($product): array
+    {
+        $saved = $product->crossSellProductsAdmin;
+        $eligible = $this->crossSellEligibleItems($product);
+
+        return [
+            'cross_sell_ids'            => $saved->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+            'saved_cross_sell_count'    => $saved->count(),
+            'eligible_cross_sell_count' => $eligible->count(),
+            'cross_sell_products'       => $eligible->map(fn ($p) => $this->crossSellAdminItem($p))->values()->all(),
+            'storefront_cross_sell_limit' => ProductService::STOREFRONT_DISPLAY_LIMIT,
+        ];
+    }
+
+    /**
+     * Eligible cross-sell query on the same canonical sources as the
+     * storefront: `Product::crossSellProducts()` (directional) + `active()`
+     * + current channel rule (`FastShippingScope` for fast-shipping,
+     * `applyChannelHomeFilter()` for home). Soft-deleted targets are
+     * excluded by design; pivot order is preserved.
+     */
+    private function crossSellEligibleItems($product)
+    {
+        $query = $product->crossSellProducts()
+            ->active()
+            ->with(['media', 'categories'])
+            ->where('products.id', '!=', $product->id);
+
+        $this->applyChannelHomeFilter($query);
+
+        return $query
+            ->orderByPivot('sort_order')
+            ->orderBy('product_cross_sells.id')
+            ->get();
+    }
+
+    /**
+     * Compact eligible Admin item (plan rev.3 §8.3): no `available`
+     * or `unavailability_reasons` keys — the list is eligible-only.
+     * `storefront_channels` stays an informational per-item map and never
+     * drives the count.
+     */
+    private function crossSellAdminItem($product): array
+    {
+        $channelEnabled = (bool) config('channel.enabled', true);
+        $isFast = (bool) $product->is_fast_shipping_available;
+        // Items were picked through active() + the channel filter, so they
+        // are available for the current channel by construction.
+        $available = true;
+
+        return [
+            'id'       => (int) $product->id,
+            'name'     => $product->getTranslation('name', app()->getLocale()),
+            'slug'     => $product->slug,
+            'price'    => $this->roundMoney($product->price),
+            'thumbnail' => $product->getFirstMediaUrl('products'),
+            'status'   => (bool) $product->status,
+            'in_stock' => (bool) $product->in_stock,
+            'deleted'  => $product->deleted_at !== null,
+            'storefront_channels' => [
+                'home'         => $available && (!$channelEnabled || !$isFast),
+                'fast_shipping' => $available && (!$channelEnabled || $isFast),
+            ],
         ];
     }
 

@@ -324,5 +324,16 @@ class ContentPageSeeder extends Seeder
                 $createdTypes[] = $item['type'];
             }
         }
+
+        // Ensure 'hero' section type and default settings are always registered
+        $heroSectionType = SectionType::firstOrCreate(['type' => 'hero']);
+        SectionTypeSetting::updateOrCreate(
+            ['section_type_id' => $heroSectionType->id, 'setting_key' => 'front'],
+            ['value' => ['autoplay' => true, 'loop' => true, 'muted' => true]]
+        );
+        SectionTypeSetting::updateOrCreate(
+            ['section_type_id' => $heroSectionType->id, 'setting_key' => 'back'],
+            ['value' => []]
+        );
     }
 }

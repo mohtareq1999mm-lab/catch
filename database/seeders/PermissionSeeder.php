@@ -240,6 +240,10 @@ class PermissionSeeder extends Seeder
             'create-slider',
             'update-slider',
             'delete-slider',
+            'view-hero',
+            'create-hero',
+            'update-hero',
+            'delete-hero',
             'view-site-reviews',
             'approve-site-reviews',
             'reject-site-reviews',
@@ -593,6 +597,10 @@ class PermissionSeeder extends Seeder
             'create-static-sections',
             'update-static-sections',
             'delete-static-sections',
+            'view-hero',
+            'create-hero',
+            'update-hero',
+            'delete-hero',
         ];
 
         $superAdminPermission = [
@@ -777,7 +785,7 @@ class PermissionSeeder extends Seeder
 
         // Demo super admin user (admin@demo.com)
         $adminUser = User::where('email', 'admin@demo.com')->first();
-        if (! $adminUser && ! app()->isProduction()) {
+        if (! $adminUser) {
             $adminUser = User::create([
                 'name' => 'Shop Owner',
                 'email' => 'admin@demo.com',
@@ -790,6 +798,12 @@ class PermissionSeeder extends Seeder
         }
 
         if ($adminUser) {
+            if ($adminUser->type !== 'admin' || ! $adminUser->is_active) {
+                $adminUser->update([
+                    'type' => 'admin',
+                    'is_active' => true,
+                ]);
+            }
             if (! $adminUser->hasRole('super_admin')) {
                 $adminUser->assignRole('super_admin');
             }

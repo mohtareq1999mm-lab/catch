@@ -102,6 +102,7 @@ return [
     'product_sliders_synced' => 'Product sliders synchronized',
     'product_tags_synced' => 'Product tags synchronized',
     'product_flash_sales_synced' => 'Product flash sales synchronized',
+    'product_cross_sells_synced' => 'Product cross-selling recommendations synchronized',
     'inventory_decremented' => 'Inventory decremented',
     'invoice_created' => 'Invoice created',
     'activity_pruned' => 'Activity log pruned',

@@ -99,6 +99,15 @@ class ProductCreateRequest extends FormRequest
             'banners.*'                    => ['integer', 'exists:banners,id'],
             'sliders'                      => ['sometimes', 'array'],
             'sliders.*'                    => ['integer', 'exists:sliders,id'],
+
+            // Manual cross-selling (ordered directional list). The custom rule
+            // receives the FULL array; element rules stay on the wildcard key.
+            // Q-02: already-attached soft-deleted targets are allowed to remain;
+            // newly submitted soft-deleted targets are rejected.
+            // Display/channel eligibility is never validated here (D5/D7/Q-01).
+            'cross_sell_ids'               => ['sometimes', 'array', new \App\Rules\ValidCrossSellIds()],
+            'cross_sell_ids.*'             => ['integer', 'min:1', 'distinct'],
+
             'tax_enabled'                  => ['sometimes', 'boolean'],
             'tax_rate'                     => ['nullable', 'numeric', 'min:0', 'max:100'],
 

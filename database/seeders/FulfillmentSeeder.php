@@ -83,6 +83,15 @@ class FulfillmentSeeder extends Seeder
         }
 
         $superAdminRole = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'api']);
+        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $superAdminRole->syncPermissions($allApiPermissions);
+        $demoAdmin = User::where('email', 'admin@demo.com')->first();
+        if ($demoAdmin) {
+            if (! $demoAdmin->hasRole('super_admin')) {
+                $demoAdmin->assignRole('super_admin');
+            }
+            $demoAdmin->syncPermissions($allApiPermissions);
+        }
 
         // 2. Base Warehouses (Cairo Hub & Alexandria Logistics Hub)
         $existingDefault = Warehouse::where('is_default', true)->whereNull('deleted_at')->first();

@@ -24,6 +24,12 @@ return [
     'MESSAGE.SLIDER_STATUS_CHANGED' => 'Slider status changed successfully',
     'MESSAGE.SLIDERS_REORDERED_SUCCESSFULLY' => 'Sliders reordered successfully',
 
+    // Hero
+    'MESSAGE.HERO_CREATED_SUCCESSFULLY' => 'Hero created successfully',
+    'MESSAGE.HERO_UPDATED_SUCCESSFULLY' => 'Hero updated successfully',
+    'MESSAGE.HERO_DELETED_SUCCESSFULLY' => 'Hero deleted successfully',
+    'MESSAGE.HERO_STATUS_CHANGED' => 'Hero status changed successfully',
+
     // Banners
     'MESSAGE.BANNER_CREATED_SUCCESSFULLY' => 'Banner created successfully',
     'MESSAGE.BANNER_UPDATED_SUCCESSFULLY' => 'Banner updated successfully',

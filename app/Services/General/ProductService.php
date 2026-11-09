@@ -28,6 +28,13 @@ class ProductService
     use HasChannelFilter;
     use MediaManager;
 
+    /**
+     * Storefront cross-sell display cap (plan D3/Q-04): a FIXED constant,
+     * never config. The eligible `cross_sell_products` list AND the
+     * `eligible_cross_sell_count` are both limited by this value.
+     */
+    public const STOREFRONT_DISPLAY_LIMIT = 8;
+
     public function __construct(private ProductTaxPresenter $productTaxPresenter) {}
 
     private function pricingService(): ProductPricingService
@@ -265,6 +272,12 @@ class ProductService
         }
 
         $product->setRelation('related_products', $this->enrichCollectionWithPricing($this->fetchRelated($product, $limit)));
+
+        // Manual cross-selling (Q-01/Q-03): ALWAYS assign the relation — when
+        // no eligible product exists it must be an EMPTY Collection, so
+        // ProductResource can render `cross_sell_products: []` and
+        // `eligible_cross_sell_count: 0` without omission or null.
+        $product->setRelation('crossSellProducts', $this->fetchCrossSellProducts($product));
 
         return $this->enrichProductWithPricing($product);
     }
@@ -663,6 +676,33 @@ class ProductService
         $this->applyChannelHomeFilter($query);
 
         return $query->limit($limit)->get();
+    }
+
+    /**
+     * Fetch the storefront cross-sell list for one product (plan rev.3 §10.4).
+     *
+     * Eligibility uses the same canonical sources as Storefront everywhere:
+     * `Product::crossSellProducts()` relationship (directional, pivot-ordered)
+     * + `active()` + current channel rule (`FastShippingScope` global scope
+     * handles fast-shipping; `applyChannelHomeFilter()` handles home).
+     * Soft-deleted targets are excluded by SoftDeletes itself.
+     *
+     * The merchant's saved order survives filtering; the 8 cap applies AFTER
+     * both filters, so ineligible items never consume display slots.
+     */
+    public function fetchCrossSellProducts(Product $product): Collection
+    {
+        $query = $product->crossSellProducts()
+            ->active()
+            ->with($this->productRelations())
+            ->withAvg(['reviews' => fn (Builder $builder) => $builder->approved()], 'rating')
+            ->withCount(['reviews' => fn (Builder $builder) => $builder->approved()])
+            ->where('products.id', '!=', $product->id)
+            ->limit(self::STOREFRONT_DISPLAY_LIMIT);
+
+        $this->applyChannelHomeFilter($query);
+
+        return $this->enrichCollectionWithPricing($query->get());
     }
 
     /**

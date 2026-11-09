@@ -13,6 +13,21 @@ class StoreSectionRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('type') === 'hero' && !$this->has('title')) {
+            $this->merge([
+                'title' => ['en' => 'Hero', 'ar' => 'هيرو'],
+            ]);
+        }
+
+        foreach (['is_active', 'title_visible'] as $boolField) {
+            if ($this->has($boolField) && is_bool($this->input($boolField))) {
+                $this->merge([$boolField => $this->input($boolField) ? 1 : 0]);
+            }
+        }
+    }
+
     public function rules()
     {
         return [

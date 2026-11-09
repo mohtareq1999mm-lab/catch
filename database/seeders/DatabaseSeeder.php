@@ -58,7 +58,10 @@ class DatabaseSeeder extends Seeder
                 'email_verified_at' => now(),
             ]);
 
-            $user->assignRole("super_admin");
+            $user->update(['type' => 'admin', 'is_active' => true]);
+            if (! $user->hasRole('super_admin')) {
+                $user->assignRole('super_admin');
+            }
             $user->syncPermissions(\Spatie\Permission\Models\Permission::where('guard_name', 'api')->get());
             //        $userEdit->assignRole("editor");
             //        $customer->assignRole("customer");
@@ -131,6 +134,9 @@ class DatabaseSeeder extends Seeder
         }
         $admin = User::where('email', 'admin@demo.com')->first();
         if ($admin) {
+            if (! $admin->hasRole('super_admin')) {
+                $admin->assignRole('super_admin');
+            }
             $admin->syncPermissions($allApiPermissions);
         }
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();

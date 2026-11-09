@@ -389,9 +389,21 @@ class SectionSeeder extends Seeder
             ],
         ];
 
-        $uniqueTypes = collect($sections)->pluck('type')->unique();
+        $uniqueTypes = collect($sections)->pluck('type')->push('hero')->unique();
         foreach ($uniqueTypes as $type) {
             SectionType::firstOrCreate(['type' => $type]);
+        }
+
+        $heroSectionType = SectionType::where('type', 'hero')->first();
+        if ($heroSectionType) {
+            \Marvel\Database\Models\SectionTypeSetting::updateOrCreate(
+                ['section_type_id' => $heroSectionType->id, 'setting_key' => 'front'],
+                ['value' => ['autoplay' => true, 'loop' => true, 'muted' => true]]
+            );
+            \Marvel\Database\Models\SectionTypeSetting::updateOrCreate(
+                ['section_type_id' => $heroSectionType->id, 'setting_key' => 'back'],
+                ['value' => []]
+            );
         }
 
         foreach ($sections as $data) {
@@ -420,6 +432,7 @@ class SectionSeeder extends Seeder
         $expectedIds = collect($sections)->pluck('id')->all();
         Section::where('content_page_id', $homePage->id)
             ->whereNotIn('id', $expectedIds)
+            ->where('type', '!=', 'hero')
             ->delete();
     }
 }

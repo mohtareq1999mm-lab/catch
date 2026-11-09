@@ -57,6 +57,16 @@ class ProductUpdateRequest extends FormRequest
         $itemTypes = ItemType::getValues();
         $discountTypes = DiscountType::getValues();
 
+        // Cross-sell source resolution (plan rev.3 §5.4): the route parameter
+        // may be a bound Product model OR a numeric id. Fail-closed: when the
+        // source id cannot be resolved, ValidCrossSellIds is constructed with
+        // requireSource=true so any submitted cross_sell_ids is rejected.
+        $routeProduct = $this->route('product');
+
+        $currentProductId = $routeProduct instanceof \Marvel\Database\Models\Product
+            ? (int) $routeProduct->getKey()
+            : (is_numeric($routeProduct) ? (int) $routeProduct : null);
+
         return [
             'name'                         => ['sometimes', 'array'],
             'name.*'                       => ['sometimes', 'string', 'max:255', UniqueTranslationRule::for('products')->ignore($this->route('product'))],
@@ -98,6 +108,15 @@ class ProductUpdateRequest extends FormRequest
             'banners.*'                    => ['integer', 'exists:banners,id'],
             'sliders'                      => ['sometimes', 'array'],
             'sliders.*'                    => ['integer', 'exists:sliders,id'],
+
+            // Manual cross-selling (ordered directional list). The custom rule
+            // receives the FULL array and knows the update source id for
+            // self/existing checks. Q-02: already-attached soft-deleted targets
+            // are allowed to remain; newly submitted ones are rejected.
+            // Display/channel eligibility is never validated here (D5/D7/Q-01).
+            'cross_sell_ids'               => ['sometimes', 'array', new \App\Rules\ValidCrossSellIds($currentProductId, true)],
+            'cross_sell_ids.*'             => ['integer', 'min:1', 'distinct'],
+
             'tax_enabled'                  => ['sometimes', 'boolean'],
             'tax_rate'                     => ['nullable', 'numeric', 'min:0', 'max:100'],
 

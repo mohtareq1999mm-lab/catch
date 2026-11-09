@@ -70,6 +70,18 @@ class ProductResource extends JsonResource
             "variants"                => $this->whenLoaded('variations', fn() => $this->getVariants()),
             'reviews'                 => ReviewResource::collection($this->whenLoaded('reviews')),
             $this->mergeWhen($this->relationLoaded('related_products'), fn() => ['related_products' => ProductMiniResource::collection($this->related_products)]),
+            // Manual cross-selling (Q-01/Q-03, plan rev.3 §9): both keys are
+            // guaranteed on the detail response because the service ALWAYS
+            // assigns `crossSellProducts` (empty Collection when nothing is
+            // eligible). The count is derived from the already-loaded, capped
+            // collection — no extra query, no COUNT(*), never null.
+            $this->mergeWhen(
+                $this->relationLoaded('crossSellProducts'),
+                fn() => [
+                    'eligible_cross_sell_count' => $this->resource->crossSellProducts->count(),
+                    'cross_sell_products' => ProductMiniResource::collection($this->resource->crossSellProducts),
+                ]
+            ),
             $this->mergeWhen(!request()->routeIs('general-product-show'), [
                 'filters' => $this->getProductFilters($this->resource),
             ]),

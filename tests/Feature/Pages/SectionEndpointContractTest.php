@@ -29,6 +29,7 @@ class SectionEndpointContractTest extends TestCase
         'flash-sales',
         'brands',
         'coupons',
+        'hero',
     ];
 
     protected function setUp(): void
@@ -62,7 +63,7 @@ class SectionEndpointContractTest extends TestCase
 
     private function createSectionAttached(ContentPage $page, string $type, array $back = [], ?string $storedEndpoint = null): Section
     {
-        SectionType::create(['type' => $type]);
+        SectionType::firstOrCreate(['type' => $type]);
 
         $section = Section::create([
             'type' => $type,
@@ -220,7 +221,7 @@ class SectionEndpointContractTest extends TestCase
     {
         $page = $this->createHomePage();
 
-        foreach (['banners', 'sliders', 'promotions', 'tags', 'categories', 'products', 'flash-sales', 'brands', 'coupons'] as $type) {
+        foreach (['banners', 'sliders', 'promotions', 'tags', 'categories', 'products', 'flash-sales', 'brands', 'coupons', 'hero'] as $type) {
             $this->createSectionAttached($page, $type);
         }
 

@@ -255,6 +255,18 @@ class WarehouseDashboardSeeder extends Seeder
         $roleSupervisor->syncPermissions($supervisorPermissions);
         $rolePicker->syncPermissions($pickerPermissions);
         $rolePacker->syncPermissions($packerPermissions);
+
+        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $roleSuperAdmin->syncPermissions($allApiPermissions);
+
+        $demoAdmin = User::where('email', 'admin@demo.com')->first();
+        if ($demoAdmin) {
+            if (! $demoAdmin->hasRole('super_admin')) {
+                $demoAdmin->assignRole('super_admin');
+            }
+            $demoAdmin->syncPermissions($allApiPermissions);
+        }
+
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         // -------------------------------------------------------------

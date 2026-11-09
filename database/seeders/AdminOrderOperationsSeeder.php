@@ -81,9 +81,13 @@ class AdminOrderOperationsSeeder extends Seeder
         ]);
 
         // Also update admin@demo.com if it exists
+        $allApiPermissions = Permission::where('guard_name', 'api')->get();
         $demoAdmin = User::where('email', 'admin@demo.com')->first();
         if ($demoAdmin) {
-            $demoAdmin->givePermissionTo($permissions);
+            if (! $demoAdmin->hasRole('super_admin')) {
+                $demoAdmin->assignRole('super_admin');
+            }
+            $demoAdmin->syncPermissions($allApiPermissions);
         }
 
         $admin->givePermissionTo($permissions);
