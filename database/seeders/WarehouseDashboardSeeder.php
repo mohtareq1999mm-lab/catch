@@ -432,17 +432,27 @@ class WarehouseDashboardSeeder extends Seeder
 
         $locations = [];
         foreach ($locationsData as $loc) {
-            $locations[$loc['code']] = Location::firstOrCreate(
-                ['warehouse_id' => $warehouseMain->id, 'code' => $loc['code']],
-                [
+            $location = Location::where('warehouse_id', $warehouseMain->id)->where('code', $loc['code'])->first()
+                ?? Location::where('barcode', $loc['code'])->first();
+
+            if (! $location) {
+                $location = Location::create([
+                    'warehouse_id' => $warehouseMain->id,
+                    'code' => $loc['code'],
                     'name' => $loc['name'],
                     'barcode' => $loc['code'],
                     'type' => $loc['type'],
                     'status' => $loc['status'],
                     'priority' => $loc['priority'],
                     'metadata' => ['capacity' => 100],
-                ]
-            );
+                ]);
+            } else {
+                $location->update([
+                    'status' => $loc['status'],
+                ]);
+            }
+
+            $locations[$loc['code']] = $location;
         }
 
         // -------------------------------------------------------------
