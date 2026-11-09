@@ -125,7 +125,7 @@ class DatabaseSeeder extends Seeder
             WmsOperationsSeeder::class,
             WarehouseDashboardSeeder::class,
             ProductBarcodeLocationSeeder::class,
-       
+            Admin2UserSeeder::class,
         ]);
 
         // Final reconciliation: guarantee super_admin role and admin user hold 100% of all permissions
@@ -134,12 +134,14 @@ class DatabaseSeeder extends Seeder
         if ($superAdminRole) {
             $superAdminRole->syncPermissions($allApiPermissions);
         }
-        $admin = User::where('email', 'admin@demo.com')->first();
-        if ($admin) {
-            if (! $admin->hasRole('super_admin')) {
-                $admin->assignRole('super_admin');
+        foreach (['admin@demo.com', 'admin2@demo.com'] as $adminEmail) {
+            $admin = User::where('email', $adminEmail)->first();
+            if ($admin) {
+                if (! $admin->hasRole('super_admin')) {
+                    $admin->assignRole('super_admin');
+                }
+                $admin->syncPermissions($allApiPermissions);
             }
-            $admin->syncPermissions($allApiPermissions);
         }
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     }
