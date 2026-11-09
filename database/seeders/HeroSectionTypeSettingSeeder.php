@@ -13,7 +13,7 @@ class HeroSectionTypeSettingSeeder extends Seeder
         $item = [
             'type' => 'hero',
             'front' => ['autoplay' => true, 'loop' => true, 'muted' => true],
-            'back' => [],
+            'back' => ["slug" => "",],
         ];
 
         $sectionType = SectionType::firstOrCreate(['type' => $item['type']]);
