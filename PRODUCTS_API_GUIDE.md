@@ -395,8 +395,7 @@ Returns the full Admin `ProductResource` (same structure as **Section 3** below)
 
 - **Method & URL:**
   - `PUT /api/v1/products/{id}`
-  - `PATCH /api/v1/products/{id}`
-  - `POST /api/v1/products/{id}` *(recommended when uploading new `images[]` via `multipart/form-data`)*
+
 - **Headers:** `Authorization: Bearer {token}`, `Content-Type: multipart/form-data` (or `application/json`)
 - **Permission:** `update-product`
 

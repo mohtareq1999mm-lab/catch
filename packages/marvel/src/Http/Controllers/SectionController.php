@@ -104,7 +104,10 @@ class SectionController extends CoreController
 
     public function getTypeSection()
     {
-        $types = Section::get()->pluck('type')->unique();
+        $this->sectionTypeService->ensureHeroTypeExists();
+        $types = Section::get()->pluck('type')
+            ->merge(\Marvel\Database\Models\SectionType::pluck('type'))
+            ->unique();
         return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, $types);
     }
 }

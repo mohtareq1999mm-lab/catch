@@ -125,5 +125,30 @@ class HeroController extends CoreController
         }
     }
 
+    public function changeStatus(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|integer|exists:heroes,id',
+            'is_active' => 'nullable|boolean',
+            'status' => 'nullable|boolean',
+        ]);
 
+        try {
+            $hero = $this->heroService->findById((int) $request->id);
+            if ($request->has('is_active') || $request->has('status')) {
+                $targetActive = $request->has('is_active')
+                    ? (bool) $request->boolean('is_active')
+                    : (bool) $request->boolean('status');
+                $updated = $this->heroService->updateHero($hero, ['is_active' => $targetActive]);
+            } else {
+                $updated = $this->heroService->toggleActive($hero);
+            }
+            $this->flushTag(FrontendResource::HERO->value);
+
+            return $this->apiResponse(HERO_STATUS_CHANGED, 200, true, HeroResource::make($updated));
+        } catch (ModelNotFoundException $e) {
+            return $this->apiResponse(NOT_FOUND, 404, false);
+        }
+    }
+}
 

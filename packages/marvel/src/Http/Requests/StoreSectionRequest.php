@@ -15,10 +15,13 @@ class StoreSectionRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        if ($this->input('type') === 'hero' && !$this->has('title')) {
-            $this->merge([
-                'title' => ['en' => 'Hero', 'ar' => 'هيرو'],
-            ]);
+        if ($this->input('type') === 'hero') {
+            app(\App\Services\General\SectionTypeService::class)->ensureHeroTypeExists();
+            if (!$this->has('title')) {
+                $this->merge([
+                    'title' => ['en' => 'Hero', 'ar' => 'هيرو'],
+                ]);
+            }
         }
 
         foreach (['is_active', 'title_visible'] as $boolField) {

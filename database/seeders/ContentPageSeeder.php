@@ -292,6 +292,17 @@ class ContentPageSeeder extends Seeder
                     ],
                 ]
             ],
+            // 17 — Hero section
+            [
+                'type' => 'hero',
+                'title' => ['en' => 'Hero', 'ar' => 'الهيرو الرئيسي'],
+                'endpoint' => 'hero',
+                'order' => 17,
+                'setting' => [
+                    'front' => ['autoplay' => true, 'loop' => true, 'muted' => true],
+                    'back' => [],
+                ]
+            ],
         ];
 
         $page->sections()->delete();

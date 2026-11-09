@@ -7,8 +7,30 @@ use Marvel\Database\Models\SectionTypeSetting;
 
 class SectionTypeService
 {
+    public function ensureHeroTypeExists(): SectionType
+    {
+        $heroSectionType = SectionType::firstOrCreate(['type' => 'hero']);
+
+        if (!$heroSectionType->settings()->where('setting_key', 'front')->exists()) {
+            SectionTypeSetting::updateOrCreate(
+                ['section_type_id' => $heroSectionType->id, 'setting_key' => 'front'],
+                ['value' => ['autoplay' => true, 'loop' => true, 'muted' => true]]
+            );
+        }
+
+        if (!$heroSectionType->settings()->where('setting_key', 'back')->exists()) {
+            SectionTypeSetting::updateOrCreate(
+                ['section_type_id' => $heroSectionType->id, 'setting_key' => 'back'],
+                ['value' => []]
+            );
+        }
+
+        return $heroSectionType->load('settings');
+    }
+
     public function getAll(): \Illuminate\Support\Collection
     {
+        $this->ensureHeroTypeExists();
         return SectionType::get()->pluck('type');
     }
 
@@ -19,6 +41,10 @@ class SectionTypeService
 
     public function getByType(string $type): ?SectionType
     {
+        if ($type === 'hero') {
+            return $this->ensureHeroTypeExists();
+        }
+
         return SectionType::with('settings')->where('type', $type)->first();
     }
 

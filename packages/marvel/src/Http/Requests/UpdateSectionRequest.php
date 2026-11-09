@@ -14,9 +14,23 @@ class UpdateSectionRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('type') === 'hero') {
+            app(\App\Services\General\SectionTypeService::class)->ensureHeroTypeExists();
+        }
+
+        foreach (['is_active', 'title_visible'] as $boolField) {
+            if ($this->has($boolField) && is_bool($this->input($boolField))) {
+                $this->merge([$boolField => $this->input($boolField) ? 1 : 0]);
+            }
+        }
+    }
+
     public function rules()
     {
         return [
+            'type' => 'sometimes|string|max:100|exists:section_types,type',
             'title' => 'sometimes|array',
             'title.*' => ['sometimes', 'string', 'max:50'],
             'order' => 'sometimes|integer',

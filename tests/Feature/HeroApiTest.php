@@ -107,7 +107,7 @@ class HeroApiTest extends TestCase
             'media' => $imageFile,
         ]);
 
-        $res1->assertOk()
+        $res1->assertStatus(201)
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.type', 'image')
             ->assertJsonPath('data.is_active', true)
@@ -130,7 +130,7 @@ class HeroApiTest extends TestCase
             'media' => $videoFile,
         ]);
 
-        $res2->assertOk()
+        $res2->assertStatus(201)
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.type', 'video')
             ->assertJsonPath('data.is_active', true);
@@ -151,7 +151,7 @@ class HeroApiTest extends TestCase
             'media' => $imageFile3,
         ]);
 
-        $res3->assertOk()->assertJsonPath('data.is_active', false);
+        $res3->assertStatus(201)->assertJsonPath('data.is_active', false);
         $this->assertTrue((bool) Hero::find($hero2Id)->is_active);
         $this->assertSame(1, Hero::where('is_active', true)->count());
     }
@@ -287,10 +287,14 @@ class HeroApiTest extends TestCase
             ['title' => ['en' => 'Home', 'ar' => 'الرئيسية'], 'is_active' => true]
         );
 
-        // 1. GET /api/v1/section-types includes 'hero'
+        // 1. GET /api/v1/section-types and GET /api/v1/sections/types both include 'hero'
         $typesRes = $this->actingAs($this->admin, 'sanctum')->getJson('/api/v1/section-types');
         $typesRes->assertOk();
-        $this->assertContains('hero', $typesRes->json('data'));
+        $this->assertContains('hero', array_values((array) $typesRes->json('data')));
+
+        $sectionsTypesRes = $this->actingAs($this->admin, 'sanctum')->getJson('/api/v1/sections/types');
+        $sectionsTypesRes->assertOk();
+        $this->assertContains('hero', array_values((array) $sectionsTypesRes->json('data')));
 
         // 2. GET & POST /api/v1/section-types/hero/settings work (200 OK)
         $getSettings = $this->actingAs($this->admin, 'sanctum')->getJson('/api/v1/section-types/hero/settings');
@@ -385,6 +389,34 @@ class HeroApiTest extends TestCase
         $this->getJson('/api/v1/general/hero')
             ->assertOk()
             ->assertJsonPath('data', null);
+    }
+
+    public function test_seeders_register_hero_section_type_section_and_single_active_hero(): void
+    {
+        $this->seed(\Database\Seeders\SectionTypeSettingSeeder::class);
+        $this->seed(\Database\Seeders\SectionSeeder::class);
+        $this->seed(\Database\Seeders\HeroSeeder::class);
+
+        // 1. section_types has 'hero'
+        $this->assertTrue(SectionType::where('type', 'hero')->exists());
+
+        // 2. sections has 'hero' section
+        $this->assertTrue(Section::where('type', 'hero')->exists());
+
+        // 3. GET /api/v1/sections/types includes 'hero'
+        $sectionsTypesRes = $this->actingAs($this->admin, 'sanctum')->getJson('/api/v1/sections/types');
+        $sectionsTypesRes->assertOk();
+        $this->assertContains('hero', array_values((array) $sectionsTypesRes->json('data')));
+
+        // 4. HeroSeeder creates heroes with strictly 1 active Hero
+        $this->assertGreaterThanOrEqual(1, Hero::count());
+        $this->assertSame(1, Hero::where('is_active', true)->count());
+
+        // 5. Public endpoint returns that single active Hero object
+        $pubRes = $this->getJson('/api/v1/general/hero');
+        $pubRes->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.is_active', true);
     }
 }
 

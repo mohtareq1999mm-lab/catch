@@ -387,6 +387,22 @@ class SectionSeeder extends Seeder
                     ],
                 ],
             ],
+            [
+                'id' => 25,
+                'type' => 'hero',
+                'title' => 'Hero',
+                'is_active' => true,
+                'endpoint' => 'general/hero',
+                'order' => 20,
+                'setting' => [
+                    'front' => [
+                        'autoplay' => true,
+                        'loop' => true,
+                        'muted' => true,
+                    ],
+                    'back' => [],
+                ],
+            ],
         ];
 
         $uniqueTypes = collect($sections)->pluck('type')->push('hero')->unique();
