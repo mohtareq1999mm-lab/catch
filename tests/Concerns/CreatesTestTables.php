@@ -941,8 +941,33 @@ Schema::create('categories', function (Blueprint $table) {
             $table->timestamp('paid_at')->nullable();
             // Mirrors production: callback idempotency token (controller writes it).
             $table->string('idempotency_key')->nullable()->unique();
-            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            // Payment Attempt lifecycle (2026_11_10_000001 parity).
+            $table->string('attempt_state', 20)->nullable();
+            $table->string('dispatch_reference', 64)->nullable()->unique();
+            $table->string('capture_state', 20)->nullable();
+            $table->timestamp('capture_attempted_at')->nullable();
+            $table->foreignId('user_id')->nullable()->constrained('users')->cascadeOnDelete();
             $table->timestamps();
+        });
+
+        // W-1 parity: durable webhook inbox (2026_11_10_000002).
+        Schema::create('payment_webhook_events', function (Blueprint $table) {
+            $table->id();
+            $table->string('provider', 20);
+            $table->string('event_key', 191);
+            $table->string('provider_account', 64)->nullable();
+            $table->string('event_type', 64)->nullable();
+            $table->string('provider_ref', 191)->nullable();
+            $table->string('attempt_ref', 64)->nullable();
+            $table->json('payload')->nullable();
+            $table->string('status', 20)->default('received');
+            $table->unsignedInteger('attempts')->default(0);
+            $table->text('last_error')->nullable();
+            $table->timestamp('processed_at')->nullable();
+            $table->timestamps();
+
+            $table->unique(['provider', 'event_key']);
+            $table->index('status');
         });
 
         Schema::create('attributes', function (Blueprint $table) {

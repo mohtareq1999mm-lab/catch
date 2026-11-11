@@ -26,6 +26,12 @@ class SendOrderStatusEmail implements ShouldQueue
         $order = $event->order;
         $user = $order->user ?? \Marvel\Database\Models\User::find($order->user_id);
 
+        // Guest orders have no account-scoped preferences; skip safely.
+        if (!$user) {
+            $this->logSkipped($order, 'No registered user');
+            return;
+        }
+
         $preferences = UserNotificationPreference::forUser($user->id);
 
         if (!$preferences->isEventEnabled($this->getEventType($event), 'email')) {

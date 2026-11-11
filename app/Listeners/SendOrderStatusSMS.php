@@ -32,6 +32,14 @@ class SendOrderStatusSMS implements ShouldQueue
             $user = \Marvel\Database\Models\User::find($order->user_id);
         }
 
+        // Guest orders have no registered account and therefore no
+        // user-scoped notification preferences. Skip safely; guests use the
+        // public tracking/cancellation links instead.
+        if (!$user) {
+            $this->logSkipped($order, 'No registered user');
+            return;
+        }
+
         if (!$this->shouldSendSMS($event)) {
             $this->logSkipped($order, 'Event not configured for SMS');
             return;

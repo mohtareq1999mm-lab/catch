@@ -119,7 +119,11 @@ class PaymentReconciliationJob implements ShouldQueue
     private function verifyWithGateway(PaymentGatewayContract $gateway, string $transactionId): ?GatewayResult
     {
         try {
-            $result = $gateway->verifyPayment($transactionId);
+            // PM-5: reconciliation probes are STRICTLY read-only — never a
+            // verifyPayment() that may capture (PayPal/Tabby).
+            $result = $gateway instanceof \App\Services\Payment\Contracts\ReadonlyPaymentProbeContract
+                ? $gateway->probePaymentStatus($transactionId)
+                : $gateway->verifyPayment($transactionId);
 
             if ($result->status === null && !$result->success) {
                 return null;

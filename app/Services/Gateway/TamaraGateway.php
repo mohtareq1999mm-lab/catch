@@ -7,6 +7,7 @@ namespace App\Services\Gateway;
 use App\DTOs\GatewayResult;
 use App\Services\Payment\Contracts\AuthorisationGatewayContract;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Payment\Contracts\ReadonlyPaymentProbeContract;
 use App\Services\Payment\CurrencyPrecision;
 use App\Services\Payment\CustomerContactResolver;
 use App\Services\Payment\PaymentCurrencyResolver;
@@ -111,7 +112,7 @@ use Marvel\Database\Models\Order;
  * messages are truncated and token-material redacted; TLS verification is
  * always on; logs carry ids/statuses only — never tokens or raw bodies.
  */
-class TamaraGateway implements PaymentGatewayContract, AuthorisationGatewayContract
+class TamaraGateway implements PaymentGatewayContract, AuthorisationGatewayContract, ReadonlyPaymentProbeContract
 {
     /**
      * Fresh-read allowlist: technical fields only. The order object carries
@@ -227,7 +228,7 @@ class TamaraGateway implements PaymentGatewayContract, AuthorisationGatewayContr
             );
         }
 
-        $orderReferenceId = (string) Str::uuid();
+        $orderReferenceId = (string) ($metadata['attempt_ref'] ?? Str::uuid());
         $payload = $this->checkoutPayload($order, $orderCurrency, $amount, $callbackUrl, $orderReferenceId);
 
         $response = $this->request('post', '/checkout', $payload);
@@ -312,6 +313,40 @@ class TamaraGateway implements PaymentGatewayContract, AuthorisationGatewayContr
         }
 
         return $this->mapOrder($data, $orderId);
+    }
+
+    /**
+     * PM-5: STRICTLY READ-ONLY probe — fresh order retrieval with the
+     * merchant authorise POST disabled (authoriseAttempted: true makes
+     * mapOrder never send it). NEVER mutates provider state.
+     */
+    public function probePaymentStatus(string $gatewayTransactionId): GatewayResult
+    {
+        $orderId = trim($gatewayTransactionId);
+
+        if ($orderId === '' || strlen($orderId) > 191 || !preg_match('/^[A-Za-z0-9\-_]+$/', $orderId)) {
+            return new GatewayResult(
+                success: false,
+                errorMessage: 'Invalid gateway transaction id',
+            );
+        }
+
+        $data = $this->fetchOrder($orderId);
+
+        if (!is_array($data)) {
+            // Unread provider truth: fail-closed NON-TERMINAL (Unknown).
+            return new GatewayResult(
+                success: false,
+                status: 'pending',
+                gatewayTransactionId: $orderId,
+                errorMessage: $data instanceof GatewayResult ? $data->errorMessage : 'Payment gateway error',
+            );
+        }
+
+        // authoriseAttempted: true → mapOrder never POSTs /authorise; an
+        // 'approved' session stays conclusive-open (authorise/capture is a
+        // separate explicit financial decision, not a probe side effect).
+        return $this->mapOrder($data, $orderId, authoriseAttempted: true);
     }
 
     /**

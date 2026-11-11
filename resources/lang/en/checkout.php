@@ -72,5 +72,6 @@ return [
     'flow_input_inflight_block' => 'Cannot change required input :key while in-flight orders exist on this flow.',
     'status_target_forbidden' => 'You are not authorized to move orders to :status.',
     'order_cancel_not_allowed' => 'This order can no longer be cancelled. Please contact support.',
+    'order_payment_in_progress' => 'A payment for this order is currently being processed. Please try again shortly.',
     'order_cancelled_successfully' => 'Order cancelled successfully.',
 ];

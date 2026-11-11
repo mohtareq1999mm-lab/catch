@@ -6,6 +6,7 @@ namespace App\Services\Gateway;
 
 use App\DTOs\GatewayResult;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Payment\Contracts\ReadonlyPaymentProbeContract;
 use App\Services\Payment\CurrencyPrecision;
 use App\Services\Payment\CustomerContactResolver;
 use App\Services\Payment\PaymentCurrencyResolver;
@@ -71,7 +72,7 @@ use Marvel\Database\Models\Order;
  * and sk_ redacted; TLS verification is always enabled (no
  * withoutVerifying); logs carry ids/statuses only — never raw bodies.
  */
-class TabbyGateway implements PaymentGatewayContract
+class TabbyGateway implements PaymentGatewayContract, ReadonlyPaymentProbeContract
 {
     /**
      * Verification payment allowlist: technical fields only. The payment
@@ -126,6 +127,14 @@ class TabbyGateway implements PaymentGatewayContract
         $paymentAmount = CurrencyPrecision::formatForGateway($amount, $orderCurrency);
 
         $payload = $this->sessionPayload($order, $orderCurrency, $paymentAmount, $callbackUrl);
+
+        // PM-6: per-attempt merchant reference — the payment object echoed
+        // by authenticated Tabby webhooks carries order.reference_id, so the
+        // attempt reference (unique per attempt) enables pre-persistence
+        // correlation. Legacy calls without attempt_ref keep order-id.
+        if (is_string($metadata['attempt_ref'] ?? null) && trim((string) $metadata['attempt_ref']) !== '') {
+            $payload['order']['reference_id'] = trim((string) $metadata['attempt_ref']);
+        }
 
         $response = $this->request('post', '/checkout', $payload);
 
@@ -206,6 +215,37 @@ class TabbyGateway implements PaymentGatewayContract
         }
 
         return $this->mapPayment($data, $id, captureRequested: false);
+    }
+
+    /**
+     * PM-5: STRICTLY READ-ONLY probe — fresh payment retrieval with the
+     * capture trigger disabled (AUTHORIZED stays conclusive-open instead of
+     * capturing). NEVER mutates provider state.
+     */
+    public function probePaymentStatus(string $gatewayTransactionId): GatewayResult
+    {
+        $id = trim($gatewayTransactionId);
+
+        if ($id === '' || strlen($id) > 191 || !preg_match('/^[A-Za-z0-9\-_]+$/', $id)) {
+            return new GatewayResult(
+                success: false,
+                errorMessage: 'Invalid gateway transaction id',
+            );
+        }
+
+        $data = $this->fetchPayment($id);
+
+        if (!is_array($data)) {
+            // Unread provider truth: fail-closed NON-TERMINAL (Unknown).
+            return new GatewayResult(
+                success: false,
+                status: 'pending',
+                gatewayTransactionId: $id,
+                errorMessage: $data instanceof GatewayResult ? $data->errorMessage : 'Payment gateway error',
+            );
+        }
+
+        return $this->mapPayment($data, $id, captureRequested: false, allowCapture: false);
     }
 
     public function refund(
@@ -389,7 +429,7 @@ class TabbyGateway implements PaymentGatewayContract
      * read. CREATED/read-ambiguity/unconfirmed-capture => NON-TERMINAL
      * pending; REJECTED/EXPIRED/CLOSED-without-captures => terminal failed.
      */
-    private function mapPayment(array $data, string $id, bool $captureRequested): GatewayResult
+    private function mapPayment(array $data, string $id, bool $captureRequested, bool $allowCapture = true): GatewayResult
     {
         $status = strtoupper(trim((string) ($data['status'] ?? '')));
         $amount = is_numeric($data['amount'] ?? null) ? (float) $data['amount'] : null;
@@ -433,6 +473,13 @@ class TabbyGateway implements PaymentGatewayContract
 
         if ($status === 'AUTHORIZED') {
             if (!$hasCaptures) {
+                if (!$allowCapture) {
+                    // PM-5 probe: conclusive-OPEN — buyer approved, capture
+                    // (money movement) is a separate merchant decision that
+                    // the probe MUST never perform.
+                    return $paymentResult(true, 'pending', 'Authorized awaiting capture');
+                }
+
                 return $this->captureFirst($id, $amount, $currency, $raw);
             }
 

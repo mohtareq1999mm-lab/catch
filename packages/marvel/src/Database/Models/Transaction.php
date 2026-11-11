@@ -25,12 +25,17 @@ class Transaction extends Model
         'qr_code_url',
         'paid_at',
         'idempotency_key',
+        'attempt_state',
+        'dispatch_reference',
+        'capture_state',
+        'capture_attempted_at',
     ];
 
     protected $casts = [
         'gateway_response' => 'array',
         'paid_at' => 'datetime',
         'amount' => 'float',
+        'capture_attempted_at' => 'datetime',
     ];
 
     protected static function boot()

@@ -47,6 +47,10 @@ class CartResource extends Resource
             'status' => $this->status,
             'reserved_at' => $this->reserved_at,
             'expires_at' => $this->expires_at,
+            // Guest carts only: 7-day inactivity retention deadline. NULL for
+            // authenticated carts (their expires_at keeps the activity-window
+            // semantics used by abandoned-cart analytics).
+            'guest_expires_at' => $this->guest_expires_at,
             'total_items' => $items ? $items->count() : null,
             'total_quantity' => $items ? $items->sum('quantity') : null,
             'total_price' => $this->convertPrice($subtotal, $currencyService),

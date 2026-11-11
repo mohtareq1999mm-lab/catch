@@ -122,18 +122,19 @@ $affected = $cart->items()
             $cart->update(['status' => 'active']);
 
             if ($request->filled('item')) {
-                if (!$this->syncItems($cart, $request->item ?? [], $mode)) {
-                    throw new Exception(INVALID_ITEM_DATA);
-                }
+                // Single item-validation/mutation path shared by authenticated
+                // and guest carts. applyItemToCart locks the cart row and
+                // recalculates totals from server-side pricing only.
+                $cart = $this->applyItemToCart($cart, (array) ($request->item ?? []), $mode);
+            } else {
+                $cart->update([
+                    'total_price' => $cart->items()->sum('total_price'),
+                ]);
             }
-
-            $cart->update([
-                'total_price' => $cart->items()->sum('total_price'),
-            ]);
 
             DB::commit();
 
-            return $cart->load(['items.product', 'items.productVariant.attributeProducts.attributeValue.attribute']);
+            return $cart;
         } catch (AuthorizationException $e) {
             DB::rollBack();
             throw new HttpException(401, $e->getMessage());
@@ -141,6 +142,31 @@ $affected = $cart->items()
             DB::rollBack();
             throw new HttpException(400, $e->getMessage());
         }
+    }
+
+    /**
+     * Apply one validated cart line to an already-owned cart.
+     *
+     * Reused by the guest cart path so product availability, variant
+     * resolution, channel/shipping eligibility, quantity bounds and
+     * authoritative pricing stay in ONE place. Never trusts client prices.
+     */
+    public function applyItemToCart(Cart $cart, array $item, string $mode): Cart
+    {
+        return DB::transaction(function () use ($cart, $item, $mode) {
+            $cart = Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
+            $cart->update(['status' => 'active']);
+
+            if (!$this->syncItems($cart, $item, $mode)) {
+                throw new Exception(INVALID_ITEM_DATA);
+            }
+
+            $cart->update([
+                'total_price' => round((float) $cart->items()->sum('total_price'), 2),
+            ]);
+
+            return $cart->load(['items.product', 'items.productVariant.attributeProducts.attributeValue.attribute']);
+        });
     }
 
     /**

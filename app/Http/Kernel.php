@@ -66,6 +66,9 @@ class Kernel extends HttpKernel
         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
         'signed' => \Illuminate\Routing\Middleware\ValidateSignature::class,
         'throttle' => \App\Http\Middleware\BypassThrottle::class,
+        'guest.throttle' => \App\Http\Middleware\GuestRateLimit::class,
+        'guest.csrf' => \App\Http\Middleware\GuestCsrf::class,
+        'guest.origin' => \App\Http\Middleware\GuestOrigin::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'lang' => \App\Http\Middleware\CheckLangMiddleware::class,
     ];

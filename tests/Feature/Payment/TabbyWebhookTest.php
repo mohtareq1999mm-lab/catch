@@ -323,10 +323,12 @@ class TabbyWebhookTest extends CurrencyTestCase
 
         $response = $this->postTabby($this->tabbyPayload('pay_pending_1', 'authorized', 100.0, 'SAR'));
 
-        // The response is a terminal-shaped 200-failed ack (Tabby then
-        // STOPS retrying this event; a later close webhook completes it).
+        // T-03 contract change: an ambiguous fresh read is a NON-TERMINAL
+        // answer — the ack is 200 'ignored' (Tabby stops retrying on any
+        // 200; a later close webhook completes it) and the ROW stays
+        // pending and completable — never 'failed'.
         $response->assertStatus(200);
-        $response->assertJsonPath('data.status', 'failed');
+        $response->assertJsonPath('data.status', 'ignored');
 
         // But the ROW remains pending and completable — never 'failed'.
         $this->assertSame('pending', $txn->fresh()->status, 'D1-R: unresolved capture must stay pending');

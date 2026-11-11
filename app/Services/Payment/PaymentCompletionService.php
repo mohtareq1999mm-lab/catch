@@ -306,6 +306,12 @@ class PaymentCompletionService
         // dispatch and fires it once after the transaction commits.
         // Authority exemption: payment authority was established by provider
         // verification before this service was entered.
-        $this->orderService->changeOrderStatus($txn->invoice_id, 'completed', null, false, null, null, false);
+        //
+        // Lifecycle rows (PM-1) may carry invoice_id = NULL at claim time
+        // (the provider reference is not yet known pre-dispatch). Resolve
+        // the order directly through its id — the canonical orderId path of
+        // the writer — otherwise changeOrderStatus silently no-ops and the
+        // order never completes despite the paid transaction.
+        $this->orderService->changeOrderStatus(null, 'completed', $txn->order_id, false, null, null, false);
     }
 }

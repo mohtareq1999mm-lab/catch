@@ -4,12 +4,13 @@ namespace App\Services\Gateway;
 
 use App\DTOs\GatewayResult;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Payment\Contracts\ReadonlyPaymentProbeContract;
 use App\Services\Payment\PaymentCurrencyResolver;
 use Marvel\Database\Models\Order;
 use Stripe\Exception\ApiErrorException;
 use Stripe\StripeClient;
 
-class StripeGateway implements PaymentGatewayContract
+class StripeGateway implements PaymentGatewayContract, ReadonlyPaymentProbeContract
 {
     /**
      * Minor-unit conversion rule.
@@ -102,6 +103,16 @@ class StripeGateway implements PaymentGatewayContract
         $cancelUrl = $this->appendQueryParam($errorUrl, 'paymentId={CHECKOUT_SESSION_ID}');
 
         try {
+            $attemptRef = $metadata['attempt_ref'] ?? null;
+            // PM-4: stable idempotency key derived from the local attempt
+            // reference — the SAME key on every retry of the same logical
+            // create collapses duplicates provider-side (24h retention, OD).
+            // Correlation metadata (attempt_ref inside metadata) and the
+            // idempotency key are deliberately distinct mechanisms.
+            $createOptions = is_string($attemptRef) && trim($attemptRef) !== ''
+                ? ['idempotency_key' => 'attempt-'.trim($attemptRef)]
+                : null;
+
             $session = $this->client()->checkout->sessions->create([
                 'mode' => 'payment',
                 'line_items' => [
@@ -119,7 +130,7 @@ class StripeGateway implements PaymentGatewayContract
                 'success_url' => $successUrl,
                 'cancel_url' => $cancelUrl,
                 'metadata' => array_merge(['order_id' => (string) $order->id], $metadata),
-            ]);
+            ], $createOptions);
         } catch (ApiErrorException $e) {
             return new GatewayResult(
                 success: false,
@@ -234,6 +245,67 @@ class StripeGateway implements PaymentGatewayContract
             status: $isPaid ? 'paid' : 'failed',
             errorMessage: $isPaid ? null : 'Payment not completed',
             rawResponse: $this->sanitizeSessionWithIntent($data, $paymentIntentId),
+        );
+    }
+
+    /**
+     * PM-5: STRICTLY READ-ONLY probe (session retrieve + PaymentIntent
+     * cross-check on the paid path). NEVER mutates provider state.
+     */
+    public function probePaymentStatus(string $gatewayTransactionId): GatewayResult
+    {
+        if (trim($gatewayTransactionId) === '') {
+            return new GatewayResult(
+                success: false,
+                errorMessage: 'Invalid gateway response',
+            );
+        }
+
+        try {
+            $session = $this->client()->checkout->sessions->retrieve($gatewayTransactionId);
+            $data = is_object($session) && method_exists($session, 'toArray')
+                ? $session->toArray()
+                : [];
+        } catch (\Throwable $e) {
+            // Unread provider truth: fail-closed NON-TERMINAL (Unknown).
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $gatewayTransactionId,
+                status: 'pending',
+                errorMessage: 'Payment gateway error',
+            );
+        }
+
+        $paymentStatus = (string) ($data['payment_status'] ?? '');
+        $sessionId = is_string($data['id'] ?? null) && $data['id'] !== '' ? $data['id'] : $gatewayTransactionId;
+
+        if ($paymentStatus === 'paid') {
+            // Paid verdict via the read-only verify path (session +
+            // PaymentIntent amount/currency cross-check, fail-closed).
+            return $this->verifyPayment($gatewayTransactionId);
+        }
+
+        $sessionStatus = strtolower((string) ($data['status'] ?? ''));
+        $raw = $this->sanitizeArray($data, self::SESSION_ALLOWLIST);
+        $raw['_probe_provider_status'] = $sessionStatus;
+
+        if ($sessionStatus === 'expired') {
+            // Provider-confirmed expiration: can no longer be paid.
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $sessionId,
+                status: 'failed',
+                errorMessage: 'Checkout session expired',
+                rawResponse: $raw,
+            );
+        }
+
+        // open / complete-unpaid: conclusive-OPEN session (still collectable).
+        return new GatewayResult(
+            success: true,
+            gatewayTransactionId: $sessionId,
+            status: 'pending',
+            rawResponse: $raw,
         );
     }
 

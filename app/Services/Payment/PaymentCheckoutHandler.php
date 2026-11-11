@@ -23,8 +23,19 @@ class PaymentCheckoutHandler
         private CartInventoryService $cartInventoryService,
         private CouponReservationService $couponReservationService,
         private PaymentCurrencyResolver $currencyResolver,
+        private PaymentAttemptLifecycleService $attemptLifecycle,
     ) {}
 
+    /**
+     * @param  bool  $enforceAttemptGuard  Guest opt-in: persist the attempt
+     *                                     claim BEFORE provider dispatch (PM-1)
+     *                                     and refuse a new payable session
+     *                                     while an earlier attempt may still
+     *                                     collect (SC-1). The authenticated
+     *                                     path keeps the previously deferred
+     *                                     PM-3 behaviour until that scope is
+     *                                     explicitly scheduled.
+     */
     public function handleOnlinePayment(
         Request $request,
         Order $order,
@@ -32,6 +43,7 @@ class PaymentCheckoutHandler
         string $gateway,
         ?string $callbackUrl = null,
         ?string $errorUrl = null,
+        bool $enforceAttemptGuard = false,
     ): JsonResponse {
         $orderCurrencyForGate = $this->currencyResolver->forOrder($order);
         $gate = $this->gatewayRegistry->canInitiate($gateway, 'online', $orderCurrencyForGate);
@@ -77,6 +89,66 @@ class PaymentCheckoutHandler
             );
         }
 
+        // PM-1: pre-generate the immutable attempt reference BEFORE dispatch.
+        // It rides into provider payloads (Stripe metadata / PayPal
+        // custom_id / Tabby order.reference_id / Tamara order_reference_id /
+        // Tap reference.idempotent) for webhook correlation (PM-6) and
+        // Stripe idempotency (PM-4).
+        $attemptRef = (string) \Illuminate\Support\Str::uuid();
+
+        // Guest opt-in: durable claim + SC-1 guard BEFORE any provider call.
+        // The order row lock serialises concurrent initiation requests; the
+        // provider is only called after the claim commits (no I/O under lock).
+        $claimTxn = null;
+        $unresolved = false;
+        $orderNotPending = false;
+
+        if ($enforceAttemptGuard) {
+            $claimTxn = \Illuminate\Support\Facades\DB::transaction(function () use (
+                $order,
+                $gateway,
+                $attemptRef,
+                $amount,
+                $orderCurrency,
+                $request,
+                &$unresolved,
+                &$orderNotPending
+            ) {
+                $locked = Order::query()->whereKey($order->id)->lockForUpdate()->first();
+
+                if (!$locked || $locked->status !== Order::ORDER_STATUS_PENDING) {
+                    $orderNotPending = true;
+
+                    return null;
+                }
+
+                // SC-1: an earlier attempt may still collect money. Never
+                // create a second payable session for this order.
+                if ($this->attemptLifecycle->hasUnresolvedAttempt($locked->id)) {
+                    $unresolved = true;
+
+                    return null;
+                }
+
+                return $this->attemptLifecycle->createClaim(
+                    $locked,
+                    $gateway,
+                    $attemptRef,
+                    $amount,
+                    $orderCurrency,
+                    $request->user()?->id,
+                );
+            });
+
+            if ($unresolved) {
+                return $this->apiResponse(__('guest_checkout.payment_in_progress'), 409, false);
+            }
+
+            if ($orderNotPending || $claimTxn === null) {
+                return $this->apiResponse(__('guest_checkout.order_not_payable'), 409, false);
+            }
+        }
+
         // Reserve coupon BEFORE creating gateway invoice (Rule 9)
         if ($order->coupon) {
             try {
@@ -86,6 +158,14 @@ class PaymentCheckoutHandler
                     $this->couponReservationService->reserve($order, $coupon);
                 }
             } catch (\RuntimeException $e) {
+                if ($claimTxn) {
+                    $this->attemptLifecycle->markFailedWithProviderEvidence(
+                        $claimTxn,
+                        'local_validation',
+                        $e->getMessage()
+                    );
+                }
+
                 return $this->apiResponse($e->getMessage(), 422, false);
             }
         }
@@ -98,13 +178,33 @@ class PaymentCheckoutHandler
                 $amount,
                 $callbackUrl,
                 $errorUrl,
+                ['attempt_ref' => $attemptRef],
             );
         } catch (\Throwable $e) {
             // Failure injection (§48): a provider timeout/exception must fail
-            // closed with NO transaction row, the order still pending, and the
-            // coupon reservation released so a retry can re-reserve.
+            // closed with NO payable transaction, the order still pending, and
+            // the coupon reservation released so a retry can re-reserve.
             report($e);
             $this->releaseCouponReservation($order);
+
+            if ($claimTxn) {
+                // AMBIGUOUS dispatch: the provider may have accepted the
+                // request before the connection failed. NEVER write `failed`
+                // without conclusive provider evidence — that would release
+                // SC-1 and allow a second payable session. Keep the attempt
+                // pending (unresolved) for probe/ops resolution.
+                \Marvel\Database\Models\Transaction::query()
+                    ->whereKey($claimTxn->id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'attempt_state' => 'dispatch_unknown',
+                        'error_message' => \Illuminate\Support\Str::limit(
+                            'Gateway dispatch outcome unknown: ' . $e->getMessage(),
+                            500,
+                            ''
+                        ),
+                    ]);
+            }
 
             return $this->apiResponse(ERROR_CREATING_INVOICE, 500, false);
         }
@@ -114,18 +214,53 @@ class PaymentCheckoutHandler
             // reservation must not linger until TTL and block a retry.
             $this->releaseCouponReservation($order);
 
+            if ($claimTxn) {
+                $this->attemptLifecycle->markFailedWithProviderEvidence(
+                    $claimTxn,
+                    'gateway_response',
+                    (string) ($result->errorMessage ?? 'Gateway refused session creation')
+                );
+            }
+
             return $this->apiResponse($result->errorMessage ?? ERROR_CREATING_INVOICE, 500, false);
         }
 
         $rawResponse = is_array($result->rawResponse) ? $result->rawResponse : [];
         $rawResponse['_callback_type'] = $request->type ?? 'web';
 
+        if ($claimTxn) {
+            // PM-6: adopt the provider reference on the pre-dispatch claim.
+            // gateway_transaction_id makes the attempt probe-able by the
+            // reconciliation worker (MyFatoorah has no webhook).
+            $adopted = $this->attemptLifecycle->adoptSessionCreated(
+                $claimTxn,
+                (string) $result->gatewayTransactionId,
+                $rawResponse
+            );
+
+            if (!$adopted) {
+                report(new \RuntimeException(
+                    'Guest payment claim adoption failed after provider session creation'
+                ));
+
+                return $this->apiResponse(ERROR_CREATING_TRANSACTION, 500, false);
+            }
+
+            \Marvel\Database\Models\Transaction::query()
+                ->whereKey($claimTxn->id)
+                ->update(['gateway_response' => $rawResponse]);
+
+            return $this->apiResponse(CHECKOUT_SUCCESSFUL, 200, true, ['url' => $result->redirectUrl]);
+        }
+
         $transaction = Transaction::create([
             'order_id' => $order->id,
-            'user_id' => $request->user()->id,
+            'user_id' => $request->user()?->id,
             'invoice_id' => $result->gatewayTransactionId,
             'payment_method' => $gateway,
             'status' => 'pending',
+            'attempt_state' => 'session_created',
+            'dispatch_reference' => $attemptRef,
             'amount' => $amount,
             'currency' => $this->currencyResolver->forOrder($order),
             'gateway_transaction_id' => $result->gatewayTransactionId,
@@ -156,7 +291,7 @@ class PaymentCheckoutHandler
 
         $transaction = Transaction::create([
             'order_id' => $order->id,
-            'user_id' => $request->user()->id,
+            'user_id' => $request->user()?->id,
             'payment_method' => 'cod',
             'status' => 'pending',
             'amount' => $order->total_price,
@@ -189,7 +324,7 @@ class PaymentCheckoutHandler
 
         $transaction = Transaction::create([
             'order_id' => $order->id,
-            'user_id' => $request->user()->id,
+            'user_id' => $request->user()?->id,
             'payment_method' => 'pay_at_cashier',
             'status' => 'pending',
             'amount' => $order->total_price,

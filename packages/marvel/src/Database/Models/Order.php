@@ -66,6 +66,7 @@ class Order extends Model
     public $fillable = [
         'order_number',
         'user_id',
+        'guest_id',
         'governorate_id',
         'name',
         'user_phone',
@@ -152,6 +153,9 @@ class Order extends Model
         'inventory_reserved_at' => 'datetime',
         'reservation_expires_at' => 'datetime',
         'inventory_state_restored_at' => 'datetime',
+        'guest_tracking_revoked_at' => 'datetime',
+        'guest_cancellation_token_used_at' => 'datetime',
+        'guest_cancellation_token_expires_at' => 'datetime',
         'product_taxable_amount' => 'float',
         'product_tax_amount' => 'float',
         'order_tax_rate' => 'float',
@@ -162,7 +166,10 @@ class Order extends Model
     ];
 
     protected $hidden = [
-        'deleted_at'
+        'deleted_at',
+        // Guest credentials are 1-way hashes; never serialize them.
+        'guest_tracking_token_hash',
+        'guest_cancellation_token_hash',
     ];
 
     protected static function boot()
@@ -220,6 +227,19 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Guest owner (nullable). Guest orders keep user_id NULL by design.
+     */
+    public function guest(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\GuestIdentity::class, 'guest_id');
+    }
+
+    public function isGuestOrder(): bool
+    {
+        return $this->guest_id !== null;
     }
 
     public function governorate(): BelongsTo

@@ -44,6 +44,7 @@ class OrderController extends Controller
         private PaymentCheckoutHandler $paymentCheckoutHandler,
         private PaymentCompletionService $paymentCompletionService,
         private \App\Services\Payment\PaymentCurrencyResolver $currencyResolver,
+        private \App\Services\Payment\ZeroValueOrderCompletionService $zeroValueCompletion,
     ) {
         $this->orderService = $orderService;
         $this->cartInventoryService = $cartInventoryService;
@@ -104,6 +105,13 @@ class OrderController extends Controller
             return $this->apiResponse(__('checkout.order_cancel_not_allowed'), 422, false);
         }
 
+        // T-03 / R-POL-1 / Constraint B: an unresolved payment attempt could
+        // still collect money — cancellation is rejected until authoritative
+        // provider evidence resolves the attempt (recovery worker / webhook).
+        if ($this->attemptLifecycle()->hasUnresolvedAttempt($order->id)) {
+            return $this->apiResponse(__('checkout.order_payment_in_progress'), 409, false);
+        }
+
         try {
             $cancelled = $this->orderService->changeOrderStatus(null, 'cancelled', $order->id);
         } catch (\Throwable $e) {
@@ -126,6 +134,56 @@ class OrderController extends Controller
             true,
             OrderResource::make($fresh ?? $cancelled)
         );
+    }
+
+    /** PM-7: lifecycle-attempt detection (schema-guarded, cached per process). */
+    private function isLifecycleAttempt(?Transaction $transaction): bool
+    {
+        if (!$transaction) {
+            return false;
+        }
+
+        static $columnsAvailable = null;
+        $columnsAvailable ??= \Illuminate\Support\Facades\Schema::hasColumn('transactions', 'dispatch_reference');
+
+        return $columnsAvailable && $transaction->dispatch_reference !== null;
+    }
+
+    /** PM-7: read-only, display-only status response for lifecycle attempts. */
+    private function uxOnlyProbeResponse($gateway, string $paymentId)
+    {
+        if ($gateway instanceof \App\Services\Payment\Contracts\ReadonlyPaymentProbeContract) {
+            try {
+                $probe = $gateway->probePaymentStatus($paymentId);
+            } catch (\Throwable $e) {
+                $probe = null;
+            }
+
+            $status = 'unknown';
+
+            if ($probe !== null) {
+                $status = ($probe->success && ($probe->status ?? null) === 'paid')
+                    ? 'paid'
+                    : (($probe->status ?? null) === 'failed' ? 'failed' : 'pending');
+            }
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, [
+                'status' => $status,
+                'redirect' => 'ux_only',
+            ]);
+        }
+
+        // No probe contract available: display without any provider call.
+        return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, [
+            'status' => 'pending',
+            'redirect' => 'ux_only',
+        ]);
+    }
+
+    /** Attempt-lifecycle accessor (lazily resolved; schema-guarded inside). */
+    private function attemptLifecycle(): \App\Services\Payment\PaymentAttemptLifecycleService
+    {
+        return app(\App\Services\Payment\PaymentAttemptLifecycleService::class);
     }
 
     public function eligiblePromotions(): JsonResponse
@@ -224,44 +282,15 @@ class OrderController extends Controller
     private function completeZeroValueOnlineOrder(Request $request, Order $order, string $gateway): JsonResponse
     {
         try {
-            $zeroAdapter = $this->paymentGatewayFactory->make($gateway);
+            $this->zeroValueCompletion->assertSupported($gateway, $order);
         } catch (\App\Exceptions\UnsupportedGatewayException $e) {
             return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 422, false);
-        }
-
-        $zeroCurrency = $this->currencyResolver->forOrder($order);
-
-        if (!$zeroAdapter->supportsCurrency($zeroCurrency)) {
-            return $this->apiResponse(
-                __('message.ERROR.PAYMENT_CURRENCY_UNSUPPORTED', ['currency' => $zeroCurrency]),
-                422,
-                false
-            );
+        } catch (\RuntimeException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
         }
 
         try {
-            DB::transaction(function () use ($request, $order, $gateway) {
-                $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
-
-                $lockedOrder->transactions()->create([
-                    'user_id' => $request->user()->id,
-                    'payment_method' => 'online',
-                    'status' => 'paid',
-                    'amount' => 0,
-                    'currency' => $this->currencyResolver->forOrder($lockedOrder),
-                    'paid_at' => now(),
-                    // No gateway column exists on transactions; the provider
-                    // name rides along as technical metadata next to the
-                    // zero-value marker (never PII).
-                    'gateway_response' => ['zero_value' => true, 'gateway' => $gateway],
-                ]);
-
-                // Canonical completion (emits PaymentSucceeded on success).
-                // Coupon refusal throws and rolls everything back (fail-closed).
-                // Authority exemption: the requester is the customer, but the
-                // payable amount is zero, so no payment permission applies.
-                $this->orderService->changeOrderStatus(null, 'completed', $lockedOrder->id, true, null, null, false);
-            });
+            $this->zeroValueCompletion->complete($order, $gateway, $request->user()?->id);
         } catch (\RuntimeException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         }
@@ -346,6 +375,14 @@ class OrderController extends Controller
             $gateway = $this->paymentGatewayFactory->make($gatewayName);
         } catch (\App\Exceptions\UnsupportedGatewayException $e) {
             return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
+        }
+
+        // PM-7: customer redirects are UX-ONLY for lifecycle attempts — the
+        // redirect never captures, never completes. Display comes from a
+        // read-only probe; completion stays with webhooks/reconciliation via
+        // completeLocked. Legacy rows keep the existing combined flow.
+        if ($this->isLifecycleAttempt($transaction)) {
+            return $this->uxOnlyProbeResponse($gateway, $paymentId);
         }
 
         $result = $gateway->verifyPayment($paymentId);
@@ -646,6 +683,11 @@ class OrderController extends Controller
             $gateway = $this->paymentGatewayFactory->make($gatewayName);
         } catch (\App\Exceptions\UnsupportedGatewayException $e) {
             return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
+        }
+
+        // PM-7: UX-only for lifecycle attempts (never captures/completes).
+        if ($this->isLifecycleAttempt($transaction)) {
+            return $this->uxOnlyProbeResponse($gateway, $paymentId);
         }
 
         $result = $gateway->verifyPayment($paymentId);

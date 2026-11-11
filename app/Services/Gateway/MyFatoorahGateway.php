@@ -5,9 +5,10 @@ namespace App\Services\Gateway;
 use App\DTOs\GatewayResult;
 use App\Services\General\MyfatoraService;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Payment\Contracts\ReadonlyPaymentProbeContract;
 use Marvel\Database\Models\Order;
 
-class MyFatoorahGateway implements PaymentGatewayContract
+class MyFatoorahGateway implements PaymentGatewayContract, ReadonlyPaymentProbeContract
 {
     /**
      * gateway_response allowlist: only technical provider fields are ever
@@ -137,6 +138,69 @@ public function createInvoice(
             status: $isPaid ? 'paid' : 'failed',
             errorMessage: $isPaid ? null : (data_get($response, 'Data.InvoiceError') ?? 'Payment not completed'),
             rawResponse: $this->sanitizeResponse($response),
+        );
+    }
+
+    /**
+     * PM-5: read-only payment inquiry. checkInvoice performs no money-moving
+     * side effects. Capability note (fail-closed registry): MyFatoorah's
+     * non-paid status vocabulary is NOT officially verified, so every
+     * non-paid answer is treated as conclusive-OPEN (never locally guessed
+     * failed) — the gateway stays operational-review-only for correlation.
+     */
+    public function probePaymentStatus(string $gatewayTransactionId): GatewayResult
+    {
+        $response = $this->myfatoraService->checkInvoice([
+            'Key' => $gatewayTransactionId,
+            'KeyType' => 'PaymentId',
+        ]);
+
+        if (!is_array($response)) {
+            // Unread provider truth: fail-closed NON-TERMINAL (Unknown).
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $gatewayTransactionId,
+                status: 'pending',
+                errorMessage: 'No response from payment gateway',
+            );
+        }
+
+        $invoiceStatus = data_get($response, 'Data.InvoiceStatus');
+        $invoiceId = data_get($response, 'Data.InvoiceId');
+        $invoiceAmount = data_get($response, 'Data.InvoiceValue');
+        $invoiceCurrency = data_get($response, 'Data.DisplayCurrencyIso');
+
+        if (!$invoiceStatus) {
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $gatewayTransactionId,
+                status: 'pending',
+                errorMessage: 'Invalid gateway response',
+                rawResponse: $this->sanitizeResponse($response),
+            );
+        }
+
+        $raw = $this->sanitizeResponse($response);
+        $raw['_probe_provider_status'] = $invoiceStatus;
+
+        if ($invoiceStatus === 'Paid') {
+            return new GatewayResult(
+                success: true,
+                gatewayTransactionId: (string) $invoiceId,
+                amount: $invoiceAmount !== null ? (float) $invoiceAmount : null,
+                currency: $invoiceCurrency,
+                status: 'paid',
+                rawResponse: $raw,
+            );
+        }
+
+        return new GatewayResult(
+            success: true,
+            gatewayTransactionId: (string) $invoiceId,
+            amount: $invoiceAmount !== null ? (float) $invoiceAmount : null,
+            currency: $invoiceCurrency,
+            status: 'pending',
+            rawResponse: $raw,
         );
     }
 

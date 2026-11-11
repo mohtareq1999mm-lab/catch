@@ -72,5 +72,6 @@ return [
     'flow_input_inflight_block' => 'لا يمكن تغيير المدخل المطلوب :key أثناء وجود طلبات جارية على هذا المسار.',
     'status_target_forbidden' => 'غير مصرح لك بنقل الطلبات إلى الحالة :status.',
     'order_cancel_not_allowed' => 'لا يمكن إلغاء هذا الطلب بعد الآن. يرجى التواصل مع الدعم.',
+    'order_payment_in_progress' => 'توجد عملية دفع قيد المعالجة لهذا الطلب. يرجى المحاولة بعد قليل.',
     'order_cancelled_successfully' => 'تم إلغاء الطلب بنجاح.',
 ];

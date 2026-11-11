@@ -204,18 +204,40 @@ class OrderService
         }
     }
 
-    public function addItemsInOrder($request)
+    /**
+     * Canonical order creation path.
+     *
+     * @param  Cart|null  $ownedCart  Guest cart resolved from the verified guest
+     *                                credential. NULL keeps the authenticated
+     *                                behaviour (auth()->id()).
+     * @param  int|null   $guestId    Verified guest identity id. When present
+     *                                the order is linked to the guest and
+     *                                user_id stays NULL (no fabricated account).
+     */
+    public function addItemsInOrder($request, ?Cart $ownedCart = null, ?int $guestId = null)
     {
         $checkoutTotals = null;
 
+        if ($guestId !== null) {
+            if (!$ownedCart || (int) $ownedCart->guest_id !== (int) $guestId) {
+                throw new \InvalidArgumentException(__('guest_checkout.cart_not_found'));
+            }
+        }
+
         try {
-            $order = DB::transaction(function () use ($request, &$checkoutTotals) {
-                $cart = Cart::query()
-                    ->where('user_id', auth()->id())
+            $order = DB::transaction(function () use ($request, &$checkoutTotals, $ownedCart, $guestId) {
+                $cartQuery = Cart::query()
                     ->where('status', 'active')
                     ->lockForUpdate()
-                    ->with(['items' => fn($q) => $q->where('shipping_method', ShippingMethod::SCHEDULED), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant'])
-                    ->first();
+                    ->with(['items' => fn($q) => $q->where('shipping_method', ShippingMethod::SCHEDULED), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant']);
+
+                if ($ownedCart) {
+                    $cartQuery->whereKey($ownedCart->id);
+                } else {
+                    $cartQuery->where('user_id', auth()->id());
+                }
+
+                $cart = $cartQuery->first();
 
                 // Re-read under lock: a concurrent checkout may have committed
                 // and emptied this cart while we waited. Fail cleanly.
@@ -259,7 +281,9 @@ class OrderService
 
             // Pending order is resolved BEFORE totals so an admin tax override
             // persists across retries and participates in the tax resolution.
-            $pendingOrder = $this->orderCreationService->findPendingOrderForUser($request->user()->id);
+            $pendingOrder = $guestId !== null
+                ? $this->orderCreationService->findPendingOrderForGuest($guestId)
+                : $this->orderCreationService->findPendingOrderForUser($request->user()->id);
 
             $checkoutTotals = $this->calculateCheckoutTotals(
                 $cart,
@@ -278,7 +302,8 @@ class OrderService
             $orderData = $request->only(array_merge($this->dataArray, [
                 'fulfillment_type', 'payment_method', 'payment_gateway', 'pickup_location_id',
             ]));
-            $orderData['user_id'] = $request->user()->id;
+            $orderData['user_id'] = $guestId !== null ? null : $request->user()->id;
+            $orderData['guest_id'] = $guestId;
 
             $shippingInfo = $this->resolveShippingPrice((int) ($orderData['governorate_id'] ?? null));
             $shippingPrice = $this->resolveShippingChargeForCart($cart, $checkoutTotals, $shippingInfo);

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Gateway;
 
 use App\DTOs\GatewayResult;
+use App\Services\Payment\Contracts\CapturingGatewayContract;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Payment\Contracts\ReadonlyPaymentProbeContract;
 use App\Services\Payment\PaymentCurrencyResolver;
 use Marvel\Database\Models\Order;
 use Srmklive\PayPal\Services\PayPal as PayPalClient;
@@ -46,7 +48,7 @@ use Srmklive\PayPal\Services\PayPal as PayPalClient;
  * must only ever be exercised via the injected client factory seam in tests —
  * never against the live/sandbox network.
  */
-class PayPalGateway implements PaymentGatewayContract
+class PayPalGateway implements PaymentGatewayContract, ReadonlyPaymentProbeContract, CapturingGatewayContract
 {
     /**
      * Mirror of the srmklive/paypal SDK currency guard
@@ -122,6 +124,14 @@ class PayPalGateway implements PaymentGatewayContract
                     [
                         'reference_id' => 'order-'.$order->id,
                         'invoice_id' => (string) $order->id,
+                        // PM-6: the local attempt reference rides in
+                        // custom_id — echoed by authenticated PayPal
+                        // webhooks (resolver already candidates it), giving
+                        // pre-persistence attempt correlation. Per-attempt
+                        // unique: never reuses an earlier attempt's key.
+                        'custom_id' => is_string($metadata['attempt_ref'] ?? null) && trim((string) $metadata['attempt_ref']) !== ''
+                            ? trim((string) $metadata['attempt_ref'])
+                            : (string) $order->id,
                         'amount' => [
                             'currency_code' => $currency,
                             'value' => $value,
@@ -170,7 +180,81 @@ class PayPalGateway implements PaymentGatewayContract
         }
     }
 
-    public function verifyPayment(string $gatewayTransactionId): GatewayResult
+    /**
+     * PM-5: STRICTLY READ-ONLY provider status probe. GET order details
+     * only — NEVER captures, authorizes, refunds, or creates a session.
+     * Infrastructure callers (Reaper, reconciliation, webhook completion,
+     * PM-7 recovery) MUST use THIS method, never verifyPayment().
+     */
+    public function probePaymentStatus(string $gatewayTransactionId): GatewayResult
+    {
+        if (trim($gatewayTransactionId) === '') {
+            return new GatewayResult(
+                success: false,
+                errorMessage: 'Invalid gateway response',
+            );
+        }
+
+        try {
+            $order = $this->client()->showOrderDetails($gatewayTransactionId);
+
+            if (!is_array($order) || isset($order['error'])) {
+                // Unread provider truth: fail-closed NON-TERMINAL (Unknown).
+                return new GatewayResult(
+                    success: false,
+                    gatewayTransactionId: $gatewayTransactionId,
+                    status: 'pending',
+                    errorMessage: 'No response from payment gateway',
+                    rawResponse: $this->sanitizeResponse(is_array($order) ? $order : null),
+                );
+            }
+
+            $status = strtoupper((string) ($order['status'] ?? ''));
+            $raw = $this->sanitizeResponse($order);
+            $raw['_probe_provider_status'] = $status;
+
+            if ($status === 'COMPLETED') {
+                return $this->completedResult($gatewayTransactionId, $order);
+            }
+
+            if ($status === 'VOIDED') {
+                // Provider-confirmed terminal: can no longer collect money.
+                return new GatewayResult(
+                    success: false,
+                    gatewayTransactionId: $gatewayTransactionId,
+                    status: 'failed',
+                    errorMessage: 'Payment not completed',
+                    rawResponse: $raw,
+                );
+            }
+
+            // APPROVED / CREATED / SAVED and unknown future values: the
+            // session exists; APPROVED remains collectable until captured,
+            // voided, or provider-expired — never a local time-based guess.
+            return new GatewayResult(
+                success: true,
+                gatewayTransactionId: $gatewayTransactionId,
+                status: 'pending',
+                rawResponse: $raw,
+            );
+        } catch (\Throwable $e) {
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $gatewayTransactionId,
+                status: 'pending',
+                errorMessage: 'Payment gateway request failed',
+            );
+        }
+    }
+
+    /**
+     * PM-7: EXPLICIT capture command for an APPROVED order. Idempotent per
+     * provider order: the stable `capture-{id}` PayPal-Request-Id collapses
+     * concurrent/retried captures into ONE provider-side capture. Ambiguous
+     * transport outcomes return non-terminal 'pending' — callers must
+     * reconcile via probePaymentStatus() before attempting another capture.
+     */
+    public function capturePayment(string $gatewayTransactionId): GatewayResult
     {
         if (trim($gatewayTransactionId) === '') {
             return new GatewayResult(
@@ -182,64 +266,84 @@ class PayPalGateway implements PaymentGatewayContract
         try {
             $client = $this->client();
 
-            $order = $client->showOrderDetails($gatewayTransactionId);
+            // Idempotent capture: the same key makes a retried/double
+            // capture collapse into ONE provider-side capture.
+            $client->setRequestHeader('PayPal-Request-Id', 'capture-'.$gatewayTransactionId);
+            $captured = $client->capturePaymentOrder($gatewayTransactionId);
 
-            if (!is_array($order) || isset($order['error'])) {
+            if (!is_array($captured) || isset($captured['error'])) {
+                // Already-captured race (concurrent capture won first):
+                // re-fetch; COMPLETED means the funds moved → success.
+                if ($this->isAlreadyCapturedError($captured)) {
+                    $refreshed = $this->client()->showOrderDetails($gatewayTransactionId);
+
+                    if (is_array($refreshed) && !isset($refreshed['error'])
+                        && strtoupper((string) ($refreshed['status'] ?? '')) === 'COMPLETED'
+                    ) {
+                        return $this->completedResult($gatewayTransactionId, $refreshed);
+                    }
+                }
+
+                // Ambiguous (transport/provider error): reconcile via probe
+                // before any further capture — never blind-retry.
                 return new GatewayResult(
                     success: false,
+                    gatewayTransactionId: $gatewayTransactionId,
+                    status: 'pending',
                     errorMessage: 'No response from payment gateway',
-                    rawResponse: $this->sanitizeResponse(is_array($order) ? $order : null),
+                    rawResponse: $this->sanitizeResponse(is_array($captured) ? $captured : null),
                 );
             }
 
-            $status = strtoupper((string) ($order['status'] ?? ''));
-
-            if ($status === 'APPROVED') {
-                // Idempotent capture: the same key makes a retried/double
-                // verify collapse into ONE provider-side capture.
-                $client->setRequestHeader('PayPal-Request-Id', 'capture-'.$gatewayTransactionId);
-                $captured = $client->capturePaymentOrder($gatewayTransactionId);
-
-                if (!is_array($captured) || isset($captured['error'])) {
-                    // Already-captured race (concurrent verify won first):
-                    // re-fetch; COMPLETED means the funds moved → success.
-                    if ($this->isAlreadyCapturedError($captured)) {
-                        $refreshed = $client->showOrderDetails($gatewayTransactionId);
-
-                        if (is_array($refreshed) && !isset($refreshed['error'])
-                            && strtoupper((string) ($refreshed['status'] ?? '')) === 'COMPLETED'
-                        ) {
-                            return $this->completedResult($gatewayTransactionId, $refreshed);
-                        }
-                    }
-
-                    return new GatewayResult(
-                        success: false,
-                        errorMessage: 'No response from payment gateway',
-                        rawResponse: $this->sanitizeResponse(is_array($captured) ? $captured : null),
-                    );
-                }
-
-                return $this->completedResult($gatewayTransactionId, $captured);
-            }
-
-            if ($status === 'COMPLETED') {
-                return $this->completedResult($gatewayTransactionId, $order);
-            }
-
-            return new GatewayResult(
-                success: false,
-                gatewayTransactionId: $gatewayTransactionId,
-                status: 'failed',
-                errorMessage: 'Payment not completed',
-                rawResponse: $this->sanitizeResponse($order),
-            );
+            return $this->completedResult($gatewayTransactionId, $captured);
         } catch (\Throwable $e) {
             return new GatewayResult(
                 success: false,
+                gatewayTransactionId: $gatewayTransactionId,
+                status: 'pending',
                 errorMessage: 'Payment gateway request failed',
             );
         }
+    }
+
+    /**
+     * LEGACY combined verify+capture path — PRESERVED for the customer
+     * return/callback flow on legacy (attempt-less) transactions: an
+     * APPROVED order is captured inside verify because PayPal requires the
+     * capture call to move funds after buyer approval. Infrastructure
+     * callers MUST NOT use this method; they use probePaymentStatus() and,
+     * where authorized by the lifecycle, capturePayment().
+     */
+    public function verifyPayment(string $gatewayTransactionId): GatewayResult
+    {
+        $probe = $this->probePaymentStatus($gatewayTransactionId);
+
+        $providerStatus = is_array($probe->rawResponse)
+            ? (string) ($probe->rawResponse['_probe_provider_status'] ?? '')
+            : '';
+
+        if ($probe->success && $providerStatus === 'APPROVED') {
+            return $this->capturePayment($gatewayTransactionId);
+        }
+
+        if ($probe->success) {
+            return $probe; // COMPLETED → completedResult (paid)
+        }
+
+        if (($probe->status ?? null) === 'failed') {
+            return $probe; // provider-confirmed failure / VOIDED
+        }
+
+        // Legacy contract: non-COMPLETED, non-APPROVED or unread provider
+        // truth surfaces as a plain (non-authoritative for infra callers)
+        // failure result — identical to the pre-split behavior.
+        return new GatewayResult(
+            success: false,
+            gatewayTransactionId: $gatewayTransactionId,
+            status: 'failed',
+            errorMessage: $probe->errorMessage ?? 'Payment not completed',
+            rawResponse: $probe->rawResponse,
+        );
     }
 
     public function refund(

@@ -6,6 +6,7 @@ namespace App\Services\Gateway;
 
 use App\DTOs\GatewayResult;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
+use App\Services\Payment\Contracts\ReadonlyPaymentProbeContract;
 use App\Services\Payment\CurrencyPrecision;
 use App\Services\Payment\CustomerContactResolver;
 use App\Services\Payment\PaymentCurrencyResolver;
@@ -42,7 +43,7 @@ use Marvel\Database\Models\Order;
  * sk_ redacted; TLS verification is always enabled (no withoutVerifying);
  * logs carry ids/statuses only — never raw bodies.
  */
-class TapGateway implements PaymentGatewayContract
+class TapGateway implements PaymentGatewayContract, ReadonlyPaymentProbeContract
 {
     /**
      * Charge allowlist: technical fields only. The full charge object
@@ -130,8 +131,12 @@ class TapGateway implements PaymentGatewayContract
                 'order' => (string) $order->id,
                 // 24h idempotency (docs recommend per-order constancy):
                 // a retried checkout on the same order returns the
-                // original response instead of double-charging.
-                'idempotent' => 'order-' . $order->id,
+                // original response instead of double-charging. When an
+                // attempt reference is supplied (PM-1 lifecycle), it becomes
+                // the per-attempt idempotent/correlation identity instead.
+                'idempotent' => is_string($metadata['attempt_ref'] ?? null) && trim((string) $metadata['attempt_ref']) !== ''
+                    ? trim((string) $metadata['attempt_ref'])
+                    : 'order-' . $order->id,
             ],
             'metadata' => array_merge(['order_id' => (string) $order->id], $metadata),
             'threeDSecure' => true,
@@ -239,6 +244,90 @@ class TapGateway implements PaymentGatewayContract
             status: $isPaid ? 'paid' : 'failed',
             errorMessage: $isPaid ? null : 'Payment not completed',
             rawResponse: $this->sanitizeCharge($data),
+        );
+    }
+
+    /**
+     * PM-5: STRICTLY READ-ONLY probe — GET charge retrieval only; never
+     * creates, captures, or voids. Terminal-failure vocabulary comes from
+     * the charges doc (non-CAPTURED listed statuses); INITIATED and any
+     * unrecognized status stay conclusive-open (never a local guess).
+     */
+    public function probePaymentStatus(string $gatewayTransactionId): GatewayResult
+    {
+        $id = trim($gatewayTransactionId);
+
+        if ($id === '' || strlen($id) > 191 || !preg_match('/^[A-Za-z0-9\-_]+$/', $id)) {
+            return new GatewayResult(
+                success: false,
+                errorMessage: 'Invalid gateway transaction id',
+            );
+        }
+
+        $response = $this->request('get', '/charges/' . urlencode($id));
+
+        if (!$response instanceof \Illuminate\Http\Client\Response || !$response->successful()) {
+            // Unread provider truth: fail-closed NON-TERMINAL (Unknown).
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $id,
+                status: 'pending',
+                errorMessage: 'Payment gateway error',
+            );
+        }
+
+        $data = $response->json();
+
+        if (!is_array($data)) {
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $id,
+                status: 'pending',
+                errorMessage: 'Invalid gateway response',
+            );
+        }
+
+        $chargeId = is_string($data['id'] ?? null) && trim((string) $data['id']) !== ''
+            ? (string) $data['id']
+            : $id;
+        $currency = strtoupper((string) ($data['currency'] ?? ''));
+        $amount = is_numeric($data['amount'] ?? null) ? (float) $data['amount'] : null;
+        $status = strtoupper(trim((string) ($data['status'] ?? '')));
+
+        $raw = $this->sanitizeCharge($data);
+        $raw['_probe_provider_status'] = $status;
+
+        if ($status === 'CAPTURED') {
+            return new GatewayResult(
+                success: true,
+                gatewayTransactionId: $chargeId,
+                amount: $amount,
+                currency: $currency !== '' ? $currency : null,
+                status: 'paid',
+                rawResponse: $raw,
+            );
+        }
+
+        if (in_array($status, ['DECLINED', 'ABANDONED', 'RESTRICTED', 'VOID', 'ERROR'], true)) {
+            return new GatewayResult(
+                success: false,
+                gatewayTransactionId: $chargeId,
+                amount: $amount,
+                currency: $currency !== '' ? $currency : null,
+                status: 'failed',
+                errorMessage: 'Payment not completed',
+                rawResponse: $raw,
+            );
+        }
+
+        // INITIATED and unrecognized statuses: conclusive-OPEN.
+        return new GatewayResult(
+            success: true,
+            gatewayTransactionId: $chargeId,
+            amount: $amount,
+            currency: $currency !== '' ? $currency : null,
+            status: 'pending',
+            rawResponse: $raw,
         );
     }
 

@@ -34,6 +34,12 @@ use App\Http\Controllers\Api\Admin\CouponConfigurationController;
 use App\Http\Controllers\Api\User\NotificationPreferencesController;
 use App\Http\Controllers\Api\Admin\AnalyticsController;
 use App\Http\Controllers\Api\Admin\AnalyticsExportController;
+use App\Http\Controllers\Api\Admin\GuestTrackingController;
+use App\Http\Controllers\Api\General\Guest\GuestCartController;
+use App\Http\Controllers\Api\General\Guest\GuestCheckoutController;
+use App\Http\Controllers\Api\General\Guest\GuestOrderController;
+use App\Http\Controllers\Api\General\Guest\GuestPublicOrderController;
+use App\Http\Controllers\Api\General\Guest\GuestSessionController;
 use App\Http\Controllers\Api\Admin\ShipmentController as AdminShipmentController;
 use Illuminate\Support\Facades\Route;
 
@@ -150,6 +156,60 @@ Route::prefix('v1/general')->group(function () {
         Route::post('checkout/webhooks/tamara', [PaymentWebhookController::class, 'tamara'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tamara');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
         Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle:public-tracking')->name('api.tracking.public');
+        //======================== GUEST CHECKOUT (no account required) ========================//
+        // Ownership comes from the HttpOnly server-managed guest cookie, never
+        // from a cart/order id. Tokens for public tracking/cancellation are
+        // accepted in POST bodies only (never URLs / access logs).
+        Route::prefix('guest')->group(function () {
+            Route::post('session', [GuestSessionController::class, 'store'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->name('api.guest.session');
+            Route::delete('session', [GuestSessionController::class, 'destroy'])
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_session'])
+                ->name('api.guest.session.revoke');
+
+            Route::get('cart', [GuestCartController::class, 'show'])
+                ->middleware('guest.throttle:guest_cart_read')
+                ->name('api.guest.cart.show');
+            Route::post('cart/items', [GuestCartController::class, 'store'])
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->name('api.guest.cart.store');
+            Route::put('cart/items', [GuestCartController::class, 'update'])
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->name('api.guest.cart.update');
+            Route::delete('cart/items/{itemId}', [GuestCartController::class, 'destroyItem'])
+                ->whereNumber('itemId')
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->name('api.guest.cart.item.destroy');
+            Route::delete('cart', [GuestCartController::class, 'destroy'])
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->name('api.guest.cart.destroy');
+
+            // Static token paths first (no {orderId} capture).
+            Route::post('orders/track', [GuestPublicOrderController::class, 'track'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_tracking'])
+                ->name('api.guest.orders.track');
+            Route::post('orders/cancel', [GuestPublicOrderController::class, 'cancel'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_cancel'])
+                ->name('api.guest.orders.cancel');
+
+            Route::get('orders/{orderId}', [GuestOrderController::class, 'show'])
+                ->whereNumber('orderId')
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_read'])
+                ->name('api.guest.orders.show');
+            Route::post('orders/{orderId}/payment', [GuestOrderController::class, 'payment'])
+                ->whereNumber('orderId')
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_payment'])
+                ->name('api.guest.orders.payment');
+            Route::post('orders/{orderId}/access-tokens', [GuestOrderController::class, 'accessTokens'])
+                ->whereNumber('orderId')
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_payment'])
+                ->name('api.guest.orders.access-tokens');
+
+            Route::post('checkout', [GuestCheckoutController::class, 'checkout'])
+                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_checkout'])
+                ->name('api.guest.checkout');
+        });
     });
 
     Route::middleware(['api', 'auth:sanctum', 'throttle:authenticated'])->group(function () {
@@ -245,6 +305,14 @@ Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle
     Route::get('orders', [AdminOrderTrackingController::class, 'listOrders'])->name('api.admin.tracking.orders');
     Route::get('orders/{orderId}', [AdminOrderTrackingController::class, 'trackOrder'])->whereNumber('orderId')->name('api.admin.tracking.order');
     Route::get('requires-attention', [AdminOrderTrackingController::class, 'requiresAttention'])->name('api.admin.tracking.attention');
+});
+
+// Guest public-tracking revocation (admin action; invalidates the hash).
+Route::prefix('v1/admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::delete('{orderId}/guest-tracking', [GuestTrackingController::class, 'revoke'])
+        ->whereNumber('orderId')
+        ->middleware('permission:update-order-status')
+        ->name('api.admin.orders.guest-tracking.revoke');
 });
 
 // Legacy admin coupon helpers — backward-compat alias for the pre-existing

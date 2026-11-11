@@ -59,6 +59,21 @@ class CancelUnpaidOrders extends Command
             });
         }
 
+        // R-POL-1 / T-03: an order with an UNRESOLVED payment attempt
+        // (attempt_state present, provider outcome unknown) must NOT be
+        // cancelled on reservation expiry alone — the session may still
+        // collect money. The reconcile worker resolves attempts with
+        // authoritative provider evidence; elapsed time is never evidence.
+        if (\Illuminate\Support\Facades\Schema::hasColumn('transactions', 'attempt_state')) {
+            $query->whereNotExists(function ($q) {
+                $q->selectRaw(1)
+                    ->from('transactions as unresolved_attempts')
+                    ->whereColumn('unresolved_attempts.order_id', 'orders.id')
+                    ->where('unresolved_attempts.status', 'pending')
+                    ->whereNotNull('unresolved_attempts.attempt_state');
+            });
+        }
+
         $orders = $query->orderBy('id')->cursor();
 
         $cancelledCount = 0;
@@ -162,6 +177,20 @@ class CancelUnpaidOrders extends Command
             $gateway = $this->paymentGatewayFactory->make($pendingTransaction->payment_method);
         } catch (\Throwable $e) {
             return false; // unknown gateway — proceed with cancellation
+        }
+
+        // PM-5: infrastructure probes are STRICTLY read-only. verifyPayment
+        // captures for PayPal/Tabby — it must never be used as a probe.
+        if ($gateway instanceof \App\Services\Payment\Contracts\ReadonlyPaymentProbeContract) {
+            try {
+                $result = $gateway->probePaymentStatus((string) $pendingTransaction->gateway_transaction_id);
+            } catch (\Throwable $e) {
+                report($e);
+
+                return false; // verification unavailable — fail safe to cancellation path
+            }
+
+            return ($result->success ?? false) && $result->status === 'paid';
         }
 
         try {

@@ -14,6 +14,8 @@ class Kernel extends ConsoleKernel
      */
     protected $commands = [
         \App\Console\Commands\CancelUnpaidOrders::class,
+        \App\Console\Commands\ReconcilePaymentAttempts::class,
+        \App\Console\Commands\PruneGuestCarts::class,
         \App\Console\Commands\AuditInventoryPlacements::class,
         \App\Console\Commands\BackfillPlacements::class,
         \App\Console\Commands\ReconcileProductCatalog::class,
@@ -31,6 +33,9 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('orders:cancel-unpaid')->everyFiveMinutes()->withoutOverlapping();
+        // OP-1 / PM-7 recovery: attempt reconciliation (read-only probes,
+        // PayPal capture recovery, SC-1 investigations, alerting).
+        $schedule->command('payments:reconcile-attempts')->everyTenMinutes()->withoutOverlapping()->onOneServer();
         // Phase 15: picking-claim leases (default 15 min) recycle on the same
         // cadence so disconnected workers free tasks promptly.
         $schedule->command('picking:sweep-expired-claims')->everyFiveMinutes()->withoutOverlapping();
@@ -52,6 +57,9 @@ class Kernel extends ConsoleKernel
         // per-cart claim (reminder_sent_at NULL -> timestamp) so concurrent
         // workers sharing one database can never double-notify.
         $schedule->command('cart:notify-abandoned')->hourly()->withoutOverlapping()->onOneServer();
+        // Guest cart retention (7 days of inactivity). Protects carts linked
+        // to pending/processing orders and pending payment attempts.
+        $schedule->command('guest:prune-carts')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('promotions:notify-ending-soon')->daily()->withoutOverlapping();
         $schedule->command('flash-sales:notify-ending-soon')->daily()->withoutOverlapping();
         // Permanently remove products soft-deleted more than 30 days ago.

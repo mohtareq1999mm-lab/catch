@@ -28,6 +28,19 @@ class OrderCreationService
             ->first();
     }
 
+    /**
+     * Guest counterpart of findPendingOrderForUser. guest_id is the verified
+     * owner; UNIQUE pending-guest guard backs concurrent retries.
+     */
+    public function findPendingOrderForGuest(int $guestId): ?Order
+    {
+        return Order::query()
+            ->where('guest_id', $guestId)
+            ->where('status', 'pending')
+            ->lockForUpdate()
+            ->first();
+    }
+
     public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?string $shippingType = null, ?int $flowId = null, ?string $flowCode = null): ?Order
     {
         $shippingPrice = $shippingPrice ?? 0;
@@ -105,6 +118,11 @@ class OrderCreationService
         if (Schema::hasColumn('orders', 'payment_status')) {
             $orderDataForCreate['payment_status'] = Order::PAYMENT_STATUS_PENDING;
         }
+        if (Schema::hasColumn('orders', 'guest_id')) {
+            // Guest orders keep user_id NULL; the verified guest identity is
+            // the auditable owner. Never fabricate a registered customer.
+            $orderDataForCreate['guest_id'] = $orderData['guest_id'] ?? null;
+        }
         if (Schema::hasColumn('orders', 'fulfillment_status')) {
             $orderDataForCreate['fulfillment_status'] = Order::FULFILLMENT_STATUS_PENDING;
         }
@@ -156,7 +174,7 @@ class OrderCreationService
                     oldStatus: null,
                     newStatus: $order->status,
                     changedBy: $order->user_id,
-                    changedByType: 'user',
+                    changedByType: $order->guest_id ? 'guest' : 'user',
                     notes: 'Order created',
                     metadata: [
                         'payment_method' => $order->payment_method,

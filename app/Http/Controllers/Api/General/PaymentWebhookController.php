@@ -91,7 +91,22 @@ class PaymentWebhookController extends Controller
         private TabbyWebhookVerifier $tabbyVerifier,
         private TamaraWebhookVerifier $tamaraVerifier,
         private \App\Services\Payment\PaymentRefundService $refundService,
+        private \App\Services\Payment\WebhookEventInbox $inbox,
+        private \App\Services\Payment\PaymentAttemptLifecycleService $lifecycle,
     ) {}
+
+    /**
+     * PM-1 schema guard (repo precedent: CancelUnpaidOrders payment_status
+     * guard). Legacy-shaped test databases without the attempt columns keep
+     * byte-identical resolution behavior; production always has them.
+     */
+    private function attemptColumnsAvailable(): bool
+    {
+        static $cached = null;
+
+        return $cached ??= \Illuminate\Support\Facades\Schema::hasColumn('transactions', 'attempt_state')
+            && \Illuminate\Support\Facades\Schema::hasColumn('transactions', 'dispatch_reference');
+    }
 
     // -----------------------------------------------------------------
     // Stripe
@@ -121,7 +136,35 @@ class PaymentWebhookController extends Controller
 
         $type = $this->stripeType($event);
         $eventId = $this->stripeEventId($event);
+        $account = (string) config('payment.gateways.stripe.account', 'default');
+        $objectRef = $this->stripeObjectId($event);
 
+        // W-1 / Constraint C: durably persist the AUTHENTICATED event before
+        // any processing; acknowledge only after durable acceptance.
+        $stored = $this->inbox->store('stripe', (string) $eventId, $account, $type, $objectRef, null, [
+            'event_type' => $type,
+            'provider_ref' => $objectRef,
+        ]);
+
+        if ($stored === null) {
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        try {
+            $response = $this->routeStripeEvent($event, $type, $eventId);
+        } catch (\Throwable $e) {
+            $this->inbox->markFailed($stored->id, $e);
+
+            throw $e;
+        }
+
+        $this->inbox->markProcessed($stored->id);
+
+        return $response;
+    }
+
+    private function routeStripeEvent(object $event, string $type, ?string $eventId): JsonResponse
+    {
         if ($type === 'checkout.session.completed') {
             $sessionId = $this->stripeObjectId($event);
 
@@ -134,7 +177,13 @@ class PaymentWebhookController extends Controller
                 return $this->apiResponse(INVALID_PAYMENT_ID, 400, false);
             }
 
-            return $this->completeFromProviderRef('stripe', $sessionId, $eventId, $type);
+            return $this->completeFromProviderRef(
+                'stripe',
+                $sessionId,
+                $eventId,
+                $type,
+                $this->stripeAttemptRef($event)
+            );
         }
 
         if ($type === 'payment_intent.payment_failed') {
@@ -189,6 +238,18 @@ class PaymentWebhookController extends Controller
         ]);
 
         return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+    }
+
+    /** PM-6: the per-attempt dispatch reference echoed in session metadata. */
+    private function stripeAttemptRef(object $event): ?string
+    {
+        try {
+            $attemptRef = data_get($event, 'data.object.metadata.attempt_ref');
+
+            return is_string($attemptRef) && trim($attemptRef) !== '' ? trim($attemptRef) : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     // -----------------------------------------------------------------
@@ -262,6 +323,42 @@ class PaymentWebhookController extends Controller
             ? trim($body['id'])
             : null;
 
+        // W-1 / Constraint C: durably persist the AUTHENTICATED event before
+        // any processing; ack only after durable acceptance. A duplicate is
+        // acknowledged without reprocessing (financial idempotency lives in
+        // completeLocked regardless).
+        $account = (string) config('payment.gateways.paypal.account', 'default');
+        $providerRef = $this->paypalTxnRef($body);
+
+        $stored = $this->inbox->store('paypal', (string) $eventId, $account, $eventType, $providerRef, null, [
+            'event_type' => $eventType,
+            'provider_ref' => $providerRef,
+        ]);
+
+        if ($stored === null) {
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        try {
+            $response = $this->routePayPalEvent($body, $eventId, $eventType);
+        } catch (\Throwable $e) {
+            $this->inbox->markFailed($stored->id, $e);
+
+            throw $e;
+        }
+
+        $this->inbox->markProcessed($stored->id);
+
+        return $response;
+    }
+
+    private function routePayPalEvent(array $body, ?string $eventId, string $eventType): JsonResponse
+    {
+        if ($eventType === 'CHECKOUT.ORDER.APPROVED') {
+            // PM-7: buyer approval — the webhook-driven capture trigger.
+            return $this->handlePayPalApproved($body, $eventId, $eventType);
+        }
+
         if ($eventType === 'PAYMENT.CAPTURE.COMPLETED') {
             $ref = $this->paypalTxnRef($body);
 
@@ -293,6 +390,146 @@ class PaymentWebhookController extends Controller
         ]);
 
         return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+    }
+
+    /**
+     * PM-7 — Webhook-driven capture lifecycle for CHECKOUT.ORDER.APPROVED.
+     *
+     * Sequence: authenticated event → correlate (PM-6: custom_id echoes the
+     * per-attempt dispatch reference) → guards (row + gateway + order
+     * payable + dedupe) → authoritative probe (READ-ONLY; capture only when
+     * the provider itself reports APPROVED) → durable capture intent →
+     * atomic lease claim → capturePayment (EXPLICIT financial command,
+     * idempotent capture-{id} key, NO database locks during I/O) → outcome
+     * persisted → completion exclusively via completeLocked. Concurrent
+     * webhook/worker races converge on ONE logical capture via the lease.
+     */
+    private function handlePayPalApproved(array $body, ?string $eventId, string $eventType): JsonResponse
+    {
+        $ref = $this->paypalTxnRef($body);
+
+        if ($ref === null) {
+            Log::info('PayPal APPROVED: no local correlation', [
+                'gateway' => 'paypal',
+                'event' => $eventType,
+                'result' => 'unknown_transaction',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        $txn = $this->findTxnByRef($ref);
+
+        if (!$txn || ($txn->payment_method ?? '') !== 'paypal') {
+            Log::info('PayPal APPROVED: unknown or mismatched transaction', [
+                'gateway' => 'paypal',
+                'event' => $eventType,
+                'result' => 'unknown_transaction',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        if ($this->hasWebhookEvent($txn, $eventId)) {
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        $order = $txn->order;
+
+        if (!$order || $order->status !== 'pending') {
+            // SC-1 containment: never capture for a cancelled/superseded
+            // order; if the session later collects, it lands as a
+            // DuplicateHold + refund-investigation case.
+            Log::info('PayPal APPROVED ignored: order no longer payable', [
+                'transaction_id' => $txn->id,
+                'order_id' => $txn->order_id,
+                'result' => 'superseded_or_cancelled',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        try {
+            $adapter = $this->gatewayFactory->make('paypal');
+        } catch (\Throwable $e) {
+            return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
+        }
+
+        if (!$adapter instanceof \App\Services\Payment\Contracts\CapturingGatewayContract
+            || !$adapter instanceof \App\Services\Payment\Contracts\ReadonlyPaymentProbeContract) {
+            return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
+        }
+
+        $probe = $adapter->probePaymentStatus($ref);
+        $providerStatus = is_array($probe->rawResponse)
+            ? (string) ($probe->rawResponse['_probe_provider_status'] ?? '')
+            : '';
+
+        if ($probe->success && ($probe->status ?? null) === 'paid') {
+            // Capture already happened elsewhere — converge idempotently.
+            return $this->completeFromProviderRef('paypal', $ref, $eventId, $eventType);
+        }
+
+        if (!$probe->success && ($probe->status ?? null) === 'failed') {
+            return $this->markFailedByProviderRef('paypal', $ref, $eventId, $eventType, 'failed');
+        }
+
+        if (!$probe->success || $providerStatus !== 'APPROVED') {
+            Log::info('PayPal APPROVED probe inconclusive or not approved', [
+                'transaction_id' => $txn->id,
+                'result' => $probe->success ? ($providerStatus !== '' ? $providerStatus : 'pending') : 'inconclusive',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        // Durable capture intent + atomic ownership claim (lease-based).
+        $this->lifecycle->requestCapture($txn);
+
+        if (!$this->lifecycle->claimCapture($txn)) {
+            // Another webhook/worker owns the logical capture. PayPal's own
+            // retries plus the recovery worker provide completion.
+            Log::info('PayPal capture claim lost: in-flight or already owned', [
+                'transaction_id' => $txn->id,
+                'result' => 'claim_lost',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'capture_in_progress']);
+        }
+
+        // Provider I/O with NO database transaction or row lock held.
+        $captureResult = $adapter->capturePayment($ref);
+
+        if ($captureResult->success && ($captureResult->status ?? null) === 'paid') {
+            $this->lifecycle->persistCaptureOutcome($txn, 'succeeded', 'capture_response');
+
+            return $this->completeFromProviderRef('paypal', $ref, $eventId, $eventType);
+        }
+
+        if (!$captureResult->success && ($captureResult->status ?? null) === 'failed') {
+            // Capture may have moved money with mismatched totals: NOT a
+            // confirmed failure — park as Unknown for probe arbitration and
+            // ops investigation (never auto-fail captured money).
+            $this->lifecycle->persistCaptureOutcome($txn, 'unknown', 'capture_mismatch');
+
+            Log::warning('PayPal capture totals mismatch: investigation case', [
+                'transaction_id' => $txn->id,
+                'result' => 'capture_mismatch_investigation',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'capture_unknown']);
+        }
+
+        // Ambiguous capture outcome: reconcile via probe before any further
+        // capture (recovery worker arbitrates COMPLETED vs APPROVED).
+        $this->lifecycle->persistCaptureOutcome($txn, 'unknown', 'capture_ambiguous');
+
+        Log::warning('PayPal capture ambiguous: parked for probe arbitration', [
+            'transaction_id' => $txn->id,
+            'result' => 'capture_unknown',
+        ]);
+
+        return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'capture_unknown']);
     }
 
     // -----------------------------------------------------------------
@@ -383,12 +620,49 @@ class PaymentWebhookController extends Controller
         // ids and stays completable by design).
         $dedupeId = $chargeId . ':' . $status;
 
+        $account = (string) config('payment.gateways.tap.account', 'default');
+        $attemptRef = is_array($body['reference'] ?? null) && is_string($body['reference']['idempotent'] ?? null)
+            ? trim((string) $body['reference']['idempotent'])
+            : null;
+
+        // W-1: no stable provider event id exists — scoped fingerprint over
+        // verified identity attributes (charge id + status); distinct status
+        // transitions never collapse, identical replays dedupe.
+        $stored = $this->inbox->store(
+            'tap',
+            \App\Services\Payment\WebhookEventInbox::fingerprint('tap', $account, $chargeId, 'charge.' . $status, $status),
+            $account,
+            'charge.' . $status,
+            $chargeId,
+            $attemptRef,
+            ['event_type' => 'charge.' . $status, 'provider_ref' => $chargeId, 'status' => $status],
+        );
+
+        if ($stored === null) {
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        try {
+            $response = $this->routeTapEvent($chargeId, $status, $dedupeId, $attemptRef);
+        } catch (\Throwable $e) {
+            $this->inbox->markFailed($stored->id, $e);
+
+            throw $e;
+        }
+
+        $this->inbox->markProcessed($stored->id);
+
+        return $response;
+    }
+
+    private function routeTapEvent(string $chargeId, string $status, string $dedupeId, ?string $attemptRef): JsonResponse
+    {
         if ($status === 'CAPTURED') {
-            return $this->completeFromProviderRef('tap', $chargeId, $dedupeId, 'charge.CAPTURED');
+            return $this->completeFromProviderRef('tap', $chargeId, $dedupeId, 'charge.CAPTURED', $attemptRef);
         }
 
         if (in_array($status, self::TAP_TERMINAL_FAILURES, true)) {
-            return $this->markFailedByProviderRef('tap', $chargeId, $dedupeId, 'charge.' . $status, 'failed');
+            return $this->markFailedByProviderRef('tap', $chargeId, $dedupeId, 'charge.' . $status, 'failed', $attemptRef);
         }
 
         Log::info('Tap webhook ignored: non-terminal status', [
@@ -480,7 +754,19 @@ class PaymentWebhookController extends Controller
             return $this->apiResponse(INVALID_PAYMENT_ID, 400, false);
         }
 
+        $attemptRef = is_array($body['order'] ?? null) && is_string($body['order']['reference_id'] ?? null)
+            ? trim((string) $body['order']['reference_id'])
+            : null;
+
         $probe = $this->findTxnByRef($paymentId);
+
+        // PM-6 claimed-row fallback (capability-gated): the payment object
+        // echoes order.reference_id — the per-attempt dispatch reference.
+        if (!$probe && $attemptRef !== null
+            && \App\Services\Payment\PaymentCapabilityRegistry::correlationActive('tabby')
+        ) {
+            $probe = $this->findTxnByRef($attemptRef);
+        }
 
         if (!$probe) {
             Log::info('Tabby webhook for unknown transaction - retry requested', [
@@ -505,13 +791,63 @@ class PaymentWebhookController extends Controller
         $dedupeId = $paymentId . ':' . ($status !== '' ? $status : 'unknown');
         $eventType = 'payment.' . ($status !== '' ? $status : 'unknown');
 
+        $account = (string) config('payment.gateways.tabby.account', 'default');
+
+        // W-1: no stable provider event id — scoped fingerprint over verified
+        // identity attributes. The refund-set signature is part of the
+        // identity: DISTINCT refund deliveries of the same payment must NOT
+        // collapse into one event (the per-refund ledger dedupe stays in
+        // recordExternalRefund); replays of the same delivery do.
+        $refundSignature = 'none';
+        if (is_array($body['refunds'] ?? null)) {
+            $refundSignature = (string) hash(
+                'sha256',
+                collect($body['refunds'])->pluck('id')->sort()->values()->implode('|')
+            );
+        }
+
+        $stored = $this->inbox->store(
+            'tabby',
+            \App\Services\Payment\WebhookEventInbox::fingerprint('tabby', $account, $paymentId, $eventType, $status . '|' . $refundSignature),
+            $account,
+            $eventType,
+            $paymentId,
+            $attemptRef,
+            ['event_type' => $eventType, 'provider_ref' => $paymentId, 'status' => $status],
+        );
+
+        if ($stored === null) {
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        try {
+            $response = $this->routeTabbyEvent($body, $paymentId, $status, $dedupeId, $eventType, $attemptRef);
+        } catch (\Throwable $e) {
+            $this->inbox->markFailed($stored->id, $e);
+
+            throw $e;
+        }
+
+        $this->inbox->markProcessed($stored->id);
+
+        return $response;
+    }
+
+    private function routeTabbyEvent(
+        array $body,
+        string $paymentId,
+        string $status,
+        string $dedupeId,
+        string $eventType,
+        ?string $attemptRef,
+    ): JsonResponse {
         if (in_array($status, self::TABBY_FRESH_READ_STATUSES, true)) {
             // Single server-authoritative path for EVERY actionable
             // status. An `authorized` webhook whose captures[] is
             // pre-populated is a capture CONFIRMATION — handled inside
             // verifyPayment by the fresh read, never by a capture trigger
             // from the payload.
-            $response = $this->completeFromProviderRef('tabby', $paymentId, $dedupeId, $eventType);
+            $response = $this->completeFromProviderRef('tabby', $paymentId, $dedupeId, $eventType, $attemptRef);
 
             $this->reconcileTabbyRefunds($body, $paymentId, $eventType);
 
@@ -716,7 +1052,17 @@ class PaymentWebhookController extends Controller
             return $this->apiResponse(INVALID_PAYMENT_ID, 400, false);
         }
 
+        $attemptRef = is_string($body['order_reference_id'] ?? null) ? trim((string) $body['order_reference_id']) : null;
+
         $probe = $this->findTxnByRef($orderId);
+
+        // PM-6 claimed-row fallback (capability-gated): the delivery body
+        // carries order_reference_id — the per-attempt dispatch reference.
+        if (!$probe && $attemptRef !== null
+            && \App\Services\Payment\PaymentCapabilityRegistry::correlationActive('tamara')
+        ) {
+            $probe = $this->findTxnByRef($attemptRef);
+        }
 
         if (!$probe) {
             Log::info('Tamara webhook for unknown transaction - retry requested', [
@@ -746,12 +1092,72 @@ class PaymentWebhookController extends Controller
         $dedupeId = ($eventType !== '' ? $eventType : 'tamara_event') . ':' . $orderId
             . ($captureId !== '' && preg_match('/^[A-Za-z0-9\-_]{1,64}$/', $captureId) ? ':' . $captureId : '');
 
+        $account = (string) config('payment.gateways.tamara.account', 'default');
+
+        // W-1 / Constraint C fallback: Tamara publishes NO stable delivery
+        // identity, and REFUND deliveries can be payload-identical while
+        // being logically distinct. Their financial idempotency lives in
+        // the per-refund ledger (recordExternalRefund
+        // "tamara:refund:{txn}:{refund_id}"), so the REFUND family gets a
+        // delivery-unique key (never inbox-suppressed) and the ledger
+        // dedupes money. Completion/captured families keep the fingerprint
+        // dedupe; the row-level event-id list stays the replay guard there.
+        $isRefundFamily = str_contains($event, 'refund');
+
+        $eventKey = \App\Services\Payment\WebhookEventInbox::fingerprint(
+                'tamara',
+                $account,
+                $orderId,
+                $eventType !== '' ? $eventType : 'tamara_event',
+                ($captureId !== '' ? $captureId : 'data') . '|' . substr(
+                    hash('sha256', (string) json_encode($body['data'] ?? null)),
+                    0,
+                    16
+                )
+            )
+            . ($isRefundFamily ? '|d' . uniqid('', false) : '');
+
+        $stored = $this->inbox->store(
+            'tamara',
+            $eventKey,
+            $account,
+            $eventType !== '' ? $eventType : null,
+            $orderId,
+            $attemptRef,
+            ['event_type' => $eventType !== '' ? $eventType : null, 'provider_ref' => $orderId, 'capture_id' => $captureId !== '' ? $captureId : null],
+        );
+
+        if ($stored === null) {
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
+
+        try {
+            $response = $this->routeTamaraEvent($event, $eventType, $orderId, $dedupeId, $captureId, $attemptRef);
+        } catch (\Throwable $e) {
+            $this->inbox->markFailed($stored->id, $e);
+
+            throw $e;
+        }
+
+        $this->inbox->markProcessed($stored->id);
+
+        return $response;
+    }
+
+    private function routeTamaraEvent(
+        string $event,
+        string $eventType,
+        string $orderId,
+        string $dedupeId,
+        string $captureId,
+        ?string $attemptRef,
+    ): JsonResponse {
         if (str_contains($event, 'approved') || str_contains($event, 'authorised') || str_contains($event, 'authorized') || str_contains($event, 'captured')) {
             // Single server-authoritative completion path: the fresh read
             // decides everything (an old approved replay after authorisation
             // converges via idempotency; a stale decline wake-up cannot
             // touch a paid row).
-            $response = $this->completeFromProviderRef('tamara', $orderId, $dedupeId, $eventType !== '' ? $eventType : 'tamara_event');
+            $response = $this->completeFromProviderRef('tamara', $orderId, $dedupeId, $eventType !== '' ? $eventType : 'tamara_event', $attemptRef);
 
             if (str_contains($event, 'captured')) {
                 $this->recordTamaraCaptures($orderId, $eventType !== '' ? $eventType : 'order_captured');
@@ -774,7 +1180,7 @@ class PaymentWebhookController extends Controller
             // negative after a landed authorisation COMPLETES from the same
             // fresh read; an unreadable read stays pending — never a
             // terminal decision on the payload's word.
-            return $this->completeFromProviderRef('tamara', $orderId, $dedupeId, $eventType !== '' ? $eventType : 'tamara_event');
+            return $this->completeFromProviderRef('tamara', $orderId, $dedupeId, $eventType !== '' ? $eventType : 'tamara_event', $attemptRef);
         }
 
         Log::info('Tamara webhook ignored: unhandled event', [
@@ -1046,8 +1452,19 @@ class PaymentWebhookController extends Controller
         string $ref,
         ?string $eventId,
         string $eventType,
+        ?string $attemptRef = null,
     ): JsonResponse {
         $probe = $this->findTxnByRef($ref);
+
+        // PM-6: the provider id is not yet persisted locally (claimed
+        // attempt) — correlate via the echoed per-attempt dispatch
+        // reference, gated on the capability registry (fail-closed: only
+        // documented/sandbox-verified echo paths activate).
+        if (!$probe && $attemptRef !== null
+            && \App\Services\Payment\PaymentCapabilityRegistry::correlationActive($gateway)
+        ) {
+            $probe = $this->findTxnByRef($attemptRef);
+        }
 
         if (!$probe) {
             Log::info('Payment webhook for unknown transaction', [
@@ -1102,15 +1519,88 @@ class PaymentWebhookController extends Controller
             return $this->apiResponse(PAYMENT_GATEWAY_UNAVAILABLE, 500, false);
         }
 
-        $result = $adapter->verifyPayment($ref);
+        // PM-5/PM-6: authoritative evidence comes from a STRICTLY read-only
+        // probe — NEVER from verifyPayment (which captures for PayPal) and
+        // never from the webhook payload alone.
+        $claimed = $this->attemptColumnsAvailable() && $probe->attempt_state === 'claimed';
 
-        if (!$result->success) {
-            return $this->markFailedWithResult($txnId, $gateway, $eventId, $eventType, $result);
-        }
+        $result = $adapter instanceof \App\Services\Payment\Contracts\ReadonlyPaymentProbeContract
+            ? $adapter->probePaymentStatus($ref)
+            : $adapter->verifyPayment($ref); // test doubles only
 
         $verifiedRef = is_string($result->gatewayTransactionId) && trim($result->gatewayTransactionId) !== ''
             ? trim($result->gatewayTransactionId)
             : $ref;
+
+        if ($claimed) {
+            // PM-6 guarded adoption — the order must still be payable, and
+            // the provider id comes from the fresh server-side probe result,
+            // never from the webhook body.
+            $orderRow = Order::query()->find($probe->order_id);
+
+            if (!$orderRow || $orderRow->status !== 'pending') {
+                Log::info('Payment webhook skipped: claimed attempt order no longer payable', [
+                    'transaction_id' => $txnId,
+                    'order_id' => $probe->order_id,
+                    'result' => 'superseded_or_cancelled',
+                ]);
+
+                return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+            }
+
+            if ($result->success && ($result->status ?? null) === 'paid') {
+                $this->lifecycle->adoptSessionCreated($probe, $verifiedRef, is_array($result->rawResponse) ? $result->rawResponse : []);
+            } elseif (!$result->success && ($result->status ?? null) === 'failed') {
+                // Provider-CONFIRMED terminal evidence only (probe contract).
+                $this->lifecycle->adoptSessionCreated($probe, $verifiedRef, []);
+                $this->lifecycle->markFailedWithProviderEvidence(
+                    $probe,
+                    'probe:' . $gateway,
+                    (string) ($result->errorMessage ?? 'Payment not completed')
+                );
+
+                Log::info('Payment attempt failed with provider evidence', [
+                    'transaction_id' => $txnId,
+                    'gateway' => $gateway,
+                    'event' => $eventType,
+                    'result' => 'failed',
+                ]);
+
+                return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'failed']);
+            } elseif ($result->success && ($result->status ?? null) === 'pending') {
+                // Conclusive-OPEN session: adopt, stay pending — the PM-7
+                // capture flow or a later completion event resolves it.
+                $this->lifecycle->adoptSessionCreated($probe, $verifiedRef, is_array($result->rawResponse) ? $result->rawResponse : []);
+
+                return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'session_adopted']);
+            } else {
+                // Inconclusive probe: deduce NOTHING; the provider retry or
+                // the recovery worker resolves. Never guess, never adopt.
+                Log::info('Payment webhook inconclusive probe for claimed attempt', [
+                    'transaction_id' => $txnId,
+                    'result' => 'unknown_kept',
+                ]);
+
+                return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+            }
+        }
+
+        if (!$result->success && ($result->status ?? null) === 'failed') {
+            return $this->markFailedWithResult($txnId, $gateway, $eventId, $eventType, $result);
+        }
+
+        if (!$result->success || ($result->status ?? null) !== 'paid') {
+            // T-03: a non-paid or inconclusive answer NEVER fails the row.
+            // Provider retries and the recovery worker provide resolution.
+            Log::info('Payment webhook non-terminal: kept unresolved', [
+                'transaction_id' => $txnId,
+                'gateway' => $gateway,
+                'event' => $eventType,
+                'result' => 'kept_unknown',
+            ]);
+
+            return $this->apiResponse(PAYMENT_SUCCESSFUL, 200, true, ['status' => 'ignored']);
+        }
 
         $terminal = 'completed';
 
@@ -1274,8 +1764,17 @@ class PaymentWebhookController extends Controller
         ?string $eventId,
         string $eventType,
         string $status,
+        ?string $attemptRef = null,
     ): JsonResponse {
         $probe = $this->findTxnByRef($ref);
+
+        // PM-6 claimed-row fallback (capability-gated, see
+        // completeFromProviderRef).
+        if (!$probe && $attemptRef !== null
+            && \App\Services\Payment\PaymentCapabilityRegistry::correlationActive($gateway)
+        ) {
+            $probe = $this->findTxnByRef($attemptRef);
+        }
 
         if (!$probe) {
             Log::info('Payment webhook for unknown transaction', [
@@ -1655,6 +2154,15 @@ class PaymentWebhookController extends Controller
         $query = Transaction::where('gateway_transaction_id', $ref)
             ->orWhere('invoice_id', $ref)
             ->orWhere('gateway_response->_payment_intent_id', $ref);
+
+        // PM-6: the per-attempt dispatch reference — authenticated payloads
+        // echo it back (Stripe metadata / PayPal custom_id / Tabby
+        // order.reference_id / Tamara order_reference_id / Tap
+        // reference.idempotent), so a webhook can resolve the exact attempt
+        // BEFORE the provider id has been persisted locally.
+        if ($this->attemptColumnsAvailable()) {
+            $query->orWhere('dispatch_reference', $ref);
+        }
 
         if ($locked) {
             $query->lockForUpdate();
