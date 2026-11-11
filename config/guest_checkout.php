@@ -22,8 +22,8 @@ return [
     |
     */
     'cookie' => [
-        // Cookie names are FIXED constants in GuestIdentityService because
-        // EncryptCookies' exclusion list must stay byte-identical.
+        'name' => env('GUEST_COOKIE_NAME', 'meem_guest'),
+        'csrf_name' => env('GUEST_CSRF_COOKIE_NAME', 'meem_guest_csrf'),
         'path' => env('GUEST_COOKIE_PATH', '/api'),
         'domain' => env('GUEST_COOKIE_DOMAIN') ?: null,
         // NULL => auto (Secure whenever the request is HTTPS).

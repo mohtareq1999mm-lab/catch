@@ -39,7 +39,7 @@ class GuestCsrf
             return $next($request);
         }
 
-        $cookie = $request->cookie(GuestIdentityService::CSRF_COOKIE);
+        $cookie = $request->cookie(GuestIdentityService::csrfCookieName());
         $header = $request->header('X-CSRF-Token');
 
         if (

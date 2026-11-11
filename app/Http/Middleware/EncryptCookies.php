@@ -26,4 +26,24 @@ class EncryptCookies extends Middleware
         'meem_guest',
         'meem_guest_csrf',
     ];
+
+    /**
+     * Determine whether the cookie has been excluded from encryption.
+     *
+     * @param  string  $name
+     * @return bool
+     */
+    public function isDisabled($name): bool
+    {
+        if (in_array($name, [
+            \App\Services\Guest\GuestIdentityService::cookieName(),
+            \App\Services\Guest\GuestIdentityService::csrfCookieName(),
+            'meem_guest',
+            'meem_guest_csrf',
+        ], true)) {
+            return true;
+        }
+
+        return parent::isDisabled($name);
+    }
 }

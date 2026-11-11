@@ -24,6 +24,16 @@ class GuestIdentityService
     public const COOKIE = 'meem_guest';
     public const CSRF_COOKIE = 'meem_guest_csrf';
 
+    public static function cookieName(): string
+    {
+        return (string) config('guest_checkout.cookie.name', self::COOKIE);
+    }
+
+    public static function csrfCookieName(): string
+    {
+        return (string) config('guest_checkout.cookie.csrf_name', self::CSRF_COOKIE);
+    }
+
     /** Request-attribute keys (never serialized). */
     private const ATTR_IDENTITY = '_guest_identity';
     private const ATTR_RAW = '_guest_raw_token';
@@ -105,8 +115,8 @@ class GuestIdentityService
 
     public function clearCookies(): void
     {
-        $this->cookies->queue($this->cookies->forget(self::COOKIE, $this->cookiePath(), $this->cookieDomain()));
-        $this->cookies->queue($this->cookies->forget(self::CSRF_COOKIE, $this->cookiePath(), $this->cookieDomain()));
+        $this->cookies->queue($this->cookies->forget(self::cookieName(), $this->cookiePath(), $this->cookieDomain()));
+        $this->cookies->queue($this->cookies->forget(self::csrfCookieName(), $this->cookiePath(), $this->cookieDomain()));
     }
 
     /**
@@ -130,8 +140,8 @@ class GuestIdentityService
     public function cookieMetadata(Request $request): array
     {
         return [
-            'session_cookie' => self::COOKIE,
-            'csrf_cookie' => self::CSRF_COOKIE,
+            'session_cookie' => self::cookieName(),
+            'csrf_cookie' => self::csrfCookieName(),
             'csrf_header' => 'X-CSRF-Token',
             'path' => $this->cookiePath(),
             'domain' => $this->cookieDomain(),
@@ -157,7 +167,7 @@ class GuestIdentityService
             return $raw;
         }
 
-        $cookie = $request->cookie(self::COOKIE);
+        $cookie = $request->cookie(self::cookieName());
 
         if (!is_string($cookie) || $cookie === '' || strlen($cookie) > 191) {
             return null;
@@ -184,7 +194,7 @@ class GuestIdentityService
         }
 
         $this->cookies->queue($this->cookies->make(
-            self::COOKIE,
+            self::cookieName(),
             $raw,
             $minutes,
             $this->cookiePath(),
@@ -196,7 +206,7 @@ class GuestIdentityService
         ));
 
         $this->cookies->queue($this->cookies->make(
-            self::CSRF_COOKIE,
+            self::csrfCookieName(),
             $this->csrfToken($identity),
             $minutes,
             $this->cookiePath(),
