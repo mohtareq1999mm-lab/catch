@@ -32,6 +32,13 @@ return [
     | IMPORTANT: When CORS_SUPPORTS_CREDENTIALS=true, a wildcard "*" is never
     | returned as Access-Control-Allow-Origin. The middleware echoes the
     | requesting Origin only when it is explicitly listed here.
+    |
+    | GUEST ROUTES (api/v1/general/guest/*) are stricter: the
+    | App\Http\Middleware\GuestOrigin guard rejects wildcard configs for
+    | cookie-authenticated guest traffic, allows same-origin requests
+    | unconditionally (reverse-proxy rewrites), and strips any wildcard CORS
+    | headers from guest responses (fail closed). Configure the exact
+    | Frontend origin(s) in CORS_ALLOWED_ORIGINS.
     */
     'allowed_origins' => (function () {
         $supportsCredentials = filter_var(env('CORS_SUPPORTS_CREDENTIALS', false), FILTER_VALIDATE_BOOLEAN);

@@ -47,10 +47,13 @@ class GuestCartController extends Controller
 
     public function store(CartCreateRequest $request): JsonResponse
     {
+        // Writes REQUIRE an existing verified guest session. The session is
+        // created only by POST /guest/session; a write must never mint one
+        // (no auto-create: 401 otherwise).
         $identity = $this->identities->current($request);
 
         if (!$identity) {
-            [$identity] = $this->identities->create($request);
+            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
         }
 
         try {

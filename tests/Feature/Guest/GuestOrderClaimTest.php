@@ -84,6 +84,14 @@ class GuestOrderClaimTest extends GuestCheckoutTestCase
         $this->assertSame((int) $user->id, (int) $order->fresh()->user_id);
         $this->assertNull($order->fresh()->guest_cancellation_token_hash);
         $this->assertNotNull($tokenRow->fresh()->used_at);
+
+        // The former guest browser loses access to the now-account-owned order.
+        $this->asGuest()->getJson(self::PREFIX . '/orders/' . $order->id)->assertStatus(404);
+        $this->asGuest()->postJson(
+            self::PREFIX . '/orders/' . $order->id . '/payment',
+            ['payment_method' => 'cod'],
+            $this->csrfHeaders()
+        )->assertStatus(404);
     }
 
     /** @test */
@@ -262,7 +270,35 @@ class GuestOrderClaimTest extends GuestCheckoutTestCase
     }
 
     /** @test */
-    public function claiming_a_pending_order_when_the_user_already_has_one_returns_a_safe_conflict(): void
+    public function expired_or_revoked_claim_tokens_are_rejected(): void
+    {
+        config(['guest_checkout.order_claim.enabled' => true]);
+
+        [$order, $guest] = $this->guestOrderContext();
+        $user = $this->makeUser($order->user_phone);
+        $this->bindVerifier($user, $order->user_phone);
+        $issued = $this->service()->issueToken($user, $this->claimRequest(), $order, 'otp-ref-1', $order->user_phone);
+
+        $token = GuestOrderClaimToken::query()->firstOrFail();
+        $token->forceFill(['expires_at' => now()->subMinute()])->save();
+
+        $this->assertSame(
+            'invalid_token',
+            $this->service()->claim($user, $this->claimRequest(), $issued['claim_token'], 'otp-ref-1', $order->user_phone)['status']
+        );
+
+        $token->forceFill(['expires_at' => now()->addHour(), 'revoked_at' => now()])->save();
+
+        $this->assertSame(
+            'invalid_token',
+            $this->service()->claim($user, $this->claimRequest(), $issued['claim_token'], 'otp-ref-1', $order->user_phone)['status']
+        );
+
+        $this->assertNull($order->fresh()->user_id);
+    }
+
+    /** @test */
+    public function pending_order_conflict_is_safe_and_leaves_the_token_unused(): void
     {
         config(['guest_checkout.order_claim.enabled' => true]);
 

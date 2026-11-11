@@ -541,6 +541,55 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function authenticated_digital_cart_lines_are_not_marked_unavailable_by_the_shared_resource(): void
+    {
+        $digital = $this->makeProduct([
+            'name' => 'Digital Auth ' . uniqid(),
+            'slug' => 'digital-auth-' . uniqid(),
+            'item_type' => \Marvel\Enums\ItemType::DIGITAL,
+        ]);
+
+        $user = $this->makeUser();
+        $cart = $this->accountCart($user);
+        $this->addAccountLine($cart, $digital, 1);
+
+        $resolved = \Marvel\Http\Resources\CartResource::make(
+            $cart->load(['items.product', 'items.productVariant'])
+        )->resolve(request());
+
+        $items = $resolved['normal_items']->resolve(request());
+
+        $this->assertTrue($items[0]['is_available']);
+        $this->assertNull($items[0]['unavailable_reason']);    }
+
+    /** @test */
+    public function merge_failure_is_non_fatal_and_keeps_the_guest_cart(): void
+    {
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $user = $this->makeUser();
+
+        $this->mock(GuestCartMergeService::class, function ($mock) {
+            $mock->shouldReceive('merge')->andThrow(new \RuntimeException('merge down'));
+        });
+
+        $response = $this->asGuest()->postJson('/api/v1/token', [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.guest_cart_merge.status', 'failed');
+        $this->assertNotNull($this->guestCart());
+        $this->assertSame(0, Cart::query()->where('user_id', $user->id)->count());
+    }
+
+    /** @test */
     public function login_without_a_guest_cart_leaves_the_authenticated_cart_unchanged(): void
     {
         $user = $this->makeUser();

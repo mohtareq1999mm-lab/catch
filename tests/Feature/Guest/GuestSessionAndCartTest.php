@@ -62,6 +62,60 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function a_write_without_a_session_is_rejected_and_creates_nothing(): void
+    {
+        $identitiesBefore = GuestIdentity::query()->count();
+
+        $response = $this->postJson(
+            self::PREFIX . '/cart/items',
+            ['item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled']],
+            ['X-CSRF-Token' => 'garbage']
+        );
+
+        $response->assertStatus(401);
+        $this->assertFalse((bool) $response->json('success'));
+
+        // No identity may be minted by a write endpoint.
+        $this->assertSame($identitiesBefore, GuestIdentity::query()->count());
+        $this->assertSame(0, CartItem::query()->count());
+        $this->assertSame(0, Cart::query()->whereNotNull('guest_id')->count());
+
+        // And it must not mint a session cookie either.
+        foreach ($response->headers->getCookies() as $cookie) {
+            $this->assertNotSame(GuestIdentityService::COOKIE, $cookie->getName());
+        }
+    }
+
+    /** @test */
+    public function a_revoked_guest_session_write_is_rejected(): void
+    {
+        $cookies = $this->startGuestSession();
+        $oldToken = $cookies[GuestIdentityService::COOKIE];
+        $identityId = $this->currentGuestId();
+
+        // DELETE /session is the kill-switch.
+        $this->asGuest()->deleteJson(self::PREFIX . '/session', [], $this->csrfHeaders())->assertOk();
+        $this->assertNotNull(GuestIdentity::query()->findOrFail($identityId)->revoked_at);
+
+        // A browser that "didn't get the memo" resends the OLD cookie value.
+        $response = $this->withCredentials()
+            ->withUnencryptedCookies([
+                GuestIdentityService::COOKIE => $oldToken,
+            ])
+            ->postJson(
+                self::PREFIX . '/cart/items',
+                ['item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled']]
+            );
+
+        $response->assertStatus(401);
+
+        // No new identity may be minted from a revoked credential.
+        $this->assertSame(1, GuestIdentity::query()->count());
+        $this->assertNotNull(GuestIdentity::query()->findOrFail($identityId)->revoked_at);
+        $this->assertSame(0, CartItem::query()->count());
+    }
+
+    /** @test */
     public function invalid_or_revoked_token_resolves_to_a_safe_empty_state(): void
     {
         $this->withUnencryptedCookies([

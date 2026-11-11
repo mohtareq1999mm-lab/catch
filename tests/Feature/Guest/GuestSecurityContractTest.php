@@ -221,6 +221,77 @@ class GuestSecurityContractTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function a_wildcard_cors_config_never_authorizes_guest_routes(): void
+    {
+        config([
+            'cors.supports_credentials' => true,
+            'cors.allowed_origins' => ['*'],
+        ]);
+
+        $this->withHeaders(['Origin' => 'https://evil.example.test'])
+            ->postJson(self::PREFIX . '/session')
+            ->assertStatus(403);
+    }
+
+    /** @test */
+    public function the_exact_allowed_origin_is_echoed_with_credentials(): void
+    {
+        config([
+            'cors.supports_credentials' => true,
+            'cors.allowed_origins' => ['https://shop.example.test'],
+        ]);
+
+        $response = $this->withHeaders(['Origin' => 'https://shop.example.test'])
+            ->postJson(self::PREFIX . '/session');
+
+        $response->assertOk();
+        $this->assertSame('https://shop.example.test', $response->headers->get('Access-Control-Allow-Origin'));
+        $this->assertSame('true', $response->headers->get('Access-Control-Allow-Credentials'));
+        $this->assertNotSame('*', (string) $response->headers->get('Access-Control-Allow-Origin'));
+    }
+
+    /** @test */
+    public function wildcard_and_foreign_cors_headers_are_stripped_from_guest_responses(): void
+    {
+        config([
+            'cors.supports_credentials' => true,
+            'cors.allowed_origins' => ['https://shop.example.test'],
+        ]);
+
+        $middleware = new \App\Http\Middleware\GuestOrigin();
+
+        $request = Request::create(self::PREFIX . '/session', 'POST');
+        $request->headers->set('Origin', 'https://shop.example.test');
+
+        // Wildcard emitted upstream → must be removed.
+        $response = $middleware->handle(
+            $request,
+            fn () => response('ok')
+                ->header('Access-Control-Allow-Origin', '*')
+                ->header('Access-Control-Allow-Credentials', 'true')
+        );
+        $this->assertNull($response->headers->get('Access-Control-Allow-Origin'));
+        $this->assertNull($response->headers->get('Access-Control-Allow-Credentials'));
+
+        // A "single allowed origin" echoed for a DIFFERENT caller → removed.
+        $response = $middleware->handle(
+            $request,
+            fn () => response('ok')
+                ->header('Access-Control-Allow-Origin', 'https://other.example.test')
+                ->header('Access-Control-Allow-Credentials', 'true')
+        );
+        $this->assertNull($response->headers->get('Access-Control-Allow-Origin'));
+        $this->assertNull($response->headers->get('Access-Control-Allow-Credentials'));
+
+        // Correct echo survives.
+        $response = $middleware->handle(
+            $request,
+            fn () => response('ok')->header('Access-Control-Allow-Origin', 'https://shop.example.test')
+        );
+        $this->assertSame('https://shop.example.test', $response->headers->get('Access-Control-Allow-Origin'));
+    }
+
+    /** @test */
     public function limiter_backend_failure_fails_closed(): void
     {
         $limiter = Mockery::mock(RateLimiter::class);

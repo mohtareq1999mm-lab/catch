@@ -51,7 +51,6 @@ Cookie attributes (defaults, configurable by Backend env):
 ---
 
 ## 3. Session lifecycle
-
 ### Initialize (first visit)
 
 `POST /api/v1/general/guest/session`
@@ -95,6 +94,24 @@ different host from the API (a host-only `meem_guest_csrf` cookie is not readabl
 
 Revokes the token and clears cookies. The cart is left for retention/pruning; it is no longer
 reachable from that browser.
+
+**Revocation is the kill-switch.** After this call, the OLD `meem_guest` cookie value is dead
+server-side (`guest_identities.revoked_at`). Any request that replays the old cookie on a WRITE
+endpoint returns `401 session_required`; no new session/cart may be minted from it. Reads return
+an empty cart. `POST /guest/session` rotates to a brand-new identity (the old one stays revoked).
+
+### Writes require an existing session
+
+Every write endpoint (cart add/update/remove/clear, checkout, payment, access-tokens) requires a
+**valid existing** guest session:
+
+- missing/expired/revoked credential → `401` (`session_required`);
+- the backend NEVER auto-creates a session from a write endpoint;
+- sessions are created ONLY by `POST /guest/session`.
+
+CSRF therefore cannot be bypassed by "having no session": the no-session case is answered with
+`401` before any state change. `419` is returned only when a session exists but the
+`X-CSRF-Token` is missing/mismatched.
 
 ---
 
@@ -235,6 +252,44 @@ Response `201`:
 ```
 
 Admin-revoked tracking is never resurrected (`tracking_token: null`, `tracking_revoked: true`).
+
+---
+
+## 5.1 Login response — guest cart merge
+
+Guest cart merge runs **after successful authentication** in the password
+(`POST /api/v1/token`), social login, and OTP login flows. Registration alone
+does not authenticate and therefore does not merge. Merge failure never fails
+login.
+
+Successful login may include:
+
+```json
+{
+  "data": {
+    "token": "...",
+    "guest_cart_merge": {
+      "status": "merged",
+      "added_items": 1,
+      "merged_items": 2,
+      "guest_cart_removed": true,
+      "adjusted_items": [
+        { "product_id": 10, "quantity": 2, "applied_quantity": 1, "dropped_quantity": 1, "reason": "quantity_capped", "message": "…" }
+      ],
+      "unavailable_items": [
+        { "product_id": 11, "quantity": 1, "reason": "product_unavailable", "message": "…" }
+      ],
+      "cart": { "id": 5, "normal_items": [], "fast_items": [], "…": "CartResource" }
+    }
+  }
+}
+```
+
+- `status`: `merged` | `failed` | absent (no guest cart).
+- Unavailable items are **preserved** in the authenticated cart and reported.
+  The cart item resource also exposes `is_available` / `unavailable_reason`.
+- Checkout rejects unavailable lines until the customer removes/replaces them.
+- `adjusted_items` explains quantity caps (max per-line and stock).
 
 ---
 
@@ -416,7 +471,7 @@ await api.post('/guest/checkout', payload, {
 
 ## 12. Deployment prerequisites (Backend)
 
-1. `CORS_ALLOWED_ORIGINS=https://shop.example.com` (exact; no `*` with credentials)
+1. `CORS_ALLOWED_ORIGINS=https://catch.mohammedtareq.me` (EXACT Frontend origin; never `*`)
 2. `CORS_SUPPORTS_CREDENTIALS=true`
 3. `GUEST_COOKIE_SAMESITE=lax` (same-site subdomains) or `none` **only** with HTTPS and a BFF/proxy
 4. `GUEST_COOKIE_DOMAIN` unset (host-only) by default
@@ -424,6 +479,10 @@ await api.post('/guest/checkout', payload, {
 6. Shared Redis cache for rate limiting/reconciliation in multi-server setups
 7. Scheduler running: `guest:prune-carts`, `payments:reconcile-attempts`, `orders:cancel-unpaid`
 8. `php artisan migrate` (additive guest schema + nullable invoice user)
+9. Guest routes additionally enforce: SAME-ORIGIN requests always pass
+   (reverse-proxy rewrites); CROSS-ORIGIN requests must match the exact
+   allowed origin; wildcard `*` never authorizes a guest route and any
+   wildcard/foreign CORS header is stripped from guest responses (fail closed).
 
 ---
 
@@ -431,8 +490,8 @@ await api.post('/guest/checkout', payload, {
 
 | Topic | Status |
 |---|---|
-| Guest cart merge on login | **UNKNOWN / NOT IMPLEMENTED** — no merge policy exists anywhere in the repository. Guest checkout works without login. A decision is required before merge is built. |
-| Different registrable domains | **RISK** — prefer BFF/reverse proxy; third-party cookies are unreliable. |
+| Guest cart merge on login | **IMPLEMENTED** — password/social/OTP logins merge the guest cart (`data.guest_cart_merge`). Registration does not authenticate, so it does not merge. |
+| Different registrable domains | **RISK** — prefer BFF/reverse proxy; third-party cookies are unreliable. Guest routes enforce exact-origin CORS and never emit `*`. |
 | Guest coupon application | **NOT IMPLEMENTED** (no approved guest coupon policy). The public product/coupon endpoints remain as-is. |
 | POS guest checkout | **DISABLED** by design. |
 | Digital products | **REJECTED** by design. |
