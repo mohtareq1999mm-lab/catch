@@ -783,31 +783,65 @@ class PermissionSeeder extends Seeder
             report($e);
         }
 
-        // Demo super admin user (admin@demo.com)
-        $adminUser = User::where('email', 'admin@demo.com')->first();
-        if (! $adminUser) {
-            $adminUser = User::create([
-                'name' => 'Shop Owner',
+        // Demo super admin users (admin@demo.com and admin2@demo.com)
+        $adminAccounts = [
+            [
                 'email' => 'admin@demo.com',
-                'password' => \Illuminate\Support\Facades\Hash::make('password'),
-                'is_active' => true,
+                'name' => 'Shop Owner',
                 'phone_number' => '34567890',
-                'email_verified_at' => now(),
-                'type' => 'admin',
-            ]);
-        }
+            ],
+            [
+                'email' => 'admin2@demo.com',
+                'name' => 'Admin 2',
+                'phone_number' => '34567891',
+            ],
+        ];
 
-        if ($adminUser) {
-            if ($adminUser->type !== 'admin' || ! $adminUser->is_active) {
-                $adminUser->update([
-                    'type' => 'admin',
+        foreach ($adminAccounts as $account) {
+            $adminUser = User::where('email', $account['email'])->first();
+            if (! $adminUser) {
+                $adminUser = User::create([
+                    'name' => $account['name'],
+                    'email' => $account['email'],
+                    'password' => \Illuminate\Support\Facades\Hash::make('password'),
                     'is_active' => true,
+                    'phone_number' => $account['phone_number'],
+                    'email_verified_at' => now(),
+                    'type' => 'admin',
                 ]);
             }
-            if (! $adminUser->hasRole('super_admin')) {
-                $adminUser->assignRole('super_admin');
+
+            if ($adminUser) {
+                if ($adminUser->type !== 'admin' || ! $adminUser->is_active) {
+                    $adminUser->update([
+                        'type' => 'admin',
+                        'is_active' => true,
+                    ]);
+                }
+                if (! $adminUser->hasRole('super_admin')) {
+                    $adminUser->assignRole('super_admin');
+                }
+                if (! $adminUser->hasRole('warehouse-manager')) {
+                    $adminUser->assignRole('warehouse-manager');
+                }
+                $adminUser->syncPermissions($allApiPermissions);
             }
-            $adminUser->syncPermissions($allApiPermissions);
+        }
+
+        // Guarantee all admin users hold both super_admin & warehouse-manager roles plus 100% permissions
+        try {
+            $allAdmins = User::where('type', 'admin')->get();
+            foreach ($allAdmins as $admin) {
+                if (! $admin->hasRole('super_admin')) {
+                    $admin->assignRole('super_admin');
+                }
+                if (! $admin->hasRole('warehouse-manager')) {
+                    $admin->assignRole('warehouse-manager');
+                }
+                $admin->syncPermissions($allApiPermissions);
+            }
+        } catch (\Throwable $e) {
+            report($e);
         }
 
         // Bust Spatie's permission cache so newly created/synced rows take effect immediately

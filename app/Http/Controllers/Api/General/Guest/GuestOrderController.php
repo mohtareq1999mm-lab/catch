@@ -103,6 +103,9 @@ class GuestOrderController extends Controller
         return Order::query()
             ->whereKey($orderId)
             ->where('guest_id', $guestId)
+            // A claimed order belongs to the registered account now; the
+            // former guest cookie must no longer reach it.
+            ->whereNull('user_id')
             ->first();
     }
 }

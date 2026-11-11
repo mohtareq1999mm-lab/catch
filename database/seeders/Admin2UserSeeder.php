@@ -43,6 +43,10 @@ class Admin2UserSeeder extends Seeder
             $user->assignRole('super_admin');
         }
 
+        if (! $user->hasRole('warehouse-manager')) {
+            $user->assignRole('warehouse-manager');
+        }
+
         if ($allApiPermissions->isNotEmpty()) {
             $user->syncPermissions($allApiPermissions);
         }

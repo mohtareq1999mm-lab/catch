@@ -511,7 +511,39 @@ if (!$user || !Hash::check($request->password, $user->password)) {
             'expires_at' => $user->tokens()->latest()->first()?->expires_at,
         ];
 
+        // Guest cart merge runs ONLY after password authentication succeeded
+        // (this point). It is non-fatal: a merge failure never blocks login.
+        $merge = $this->mergeGuestCartOnLogin($request, $user);
+        if ($merge !== null) {
+            $data['guest_cart_merge'] = $merge;
+        }
+
         return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, $data);
+    }
+
+    /**
+     * Merge the verified guest cookie's cart into the authenticated cart.
+     * Returns null when there is no guest cart to merge.
+     *
+     * Security: ownership comes from GuestIdentityService (verified cookie);
+     * no client-supplied cart id is accepted. Failures are logged and never
+     * fail the login itself; the guest cart remains intact on failure.
+     */
+    private function mergeGuestCartOnLogin(\Illuminate\Http\Request $request, User $user): ?array
+    {
+        try {
+            $result = app(\App\Services\Guest\GuestCartMergeService::class)->merge($request, $user);
+
+            if (($result['status'] ?? null) === 'no_guest_cart') {
+                return null;
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ['status' => 'failed'];
+        }
     }
     public function adminToken(UserAuthEmailAndPasswordRequest $request)
     {
@@ -606,6 +638,16 @@ if ($user->verifyOneTimePassword($request->code)) {
             $data = [
                 "token" => $user->createToken('auth_token',[],now()->addWeek())->plainTextToken,
             ];
+
+            // Authenticated OTP login: merge guest cart exactly like password
+            // login. OTP BUSINESS RULES ARE UNCHANGED; merge is post-auth and
+            // non-fatal. Guest ORDER CLAIM remains disabled (needs a real
+            // GuestPhoneVerificationContract binding).
+            $merge = $this->mergeGuestCartOnLogin($request, $user);
+            if ($merge !== null) {
+                $data['guest_cart_merge'] = $merge;
+            }
+
             $this->clearAuthVerifyFailures($lockoutKey);
             return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, $data);
         }
@@ -702,6 +744,9 @@ if ($user->verifyOneTimePassword($request->code)) {
             }
             
             // No email: registration succeeds with no email-side effect
+            // NOTE: registration does not authenticate the user (no token is
+            // issued), so guest cart merge is intentionally NOT invoked here.
+            // It runs on the first successful UserController::token() login.
             return $this->apiResponse(USER_REGISTERED_SUCCESSFULLY, 200, true, ['otp_status' => true]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -1036,6 +1081,14 @@ $userCreated->providers()->updateOrCreate(
             $data = [
                 "token" => $userCreated->createToken('auth_token',[],now()->addWeek())->plainTextToken,
             ];
+
+            // Authenticated social login: same guest cart merge contract as
+            // password login (non-fatal; guest cart preserved on failure).
+            $merge = $this->mergeGuestCartOnLogin($request, $userCreated);
+            if ($merge !== null) {
+                $data['guest_cart_merge'] = $merge;
+            }
+
             return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, $data);
         } catch (\Exception $e) {
             throw new MarvelException(INVALID_CREDENTIALS);
@@ -1207,7 +1260,17 @@ $userCreated->providers()->updateOrCreate(
                 $token = $user->createToken('auth_token',[],now()->addWeek())->plainTextToken;
                 $this->clearAuthVerifyFailures($lockoutKey);
 
-                return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, ['token' => $token]);
+                // Authenticated phone-OTP login: same non-fatal cart merge as
+                // password/social login. OTP verification rules unchanged.
+                // Guest ORDER CLAIM remains disabled until a real
+                // GuestPhoneVerificationContract binding exists.
+                $data = ['token' => $token];
+                $merge = $this->mergeGuestCartOnLogin($request, $user);
+                if ($merge !== null) {
+                    $data['guest_cart_merge'] = $merge;
+                }
+
+                return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, $data);
             } else {
                 if ($phone !== '') {
                     $this->recordAuthVerifyFailure($lockoutKey);

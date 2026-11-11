@@ -140,6 +140,9 @@ class DatabaseSeeder extends Seeder
                 if (! $admin->hasRole('super_admin')) {
                     $admin->assignRole('super_admin');
                 }
+                if (! $admin->hasRole('warehouse-manager')) {
+                    $admin->assignRole('warehouse-manager');
+                }
                 $admin->syncPermissions($allApiPermissions);
             }
         }

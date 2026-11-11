@@ -1875,6 +1875,17 @@ class OrderService
      */
     private function assertCartProductsActive(Cart $cart): void
     {
+        // A preserved unavailable line after a guest cart merge may have a
+        // NULL product_id (hard-deleted product). It must block checkout
+        // instead of being silently skipped.
+        $hasUnresolvedNullProduct = $cart->items->contains(
+            fn ($item) => !$item->is_gift && $item->product_id === null
+        );
+
+        if ($hasUnresolvedNullProduct) {
+            throw new \InvalidArgumentException(__('checkout.fast_shipping_items_ineligible'));
+        }
+
         $productIds = $cart->items->pluck('product_id')->filter()->unique()->values();
         if ($productIds->isEmpty()) {
             return;

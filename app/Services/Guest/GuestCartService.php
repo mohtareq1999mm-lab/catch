@@ -5,6 +5,7 @@ namespace App\Services\Guest;
 use App\Contexts\ChannelContext;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -91,7 +92,7 @@ class GuestCartService
         $this->assertEligibleItem($item);
 
         $cart = $this->ensureCart($identity);
-        $cart = $this->cartRepository->applyItemToCart($cart, $item, 'add');
+        $cart = $this->applyWithRetry($cart, $item, 'add');
         $this->touch($request, $identity, $cart);
 
         return $cart;
@@ -102,10 +103,30 @@ class GuestCartService
         $this->assertEligibleItem($item);
 
         $cart = $this->ensureCart($identity);
-        $cart = $this->cartRepository->applyItemToCart($cart, $item, 'set');
+        $cart = $this->applyWithRetry($cart, $item, 'set');
         $this->touch($request, $identity, $cart);
 
         return $cart;
+    }
+
+    /**
+     * A concurrent login merge may delete the guest cart between ensureCart()
+     * and the locked mutation. Re-create once instead of surfacing a 500.
+     */
+    private function applyWithRetry(Cart $cart, array $item, string $mode): Cart
+    {
+        try {
+            return $this->cartRepository->applyItemToCart($cart, $item, $mode);
+        } catch (ModelNotFoundException $e) {
+            $fresh = $this->ensureCart($this->identityForCart($cart));
+
+            return $this->cartRepository->applyItemToCart($fresh, $item, $mode);
+        }
+    }
+
+    private function identityForCart(Cart $cart): GuestIdentity
+    {
+        return GuestIdentity::query()->findOrFail($cart->guest_id);
     }
 
     public function removeItem(Request $request, GuestIdentity $identity, int $itemId): ?Cart

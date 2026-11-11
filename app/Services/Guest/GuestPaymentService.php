@@ -39,8 +39,9 @@ class GuestPaymentService
     public function initiate(Request $request, GuestIdentity $guest, Order $order): JsonResponse
     {
         // Ownership first: a foreign / unknown order is indistinguishable
-        // (both 404) — no order existence oracle.
-        if ((int) $order->guest_id !== (int) $guest->id) {
+        // (both 404) — no order existence oracle. Claimed orders belong to the
+        // registered account and are no longer reachable via the guest cookie.
+        if ((int) $order->guest_id !== (int) $guest->id || $order->user_id !== null) {
             return $this->apiResponse(__('guest_checkout.order_not_found'), 404, false);
         }
 

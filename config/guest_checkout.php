@@ -58,6 +58,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Guest order claiming (OTP-gated; DISABLED)
+    |--------------------------------------------------------------------------
+    |
+    | Two independent gates must both be satisfied before any claim can occur:
+    |  1. this flag is true, AND
+    |  2. App\Contracts\GuestPhoneVerificationContract is bound to a REAL
+    |     verifier (the default NullGuestPhoneVerification always returns null).
+    |
+    | Do not flip this flag or bind a verifier until OTP verification is
+    | production-ready and the invocation points in UserController are
+    | intentionally enabled. See docs/guest-order-claim-activation.md.
+    |
+    */
+    'order_claim' => [
+        'enabled' => filter_var(env('GUEST_ORDER_CLAIM_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'token_ttl_hours' => (int) env('GUEST_ORDER_CLAIM_TTL_HOURS', 24),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Rate limiting (7 public guest surfaces)
     |--------------------------------------------------------------------------
     |

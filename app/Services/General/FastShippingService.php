@@ -303,6 +303,14 @@ class FastShippingService
 
     private function assertCartProductsActive(\Marvel\Database\Models\Cart $cart): void
     {
+        $hasUnresolvedNullProduct = $cart->items->contains(
+            fn ($item) => !$item->is_gift && $item->product_id === null
+        );
+
+        if ($hasUnresolvedNullProduct) {
+            throw new \InvalidArgumentException(__('checkout.fast_shipping_items_ineligible'));
+        }
+
         $productIds = $cart->items->pluck('product_id')->filter()->unique()->values();
         if ($productIds->isEmpty()) {
             return;

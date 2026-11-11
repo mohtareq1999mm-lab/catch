@@ -38,6 +38,13 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->bind(FrontendWebhookDispatcher::class, FrontendWebhookService::class);
 
+        // OTP-gated guest order claiming is fail-closed until a real verifier
+        // is bound (see GuestOrderClaimService activation steps).
+        $this->app->bind(
+            \App\Contracts\GuestPhoneVerificationContract::class,
+            \App\Services\Guest\NullGuestPhoneVerification::class
+        );
+
         $this->app->bind(WebhookSignature::class, function ($app) {
             return new WebhookSignature(
                 secret: config('frontend.secret', ''),

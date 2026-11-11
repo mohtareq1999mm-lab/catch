@@ -37,4 +37,13 @@ return [
     'cancel_link_used' => 'This cancellation link has already been used.',
     'cancel_link_expired' => 'This cancellation link has expired.',
     'cancel_failed' => 'The order could not be cancelled.',
+
+    'merge_product_deleted' => 'This product is no longer available and was kept in your cart for review.',
+    'merge_product_unavailable' => 'This product is currently unavailable and was kept in your cart for review.',
+    'merge_digital_not_supported' => 'This product type is not available for this cart and was kept for review.',
+    'merge_channel_not_eligible' => 'This product is not available in the current store channel and was kept for review.',
+    'merge_variant_unavailable' => 'The selected product option is no longer available and was kept for review.',
+    'merge_quantity_capped' => 'The quantity was adjusted to the maximum currently allowed.',
+    'merge_failed' => 'This item could not be merged automatically and was kept for review.',
+    'merge_gift_line_preserved' => 'A promotional gift line was kept for review.',
 ];
