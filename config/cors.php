@@ -51,7 +51,7 @@ return [
             $raw = $supportsCredentials ? '' : '*';
         }
 
-        $origins = array_values(array_filter(array_map('trim', explode(',', (string) $raw))));
+        $origins = array_values(array_filter(array_map(fn ($o) => rtrim(trim($o), '/'), explode(',', (string) $raw))));
 
         // Never allow wildcard with credentials — browsers reject it.
         if ($supportsCredentials) {

@@ -46,11 +46,13 @@ class GuestOrigin
             return;
         }
 
+        $origin = rtrim($origin, '/');
+
         if (self::isSameOrigin($request, $origin)) {
             return;
         }
 
-        $allowed = (array) config('cors.allowed_origins', []);
+        $allowed = array_map(fn ($o) => rtrim($o, '/'), (array) config('cors.allowed_origins', []));
 
         // A wildcard must never authorize a cookie-authenticated guest route.
         if (in_array($origin, $allowed, true)) {
