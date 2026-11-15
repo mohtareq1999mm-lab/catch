@@ -36,6 +36,9 @@ class SocialLoginFlowTest extends TestCase
         }
 
         config([
+            'services.google.client_id' => 'test-client-id.apps.googleusercontent.com',
+            'services.google.client_secret' => 'test-client-secret',
+            'services.google.redirect' => 'https://oauth.example.test/api/v1/social/google/callback',
             'shop.social_login.frontend_url' => self::FRONTEND_URL,
             'shop.social_login.code_ttl_minutes' => 5,
         ]);

@@ -49,6 +49,9 @@ return [
     */
     'social_login' => [
         'frontend_url' => env('SOCIAL_LOGIN_FRONTEND_URL', env('SHOP_URL')),
+        // Optional per-provider override of the post-login redirect base
+        // (must be a trusted deployment domain, never a request-supplied URL).
+        'google_frontend_url' => env('GOOGLE_FRONTEND_REDIRECT_URL'),
         'code_ttl_minutes' => (int) env('SOCIAL_LOGIN_CODE_TTL_MINUTES', 200),
     ],
 

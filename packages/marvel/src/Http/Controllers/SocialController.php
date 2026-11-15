@@ -62,6 +62,10 @@ class SocialController extends CoreController
 
         $type = $this->clientType($request);
 
+        // Captured before the local `$provider` variable is reused for the
+        // Provider model below, so failure logs always name the provider.
+        $providerName = $provider;
+
         try {
             $socialUser = Socialite::driver($provider)
                 ->stateless()
@@ -70,7 +74,6 @@ class SocialController extends CoreController
 
             $email = $socialUser->getEmail();
             $providerId = $socialUser->getId();
-            $providerName = $provider;
 
             // Find existing user by provider identity first
             $provider = \Marvel\Database\Models\Provider::where('provider', $providerName)
@@ -124,13 +127,16 @@ class SocialController extends CoreController
                 ], 200);
             }
 
-            return redirect()->away($this->frontendUrl() . '/?code=' . $authorizationCode->code);
+            return redirect()->away($this->frontendUrl($providerName) . '/?code=' . $authorizationCode->code);
         } catch (\Throwable $e) {
+            // Context key `exception` must never hold a string: Laravel's test
+            // LoggedExceptionCollection pushes `context['exception']` and
+            // later calls ->getMessage() on it.
             Log::error('Social login callback failed', [
-                'provider' => $provider,
+                'provider' => $providerName,
                 'type' => $type,
                 'error' => $e->getMessage(),
-                'exception' => get_class($e),
+                'exception_class' => get_class($e),
                 'trace' => $e->getTraceAsString(),
             ]);
 
@@ -141,7 +147,7 @@ class SocialController extends CoreController
                 ], 400);
             }
 
-            return redirect()->away($this->frontendUrl() . '/auth?error=social_login_failed');
+            return redirect()->away($this->frontendUrl($providerName) . '/auth?error=social_login_failed');
         }
     }
 
@@ -206,14 +212,76 @@ class SocialController extends CoreController
         return in_array($type, ['web', 'mobile'], true) ? $type : 'web';
     }
 
+    /**
+     * The canonical OAuth callback URL for the provider.
+     *
+     * Reads the explicitly configured callback from Laravel configuration
+     * (config/services.php → services.{provider}.redirect, fed by the
+     * GOOGLE_REDIRECT_URI / FACEBOOK_REDIRECT_URI environment variables).
+     *
+     * The value must be independent of the incoming request Host header so
+     * that the exact same URI is used when initiating the flow (redirect())
+     * and when completing it (callback()), regardless of whether the request
+     * arrives via the backend domain or a frontend proxy. Google requires an
+     * exact match of this URI against the client's "Authorized redirect
+     * URIs", so a request-derived value produces redirect_uri_mismatch.
+     *
+     * Missing configuration fails safely: the client receives the generic
+     * social-login failure (500 via the exception handler on initiation; the
+     * existing failure redirect/JSON on the callback path) and the operator
+     * receives a precise log entry. No request-derived fallback exists.
+     */
     protected function callbackUrl(string $provider): string
     {
-        return url("api/v1/social/{$provider}/callback");
+        $configured = config("services.{$provider}.redirect");
+
+        // A non-string (e.g. an array) misconfiguration must fail-safe too.
+        if (!is_string($configured)) {
+            Log::error('Social login callback URL is misconfigured: {PROVIDER}_REDIRECT_URI must be a string URL.', [
+                'provider' => $provider,
+            ]);
+
+            throw new MarvelException(SOCIAL_LOGIN_FAILED);
+        }
+
+        $redirectUri = trim($configured);
+
+        if ($redirectUri === '') {
+            Log::error('Social login callback URL is not configured: set {PROVIDER}_REDIRECT_URI (services.{provider}.redirect).', [
+                'provider' => $provider,
+            ]);
+
+            throw new MarvelException(SOCIAL_LOGIN_FAILED);
+        }
+
+        if (config('app.env') === 'production' && !str_starts_with($redirectUri, 'https://')) {
+            Log::error('Social login callback URL must use HTTPS in production.', [
+                'provider' => $provider,
+            ]);
+
+            throw new MarvelException(SOCIAL_LOGIN_FAILED);
+        }
+
+        return $redirectUri;
     }
 
-    protected function frontendUrl(): string
+    /**
+     * Trusted frontend redirect base for the post-login redirect.
+     *
+     * Supports an optional provider-specific override via configuration
+     * (shop.social_login.{provider}_frontend_url ← GOOGLE_FRONTEND_REDIRECT_URL
+     * / FACEBOOK_FRONTEND_REDIRECT_URL). When the override is unset the
+     * pre-existing generic social_login.frontend_url behavior is preserved.
+     * Request-supplied URLs are never used.
+     */
+    protected function frontendUrl(string $provider): string
     {
-        return rtrim((string) config('shop.social_login.frontend_url', ''), '/');
+        $url = (string) (
+            config("shop.social_login.{$provider}_frontend_url")
+            ?: config('shop.social_login.frontend_url', '')
+        );
+
+        return rtrim($url, '/');
     }
 
     protected function invalidCodeResponse(): JsonResponse

@@ -114,6 +114,18 @@ final class MeemSeeder extends Seeder
         'catalog_currency_code',
     ];
 
+    /**
+     * Settings fields stored as JSON translations. `getAttribute()` returns the
+     * active locale's string for these, so they must be read with
+     * getTranslations() or the diff never converges.
+     */
+    private const TRANSLATABLE_SETTINGS = [
+        'site_name',
+        'site_desc',
+        'meta_desc',
+        'site_copy_right',
+    ];
+
     private ?MeemManifest $manifest = null;
 
     private ?MeemContext $context = null;
@@ -269,7 +281,7 @@ final class MeemSeeder extends Seeder
             }
 
             $to = $this->castSetting($field, $data[$field]);
-            $from = $current?->getAttribute($field);
+            $from = $this->settingsValue($current, $field);
 
             if ($current === null || MeemContext::differs($from, $to)) {
                 $changes[$field] = MeemContext::change($from, $data[$field]);
@@ -1599,19 +1611,18 @@ final class MeemSeeder extends Seeder
     /** @return array{0: bool, 1: bool} */
     private function resolveFlags(): array
     {
-        $apply = false;
+        // `db:seed` defines no --apply flag, so the write switch is the env var.
+        $apply = filter_var(MeemContext::envValue('MEEM_SEED_APPLY') ?? false, FILTER_VALIDATE_BOOLEAN);
+
         $force = false;
 
         if ($this->command !== null) {
-            $input = $this->command->getInput();
-
-            // Safe on any InputInterface: unknown options return the default.
-            $apply = (bool) $input->getParameterOption('--apply', false);
-            $force = (bool) $input->getParameterOption('--force', false);
-        }
-
-        if (! $apply) {
-            $apply = filter_var(MeemContext::envValue('MEEM_SEED_APPLY') ?? false, FILTER_VALIDATE_BOOLEAN);
+            // SeedCommand declares --force; guard in case a different command runs us.
+            try {
+                $force = (bool) $this->command->option('force');
+            } catch (\Throwable) {
+                $force = false;
+            }
         }
 
         return [$apply, $force];
@@ -1623,6 +1634,24 @@ final class MeemSeeder extends Seeder
             'fast_shipping_page_publish' => (int) (bool) $value,
             default => $value,
         };
+    }
+
+    /**
+     * Read a settings field in the same shape the manifest uses.
+     *
+     * Translatable fields are JSON objects; every other field is a scalar.
+     */
+    private function settingsValue(?Settings $settings, string $field): mixed
+    {
+        if ($settings === null) {
+            return null;
+        }
+
+        if (in_array($field, self::TRANSLATABLE_SETTINGS, true)) {
+            return $settings->getTranslations($field);
+        }
+
+        return $settings->getAttribute($field);
     }
 
     /**
