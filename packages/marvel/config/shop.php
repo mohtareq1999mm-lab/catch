@@ -52,7 +52,7 @@ return [
         // Optional per-provider override of the post-login redirect base
         // (must be a trusted deployment domain, never a request-supplied URL).
         'google_frontend_url' => env('GOOGLE_FRONTEND_REDIRECT_URL'),
-        'code_ttl_minutes' => (int) env('SOCIAL_LOGIN_CODE_TTL_MINUTES', 200),
+        'code_ttl_minutes' => (int) env('SOCIAL_LOGIN_CODE_TTL_MINUTES', 10),
     ],
 
     'active_payment_gateway' => env('ACTIVE_PAYMENT_GATEWAY', 'stripe'),

@@ -46,7 +46,7 @@ class SocialRoutesCallbackContractTest extends TestCase
             'services.google.client_secret' => 'test-client-secret',
             'services.google.redirect' => self::CALLBACK_URL,
             'shop.social_login.frontend_url' => self::FRONTEND_URL,
-            'shop.social_login.code_ttl_minutes' => 5,
+            'shop.social_login.code_ttl_minutes' => 10,
         ]);
     }
 

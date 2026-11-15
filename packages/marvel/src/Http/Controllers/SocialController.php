@@ -116,7 +116,7 @@ class SocialController extends CoreController
             $authorizationCode = SocialLoginCode::create([
                 'user_id' => $user->id,
                 'code' => bin2hex(random_bytes(32)),
-                'expires_at' => now()->addMinutes((int) config('shop.social_login.code_ttl_minutes', 5)),
+                'expires_at' => now()->addMinutes((int) config('shop.social_login.code_ttl_minutes', 10)),
                 'used' => false,
             ]);
 

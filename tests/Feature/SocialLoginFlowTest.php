@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Socialite\Facades\Socialite;
@@ -40,7 +41,6 @@ class SocialLoginFlowTest extends TestCase
             'services.google.client_secret' => 'test-client-secret',
             'services.google.redirect' => 'https://oauth.example.test/api/v1/social/google/callback',
             'shop.social_login.frontend_url' => self::FRONTEND_URL,
-            'shop.social_login.code_ttl_minutes' => 5,
         ]);
     }
 
@@ -366,6 +366,75 @@ class SocialLoginFlowTest extends TestCase
         $this->assertDatabaseHas('social_login_codes', ['id' => $code->id, 'used' => false]);
     }
 
+    // ========================================================================
+    // Code TTL = 10 minutes (SOCIAL_LOGIN_CODE_TTL_MINUTES default)
+    // ========================================================================
+
+    public function test_code_ttl_configuration_defaults_to_ten_minutes(): void
+    {
+        // Only meaningful when the environment does not override the value.
+        if (getenv('SOCIAL_LOGIN_CODE_TTL_MINUTES') === false) {
+            $file = require base_path('packages/marvel/config/shop.php');
+            $this->assertSame(10, $file['social_login']['code_ttl_minutes']);
+            $this->assertSame(10, (int) config('shop.social_login.code_ttl_minutes'));
+        }
+    }
+
+    public function test_exchange_accepts_code_within_ten_minutes(): void
+    {
+        $user = User::create([
+            'name' => 'Social User',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'type' => 'user',
+            'email_verified_at' => now(),
+        ]);
+
+        // Expiry computed through the same configuration mechanism as the
+        // callback: now()->addMinutes(config('shop.social_login.code_ttl_minutes')).
+        $code = SocialLoginCode::create([
+            'user_id' => $user->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => now()->addMinutes((int) config('shop.social_login.code_ttl_minutes')),
+            'used' => false,
+        ]);
+
+        // 9 minutes later (before the 10-minute limit) the code still works.
+        Carbon::setTestNow(now()->addMinutes(9));
+
+        $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+
+        $response->assertOk();
+        $response->assertJsonPath('success', true);
+    }
+
+    public function test_exchange_rejects_code_after_ten_minutes(): void
+    {
+        $user = User::create([
+            'name' => 'Social User',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'type' => 'user',
+            'email_verified_at' => now(),
+        ]);
+
+        $code = SocialLoginCode::create([
+            'user_id' => $user->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => now()->addMinutes((int) config('shop.social_login.code_ttl_minutes')),
+            'used' => false,
+        ]);
+
+        // 10 minutes and 1 second later the code is expired.
+        Carbon::setTestNow(now()->addMinutes(10)->addSecond());
+
+        $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'Invalid or expired authorization code.');
+    }
+
     public function test_exchange_rejects_unknown_code(): void
     {
         $response = $this->postJson(self::PREFIX . '/social/exchange', [
@@ -386,6 +455,7 @@ class SocialLoginFlowTest extends TestCase
 
     protected function tearDown(): void
     {
+        Carbon::setTestNow();
         Mockery::close();
         parent::tearDown();
     }
