@@ -1,0 +1,375 @@
+{
+  "meta": {
+    "name": "meem-market-homepage-seed",
+    "version": "1.0.0",
+    "date": "2026-11-15",
+    "source_audit": "docs/audits/2026-11-15-homepage-audit.md",
+    "locale_order": ["ar", "en"],
+    "placeholder_prefix": "REQUIRED_",
+    "governance": {
+      "D1_currency_sar_approved": false,
+      "D2_hero_copy_approved": false,
+      "D3_navigation_model_approved": false,
+      "D4_payment_decision_approved": false,
+      "D5_contact_and_delivery_approved": false,
+      "D6_production_scope_approved": false
+    }
+  },
+
+  "profiles": {
+    "local": { "datasets": "all", "demo": true },
+    "staging": { "datasets": "all_real", "demo": "with_flag" },
+    "production": {
+      "datasets": ["settings", "currency", "categories", "brands", "products", "bulk", "banners", "flash_sales", "coupons", "sections", "payment"],
+      "demo": false,
+      "requires": ["SEEDING_BATCH_ID", "--force"]
+    }
+  },
+
+  "settings": {
+    "gate": "D5_contact_and_delivery_approved",
+    "site_name": { "ar": "ميم ماركت", "en": "Meem Market" },
+    "site_desc": { "ar": "REQUIRED_SITE_DESC_AR", "en": "REQUIRED_SITE_DESC_EN" },
+    "meta_desc": { "ar": "REQUIRED_META_DESC_AR", "en": "REQUIRED_META_DESC_EN" },
+    "site_copy_right": { "ar": "REQUIRED_COPYRIGHT_AR", "en": "REQUIRED_COPYRIGHT_EN" },
+    "site_email": "REQUIRED_EMAIL",
+    "email_support": "REQUIRED_EMAIL",
+    "phone": "REQUIRED_PHONE_INTERNATIONAL_FORMAT",
+    "instagram": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "tiktok": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "snapchat": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "youtube": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "facebook": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "minimum_order_amount": "REQUIRED_MIN_ORDER_SAR",
+    "fast_shipping_page_publish": 0
+  },
+
+  "currency": {
+    "gate": "D1_currency_sar_approved",
+    "code": "SAR",
+    "name": { "ar": "ريال سعودي", "en": "Saudi Riyal" },
+    "symbol": { "ar": "ر.س", "en": "SAR" },
+    "country_name": { "ar": "المملكة العربية السعودية", "en": "Saudi Arabia" },
+    "rate": 1.0,
+    "rate_mode": "MANUAL",
+    "options": {
+      "currency": "SAR",
+      "base_currency_code": "SAR",
+      "catalog_currency_code": "SAR"
+    },
+    "currency_selection_enabled": false
+  },
+
+  "geography": {
+    "gate": "D5_contact_and_delivery_approved",
+    "profiles": ["local", "staging"],
+    "country": {
+      "name": { "ar": "المملكة العربية السعودية", "en": "Saudi Arabia" },
+      "code": "SA",
+      "phone_code": "+966"
+    },
+    "governorates": [
+      {
+        "name": { "ar": "الرياض", "en": "Riyadh" },
+        "shipping_price": "REQUIRED_SHIPPING_PRICE_SAR"
+      }
+    ]
+  },
+
+  "warehouse": {
+    "profiles": ["local", "staging"],
+    "code": "WH-RIYADH-01",
+    "name": "Riyadh Main Warehouse",
+    "is_default": true,
+    "location": { "code": "WH-RIYADH-01-A", "name": "Zone A" }
+  },
+
+  "navigation_roots": {
+    "gate": "D3_navigation_model_approved",
+    "rules": {
+      "never_create_empty_department": true,
+      "child_under_exactly_one_root": true,
+      "forbidden_category_ids": [155, 120, 139],
+      "delete_categories": false
+    },
+    "roots": [
+      {
+        "slug": "fresh-food",
+        "name": { "ar": "الأطعمة الطازجة", "en": "Fresh Food" },
+        "active_nav": true,
+        "children_match_name_en": ["Milk", "Cheese & Labneh"]
+      },
+      {
+        "slug": "grocery-pantry",
+        "name": { "ar": "البقالة والمؤن", "en": "Grocery & Pantry" },
+        "active_nav": true,
+        "children_match_name_en": ["Snacks"]
+      },
+      {
+        "slug": "beverages",
+        "name": { "ar": "المشروبات", "en": "Beverages" },
+        "active_nav": true,
+        "children_match_name_en": ["Water"]
+      },
+      {
+        "slug": "household-cleaning",
+        "name": { "ar": "المنزل والتنظيف", "en": "Household & Cleaning" },
+        "active_nav": true,
+        "children_match_name_en": ["Cleaning Products", "Paper Tissues", "Household Utensils", "Insect Killers"]
+      },
+      {
+        "slug": "personal-care",
+        "name": { "ar": "العناية الشخصية", "en": "Personal Care" },
+        "active_nav": true,
+        "children_match_name_en": ["Perfumes", "Body Care", "Hand Care", "Dental Care"]
+      },
+      {
+        "slug": "home-furniture",
+        "name": { "ar": "المنزل والأثاث", "en": "Home & Furniture" },
+        "active_nav": true,
+        "children_match_name_en": ["Al Ezz Furnishings", "Home Furniture", "Artificial Flowers & Trees"]
+      },
+      {
+        "slug": "electronics",
+        "name": { "ar": "الإلكترونيات", "en": "Electronics" },
+        "active_nav": true,
+        "children_match_name_en": ["ElectroVision", "Air Conditioners & Fans"]
+      },
+      {
+        "slug": "baby-kids",
+        "name": { "ar": "الأطفال والرضع", "en": "Baby & Kids" },
+        "active_nav": true,
+        "children_match_name_en": ["Dream Reem Toys", "Back to School"]
+      }
+    ],
+    "homepage_tile_categories": {
+      "is_featured": true,
+      "match_name_en": [
+        "REQUIRED_TILE_1",
+        "REQUIRED_TILE_2",
+        "REQUIRED_TILE_3",
+        "REQUIRED_TILE_4",
+        "REQUIRED_TILE_5",
+        "REQUIRED_TILE_6",
+        "REQUIRED_TILE_7",
+        "REQUIRED_TILE_8"
+      ],
+      "min_products_each": 1
+    },
+    "images_required": {
+      "Paper Tissues":    "REQUIRED_IMAGE_PATH",
+      "Water":            "REQUIRED_IMAGE_PATH",
+      "Dental Care":      "REQUIRED_IMAGE_PATH",
+      "Hand Care":        "REQUIRED_IMAGE_PATH",
+      "Body Care":        "REQUIRED_IMAGE_PATH",
+      "Perfumes":         "REQUIRED_IMAGE_PATH",
+      "Snacks":           "REQUIRED_IMAGE_PATH",
+      "Milk":             "REQUIRED_IMAGE_PATH"
+    }
+  },
+
+  "brands": {
+    "note": "Match by slug. Never create if slug missing. Deactivate (status=false) brands in remove_unstocked list.",
+    "items": [
+      {
+        "slug": "al-marai",
+        "name": { "ar": "المراعي", "en": "Al Marai" },
+        "status": true,
+        "order": 10
+      },
+      {
+        "slug": "nada",
+        "name": { "ar": "ندى", "en": "Nada" },
+        "status": true,
+        "order": 20
+      },
+      {
+        "slug": "ariel",
+        "name": { "ar": "أريال", "en": "Ariel" },
+        "status": true,
+        "order": 30
+      },
+      {
+        "slug": "lipton",
+        "name": { "ar": "ليبتون", "en": "Lipton" },
+        "status": true,
+        "order": 40
+      },
+      {
+        "slug": "dove",
+        "name": { "ar": "دوف", "en": "Dove" },
+        "status": true,
+        "order": 50
+      },
+      {
+        "slug": "heinz",
+        "name": { "ar": "هاينز", "en": "Heinz" },
+        "status": true,
+        "order": 60
+      },
+      {
+        "slug": "nestle",
+        "name": { "ar": "نستله", "en": "Nestle" },
+        "status": true,
+        "order": 70
+      },
+      {
+        "slug": "pril",
+        "name": { "ar": "بريل", "en": "Pril" },
+        "status": true,
+        "order": 80
+      }
+    ],
+    "remove_unstocked": []
+  },
+
+  "products": {
+    "note": "Match by sku. Never set sold_quantity. Barcodes go to product_barcodes table. Stock goes to product_locations.",
+    "homepage_skus": [
+      {
+        "sku": "REQUIRED_SKU_HERO_1",
+        "name": { "ar": "REQUIRED_PRODUCT_NAME_AR", "en": "REQUIRED_PRODUCT_NAME_EN" },
+        "price": "REQUIRED_PRICE_SAR",
+        "has_discount": false,
+        "status": "publish",
+        "pieces": 1,
+        "category_slugs": ["REQUIRED_CATEGORY_SLUG"],
+        "brand_slug": "REQUIRED_BRAND_SLUG",
+        "stock": {
+          "warehouse_code": "WH-RIYADH-01",
+          "location_code": "WH-RIYADH-01-A",
+          "quantity": 100
+        }
+      }
+    ]
+  },
+
+  "bulk_merchandising": {
+    "note": "Tag homepage bulk-buy products. Provide explicit list of SKUs with carton data.",
+    "tag": {
+      "slug": "bulk",
+      "name": { "ar": "شراء بالجملة", "en": "Buy in Bulk" }
+    },
+    "items": []
+  },
+
+  "banners": {
+    "note": "action=verify_keep: assert banner exists and has linked products. Never create black-friday-deals-s2.",
+    "items": [
+      {
+        "slug": "weekly-deals",
+        "action": "verify_keep",
+        "min_products": 1
+      }
+    ],
+    "forbidden_slugs": ["black-friday-deals-s2"]
+  },
+
+  "flash_sales": {
+    "note": "Verify live sale by slug. Never reference sale ID 1. Weekly offer creation disabled (gate D2).",
+    "verify": [
+      {
+        "slug": "REQUIRED_ACTIVE_FLASH_SALE_SLUG",
+        "min_products": 4,
+        "must_be_active": true
+      }
+    ],
+    "weekly_offer": {
+      "gate": "D2_hero_copy_approved",
+      "enabled": false
+    }
+  },
+
+  "coupons": {
+    "note": "Match by code via Coupon::byCode(). Never create. Update allowed fields only. No min_spend field exists.",
+    "items": [
+      {
+        "code": "REQUIRED_COUPON_CODE_1",
+        "discount_type": "percentage",
+        "discount": "REQUIRED_COUPON_DISCOUNT_PCT",
+        "max_discount_amount": "REQUIRED_MAX_DISCOUNT_SAR",
+        "start_date": "REQUIRED_START_DATE",
+        "end_date": "REQUIRED_END_DATE",
+        "limiter": "REQUIRED_USAGE_CAP",
+        "status": true,
+        "is_public": true
+      }
+    ]
+  },
+
+  "sections": {
+    "note": "Written directly to DB (endpoint not writable via API PUT). Resolve slugs to IDs at runtime.",
+    "content_page_slug": "home",
+    "items": [
+      {
+        "type": "hero",
+        "order": 1,
+        "is_active": true,
+        "title_visible": false,
+        "title": { "ar": "الرئيسية", "en": "Hero" },
+        "endpoint": "/general/hero",
+        "setting": {
+          "front": "REQUIRED_HERO_IMAGE_URL"
+        }
+      },
+      {
+        "type": "banner_grid",
+        "order": 2,
+        "is_active": true,
+        "title_visible": false,
+        "title": { "ar": "بانرات", "en": "Banners" },
+        "endpoint": "/banners?orderBy=order&sortedBy=asc&limit=4",
+        "setting": {}
+      },
+      {
+        "type": "category_grid",
+        "order": 3,
+        "is_active": true,
+        "title_visible": true,
+        "title": { "ar": "تسوق حسب الفئة", "en": "Shop by Category" },
+        "endpoint": "/categories?is_featured=true&limit=8",
+        "setting": {}
+      },
+      {
+        "type": "product_list",
+        "order": 4,
+        "is_active": true,
+        "title_visible": true,
+        "title": { "ar": "الأكثر مبيعاً", "en": "Best Sellers" },
+        "endpoint": "/products?orderBy=sold_quantity&sortedBy=desc&limit=12",
+        "setting": {}
+      },
+      {
+        "type": "flash_sale",
+        "order": 5,
+        "is_active": true,
+        "title_visible": true,
+        "title": { "ar": "عروض محدودة", "en": "Flash Sale" },
+        "endpoint": "/flash-sales?status=active&limit=1",
+        "setting": {}
+      },
+      {
+        "type": "product_list",
+        "order": 6,
+        "is_active": true,
+        "title_visible": true,
+        "title": { "ar": "وصل حديثاً", "en": "New Arrivals" },
+        "endpoint": "/products?orderBy=created_at&sortedBy=desc&limit=12",
+        "setting": {}
+      }
+    ]
+  },
+
+  "payment": {
+    "gate": "D4_payment_decision_approved",
+    "note": "Only 'enabled' bool is seedable. 'available' is derived at runtime. All 6 codes must be present.",
+    "gateways_enabled": {
+      "myfatoorah": true,
+      "stripe": false,
+      "paypal": false,
+      "tap": false,
+      "tabby": false,
+      "tamara": false
+    }
+  }
+}

@@ -1,0 +1,280 @@
+{
+  "meta": {
+    "name": "meem-market-homepage-seed",
+    "version": "1.0.0",
+    "date": "2026-11-15",
+    "source_audit": "docs/audits/2026-11-15-homepage-audit.md",
+    "locale_order": ["ar", "en"],
+    "placeholder_prefix": "REQUIRED_",
+    "governance": {
+      "D1_currency_sar_approved": false,
+      "D2_hero_copy_approved": false,
+      "D3_navigation_model_approved": false,
+      "D4_payment_decision_approved": false,
+      "D5_contact_and_delivery_approved": false,
+      "D6_production_scope_approved": false
+    }
+  },
+
+  "profiles": {
+    "local": { "datasets": "all", "demo": true },
+    "staging": { "datasets": "all_real", "demo": "with_flag" },
+    "production": {
+      "datasets": ["settings", "currency", "categories", "brands", "products", "bulk", "banners", "flash_sales", "coupons", "sections", "payment"],
+      "demo": false,
+      "requires": ["SEEDING_BATCH_ID", "--force"]
+    }
+  },
+
+  "settings": {
+    "gate": "D5_contact_and_delivery_approved",
+    "site_name": { "ar": "ميم ماركت", "en": "Meem Market" },
+    "site_desc": { "ar": "REQUIRED_SITE_DESC_AR", "en": "REQUIRED_SITE_DESC_EN" },
+    "meta_desc": { "ar": "REQUIRED_META_DESC_AR", "en": "REQUIRED_META_DESC_EN" },
+    "site_copy_right": { "ar": "REQUIRED_COPYRIGHT_AR", "en": "REQUIRED_COPYRIGHT_EN" },
+    "site_email": "REQUIRED_EMAIL",
+    "email_support": "REQUIRED_EMAIL",
+    "phone": "REQUIRED_PHONE_INTERNATIONAL_FORMAT",
+    "instagram": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "tiktok": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "snapchat": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "youtube": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "facebook": "REQUIRED_SOCIAL_URL_OR_OMIT",
+    "minimum_order_amount": "REQUIRED_MIN_ORDER_SAR",
+    "fast_shipping_page_publish": 0
+  },
+
+  "currency": {
+    "gate": "D1_currency_sar_approved",
+    "code": "SAR",
+    "set_base": true,
+    "set_catalog": true,
+    "rate": 1.0,
+    "options": {
+      "currency": "SAR",
+      "base_currency_code": "SAR",
+      "catalog_currency_code": "SAR"
+    },
+    "currency_selection_enabled": false
+  },
+
+  "geography": {
+    "gate": "D5_contact_and_delivery_approved",
+    "profiles": ["local", "staging"],
+    "country": { "name": { "ar": "المملكة العربية السعودية", "en": "Saudi Arabia" } },
+    "governorates": [
+      {
+        "name": { "ar": "الرياض", "en": "Riyadh" },
+        "shipping_price": "REQUIRED_SHIPPING_PRICE_SAR"
+      }
+    ]
+  },
+
+  "warehouse": {
+    "profiles": ["local", "staging"],
+    "code": "WH-RIYADH-01",
+    "name": "Riyadh Main Warehouse",
+    "is_default": true,
+    "location": { "code": "WH-RIYADH-01-A", "name": "Zone A" }
+  },
+
+  "navigation_roots": {
+    "gate": "D3_navigation_model_approved",
+    "rules": {
+      "never_create_empty_department": true,
+      "child_under_exactly_one_root": true,
+      "forbidden_category_ids": [155, 120, 139],
+      "delete_categories": false
+    },
+    "roots": [
+      { "slug": "fresh-food", "name": { "ar": "الأطعمة الطازجة", "en": "Fresh Food" }, "active_nav": true,
+        "children_match_name_en": ["Milk", "Cheese & Labneh"] },
+      { "slug": "grocery-pantry", "name": { "ar": "البقالة والمؤن", "en": "Grocery & Pantry" }, "active_nav": true,
+        "children_match_name_en": ["Snacks"] },
+      { "slug": "beverages", "name": { "ar": "المشروبات", "en": "Beverages" }, "active_nav": true,
+        "children_match_name_en": ["Water"] },
+      { "slug": "household-cleaning", "name": { "ar": "المنزل والتنظيف", "en": "Household & Cleaning" }, "active_nav": true,
+        "children_match_name_en": ["Cleaning Products", "Paper Tissues", "Household Utensils", "Insect Killers"] },
+      { "slug": "personal-care", "name": { "ar": "العناية الشخصية", "en": "Personal Care" }, "active_nav": true,
+        "children_match_name_en": ["Perfumes", "Body Care", "Hand Care", "Dental Care"] },
+      { "slug": "home-furniture", "name": { "ar": "المنزل والأثاث", "en": "Home & Furniture" }, "active_nav": true,
+        "children_match_name_en": ["Al Ezz Furnishings", "Home Furniture", "Artificial Flowers & Trees"] },
+      { "slug": "electronics", "name": { "ar": "الإلكترونيات", "en": "Electronics" }, "active_nav": true,
+        "children_match_name_en": ["ElectroVision", "Air Conditioners & Fans"] },
+      { "slug": "baby-kids", "name": { "ar": "الأطفال والرضع", "en": "Baby & Kids" }, "active_nav": true,
+        "children_match_name_en": ["Dream Reem Toys", "Back to School"] }
+    ],
+    "homepage_tile_categories": {
+      "is_featured": true,
+      "match_name_en": ["REQUIRED_TILE_1", "REQUIRED_TILE_2", "REQUIRED_TILE_3", "REQUIRED_TILE_4",
+                        "REQUIRED_TILE_5", "REQUIRED_TILE_6", "REQUIRED_TILE_7", "REQUIRED_TILE_8"],
+      "min_products_each": 1
+    },
+    "images_required": {
+      "Paper Tissues": "REQUIRED_IMAGE_PATH",
+      "Water": "REQUIRED_IMAGE_PATH",
+      "Dental Care": "REQUIRED_IMAGE_PATH",
+      "Hand Care": "REQUIRED_IMAGE_PATH",
+      "Body Care": "REQUIRED_IMAGE_PATH"
+    }
+  },
+
+  "brands": {
+    "rules": {
+      "min_valid_or_reduce_limit": true,
+      "logo_matched_by_named_reviewer": true,
+      "remove_unstocked": ["Apple", "Samsung", "Sony", "LG", "Nike", "Adidas", "IKEA"]
+    },
+    "items": [
+      { "slug": "REQUIRED_BRAND_SLUG_1", "name": { "ar": "REQUIRED_BRAND_AR_1", "en": "REQUIRED_BRAND_EN_1" }, "logo": "REQUIRED_LOGO_PATH_1" },
+      { "slug": "REQUIRED_BRAND_SLUG_2", "name": { "ar": "REQUIRED_BRAND_AR_2", "en": "REQUIRED_BRAND_EN_2" }, "logo": "REQUIRED_LOGO_PATH_2" },
+      { "slug": "REQUIRED_BRAND_SLUG_3", "name": { "ar": "REQUIRED_BRAND_AR_3", "en": "REQUIRED_BRAND_EN_3" }, "logo": "REQUIRED_LOGO_PATH_3" },
+      { "slug": "REQUIRED_BRAND_SLUG_4", "name": { "ar": "REQUIRED_BRAND_AR_4", "en": "REQUIRED_BRAND_EN_4" }, "logo": "REQUIRED_LOGO_PATH_4" },
+      { "slug": "REQUIRED_BRAND_SLUG_5", "name": { "ar": "REQUIRED_BRAND_AR_5", "en": "REQUIRED_BRAND_EN_5" }, "logo": "REQUIRED_LOGO_PATH_5" },
+      { "slug": "REQUIRED_BRAND_SLUG_6", "name": { "ar": "REQUIRED_BRAND_AR_6", "en": "REQUIRED_BRAND_EN_6" }, "logo": "REQUIRED_LOGO_PATH_6" },
+      { "slug": "REQUIRED_BRAND_SLUG_7", "name": { "ar": "REQUIRED_BRAND_AR_7", "en": "REQUIRED_BRAND_EN_7" }, "logo": "REQUIRED_LOGO_PATH_7" },
+      { "slug": "REQUIRED_BRAND_SLUG_8", "name": { "ar": "REQUIRED_BRAND_AR_8", "en": "REQUIRED_BRAND_EN_8" }, "logo": "REQUIRED_LOGO_PATH_8" }
+    ]
+  },
+
+  "products": {
+    "rules": {
+      "always_supply_sku": true,
+      "name_both_locales_required": true,
+      "stock_from_real_inventory_only": true,
+      "forbidden_patterns": { "quantity_blanket": 150, "ratings_pattern": "5(1)" },
+      "has_discount_iff_current_price_lt_price": true,
+      "ratings": "leave_0_or_null_unless_real_reviews"
+    },
+    "homepage_skus": [
+      {
+        "sku": "REQUIRED_SKU",
+        "name": { "ar": "REQUIRED_NAME_AR", "en": "REQUIRED_NAME_EN" },
+        "brand_slug": "REQUIRED_BRAND_SLUG",
+        "category_slugs": ["REQUIRED_CATEGORY_SLUG"],
+        "price": "REQUIRED_PRICE_SAR",
+        "discount": { "type": "percentage", "amount": "REQUIRED_OR_OMIT", "start_date": "REQUIRED_OR_OMIT", "end_date": "REQUIRED_OR_OMIT" },
+        "pieces_per_carton": "REQUIRED_INT",
+        "piece_barcode": "REQUIRED_OR_OMIT",
+        "carton_barcode": "REQUIRED_OR_OMIT",
+        "stock": { "warehouse_code": "WH-RIYADH-01", "quantity": "REQUIRED_REAL_QTY" },
+        "images": ["REQUIRED_IMAGE_PATH"]
+      }
+    ],
+    "image_fixes": [
+      { "product_id_audit": 181, "name_en": "Makeup Sponge Egg", "image": "REQUIRED_IMAGE_PATH_PRODUCT_181", "match_by": "sku" }
+    ]
+  },
+
+  "bulk_merchandising": {
+    "target_count": { "min": 8, "max": 12 },
+    "focus_categories_name_en": ["Water", "Paper Tissues", "Cleaning Products"],
+    "tag": { "slug": "bulk", "name": { "ar": "REQUIRED_TAG_AR", "en": "REQUIRED_TAG_EN" } },
+    "skus": ["REQUIRED_SKU_1", "REQUIRED_SKU_2", "REQUIRED_SKU_3", "REQUIRED_SKU_4",
+             "REQUIRED_SKU_5", "REQUIRED_SKU_6", "REQUIRED_SKU_7", "REQUIRED_SKU_8"],
+    "require_complete_pack_data": ["pieces_per_carton", "carton_barcode"]
+  },
+
+  "banners": {
+    "items": [
+      { "slug": "black-friday-deals", "action": "verify_keep", "expect_products": 15, "artwork": "REQUIRED_OR_KEEP_EXISTING" }
+    ],
+    "forbidden_slugs": ["black-friday-deals-s2"]
+  },
+
+  "flash_sales": {
+    "live_sale": { "match": "REQUIRED_LIVE_SALE_SLUG", "min_products": 4, "must_be_active": true },
+    "forbidden_sale_ids": [1],
+    "weekly_offer_interim": {
+      "gate": "D2_hero_copy_approved",
+      "enabled": false,
+      "slug": "this-weeks-offers",
+      "title": { "ar": "عروض هذا الأسبوع", "en": "This Week's Offers" },
+      "start_date": "REQUIRED_WEEK_START",
+      "end_date": "REQUIRED_WEEK_END",
+      "sku_count": { "min": 4, "max": 8 },
+      "artwork": { "desktop": "REQUIRED_IMAGE_PATH", "mobile": "REQUIRED_IMAGE_PATH" }
+    }
+  },
+
+  "coupons": {
+    "rules": { "match_by_code_only": true, "never_create_or_edit_code": true, "no_min_spend_field": true },
+    "items": [
+      { "code": "HAPPY30", "discount_type": "REQUIRED_TYPE", "discount": "REQUIRED_VALUE", "max_discount_amount": "REQUIRED_OR_OMIT",
+        "start_date": "REQUIRED_YYYY-MM-DD", "end_date": "REQUIRED_YYYY-MM-DD", "limiter": "REQUIRED_OR_NULL", "status": 1,
+        "artwork": { "desktop": "REQUIRED_IMAGE_PATH", "mobile": "REQUIRED_IMAGE_PATH" } },
+      { "code": "CASHBACK", "discount_type": "REQUIRED_TYPE", "discount": "REQUIRED_VALUE", "max_discount_amount": "REQUIRED_OR_OMIT",
+        "start_date": "REQUIRED_YYYY-MM-DD", "end_date": "REQUIRED_YYYY-MM-DD", "limiter": "REQUIRED_OR_NULL", "status": 1,
+        "artwork": { "desktop": "REQUIRED_IMAGE_PATH", "mobile": "REQUIRED_IMAGE_PATH" } },
+      { "code": "SEASON", "discount_type": "REQUIRED_TYPE", "discount": "REQUIRED_VALUE", "max_discount_amount": "REQUIRED_OR_OMIT",
+        "start_date": "REQUIRED_YYYY-MM-DD", "end_date": "REQUIRED_YYYY-MM-DD", "limiter": "REQUIRED_OR_NULL", "status": 1,
+        "artwork": { "desktop": "REQUIRED_IMAGE_PATH", "mobile": "REQUIRED_IMAGE_PATH" } }
+    ],
+    "section_inactive_until_artwork_matches_code": true
+  },
+
+  "payment": {
+    "gate": "D4_payment_decision_approved",
+    "seed_enabled_only": true,
+    "never_seed_available": true,
+    "no_credentials": true,
+    "gateways_enabled": {
+      "stripe": "REQUIRED_BOOL_AFTER_PROVIDER_CONFIRMATION",
+      "myfatoorah": "REQUIRED_BOOL_AFTER_PROVIDER_CONFIRMATION",
+      "tap": "REQUIRED_BOOL_AFTER_PROVIDER_CONFIRMATION",
+      "tabby": "REQUIRED_BOOL_AFTER_PROVIDER_CONFIRMATION",
+      "tamara": "REQUIRED_BOOL_AFTER_PROVIDER_CONFIRMATION"
+    },
+    "reconcile_note": "Recon must confirm whether paypal is a sixth code before any toggle is written.",
+    "cod_fallback": "REQUIRED_BOOL"
+  },
+
+  "homepage_sections": {
+    "content_page_slug": "home",
+    "match_by": ["type", "order"],
+    "setting_write_mode": "read_deep_merge_write",
+    "title_max_chars_per_locale": 50,
+    "endpoint_change": "reviewed_sql_patch_only_if_no_supported_path",
+    "sections": [
+      {
+        "order": 1, "type": "hero", "is_active": true,
+        "gate": "D2_hero_copy_approved",
+        "setting_front": {
+          "eyebrow": { "ar": "ميم ماركت", "en": "Meem Market" },
+          "heading": { "ar": "كل احتياجاتك اليومية تصلك لبابك", "en": "Everyday essentials, delivered." },
+          "subtitle": { "ar": "مياه، منظفات، مناديل ومؤن البيت — بأسعار السوق.", "en": "Water, cleaning, tissue and pantry staples — at market prices." },
+          "cta_label": { "ar": "تسوق عروض الأسبوع", "en": "Shop this week's offers" },
+          "cta_href": "/sliders/new-collection",
+          "video_desktop": "REQUIRED_MEDIA_URL_HERO_DESKTOP",
+          "video_mobile": "REQUIRED_MEDIA_URL_HERO_MOBILE",
+          "poster": "REQUIRED_MEDIA_URL_HERO_POSTER",
+          "show_mobile_content": true
+        },
+        "keep_existing": ["height", "tone"]
+      },
+      { "order": 2, "type": "banners", "is_active": true,
+        "endpoint_template": "general/banners?slug=black-friday-deals" },
+      { "order": 3, "type": "categories", "is_active": true,
+        "endpoint_template": "general/categories?limit=8&categoriesId[]=<resolved_from_homepage_tile_categories>" },
+      { "order": 4, "type": "products", "is_active": true,
+        "endpoint_template": "general/products?limit=10&flashSalesId[0]=<resolved_live_sale>",
+        "timer_end_at": "<copied_verbatim_from_sale_end_date_with_timezone>" },
+      { "order": 5, "type": "products", "is_active": true,
+        "endpoint_template": "general/products?limit=10&type=best_product_sales" },
+      { "order": 6, "type": "products", "is_active": "only_if_at_least_4_products",
+        "endpoint_template": "general/products?limit=10&categoriesId[0]=<resolved>" },
+      { "order": 7, "type": "brands", "is_active": true,
+        "endpoint_template": "general/brands?limit=8&brandsId[]=<resolved_from_brands>" },
+      { "order": 8, "type": "coupons", "is_active": "only_if_artwork_matches_code",
+        "endpoint_template": "general/coupons?limit=3&couponsId[]=<resolved_by_code>" }
+    ],
+    "forbidden_strings_in_seeded_content": ["Catch", "كاتش", "catch.mohammedtareq.me", "/hero/catch-"]
+  },
+
+  "validation": {
+    "checks": ["P-1","P-2","P-3","P-4","P-5","P-6","P-7","P-8","P-9","P-10","P-11","P-12","P-13","P-14","P-15","P-16","P-17","P-18"],
+    "reject_any_value_starting_with": "REQUIRED_",
+    "skip_dataset_and_report_missing_keys": true,
+    "idempotency_second_run_must_produce_no_diff": true
+  }
+}

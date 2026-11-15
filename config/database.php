@@ -36,8 +36,8 @@ return [
     'connections' => [
 
         // MySQL-only: single canonical connection (default DB `catch`).
-        // Do not re-add sqlite/sqlsrv/pgsql stanzas; migrations and tests
-        // assume MySQL (phpunit.xml forces DB_CONNECTION=mysql).
+        // Do not re-add sqlsrv/pgsql stanzas; migrations and the default test
+        // suite assume MySQL (phpunit.xml forces DB_CONNECTION=mysql).
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('MYSQL_URL', env('DATABASE_URL')),
@@ -57,6 +57,26 @@ return [
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA', env('MYSQL_SSL_CA')),
                 PDO::MYSQL_ATTR_INIT_COMMAND => env('DB_INIT_COMMAND'),
             ]) : [],
+        ],
+
+        /*
+        |----------------------------------------------------------------
+        | Test-only SQLite connection.
+        |
+        | NOT used by the default suite or by runtime code (the default
+        | connection above remains MySQL and production always runs MySQL-
+        | compatible servers). It exists because local dev machines may have
+        | no MySQL server available; feature tests that rely on the engine-
+        | agnostic CreatesTestTables schema can then run fully isolated with
+        | DB_CONNECTION=sqlite and a temporary DB_DATABASE file path.
+        */
+        'sqlite' => [
+            'driver' => 'sqlite',
+            'url' => env('DB_SQLITE_URL'),
+            'database' => env('DB_DATABASE', database_path('database.sqlite')),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
         ],
 
     ],
