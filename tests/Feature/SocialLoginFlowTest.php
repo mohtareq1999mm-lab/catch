@@ -132,7 +132,7 @@ class SocialLoginFlowTest extends TestCase
     // GET /api/v1/social/{provider}/callback
     // ========================================================================
 
-    public function test_callback_creates_user_and_issues_single_use_code(): void
+    public function test_callback_creates_user_and_issues_code(): void
     {
         $this->mockGoogleProvider($this->socialiteUser());
 
@@ -279,7 +279,7 @@ class SocialLoginFlowTest extends TestCase
     // POST /api/v1/social/exchange
     // ========================================================================
 
-    public function test_exchange_returns_token_and_deletes_code(): void
+    public function test_exchange_returns_token_and_keeps_code(): void
     {
         $user = User::create([
             'name' => 'Social User',
@@ -306,14 +306,15 @@ class SocialLoginFlowTest extends TestCase
         $this->assertNotEmpty($response->json('token'));
         $this->assertSame('Bearer', $response->json('token_type'));
 
-        $this->assertDatabaseMissing('social_login_codes', ['id' => $code->id]);
+        // Reusable contract: the code row is preserved (not deleted).
+        $this->assertDatabaseHas('social_login_codes', ['id' => $code->id]);
 
         $this->assertDatabaseHas('personal_access_tokens', [
             'tokenable_id' => $user->id,
         ]);
     }
 
-    public function test_exchange_rejects_replay_of_used_code(): void
+    public function test_same_code_can_be_exchanged_multiple_times_with_distinct_tokens(): void
     {
         $user = User::create([
             'name' => 'Social User',
@@ -330,15 +331,78 @@ class SocialLoginFlowTest extends TestCase
             'used' => false,
         ]);
 
-        $first = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
-        $first->assertOk();
-        $first->assertJsonPath('success', true);
+        $tokens = [];
 
-        $replay = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+        for ($i = 0; $i < 3; $i++) {
+            $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
 
-        $replay->assertStatus(400);
-        $replay->assertJsonPath('success', false);
-        $this->assertSame(1, User::where('email', 'user@gmail.com')->first()->tokens()->count());
+            $response->assertOk();
+            $response->assertJsonPath('success', true);
+            $response->assertJsonPath('token_type', 'Bearer');
+
+            $tokens[] = $response->json('token');
+        }
+
+        // Every exchange issued a distinct Sanctum token.
+        $this->assertCount(3, array_unique($tokens));
+        $this->assertSame(3, User::where('email', 'user@gmail.com')->first()->tokens()->count());
+
+        // The code itself survived all exchanges.
+        $this->assertDatabaseHas('social_login_codes', ['id' => $code->id]);
+    }
+
+    public function test_repeated_exchange_does_not_change_the_original_expiration(): void
+    {
+        $user = User::create([
+            'name' => 'Social User',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'type' => 'user',
+            'email_verified_at' => now(),
+        ]);
+
+        $originalExpiry = now()->addMinutes(10);
+
+        $code = SocialLoginCode::create([
+            'user_id' => $user->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => $originalExpiry,
+            'used' => false,
+        ]);
+
+        $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code])->assertOk();
+        $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code])->assertOk();
+
+        $this->assertSame(
+            $originalExpiry->toDateTimeString(),
+            $code->fresh()->expires_at->toDateTimeString()
+        );
+    }
+
+    public function test_code_previously_marked_used_is_still_exchangeable(): void
+    {
+        // Backward compatibility: legacy rows may carry used=true from the old
+        // single-use implementation. The exchange no longer requires used=false.
+        $user = User::create([
+            'name' => 'Social User',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'type' => 'user',
+            'email_verified_at' => now(),
+        ]);
+
+        $code = SocialLoginCode::create([
+            'user_id' => $user->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => now()->addMinutes(5),
+            'used' => true,
+            'used_at' => now()->subMinute(),
+        ]);
+
+        $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+
+        $response->assertOk();
+        $response->assertJsonPath('success', true);
     }
 
     public function test_exchange_rejects_expired_code(): void

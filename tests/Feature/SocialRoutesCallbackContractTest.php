@@ -360,13 +360,15 @@ class SocialRoutesCallbackContractTest extends TestCase
         $this->assertSame('Bearer', $response->json('token_type'));
         $this->assertNotEmpty($response->json('token'));
 
-        // Single-use: the code row is deleted after the claim.
-        $this->assertDatabaseMissing('social_login_codes', ['code' => $code]);
+        // Reusable within its TTL: the code row is preserved, not deleted.
+        $this->assertDatabaseHas('social_login_codes', ['code' => $code]);
 
-        // Replay is rejected with the existing envelope.
-        $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code])
-            ->assertStatus(400)
-            ->assertJsonPath('success', false);
+        // A second exchange with the same code succeeds with a distinct token.
+        $second = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code]);
+
+        $second->assertOk();
+        $second->assertJsonPath('success', true);
+        $this->assertNotSame($response->json('token'), $second->json('token'));
     }
 
     public function test_missing_configuration_fails_safely(): void

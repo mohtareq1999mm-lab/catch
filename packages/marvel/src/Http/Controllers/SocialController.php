@@ -152,27 +152,24 @@ class SocialController extends CoreController
     }
 
     /**
-     * Exchange a single-use authorization code for a Sanctum token.
+     * Exchange a reusable authorization code for a Sanctum token.
+     *
+     * The code stays valid — and reusable — until its original `expires_at`.
+     * It is never consumed, mutated, or deleted here, so multiple exchanges
+     * (including concurrent ones) each succeed with their own distinct token,
+     * without any locks or transactions. The legacy `used`/`used_at` columns
+     * are intentionally ignored for backward compatibility.
      */
     public function exchange(SocialLoginExchangeRequest $request): JsonResponse
     {
-        $claimed = SocialLoginCode::query()
+        $code = SocialLoginCode::query()
             ->where('code', $request->validated('code'))
-            ->where('used', false)
             ->where('expires_at', '>', now())
-            ->update(['used' => true, 'used_at' => now()]);
-
-        if ($claimed !== 1) {
-            return $this->invalidCodeResponse();
-        }
-
-        $code = SocialLoginCode::where('code', $request->validated('code'))->first();
+            ->first();
 
         if (!$code) {
             return $this->invalidCodeResponse();
         }
-
-        $code->delete();
 
         $user = User::where('id', $code->user_id)->where('is_active', true)->first();
 
