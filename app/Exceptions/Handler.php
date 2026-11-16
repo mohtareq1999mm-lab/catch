@@ -102,6 +102,7 @@ class Handler extends ExceptionHandler
         $statusCode = 500;
         $message = __('message.ERROR.INTERNAL');
         $errors = [];
+        $guestErrorCode = null;
 
         // Handle ModelNotFoundException
         if ($exception instanceof ModelNotFoundException) {
@@ -188,7 +189,21 @@ class Handler extends ExceptionHandler
         // Handle HttpException (includes various HTTP status codes)
         elseif ($exception instanceof HttpException) {
             $statusCode = $exception->getStatusCode();
-            $message = $this->translateHttpMessage($exception->getMessage());
+            $rawHttpExceptionMessage = $exception->getMessage();
+
+            // Guest machine-readable codes (A10): the guest credential core
+            // throws RAW `guest_checkout.*` translation keys as the exception
+            // message. The additive `code` key exposes the suffix without
+            // touching any existing response shape; existing HttpExceptions
+            // never carry this prefix, so their behaviour is unchanged.
+            if (str_starts_with($rawHttpExceptionMessage, 'guest_checkout.')) {
+                $guestErrorCode = substr($rawHttpExceptionMessage, strlen('guest_checkout.'));
+                $message = Lang::has($rawHttpExceptionMessage)
+                    ? __($rawHttpExceptionMessage)
+                    : __('message.ERROR.HTTP_EXCEPTION');
+            } else {
+                $message = $this->translateHttpMessage($rawHttpExceptionMessage);
+            }
         }
         // Handle QueryException (SQL errors)
         elseif ($exception instanceof QueryException) {
@@ -231,6 +246,12 @@ class Handler extends ExceptionHandler
 
         if (!empty($errors)) {
             $responseData['errors'] = $errors;
+        }
+
+        // Guest machine-readable error codes (A10): additive `code` key for
+        // credential_conflict (401) and mobile_session_exists (409) only.
+        if ($guestErrorCode !== null) {
+            $responseData['code'] = $guestErrorCode;
         }
 
         return response()->json($responseData, $statusCode);
