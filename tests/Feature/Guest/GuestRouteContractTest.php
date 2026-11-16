@@ -2,30 +2,50 @@
 
 namespace Tests\Feature\Guest;
 
+use App\Enums\GuestSurface;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
- * Guest route security contract — router seam (spec #43, tickets #44/#46).
+ * Guest route security contract — router seam (spec #43, tickets #44/#46/#52).
  *
  * Reads the router's declared middleware (what Laravel will actually run) and
  * pins the approved matrix: Origin validation and a limiter on every guest
  * route, and CSRF exactly where a cookie credential can be forged — never on
  * the mobile Bearer surface or the public token paths.
  *
+ * Since #52 the matrix is DERIVED from the GuestSurface enum: each guest
+ * route declares exactly one surface token and the guest prefix group owned
+ * the Origin guard once. These tests pin that derivation, so a guest route
+ * can be added as one coordinated edit (route + surface case) and any
+ * hand-rolled or token-less guest route fails here.
+ *
  * No database access: this suite is the fast guard for route edits.
  */
 class GuestRouteContractTest extends TestCase
 {
-    /** Routes that are CSRF-free by design, keyed by "METHOD uri". */
-    private const CSRF_FREE = [
-        'POST api/v1/general/guest/session',            // no credential exists yet
-        'POST api/v1/general/guest/mobile/session',     // Bearer transport
-        'DELETE api/v1/general/guest/mobile/session',   // Bearer transport
-        'POST api/v1/general/guest/mobile/session/rotate',
-        'POST api/v1/general/guest/orders/track',       // 1-way token in body
-        'POST api/v1/general/guest/orders/cancel',
+    /**
+     * Route name → the ONE surface it declares. A guest route missing here
+     * (or a surface with no route) fails the contract.
+     */
+    private const SURFACES = [
+        'api.guest.session' => GuestSurface::SESSION_OPEN,
+        'api.guest.session.revoke' => GuestSurface::SESSION_REVOKE,
+        'api.guest.mobile.session' => GuestSurface::MOBILE_SESSION,
+        'api.guest.mobile.session.rotate' => GuestSurface::MOBILE_SESSION,
+        'api.guest.mobile.session.revoke' => GuestSurface::MOBILE_SESSION,
+        'api.guest.cart.show' => GuestSurface::CART_READ,
+        'api.guest.cart.store' => GuestSurface::CART_WRITE,
+        'api.guest.cart.update' => GuestSurface::CART_WRITE,
+        'api.guest.cart.item.destroy' => GuestSurface::CART_WRITE,
+        'api.guest.cart.destroy' => GuestSurface::CART_WRITE,
+        'api.guest.orders.track' => GuestSurface::ORDER_TRACK,
+        'api.guest.orders.cancel' => GuestSurface::ORDER_CANCEL,
+        'api.guest.orders.show' => GuestSurface::ORDER_READ,
+        'api.guest.orders.payment' => GuestSurface::ORDER_PAYMENT,
+        'api.guest.orders.access-tokens' => GuestSurface::ORDER_PAYMENT,
+        'api.guest.checkout' => GuestSurface::CHECKOUT,
     ];
 
     /** Expected named limiter per "METHOD uri". */
@@ -49,7 +69,7 @@ class GuestRouteContractTest extends TestCase
     ];
 
     /** @return array<int, \Illuminate\Routing\Route> */
-    private function guestRoutes(): array
+    protected function guestRoutes(): array
     {
         return array_values(array_filter(
             Route::getRoutes()->getRoutes(),
@@ -90,16 +110,21 @@ class GuestRouteContractTest extends TestCase
 
         foreach ($routes as $route) {
             $middleware = $route->middleware();
-            $key = $this->routeKey($route);
-            $method = $route->methods()[0];
+            $posture = self::SURFACES[$route->getName()]
+                ?? abort(500, 'Unmapped guest surface: ' . $route->getName());
 
-            $mustBeFree = in_array($key, self::CSRF_FREE, true)
-                || in_array($method, ['GET', 'HEAD'], true);
-
-            if ($mustBeFree) {
-                $this->assertNotContains('guest.csrf', $middleware, "Unexpected CSRF middleware: {$key}");
+            if ($posture->enforcesCsrf()) {
+                $this->assertContains(
+                    'guest.csrf',
+                    $middleware,
+                    "CSRF middleware missing on cookie-transport surface: {$route->getName()}"
+                );
             } else {
-                $this->assertContains('guest.csrf', $middleware, "CSRF missing on cookie write: {$key}");
+                $this->assertNotContains(
+                    'guest.csrf',
+                    $middleware,
+                    "The CSRF guard must not be mounted on this surface (reads, Bearer transport and public token paths are free): {$route->getName()}"
+                );
             }
         }
     }
@@ -132,5 +157,78 @@ class GuestRouteContractTest extends TestCase
             app(RateLimiter::class)->limiter('public-api'),
             'The public-api limiter must be registered (BypassThrottle depends on it).'
         );
+    }
+
+    /**
+     * #52: every guest route declares exactly one surface token, and the
+     * token↔route map is exhaustive in BOTH directions — a new guest route
+     * without a coordinated SURFACES entry fails here, as does a surface
+     * that lost its route.
+     */
+    public function test_every_guest_route_declares_exactly_one_registered_surface_token(): void
+    {
+        $this->assertCount(
+            count(self::SURFACES),
+            $this->guestRoutes(),
+            'The number of guest routes changed: add the route AND its surface declaration in this test in the same edit.'
+        );
+
+        foreach ($this->guestRoutes() as $route) {
+            $name = $route->getName();
+
+            $this->assertArrayHasKey(
+                $name,
+                self::SURFACES,
+                "Guest route [{$name}] has no surface declaration — one coordinated edit means adding the route and its GuestSurface entry together."
+            );
+
+            $tokens = array_filter(
+                $route->middleware(),
+                fn ($m) => is_string($m) && str_starts_with($m, 'guest.throttle:')
+            );
+
+            $this->assertCount(
+                1,
+                $tokens,
+                "Guest route [{$name}] must declare exactly one surface token (the limiter it already names)."
+            );
+
+            $expected = 'guest.throttle:' . self::SURFACES[$name]->limiter();
+            $this->assertContains(
+                $expected,
+                $route->middleware(),
+                "The surface limiter is part of the route contract: [{$name}] resolved to {$expected}."
+            );
+        }
+    }
+
+    /**
+     * #52: the full stack of every guest route is the surface derivation —
+     * the group-owned Origin guard exactly once, then exactly what
+     * GuestSurface::middleware() derives for the route's surface. Fourteen
+     * hand-written copies in routes/api.php cannot drift anymore.
+     */
+    public function test_guest_stack_is_derived_from_the_surface_registry(): void
+    {
+        foreach ($this->guestRoutes() as $route) {
+            $middleware = $route->middleware();
+            $name = $route->getName();
+
+            $originPositions = array_keys($middleware, 'guest.origin', true);
+
+            $this->assertCount(
+                1,
+                $originPositions,
+                "The Origin guard belongs on the guest prefix group exactly once, never per route: [{$name}]."
+            );
+
+            $tail = array_slice($middleware, $originPositions[0] + 1);
+
+            $this->assertSame(
+                self::SURFACES[$name]->middleware(),
+                $tail,
+                "The middleware after Origin must be exactly the GuestSurface derivation (route: {$name})."
+            );
+        }
     }
 }
