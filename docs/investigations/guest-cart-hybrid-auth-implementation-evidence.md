@@ -159,3 +159,22 @@ Full-feature-suite run: **blocked by a pre-existing parse error** in `tests/Feat
 - `database/migrations/2026_11_16_000001_add_mobile_token_to_guest_identities.php` (new)
 - `tests/Unit/Guest/GuestIdentityBearerTest.php`, `tests/Unit/Guest/GuestEligibilityTest.php` (new)
 - `tests/Feature/Guest/GuestMobileSessionTest.php`, `GuestMobileCartTest.php`, `GuestCredentialConflictTest.php`, `GuestEligibilityParityTest.php` (new)
+
+## 14. Review remediation round (2026-11-16)
+
+Two-axis review findings were fixed test-first (TDD, red before green):
+
+| Finding | Fix | Commit |
+|---|---|---|
+| Standards #1 (controller holds policy + duplicated guard) | `GuestMobileSessionService` owns open/rotate/revoke; controller is thin | 4c633ea |
+| Standards #2 (string constants for reasons) | typed `GuestCartRejectionReason` enum | 2e80380 |
+| Standards #3 (magic 191 / prefix duplication) | `TOKEN_MAX_LENGTH` constant; Handler no longer parses message prefixes | 4c633ea |
+| Standards #4 (variant rule duplicated) | one home: `GuestCartEligibility` module (add path) | f9cec95 |
+| Standards #5 (Marvel knows app domain) | neutral `INVALID_OPERATION` in the vendored kernel | ff6307b |
+| Spec (c)1 (`0`/`NULL` variant semantics) | approved S11 gating restored (`stock > 0` gates) | f9cec95 |
+| Spec (c)2 (rotate payload) | flat `{token, token_type, expires_at}` per §2.1 | 4c633ea |
+| Spec (c)3 (destroy cookie scope) | cookies cleared only when the request carried them | 4c633ea |
+| Spec (a) A2 untested | expiry => new identity + empty cart feature test | ff6307b |
+| Spec (a) restriction parity + writes limiter | digital/fast parity on both transports; 41st write => 429 | ff6307b |
+
+Verification after the round (isolated `catch_verify`): guest directory **111 passed (877 assertions)**; `CartApiTest` **80 passed**; `CartExpirationTest` **4 passed**. `CartOrderLifecycleTest` could not be run as a whole: it hangs on per-test DDL locks left by an externally killed run (single tests pass in ~5s; the file contains no guest-auth paths). Not claimed as passing.
