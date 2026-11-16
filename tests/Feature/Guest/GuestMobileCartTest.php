@@ -122,18 +122,18 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
             ->assertJsonStructure(['errors' => ['item.product_variant_id']]);
     }
 
-    public function test_out_of_stock_variant_is_rejected_with_reason(): void
+    public function test_fully_reserved_variant_is_rejected_with_reason(): void
     {
         $token = $this->createMobileSession();
         $product = $this->variableProduct();
-        $variant = $this->variant($product);
+        $variant = $this->variant($product, ['stock_quantity' => 3, 'reserved_quantity' => 3]);
         $variant->forceFill(['in_stock' => false])->save();
 
         $this->addItem($token, [
             'product_id' => $product->id,
             'product_variant_id' => $variant->id,
         ])->assertStatus(422)
-            ->assertJsonPath('data.reason', GuestCartRejectionException::VARIANT_UNAVAILABLE);
+            ->assertJsonPath('data.reason', GuestCartRejectionException::INSUFFICIENT_STOCK);
     }
 
     public function test_quantity_above_stock_is_rejected_with_reason(): void

@@ -2,7 +2,6 @@
 
 namespace App\Services\Guest;
 
-use App\Contexts\ChannelContext;
 use App\Exceptions\GuestCartRejectionException;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
@@ -13,10 +12,8 @@ use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Product;
-use Marvel\Database\Models\ProductVariant;
 use Marvel\Database\Repositories\CartRepository;
 use Marvel\Enums\CartOperation;
-use Marvel\Enums\ItemType;
 use Marvel\Enums\ShippingMethod;
 
 /**
@@ -26,6 +23,7 @@ use Marvel\Enums\ShippingMethod;
  * so validation, pricing (ProductPricingService) and totals stay identical to
  * authenticated carts. Never trusts client prices, totals or cart ids.
  *
+ * Line policy is delegated to GuestCartEligibility (one home for the rule).
  * Retention: guest_expires_at moves forward ONLY on genuine mutations
  * (add/update/remove/clear). Read paths never extend it.
  */
@@ -35,6 +33,7 @@ class GuestCartService
         private CartRepository $cartRepository,
         private CartInventoryService $cartInventoryService,
         private GuestIdentityService $identityService,
+        private GuestCartEligibility $eligibility,
     ) {
     }
 
@@ -246,83 +245,14 @@ class GuestCartService
             );
         }
 
-        if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionException::DIGITAL_NOT_SUPPORTED,
-                __('guest_checkout.digital_not_supported')
-            );
-        }
-
-        if (
-            config('channel.enabled', true)
-            && app(ChannelContext::class)->isHome()
-            && (bool) $product->is_fast_shipping_available
-        ) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionException::PRODUCT_UNAVAILABLE,
-                __('guest_checkout.product_unavailable')
-            );
-        }
-
-        $shippingMethod = strtoupper((string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED));
-
-        // Guest checkout currently has no fast-shipping checkout path (the
-        // canonical order builder consumes SCHEDULED lines only). Reject
-        // instead of silently dropping the line later.
-        if ($shippingMethod !== ShippingMethod::SCHEDULED) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionException::FAST_SHIPPING_NOT_SUPPORTED,
-                __('guest_checkout.fast_shipping_not_supported')
-            );
-        }
-
-        if (($product->product_type ?? null) === 'variable' && empty($item['product_variant_id'])) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionException::VARIANT_REQUIRED,
-                __('guest_checkout.variant_required')
-            );
-        }
-
         $quantity = max(1, (int) ($item['quantity'] ?? 0));
+        $variantId = empty($item['product_variant_id']) ? null : (int) $item['product_variant_id'];
+        $shippingMethod = (string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED);
 
-        // S11/D2: a supplied variant must belong to this product and be
-        // available at add time. Mirrors the Login Merge precedent
-        // (GuestCartMergeService): a foreign or removed variant is
-        // variant_unavailable, and variant stock is stricter than
-        // product-level stock (stock - reserved is the ceiling; 0 available
-        // cannot be added). The in_stock flag is the materialized
-        // (stock - reserved) > 0 signal maintained by the inventory
-        // lifecycle, so an explicit false is authoritative (D2).
-        if (!empty($item['product_variant_id'])) {
-            $variant = ProductVariant::query()
-                ->whereKey((int) $item['product_variant_id'])
-                ->where('product_id', $product->id)
-                ->first();
+        // Line policy lives in GuestCartEligibility (one home for the rule).
+        $this->eligibility->assertEligible($product, $variantId, $quantity, $shippingMethod);
 
-            if (!$variant) {
-                throw new GuestCartRejectionException(
-                    GuestCartRejectionException::VARIANT_UNAVAILABLE,
-                    __('guest_checkout.variant_unavailable')
-                );
-            }
-
-            if (!$variant->in_stock) {
-                throw new GuestCartRejectionException(
-                    GuestCartRejectionException::VARIANT_UNAVAILABLE,
-                    __('guest_checkout.variant_unavailable')
-                );
-            }
-
-            $variantAvailable = (int) $variant->available_stock;
-
-            if ($quantity > $variantAvailable) {
-                throw new GuestCartRejectionException(
-                    GuestCartRejectionException::INSUFFICIENT_STOCK,
-                    __('guest_checkout.insufficient_stock')
-                );
-            }
-        }
-
+        // Product-level stock keeps the 0/NULL unlimited/unknown semantics.
         $stockQuantity = (int) ($product->stock_quantity ?? 0);
         $reserved = (int) ($product->reserved_quantity ?? 0);
         $available = max(0, $stockQuantity - $reserved);

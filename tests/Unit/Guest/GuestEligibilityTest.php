@@ -117,17 +117,41 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         );
     }
 
-    public function test_out_of_stock_variant_is_rejected(): void
+    public function test_fully_reserved_variant_is_rejected_as_insufficient_stock(): void
     {
+        // Approved S11: with known variant stock, `quantity > stock - reserved`
+        // fires first, so a fully reserved variant is insufficient_stock.
         $product = $this->variableProduct();
-        $variant = $this->variant($product);
+        $variant = $this->variant($product, ['stock_quantity' => 5, 'reserved_quantity' => 5]);
         $variant->forceFill(['in_stock' => false])->save();
 
         $this->assertRejected(
-            GuestCartRejectionException::VARIANT_UNAVAILABLE,
+            GuestCartRejectionException::INSUFFICIENT_STOCK,
             ['product_variant_id' => $variant->id],
             $product
         );
+    }
+
+    public function test_zero_stock_variant_keeps_unlimited_semantics(): void
+    {
+        // Approved S11: both variant gates are gated on stock > 0, so a
+        // variant with stock_quantity = 0 keeps the documented
+        // unlimited/unknown semantics (product-level parity).
+        $product = $this->variableProduct();
+        $variant = $this->variant($product, ['stock_quantity' => 0]);
+
+        $cart = $this->cartService->addItem(
+            Request::create('/x', 'POST'),
+            $this->guest(),
+            [
+                'product_id' => $product->id,
+                'product_variant_id' => $variant->id,
+                'quantity' => 3,
+                'shipping_method' => 'scheduled',
+            ]
+        );
+
+        $this->assertSame(3, (int) $cart->items()->first()->quantity);
     }
 
     public function test_quantity_above_variant_stock_is_rejected(): void
