@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\Admin\CouponConfigurationController;
 use App\Http\Controllers\Api\User\NotificationPreferencesController;
 use App\Http\Controllers\Api\Admin\AnalyticsController;
 use App\Http\Controllers\Api\Admin\AnalyticsExportController;
+use App\Enums\GuestSurface;
 use App\Http\Controllers\Api\Admin\GuestTrackingController;
 use App\Http\Controllers\Api\General\Guest\GuestCartController;
 use App\Http\Controllers\Api\General\Guest\GuestCheckoutController;
@@ -161,12 +162,18 @@ Route::prefix('v1/general')->group(function () {
         // Ownership comes from the HttpOnly server-managed guest cookie, never
         // from a cart/order id. Tokens for public tracking/cancellation are
         // accepted in POST bodies only (never URLs / access logs).
-        Route::prefix('guest')->group(function () {
+        //
+        // Declaration (#52): Origin is validated ONCE on this prefix group.
+        // Every route declares exactly ONE surface token (a GuestSurface case
+        // that names its limiter); the identity/CSRF/cookie-refresh duties
+        // derive from that surface. The route contract test pins the
+        // derivation — add a route and its surface in the same edit.
+        Route::prefix('guest')->middleware(['guest.origin'])->group(function () {
             Route::post('session', [GuestSessionController::class, 'store'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->middleware(GuestSurface::SESSION_OPEN->middleware())
                 ->name('api.guest.session');
             Route::delete('session', [GuestSessionController::class, 'destroy'])
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_session'])
+                ->middleware(GuestSurface::SESSION_REVOKE->middleware())
                 ->name('api.guest.session.revoke');
 
             // Mobile native clients: opaque Bearer guest tokens, same Guest
@@ -175,55 +182,55 @@ Route::prefix('v1/general')->group(function () {
             // only when a header is present. Not idempotent-resume: a usable
             // credential presented to store() is rejected 409 (A4).
             Route::post('mobile/session', [GuestMobileSessionController::class, 'store'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->middleware(GuestSurface::MOBILE_SESSION->middleware())
                 ->name('api.guest.mobile.session');
             Route::post('mobile/session/rotate', [GuestMobileSessionController::class, 'rotate'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->middleware(GuestSurface::MOBILE_SESSION->middleware())
                 ->name('api.guest.mobile.session.rotate');
             Route::delete('mobile/session', [GuestMobileSessionController::class, 'destroy'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->middleware(GuestSurface::MOBILE_SESSION->middleware())
                 ->name('api.guest.mobile.session.revoke');
 
             Route::get('cart', [GuestCartController::class, 'show'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
+                ->middleware(GuestSurface::CART_READ->middleware())
                 ->name('api.guest.cart.show');
             Route::post('cart/items', [GuestCartController::class, 'store'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
+                ->middleware(GuestSurface::CART_WRITE->middleware())
                 ->name('api.guest.cart.store');
             Route::put('cart/items', [GuestCartController::class, 'update'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
+                ->middleware(GuestSurface::CART_WRITE->middleware())
                 ->name('api.guest.cart.update');
             Route::delete('cart/items/{itemId}', [GuestCartController::class, 'destroyItem'])
                 ->whereNumber('itemId')
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
+                ->middleware(GuestSurface::CART_WRITE->middleware())
                 ->name('api.guest.cart.item.destroy');
             Route::delete('cart', [GuestCartController::class, 'destroy'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
+                ->middleware(GuestSurface::CART_WRITE->middleware())
                 ->name('api.guest.cart.destroy');
 
             // Static token paths first (no {orderId} capture).
             Route::post('orders/track', [GuestPublicOrderController::class, 'track'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_tracking'])
+                ->middleware(GuestSurface::ORDER_TRACK->middleware())
                 ->name('api.guest.orders.track');
             Route::post('orders/cancel', [GuestPublicOrderController::class, 'cancel'])
-                ->middleware(['guest.origin', 'guest.throttle:guest_cancel'])
+                ->middleware(GuestSurface::ORDER_CANCEL->middleware())
                 ->name('api.guest.orders.cancel');
 
             Route::get('orders/{orderId}', [GuestOrderController::class, 'show'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.session', 'guest.throttle:guest_cart_read'])
+                ->middleware(GuestSurface::ORDER_READ->middleware())
                 ->name('api.guest.orders.show');
             Route::post('orders/{orderId}/payment', [GuestOrderController::class, 'payment'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_payment'])
+                ->middleware(GuestSurface::ORDER_PAYMENT->middleware())
                 ->name('api.guest.orders.payment');
             Route::post('orders/{orderId}/access-tokens', [GuestOrderController::class, 'accessTokens'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_payment'])
+                ->middleware(GuestSurface::ORDER_PAYMENT->middleware())
                 ->name('api.guest.orders.access-tokens');
 
             Route::post('checkout', [GuestCheckoutController::class, 'checkout'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_checkout'])
+                ->middleware(GuestSurface::CHECKOUT->middleware())
                 ->name('api.guest.checkout');
         });
     });
