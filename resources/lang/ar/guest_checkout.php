@@ -4,6 +4,10 @@ return [
     'session_ready' => 'جلسة الزائر جاهزة.',
     'session_revoked' => 'تم إلغاء جلسة الزائر.',
     'session_required' => 'جلسة الزائر مطلوبة لتنفيذ هذا الإجراء.',
+    'credential_conflict' => 'تم تقديم بيانات دخول زائر متعارضة. استخدم جلسة واحدة فقط.',
+    'mobile_session_ready' => 'جلسة الزائر جاهزة.',
+    'mobile_session_rotated' => 'تم تحديث رمز جلسة الزائر.',
+    'mobile_session_revoked' => 'تم إلغاء جلسة الزائر.',
 
     'cart_not_found' => 'لا توجد سلة زائر نشطة.',
     'product_unavailable' => 'هذا المنتج غير متاح للشراء كزائر.',
@@ -11,7 +15,9 @@ return [
     'fast_shipping_not_eligible' => 'هذا المنتج غير مؤهل للشحن السريع.',
     'fast_shipping_not_supported' => 'الشحن السريع غير متاح للشراء كزائر.',
     'variant_required' => 'يرجى اختيار خيار المنتج قبل إضافته إلى السلة.',
+    'variant_unavailable' => 'الخيار المحدد لهذا المنتج غير متوفر.',
     'insufficient_stock' => 'الكمية المطلوبة غير متاحة حالياً.',
+    'invalid_operation' => 'عملية السلة المطلوبة غير صالحة.',
 
     'csrf_failed' => 'رمز الأمان مفقود أو غير صالح. يرجى تحديث الصفحة والمحاولة مرة أخرى.',
     'origin_not_allowed' => 'هذا المصدر غير مسموح له بتنفيذ هذا الإجراء.',
