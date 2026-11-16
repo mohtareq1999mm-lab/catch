@@ -185,7 +185,7 @@ Route::prefix('v1/general')->group(function () {
                 ->name('api.guest.mobile.session.revoke');
 
             Route::get('cart', [GuestCartController::class, 'show'])
-                ->middleware('guest.throttle:guest_cart_read')
+                ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
                 ->name('api.guest.cart.show');
             Route::post('cart/items', [GuestCartController::class, 'store'])
                 ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
