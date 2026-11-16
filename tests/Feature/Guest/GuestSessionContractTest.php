@@ -39,6 +39,25 @@ class GuestSessionContractTest extends TestCase
         'POST api/v1/general/guest/orders/cancel',
     ];
 
+    /** Mutating cart surfaces: a successful response re-queues the cookie transport at the seam. */
+    private const COOKIE_REFRESHED = [
+        'POST api/v1/general/guest/cart/items',
+        'PUT api/v1/general/guest/cart/items',
+        'DELETE api/v1/general/guest/cart/items/{itemId}',
+        'DELETE api/v1/general/guest/cart',
+    ];
+
+    /** Surfaces that never re-queue the cookie (reads, non-cart mutations, one-way tokens). */
+    private const COOKIE_NOT_REFRESHED = [
+        'GET api/v1/general/guest/cart',
+        'POST api/v1/general/guest/checkout',
+        'GET api/v1/general/guest/orders/{orderId}',
+        'POST api/v1/general/guest/session',
+        'POST api/v1/general/guest/mobile/session',
+        'POST api/v1/general/guest/orders/track',
+        'POST api/v1/general/guest/orders/cancel',
+    ];
+
     /** @return array<string, \Illuminate\Routing\Route> */
     private function guestRoutes(): array
     {
@@ -78,6 +97,29 @@ class GuestSessionContractTest extends TestCase
                 'guest.session',
                 $routes[$key]->middleware(),
                 "Unexpected guest.session middleware: {$key}"
+            );
+        }
+    }
+
+    public function test_cart_mutations_requeue_the_cookie_transport_at_the_seam(): void
+    {
+        $routes = $this->guestRoutes();
+
+        foreach (self::COOKIE_REFRESHED as $key) {
+            $this->assertArrayHasKey($key, $routes, "Route missing from the guest surface: {$key}");
+            $this->assertContains(
+                'guest.cookie_refresh',
+                $routes[$key]->middleware(),
+                "Missing guest.cookie_refresh middleware: {$key}"
+            );
+        }
+
+        foreach (self::COOKIE_NOT_REFRESHED as $key) {
+            $this->assertArrayHasKey($key, $routes, "Route missing from the guest surface: {$key}");
+            $this->assertNotContains(
+                'guest.cookie_refresh',
+                $routes[$key]->middleware(),
+                "Unexpected guest.cookie_refresh middleware: {$key}"
             );
         }
     }

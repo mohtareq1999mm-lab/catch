@@ -188,17 +188,17 @@ Route::prefix('v1/general')->group(function () {
                 ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
                 ->name('api.guest.cart.show');
             Route::post('cart/items', [GuestCartController::class, 'store'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.store');
             Route::put('cart/items', [GuestCartController::class, 'update'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.update');
             Route::delete('cart/items/{itemId}', [GuestCartController::class, 'destroyItem'])
                 ->whereNumber('itemId')
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.item.destroy');
             Route::delete('cart', [GuestCartController::class, 'destroy'])
-                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.cookie_refresh', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.destroy');
 
             // Static token paths first (no {orderId} capture).

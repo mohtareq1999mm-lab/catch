@@ -50,7 +50,7 @@ class GuestCartController extends Controller
         // Writes REQUIRE an existing verified guest session (guest.session
         // middleware); the session is created only by POST /guest/session —
         // a write must never mint one.
-        $cart = $this->cartService->addItem($request, $identity, (array) $request->input('item', []));
+        $cart = $this->cartService->addItem($identity, (array) $request->input('item', []));
 
         return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, [
             'cart' => CartResource::make($cart),
@@ -59,17 +59,17 @@ class GuestCartController extends Controller
 
     public function update(CartUpdateRequest $request, GuestIdentity $identity): JsonResponse
     {
-        $cart = $this->cartService->updateItem($request, $identity, (array) $request->input('item', []));
+        $cart = $this->cartService->updateItem($identity, (array) $request->input('item', []));
 
         return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, [
             'cart' => CartResource::make($cart),
         ]);
     }
 
-    public function destroyItem(Request $request, GuestIdentity $identity, int $itemId): JsonResponse
+    public function destroyItem(GuestIdentity $identity, int $itemId): JsonResponse
     {
         try {
-            $cart = $this->cartService->removeItem($request, $identity, $itemId);
+            $cart = $this->cartService->removeItem($identity, $itemId);
 
             if (!$cart) {
                 return $this->apiResponse(DELETE_CART_ITEM_FAILED, 404, false);
@@ -85,10 +85,10 @@ class GuestCartController extends Controller
         }
     }
 
-    public function destroy(Request $request, GuestIdentity $identity): JsonResponse
+    public function destroy(GuestIdentity $identity): JsonResponse
     {
         try {
-            $cart = $this->cartService->clear($request, $identity);
+            $cart = $this->cartService->clear($identity);
 
             if (!$cart) {
                 return $this->apiResponse(CART_NOT_FOUND, 404, false);

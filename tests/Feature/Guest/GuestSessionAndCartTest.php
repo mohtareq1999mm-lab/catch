@@ -4,6 +4,7 @@ namespace Tests\Feature\Guest;
 
 use App\Models\GuestIdentity;
 use App\Services\Guest\GuestIdentityService;
+use Illuminate\Testing\TestResponse;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
@@ -315,6 +316,49 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
         $response->assertJsonPath('message', __('guest_checkout.product_unavailable'));
 
         $this->assertSame(1, (int) $this->currentGuestItem()->quantity);
+    }
+
+    /** @test */
+    public function a_failed_mutation_neither_extends_retention_nor_requeues_the_cookie(): void
+    {
+        $this->startGuestSession();
+        $add = $this->addToGuestCart(['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'])
+            ->assertCreated();
+
+        $identityId = $this->currentGuestId();
+        $before = GuestIdentity::query()->findOrFail($identityId)->expires_at->timestamp;
+
+        $this->travel(2)->days();
+
+        $digital = $this->makeProduct([
+            'item_type' => ItemType::DIGITAL,
+            'name' => 'Digital Failure ' . uniqid(),
+            'slug' => 'digital-fail-' . uniqid(),
+        ]);
+
+        $response = $this->asGuest()->postJson(self::PREFIX . '/cart/items', [
+            'item' => ['product_id' => $digital->id, 'quantity' => 1, 'shipping_method' => 'scheduled'],
+        ], $this->csrfHeaders());
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+
+        $identity = GuestIdentity::query()->findOrFail($identityId);
+        $this->assertSame(
+            $before,
+            $identity->expires_at->timestamp,
+            'A failed mutation must not extend Retention'
+        );
+
+        // The queued cookie from the successful add leaks across in-test
+        // requests; a re-queue by the failed mutation would move its expiry
+        // past the travel window. Same header ⇒ the failed mutation did not
+        // re-queue the transport.
+        $guestCookieHeaders = fn (TestResponse $r) => collect($r->headers->all('Set-Cookie'))
+            ->filter(fn (string $header) => str_starts_with($header, GuestIdentityService::COOKIE . '='))
+            ->values()->all();
+
+        $this->assertSame($guestCookieHeaders($add), $guestCookieHeaders($response));
     }
 
     /** @test */
