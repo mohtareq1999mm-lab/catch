@@ -157,6 +157,67 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
             ->assertHeader('cache-control', 'no-store, private');
     }
 
+    public function test_guest_restrictions_are_identical_across_transports(): void
+    {
+        $this->startGuestSession();
+
+        // Digital: rejected for guests on both transports (D3).
+        $digital = $this->makeProduct(['item_type' => \Marvel\Enums\ItemType::DIGITAL]);
+
+        // Cookie assertions first: a later bearer header would otherwise ride
+        // along and trip the credential-conflict guard.
+        $this->addToGuestCart([
+            'product_id' => $digital->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertStatus(422)
+            ->assertJsonPath('data.reason', 'digital_not_supported');
+
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'fast',
+        ])->assertStatus(422)
+            ->assertJsonPath('data.reason', 'fast_shipping_not_supported');
+
+        // Bearer leg.
+        $token = $this->mobileToken();
+
+        $this->asBearer($token)->postJson(self::PREFIX . '/cart/items', ['item' => [
+            'product_id' => $digital->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ]])->assertStatus(422)
+            ->assertJsonPath('data.reason', 'digital_not_supported');
+
+        $this->asBearer($token)->postJson(self::PREFIX . '/cart/items', ['item' => [
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'fast',
+        ]])->assertStatus(422)
+            ->assertJsonPath('data.reason', 'fast_shipping_not_supported');
+    }
+
+    public function test_cart_writes_are_limited_per_guest(): void
+    {
+        $token = $this->mobileToken();
+
+        $payload = ['item' => [
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ]];
+
+        // guest_cart_write: 40/min per guest identity.
+        for ($i = 1; $i <= 40; $i++) {
+            $this->asBearer($token)->postJson(self::PREFIX . '/cart/items', $payload)->assertCreated();
+        }
+
+        $this->asBearer($token)->postJson(self::PREFIX . '/cart/items', $payload)
+            ->assertStatus(429)
+            ->assertJsonPath('success', false);
+    }
+
     public function test_session_creation_is_ip_rate_limited_by_the_middleware(): void
     {
         // The suite cache store (array) is isolated per test, so exhausting the

@@ -170,9 +170,11 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
         $cart = $this->currentGuestCart();
         $this->assertNotNull($cart);
 
-        // Defence in depth: non-HTTP callers hit the same guard (T10).
+        // Defence in depth: non-HTTP callers hit the same guard (T10). The
+        // vendored kernel stays domain-neutral: it must not import the app's
+        // guest_checkout translation domain (AGENTS.md PHASE 21.2).
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage(__('guest_checkout.invalid_operation'));
+        $this->expectExceptionMessage('INVALID_OPERATION');
 
         app(\Marvel\Database\Repositories\CartRepository::class)->applyItemToCart($cart, [
             'product_id' => $this->product->id,

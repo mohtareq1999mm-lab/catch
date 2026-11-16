@@ -176,6 +176,38 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         $this->assertGreaterThan(0, count($destroy->headers->getCookies()), 'Cookie-carrying request must clear cookies.');
     }
 
+    public function test_store_after_expiry_creates_a_new_identity_with_an_empty_cart(): void
+    {
+        // A2: expired credential + new store() => new identity, empty cart.
+        $expired = $this->createMobileSession();
+
+        $this->asBearer($expired)->postJson(self::PREFIX . '/cart/items', [
+            'item' => [
+                'product_id' => $this->product->id,
+                'quantity' => 1,
+                'shipping_method' => 'scheduled',
+            ],
+        ])->assertCreated();
+
+        GuestIdentity::query()->findOrFail($this->currentGuestId())
+            ->forceFill(['expires_at' => now()->subMinute()])->save();
+
+        // Expired token is no longer usable.
+        $this->asBearer($expired)->getJson(self::PREFIX . '/cart')
+            ->assertOk()
+            ->assertJsonPath('data.cart', null);
+
+        $fresh = $this->asBearer($expired)->postJson(self::PREFIX . '/mobile/session');
+        $fresh->assertCreated();
+
+        $this->assertSame(2, GuestIdentity::query()->count(), 'Expiry must produce a NEW identity.');
+        $this->assertNotSame($expired, $fresh->json('data.token'));
+
+        $this->asBearer((string) $fresh->json('data.token'))->getJson(self::PREFIX . '/cart')
+            ->assertOk()
+            ->assertJsonPath('data.cart', null);
+    }
+
     public function test_sanctum_shaped_token_is_not_accepted_as_a_guest_credential(): void
     {
         $response = $this->clearCredentials()

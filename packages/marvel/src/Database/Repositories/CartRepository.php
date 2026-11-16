@@ -232,7 +232,9 @@ $affected = $cart->items()
         } else {
             // Unknown operation: fail loudly instead of returning "true" with
             // an unchanged cart (a silent no-op that surfaced as 201 success).
-            throw new Exception(__('guest_checkout.invalid_operation'));
+            // The vendored kernel stays domain-neutral: no app translation
+            // keys here; the application layer owns the user-facing reason.
+            throw new Exception('INVALID_OPERATION');
         }
 
         return true;
