@@ -229,6 +229,12 @@ $affected = $cart->items()
             $inventoryService->incrementItem($cart, $product, $variantId ? $variant : null, $quantity, $attributes, $shippingMethod);
         } elseif ($operation === CartOperation::DECREMENT) {
             $inventoryService->decrementItem($cart, $product, $variantId ? $variant : null, $quantity, $shippingMethod);
+        } else {
+            // Unknown operation: fail loudly instead of returning "true" with
+            // an unchanged cart (a silent no-op that surfaced as 201 success).
+            // The vendored kernel stays domain-neutral: no app translation
+            // keys here; the application layer owns the user-facing reason.
+            throw new Exception('INVALID_OPERATION');
         }
 
         return true;

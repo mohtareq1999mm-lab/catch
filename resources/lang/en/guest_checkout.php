@@ -4,6 +4,11 @@ return [
     'session_ready' => 'Guest session is ready.',
     'session_revoked' => 'Guest session has been revoked.',
     'session_required' => 'A guest session is required for this action.',
+    'credential_conflict' => 'Conflicting guest credentials were presented. Use a single guest session.',
+    'mobile_session_ready' => 'Guest session is ready.',
+    'mobile_session_rotated' => 'Guest session token has been rotated.',
+    'mobile_session_revoked' => 'Guest session has been revoked.',
+    'mobile_session_exists' => 'A usable guest session was presented. Reuse it or rotate the token explicitly.',
 
     'cart_not_found' => 'No active guest cart was found.',
     'product_unavailable' => 'This product is not available for guest checkout.',
@@ -11,7 +16,9 @@ return [
     'fast_shipping_not_eligible' => 'This product is not eligible for fast shipping.',
     'fast_shipping_not_supported' => 'Fast shipping is not available for guest checkout.',
     'variant_required' => 'Please select a product option before adding it to the cart.',
+    'variant_unavailable' => 'The selected product option is not available.',
     'insufficient_stock' => 'The requested quantity is not currently available.',
+    'invalid_operation' => 'The requested cart operation is invalid.',
 
     'csrf_failed' => 'The security token is missing or invalid. Please refresh the page and try again.',
     'origin_not_allowed' => 'This origin is not allowed to perform this action.',

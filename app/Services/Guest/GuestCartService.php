@@ -2,7 +2,8 @@
 
 namespace App\Services\Guest;
 
-use App\Contexts\ChannelContext;
+use App\Enums\GuestCartRejectionReason;
+use App\Exceptions\GuestCartRejectionException;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -13,7 +14,7 @@ use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Repositories\CartRepository;
-use Marvel\Enums\ItemType;
+use Marvel\Enums\CartOperation;
 use Marvel\Enums\ShippingMethod;
 
 /**
@@ -23,6 +24,7 @@ use Marvel\Enums\ShippingMethod;
  * so validation, pricing (ProductPricingService) and totals stay identical to
  * authenticated carts. Never trusts client prices, totals or cart ids.
  *
+ * Line policy is delegated to GuestCartEligibility (one home for the rule).
  * Retention: guest_expires_at moves forward ONLY on genuine mutations
  * (add/update/remove/clear). Read paths never extend it.
  */
@@ -32,6 +34,7 @@ class GuestCartService
         private CartRepository $cartRepository,
         private CartInventoryService $cartInventoryService,
         private GuestIdentityService $identityService,
+        private GuestCartEligibility $eligibility,
     ) {
     }
 
@@ -90,6 +93,7 @@ class GuestCartService
     public function addItem(Request $request, GuestIdentity $identity, array $item): Cart
     {
         $this->assertEligibleItem($item);
+        $this->assertKnownOperation($item);
 
         $cart = $this->ensureCart($identity);
         $cart = $this->applyWithRetry($cart, $item, 'add');
@@ -101,12 +105,30 @@ class GuestCartService
     public function updateItem(Request $request, GuestIdentity $identity, array $item): Cart
     {
         $this->assertEligibleItem($item);
+        $this->assertKnownOperation($item);
 
         $cart = $this->ensureCart($identity);
         $cart = $this->applyWithRetry($cart, $item, 'set');
         $this->touch($request, $identity, $cart);
 
         return $cart;
+    }
+
+    /**
+     * S12: reject unknown cart operations at the guest boundary with a
+     * machine-readable reason. The repository keeps its own defensive guard
+     * for non-HTTP callers; this keeps the HTTP reason precise.
+     */
+    private function assertKnownOperation(array $item): void
+    {
+        $operation = $item['operation'] ?? CartOperation::INCREMENT;
+
+        if (!in_array($operation, CartOperation::getValues(), true)) {
+            throw new GuestCartRejectionException(
+                GuestCartRejectionReason::INVALID_OPERATION,
+                __('guest_checkout.invalid_operation')
+            );
+        }
     }
 
     /**
@@ -218,41 +240,29 @@ class GuestCartService
         $product = Product::query()->active()->find((int) ($item['product_id'] ?? 0));
 
         if (!$product) {
-            throw new \InvalidArgumentException(__('guest_checkout.product_unavailable'));
-        }
-
-        if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
-            throw new \InvalidArgumentException(__('guest_checkout.digital_not_supported'));
-        }
-
-        if (
-            config('channel.enabled', true)
-            && app(ChannelContext::class)->isHome()
-            && (bool) $product->is_fast_shipping_available
-        ) {
-            throw new \InvalidArgumentException(__('guest_checkout.product_unavailable'));
-        }
-
-        $shippingMethod = strtoupper((string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED));
-
-        // Guest checkout currently has no fast-shipping checkout path (the
-        // canonical order builder consumes SCHEDULED lines only). Reject
-        // instead of silently dropping the line later.
-        if ($shippingMethod !== ShippingMethod::SCHEDULED) {
-            throw new \InvalidArgumentException(__('guest_checkout.fast_shipping_not_supported'));
-        }
-
-        if (($product->product_type ?? null) === 'variable' && empty($item['product_variant_id'])) {
-            throw new \InvalidArgumentException(__('guest_checkout.variant_required'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionReason::PRODUCT_UNAVAILABLE,
+                __('guest_checkout.product_unavailable')
+            );
         }
 
         $quantity = max(1, (int) ($item['quantity'] ?? 0));
+        $variantId = empty($item['product_variant_id']) ? null : (int) $item['product_variant_id'];
+        $shippingMethod = (string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED);
+
+        // Line policy lives in GuestCartEligibility (one home for the rule).
+        $this->eligibility->assertEligible($product, $variantId, $quantity, $shippingMethod);
+
+        // Product-level stock keeps the 0/NULL unlimited/unknown semantics.
         $stockQuantity = (int) ($product->stock_quantity ?? 0);
         $reserved = (int) ($product->reserved_quantity ?? 0);
         $available = max(0, $stockQuantity - $reserved);
 
         if ($stockQuantity > 0 && $quantity > $available) {
-            throw new \InvalidArgumentException(__('guest_checkout.insufficient_stock'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionReason::INSUFFICIENT_STOCK,
+                __('guest_checkout.insufficient_stock')
+            );
         }
     }
 

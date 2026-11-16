@@ -35,6 +35,12 @@ class GuestOrigin
 
         $this->stripUnsafeCorsHeaders($request, $response);
 
+        // S14: guest responses carry session/cart/order state, so they must
+        // never be cached by browsers or shared caches. Every guest route
+        // wraps this middleware, making it the smallest approved mechanism;
+        // unrelated public endpoints are unaffected.
+        $response->headers->set('Cache-Control', 'no-store');
+
         return $response;
     }
 

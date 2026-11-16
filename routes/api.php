@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\Admin\AnalyticsExportController;
 use App\Http\Controllers\Api\Admin\GuestTrackingController;
 use App\Http\Controllers\Api\General\Guest\GuestCartController;
 use App\Http\Controllers\Api\General\Guest\GuestCheckoutController;
+use App\Http\Controllers\Api\General\Guest\GuestMobileSessionController;
 use App\Http\Controllers\Api\General\Guest\GuestOrderController;
 use App\Http\Controllers\Api\General\Guest\GuestPublicOrderController;
 use App\Http\Controllers\Api\General\Guest\GuestSessionController;
@@ -168,8 +169,23 @@ Route::prefix('v1/general')->group(function () {
                 ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_session'])
                 ->name('api.guest.session.revoke');
 
+            // Mobile native clients: opaque Bearer guest tokens, same Guest
+            // Identity and same cart business logic (D1/D9). No cookies are
+            // issued, no CSRF (no ambient cookie credential), Origin validated
+            // only when a header is present. Not idempotent-resume: a usable
+            // credential presented to store() is rejected 409 (A4).
+            Route::post('mobile/session', [GuestMobileSessionController::class, 'store'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->name('api.guest.mobile.session');
+            Route::post('mobile/session/rotate', [GuestMobileSessionController::class, 'rotate'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->name('api.guest.mobile.session.rotate');
+            Route::delete('mobile/session', [GuestMobileSessionController::class, 'destroy'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_session'])
+                ->name('api.guest.mobile.session.revoke');
+
             Route::get('cart', [GuestCartController::class, 'show'])
-                ->middleware('guest.throttle:guest_cart_read')
+                ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
                 ->name('api.guest.cart.show');
             Route::post('cart/items', [GuestCartController::class, 'store'])
                 ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
