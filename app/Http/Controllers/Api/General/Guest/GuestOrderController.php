@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Order\OrderResource;
-use App\Services\Guest\GuestIdentityService;
+use App\Models\GuestIdentity;
 use App\Services\Guest\GuestOrderTokenService;
 use App\Services\Guest\GuestPaymentService;
 use Illuminate\Http\JsonResponse;
@@ -21,21 +21,14 @@ class GuestOrderController extends Controller
     use ApiResponse;
 
     public function __construct(
-        private GuestIdentityService $identities,
         private GuestPaymentService $payments,
         private GuestOrderTokenService $tokens,
         private \App\Services\Payment\PaymentAttemptLifecycleService $attempts,
     ) {
     }
 
-    public function show(Request $request, int $orderId): JsonResponse
+    public function show(Request $request, GuestIdentity $identity, int $orderId): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         $order = $this->ownedOrder($identity->id, $orderId);
 
         if (!$order) {
@@ -51,14 +44,8 @@ class GuestOrderController extends Controller
         ]);
     }
 
-    public function payment(Request $request, int $orderId): JsonResponse
+    public function payment(Request $request, GuestIdentity $identity, int $orderId): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         $order = $this->ownedOrder($identity->id, $orderId);
 
         if (!$order) {
@@ -72,14 +59,8 @@ class GuestOrderController extends Controller
      * Re-issue public credentials to the OWNING browser only (confirmation
      * page refresh). Admin-revoked tracking is never resurrected.
      */
-    public function accessTokens(Request $request, int $orderId): JsonResponse
+    public function accessTokens(Request $request, GuestIdentity $identity, int $orderId): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         $order = $this->ownedOrder($identity->id, $orderId);
 
         if (!$order) {

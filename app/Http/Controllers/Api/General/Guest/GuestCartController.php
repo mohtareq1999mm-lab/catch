@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Http\Controllers\Controller;
+use App\Models\GuestIdentity;
 use App\Services\Guest\GuestCartService;
 use App\Services\Guest\GuestIdentityService;
 use Illuminate\Http\JsonResponse;
@@ -44,17 +45,11 @@ class GuestCartController extends Controller
         ]);
     }
 
-    public function store(CartCreateRequest $request): JsonResponse
+    public function store(CartCreateRequest $request, GuestIdentity $identity): JsonResponse
     {
-        // Writes REQUIRE an existing verified guest session. The session is
-        // created only by POST /guest/session; a write must never mint one
-        // (no auto-create: 401 otherwise).
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
+        // Writes REQUIRE an existing verified guest session (guest.session
+        // middleware); the session is created only by POST /guest/session —
+        // a write must never mint one.
         $cart = $this->cartService->addItem($request, $identity, (array) $request->input('item', []));
 
         return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, [
@@ -62,14 +57,8 @@ class GuestCartController extends Controller
         ]);
     }
 
-    public function update(CartUpdateRequest $request): JsonResponse
+    public function update(CartUpdateRequest $request, GuestIdentity $identity): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         $cart = $this->cartService->updateItem($request, $identity, (array) $request->input('item', []));
 
         return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, [
@@ -77,14 +66,8 @@ class GuestCartController extends Controller
         ]);
     }
 
-    public function destroyItem(Request $request, int $itemId): JsonResponse
+    public function destroyItem(Request $request, GuestIdentity $identity, int $itemId): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         try {
             $cart = $this->cartService->removeItem($request, $identity, $itemId);
 
@@ -102,14 +85,8 @@ class GuestCartController extends Controller
         }
     }
 
-    public function destroy(Request $request): JsonResponse
+    public function destroy(Request $request, GuestIdentity $identity): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         try {
             $cart = $this->cartService->clear($request, $identity);
 

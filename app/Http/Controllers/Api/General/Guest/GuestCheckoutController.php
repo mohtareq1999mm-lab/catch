@@ -5,10 +5,9 @@ namespace App\Http\Controllers\Api\General\Guest;
 use App\Exceptions\CartEmptyException;
 use App\Exceptions\FlowInputValidationException;
 use App\Http\Controllers\Controller;
+use App\Models\GuestIdentity;
 use App\Services\Guest\GuestCheckoutService;
-use App\Services\Guest\GuestIdentityService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Marvel\Http\Requests\OrderCreateRequest;
 use Marvel\Traits\ApiResponse;
 
@@ -22,18 +21,11 @@ class GuestCheckoutController extends Controller
 
     public function __construct(
         private GuestCheckoutService $checkoutService,
-        private GuestIdentityService $identities,
     ) {
     }
 
-    public function checkout(OrderCreateRequest $request): JsonResponse
+    public function checkout(OrderCreateRequest $request, GuestIdentity $identity): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity) {
-            return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
-        }
-
         try {
             $payload = $this->checkoutService->checkout($request, $identity);
 

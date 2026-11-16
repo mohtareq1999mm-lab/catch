@@ -69,6 +69,7 @@ class Kernel extends HttpKernel
         'guest.throttle' => \App\Http\Middleware\GuestRateLimit::class,
         'guest.csrf' => \App\Http\Middleware\GuestCsrf::class,
         'guest.origin' => \App\Http\Middleware\GuestOrigin::class,
+        'guest.session' => \App\Http\Middleware\GuestSession::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'lang' => \App\Http\Middleware\CheckLangMiddleware::class,
     ];

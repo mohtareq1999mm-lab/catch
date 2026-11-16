@@ -188,17 +188,17 @@ Route::prefix('v1/general')->group(function () {
                 ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
                 ->name('api.guest.cart.show');
             Route::post('cart/items', [GuestCartController::class, 'store'])
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.store');
             Route::put('cart/items', [GuestCartController::class, 'update'])
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.update');
             Route::delete('cart/items/{itemId}', [GuestCartController::class, 'destroyItem'])
                 ->whereNumber('itemId')
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.item.destroy');
             Route::delete('cart', [GuestCartController::class, 'destroy'])
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_write'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_cart_write'])
                 ->name('api.guest.cart.destroy');
 
             // Static token paths first (no {orderId} capture).
@@ -211,19 +211,19 @@ Route::prefix('v1/general')->group(function () {
 
             Route::get('orders/{orderId}', [GuestOrderController::class, 'show'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.throttle:guest_cart_read'])
                 ->name('api.guest.orders.show');
             Route::post('orders/{orderId}/payment', [GuestOrderController::class, 'payment'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_payment'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_payment'])
                 ->name('api.guest.orders.payment');
             Route::post('orders/{orderId}/access-tokens', [GuestOrderController::class, 'accessTokens'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_payment'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_payment'])
                 ->name('api.guest.orders.access-tokens');
 
             Route::post('checkout', [GuestCheckoutController::class, 'checkout'])
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_checkout'])
+                ->middleware(['guest.origin', 'guest.session', 'guest.csrf', 'guest.throttle:guest_checkout'])
                 ->name('api.guest.checkout');
         });
     });
