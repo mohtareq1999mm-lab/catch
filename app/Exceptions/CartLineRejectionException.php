@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use App\Contracts\ApiRejection;
+use Illuminate\Support\Facades\Lang;
 use RuntimeException;
 
 /**
@@ -27,7 +28,10 @@ class CartLineRejectionException extends RuntimeException implements ApiRejectio
 
     public function message(): string
     {
-        return $this->getMessage();
+        $message = $this->getMessage();
+        $key = 'message.' . $message;
+
+        return Lang::has($key) ? __($key) : $message;
     }
 
     public function errors(): array

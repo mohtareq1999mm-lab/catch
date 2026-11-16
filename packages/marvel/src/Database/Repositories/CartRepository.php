@@ -245,7 +245,7 @@ $affected = $cart->items()
             // an unchanged cart (a silent no-op that surfaced as 201 success).
             // The message stays a raw code: the HTTP renderer owns user-facing
             // text, so the vendored kernel stays domain-neutral.
-            throw new CartLineRejectionException('INVALID_OPERATION');
+            throw new CartLineRejectionException('ERROR.INVALID_OPERATION');
         }
 
         return true;

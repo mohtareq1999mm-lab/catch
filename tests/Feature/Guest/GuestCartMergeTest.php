@@ -268,6 +268,46 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function insufficient_stock_line_is_preserved_with_localized_message(): void
+    {
+        $product = $this->makeProduct([
+            'name' => 'Over Stock Merge ' . uniqid(),
+            'slug' => 'over-stock-merge-' . uniqid(),
+            'stock_quantity' => 3,
+        ]);
+
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $guestCart = $this->guestCart();
+        CartItem::create([
+            'cart_id' => $guestCart->id,
+            'product_id' => $product->id,
+            'quantity' => 5,
+            'price' => 100,
+            'total_price' => 500,
+            'shipping_method' => 'SCHEDULED',
+        ]);
+
+        $user = $this->makeUser();
+        $result = $this->merge($user);
+
+        $this->assertSame('insufficient_stock', $result['unavailable_items'][0]['reason']);
+        $this->assertSame(
+            __('guest_checkout.merge_insufficient_stock'),
+            $result['unavailable_items'][0]['message']
+        );
+        $this->assertNotSame(
+            'guest_checkout.merge_insufficient_stock',
+            $result['unavailable_items'][0]['message']
+        );
+    }
+
+    /** @test */
     public function channel_ineligible_product_is_preserved_and_reported(): void
     {
         $fast = $this->makeProduct([

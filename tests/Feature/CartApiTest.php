@@ -368,6 +368,38 @@ class CartApiTest extends TestCase
         $this->assertSame(0, (int) $this->product->fresh()->reserved_quantity);
     }
 
+    public function test_decrement_of_missing_line_returns_localized_422()
+    {
+        $this->auth();
+        $this->postJson(self::PREFIX . '/cart', [
+            'item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'],
+        ])->assertStatus(201);
+
+        $other = Product::create([
+            'name' => 'Other Product',
+            'slug' => 'other-product-' . Str::random(8),
+            'price' => 50.00,
+            'product_type' => ProductType::SIMPLE,
+            'status' => true,
+            'in_stock' => true,
+            'stock_quantity' => 10,
+        ]);
+
+        $response = $this->putJson(self::PREFIX . '/cart/update-item', [
+            'item' => [
+                'product_id' => $other->id,
+                'quantity' => 1,
+                'operation' => 'decrement',
+                'shipping_method' => 'SCHEDULED',
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'Invalid item data');
+        $this->assertStringNotContainsString('ERROR.INVALID_ITEM_DATA', $response->getContent());
+    }
+
     public function test_update_item_adjusts_reserved_quantity()
     {
         $this->auth();

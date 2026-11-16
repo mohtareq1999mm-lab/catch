@@ -507,6 +507,7 @@ return [
     'MESSAGE.REMOVED_FROM_WISHLIST_SUCCESSFULLY' => 'Removed from wishlist successfully',
     'ERROR.INVALID_ITEM_DATA' => 'Invalid item data',
     'ERROR.PRODUCT_NOT_PURCHASABLE' => 'This product is not available for purchase.',
+    'ERROR.INVALID_OPERATION' => 'The requested cart operation is invalid.',
 
     // Flash Sales
     'MESSAGE.CREATE_FLASH_SALE_SUCCESSFULLY' => 'Flash sale created successfully',

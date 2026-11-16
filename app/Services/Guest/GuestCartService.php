@@ -4,6 +4,7 @@ namespace App\Services\Guest;
 
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
+use App\Exceptions\ProductNotPurchasableException;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -139,6 +140,14 @@ class GuestCartService
     {
         try {
             return $this->cartRepository->applyItemToCart($cart, $item, $mode);
+        } catch (ProductNotPurchasableException $e) {
+            // The product changed between assertEligibleItem() and the locked
+            // mutation; keep the guest contract (message + data.reason) instead
+            // of leaking the authenticated field-error envelope.
+            throw new GuestCartRejectionException(
+                GuestCartRejectionReason::PRODUCT_UNAVAILABLE,
+                __('guest_checkout.product_unavailable')
+            );
         } catch (ModelNotFoundException $e) {
             $fresh = $this->ensureCart($this->identityForCart($cart));
 

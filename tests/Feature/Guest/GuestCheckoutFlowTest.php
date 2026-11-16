@@ -198,8 +198,10 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
             'reserved_quantity' => 0,
         ]);
 
-        $this->submitGuestCheckout([], 'unavailable-after-add-key')
-            ->assertStatus(422);
+        $response = $this->submitGuestCheckout([], 'unavailable-after-add-key');
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', __('guest_checkout.product_unavailable'));
 
         $this->assertSame(0, $this->currentGuestOrders()->count());
     }

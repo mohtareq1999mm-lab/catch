@@ -174,7 +174,7 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
         // vendored kernel stays domain-neutral: it must not import the app's
         // guest_checkout translation domain (AGENTS.md PHASE 21.2).
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('INVALID_OPERATION');
+        $this->expectExceptionMessage('ERROR.INVALID_OPERATION');
 
         app(\Marvel\Database\Repositories\CartRepository::class)->applyItemToCart($cart, [
             'product_id' => $this->product->id,

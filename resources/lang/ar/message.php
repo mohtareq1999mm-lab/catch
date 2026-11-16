@@ -150,6 +150,7 @@ return [
     'MESSAGE.REMOVED_FROM_WISHLIST_SUCCESSFULLY' => 'تمت الإزالة من المفضلة بنجاح',
     'ERROR.INVALID_ITEM_DATA' => 'بيانات العنصر غير صالحة',
     'ERROR.PRODUCT_NOT_PURCHASABLE' => 'هذا المنتج غير متاح للشراء.',
+    'ERROR.INVALID_OPERATION' => 'عملية السلة المطلوبة غير صالحة.',
     'MESSAGE.CREATE_CART_SUCCESSFULLY' => 'تم إنشاء السلة بنجاح',
     'MESSAGE.UPDATE_CART_SUCCESSFULLY' => 'تم تحديث السلة بنجاح',
     'MESSAGE.DELETE_CART_SUCCESSFULLY' => 'تم حذف السلة بنجاح',

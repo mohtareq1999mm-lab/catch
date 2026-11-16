@@ -107,11 +107,9 @@ class GuestCartEligibility
         // Effective line ceiling: known variant stock, tightened by the
         // product ceiling when both are known. 0/NULL keeps the documented
         // unlimited/unknown semantics.
-        $ceiling = $variantStock > 0 ? $variantAvailable : $productAvailable;
-
-        if ($variantStock > 0 && $productAvailable !== null) {
-            $ceiling = min($variantAvailable, $productAvailable);
-        }
+        $ceiling = $variantStock > 0
+            ? ($productAvailable === null ? $variantAvailable : min($variantAvailable, $productAvailable))
+            : $productAvailable;
 
         if ($ceiling !== null && $quantity > $ceiling) {
             return GuestEligibilityVerdict::rejected(
