@@ -7,6 +7,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Imports\ProductWorkbookSchema;
 
 class FlashSalesSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -19,7 +20,7 @@ class FlashSalesSheetExport implements FromQuery, WithTitle, WithHeadings, WithM
 
     public function title(): string
     {
-        return 'flash_sales';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::FLASH_SALES);
     }
 
     public function query()
@@ -71,9 +72,6 @@ class FlashSalesSheetExport implements FromQuery, WithTitle, WithHeadings, WithM
 
     public function headings(): array
     {
-        return [
-            'product_sku',
-            'flash_sale_slug',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::FLASH_SALES);
     }
 }

@@ -7,6 +7,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Imports\ProductWorkbookSchema;
 
 class TagsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -19,7 +20,7 @@ class TagsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 
     public function title(): string
     {
-        return 'tags';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::TAGS);
     }
 
     public function query()
@@ -71,9 +72,6 @@ class TagsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 
     public function headings(): array
     {
-        return [
-            'product_sku',
-            'tag_slug',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::TAGS);
     }
 }

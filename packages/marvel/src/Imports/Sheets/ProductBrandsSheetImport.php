@@ -2,17 +2,11 @@
 
 namespace Marvel\Imports\Sheets;
 
+use Marvel\Imports\ProductWorkbookSchema;
+
 class ProductBrandsSheetImport extends TaxonomySheetImport
 {
-    public function title(): string
-    {
-        return 'brands';
-    }
-
-    public function chunkSize(): int
-    {
-        return 500;
-    }
+    protected const SHEET = ProductWorkbookSchema::BRANDS;
 
     protected function slugColumn(): string
     {

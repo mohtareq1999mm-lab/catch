@@ -2,17 +2,11 @@
 
 namespace Marvel\Imports\Sheets;
 
+use Marvel\Imports\ProductWorkbookSchema;
+
 class ProductBarcodesSheetImport extends RowSheetImport
 {
-    public function title(): string
-    {
-        return 'product_barcodes';
-    }
-
-    public function chunkSize(): int
-    {
-        return 500;
-    }
+    protected const SHEET = ProductWorkbookSchema::PRODUCT_BARCODES;
 
     protected function processRow(array $row, int $excelRow): void
     {

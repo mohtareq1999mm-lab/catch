@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Imports\ProductWorkbookSchema;
 use PhpOffice\PhpSpreadsheet\Cell\Cell;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Cell\DefaultValueBinder;
@@ -23,7 +24,7 @@ class ProductBarcodesSheetExport extends DefaultValueBinder implements FromQuery
 
     public function title(): string
     {
-        return 'product_barcodes';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCT_BARCODES);
     }
 
     public function query()
@@ -83,12 +84,7 @@ class ProductBarcodesSheetExport extends DefaultValueBinder implements FromQuery
 
     public function headings(): array
     {
-        return [
-            'product_sku',
-            'piece_barcode',
-            'carton_barcode',
-            'pieces_per_carton',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::PRODUCT_BARCODES);
     }
 
     public function bindValue(Cell $cell, $value): bool

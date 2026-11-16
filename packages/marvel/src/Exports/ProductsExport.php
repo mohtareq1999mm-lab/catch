@@ -12,6 +12,7 @@ use Marvel\Exports\Sheets\ProductsSheetExport;
 use Marvel\Exports\Sheets\ProductVariantsSheetExport;
 use Marvel\Exports\Sheets\SlidersSheetExport;
 use Marvel\Exports\Sheets\TagsSheetExport;
+use Marvel\Imports\ProductWorkbookSchema;
 
 class ProductsExport implements WithMultipleSheets
 {
@@ -25,15 +26,15 @@ class ProductsExport implements WithMultipleSheets
     public function sheets(): array
     {
         return [
-            'products' => new ProductsSheetExport($this->filters),
-            'product_barcodes' => new ProductBarcodesSheetExport($this->filters),
-            'product_variants' => new ProductVariantsSheetExport($this->filters),
-            'images' => new ImagesSheetExport($this->filters),
-            'categories' => new CategoriesSheetExport($this->filters),
-            'brands' => new BrandsSheetExport($this->filters),
-            'flash_sales' => new FlashSalesSheetExport($this->filters),
-            'sliders' => new SlidersSheetExport($this->filters),
-            'tags' => new TagsSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCTS) => new ProductsSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCT_BARCODES) => new ProductBarcodesSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCT_VARIANTS) => new ProductVariantsSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::IMAGES) => new ImagesSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::CATEGORIES) => new CategoriesSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::BRANDS) => new BrandsSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::FLASH_SALES) => new FlashSalesSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::SLIDERS) => new SlidersSheetExport($this->filters),
+            ProductWorkbookSchema::title(ProductWorkbookSchema::TAGS) => new TagsSheetExport($this->filters),
         ];
     }
 

@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Marvel\Database\Models\Product;
+use Marvel\Imports\ProductWorkbookSchema;
 
 class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -20,7 +21,7 @@ class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMap
 
     public function title(): string
     {
-        return 'products';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCTS);
     }
 
     public function query()
@@ -53,32 +54,7 @@ class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMap
 
     public function headings(): array
     {
-        return [
-            'sku',
-            'name_en',
-            'name_ar',
-            'description_en',
-            'description_ar',
-            'price',
-            'product_type',
-            'item_type',
-            'quantity',
-            'status',
-            'in_stock',
-            'has_discount',
-            'discount_type',
-            'discount_amount',
-            'start_date',
-            'end_date',
-            'height',
-            'width',
-            'length',
-            'weight',
-            'tax_enabled',
-            'tax_rate',
-            'pieces',
-            'has_flash_sale',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::PRODUCTS);
     }
 
     public function map($product): array

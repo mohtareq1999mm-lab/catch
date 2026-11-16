@@ -7,6 +7,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Imports\ProductWorkbookSchema;
 
 class CategoriesSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -19,7 +20,7 @@ class CategoriesSheetExport implements FromQuery, WithTitle, WithHeadings, WithM
 
     public function title(): string
     {
-        return 'categories';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::CATEGORIES);
     }
 
     public function query()
@@ -67,9 +68,6 @@ class CategoriesSheetExport implements FromQuery, WithTitle, WithHeadings, WithM
 
     public function headings(): array
     {
-        return [
-            'product_sku',
-            'category_slug',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::CATEGORIES);
     }
 }

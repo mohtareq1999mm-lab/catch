@@ -17,6 +17,7 @@ use Marvel\Exports\Sheets\ProductsSheetExport;
 use Marvel\Exports\Sheets\ProductVariantsSheetExport;
 use Marvel\Exports\Sheets\SlidersSheetExport;
 use Marvel\Exports\Sheets\TagsSheetExport;
+use Marvel\Imports\ProductWorkbookSchema;
 use Tests\TestCase;
 
 class ExcelContractTest extends TestCase
@@ -59,12 +60,18 @@ class ExcelContractTest extends TestCase
     }
 
     // Product sheets - 8 sheets
-    public function test_products_sheet_has_20_headers(): void
+    public function test_products_sheet_matches_the_workbook_schema(): void
     {
         $export = new ProductsSheetExport([]);
-        $expected = ['sku','name_en','name_ar','description_en','description_ar','price','product_type','item_type','quantity','status','in_stock','has_discount','discount_type','discount_amount','start_date','end_date','height','width','length','weight'];
-        $this->assertEquals($expected, $export->headings());
-        $this->assertCount(20, $export->headings());
+
+        $this->assertSame(
+            ProductWorkbookSchema::headings(ProductWorkbookSchema::PRODUCTS),
+            $export->headings()
+        );
+        $this->assertSame(
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCTS),
+            $export->title()
+        );
     }
 
     public function test_product_barcodes_sheet_has_4_headers(): void
@@ -75,11 +82,14 @@ class ExcelContractTest extends TestCase
         $this->assertCount(4, $export->headings());
     }
 
-    public function test_product_variants_sheet_has_9_headers(): void
+    public function test_product_variants_sheet_matches_the_workbook_schema(): void
     {
         $export = new ProductVariantsSheetExport([]);
-        $expected = ['product_sku','price','sale_price','quantity','height','width','length','weight','attributes'];
-        $this->assertEquals($expected, $export->headings());
+
+        $this->assertSame(
+            ProductWorkbookSchema::headings(ProductWorkbookSchema::PRODUCT_VARIANTS),
+            $export->headings()
+        );
     }
 
     public function test_images_sheet_has_2_headers(): void
@@ -155,13 +165,14 @@ class ExcelContractTest extends TestCase
         $this->assertEquals('tags', (new TagsSheetExport([]))->title());
     }
 
-    public function test_no_extra_headers_in_products_sheet(): void
+    public function test_products_sheet_includes_optional_import_columns(): void
     {
-        $export = new ProductsSheetExport([]);
-        $headings = $export->headings();
-        // Ensure no additional header beyond the 20
-        $this->assertNotContains('pieces', $headings, 'pieces is optional importer field, not part of export contract');
-        $this->assertNotContains('has_flash_sale', $headings);
+        $headings = (new ProductsSheetExport([]))->headings();
+
+        $this->assertContains('pieces', $headings);
+        $this->assertContains('has_flash_sale', $headings);
+        $this->assertContains('tax_enabled', $headings);
+        $this->assertContains('tax_rate', $headings);
     }
 
     public function test_sample_files_have_correct_headers(): void
@@ -184,6 +195,29 @@ class ExcelContractTest extends TestCase
         $headers = array_map(fn($v) => trim((string)$v), $headers);
         $this->assertEquals(['name_en','name_ar','details_en','details_ar','status','image_desktop_url','image_mobile_url'], $headers);
         $ss->disconnectWorksheets();
+
+        $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($productSample);
+        $reader->setReadDataOnly(true);
+        $productBook = $reader->load($productSample);
+
+        foreach ([
+            ['products', ProductWorkbookSchema::PRODUCTS],
+            ['product_variants', ProductWorkbookSchema::PRODUCT_VARIANTS],
+        ] as [$sheetName, $schemaKey]) {
+            $sheet = $productBook->getSheetByName($sheetName);
+            $this->assertNotNull($sheet, "Product sample is missing the {$sheetName} sheet");
+
+            $headers = array_values($sheet->rangeToArray('A1:' . $sheet->getHighestDataColumn() . '1')[0]);
+            $headers = array_map(fn ($value) => trim((string) $value), $headers);
+
+            $this->assertSame(
+                [],
+                array_values(array_diff($headers, ProductWorkbookSchema::headings($schemaKey))),
+                "Sample sheet {$sheetName} contains headers outside the workbook schema"
+            );
+        }
+
+        $productBook->disconnectWorksheets();
     }
 
     public function test_product_sample_has_8_sheets(): void

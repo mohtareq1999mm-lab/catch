@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Imports\ProductWorkbookSchema;
 
 class ImagesSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -20,7 +21,7 @@ class ImagesSheetExport implements FromQuery, WithTitle, WithHeadings, WithMappi
 
     public function title(): string
     {
-        return 'images';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::IMAGES);
     }
 
     public function query()
@@ -96,9 +97,6 @@ class ImagesSheetExport implements FromQuery, WithTitle, WithHeadings, WithMappi
 
     public function headings(): array
     {
-        return [
-            'product_sku',
-            'image',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::IMAGES);
     }
 }
