@@ -394,6 +394,72 @@ class ProductImportController extends Controller
         ]);
     }
 
+    /**
+     * Retry a failed import whose workbook was kept (schema preflight failure).
+     *
+     * The file is deleted on success by the import job, so the retention of a
+     * kept workbook is bounded by the next successful run.
+     */
+    public function retry(int $id): JsonResponse
+    {
+        $user = auth()->user();
+        $baseQuery = Import::whereOperationType(FileOperationType::PRODUCT_IMPORT);
+        if ($user && ! $user->hasRole(Role::SUPER_ADMIN)) {
+            $baseQuery->where('created_by', $user->id);
+        }
+
+        $import = $baseQuery->where('id', $id)->firstOrFail();
+
+        $this->authorize('retry', $import);
+
+        if (!in_array($import->status, ['failed'], true)) {
+            return $this->apiResponse(__('message.MESSAGE.IMPORT_RETRY_NOT_ALLOWED'), 409, false);
+        }
+
+        if (!$this->importFileExists($import)) {
+            return $this->apiResponse(__('message.MESSAGE.IMPORT_RETRY_FILE_MISSING'), 409, false);
+        }
+
+        Import::where('id', $import->id)->where('status', 'failed')->update([
+            'status' => 'pending',
+            'total_rows' => 0,
+            'processed_rows' => 0,
+            'success_rows' => 0,
+            'failed_rows' => 0,
+            'errors' => null,
+        ]);
+
+        $this->broadcastFileOperationQueued(
+            FileOperationEvent::PRODUCT_IMPORT_QUEUED,
+            'product-import',
+            $import->id,
+            null,
+            __('message.MESSAGE.IMPORT_RETRY_STARTED')
+        );
+
+        ImportProductsJob::dispatch($import->id);
+
+        return $this->apiResponse(__('message.MESSAGE.IMPORT_RETRY_STARTED'), 202, true, [
+            'import_id' => $import->id,
+            'status' => 'pending',
+        ]);
+    }
+
+    protected function importFileExists(Import $import): bool
+    {
+        foreach (['imports', 'public', 'local'] as $disk) {
+            try {
+                if (Storage::disk($disk)->exists($import->file_path)) {
+                    return true;
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        return false;
+    }
+
     public function downloadSample(): BinaryFileResponse|JsonResponse
     {
         $samplePath = config('marvel.import.samples.product');

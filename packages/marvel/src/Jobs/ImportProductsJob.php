@@ -436,12 +436,14 @@ class ImportProductsJob implements ShouldQueue
             return false;
         }
 
-        $this->failImportWithSystemError($import, $reason, $batchUuid);
+        // A schema failure does not invalidate the workbook: keep it so the
+        // admin can retry after repairing the column (retry endpoint).
+        $this->failImportWithSystemError($import, $reason, $batchUuid, keepFile: true);
 
         return true;
     }
 
-    protected function failImportWithSystemError(Import $import, string $message, string $batchUuid): void
+    protected function failImportWithSystemError(Import $import, string $message, string $batchUuid, bool $keepFile = false): void
     {
         $import->update([
             'status' => ImportStatus::FAILED,
@@ -462,7 +464,10 @@ class ImportProductsJob implements ShouldQueue
             ['progress' => 100.0, 'download_available' => false]
         );
 
-        $this->deleteImportFile($import);
+        if (!$keepFile) {
+            $this->deleteImportFile($import);
+        }
+
         $this->removeSignalFile('progress');
         $this->recordImportFailed($import, $batchUuid);
     }

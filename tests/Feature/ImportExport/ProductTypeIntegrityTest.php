@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Category;
 use Marvel\Database\Models\Import;
 use Marvel\Database\Models\Product;
@@ -28,6 +29,8 @@ use Tests\TestCase;
 class ProductTypeIntegrityTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const PREFIX = '/api/v1';
 
     private const HEADERS = [
         'sku', 'name_en', 'name_ar', 'description_en', 'description_ar', 'price',
@@ -235,15 +238,114 @@ class ProductTypeIntegrityTest extends TestCase
             $tmp = $this->createWorkbook([
                 ['sku' => 'PT-SCHEMA', 'name_en' => 'Schema', 'price' => 10, 'quantity' => 5, 'product_type' => 'simple', 'status' => 1, 'in_stock' => 1],
             ]);
+            [$import, $path] = $this->createPendingImport($user, $tmp, 1);
 
-            $import = $this->runImport($user, $tmp, 1);
+            (new ImportProductsJob($import->id))->handle();
+            $import->refresh();
 
             $this->assertSame('failed', $import->status);
             $this->assertStringContainsString('missing value', collect($import->errors)->pluck('error_message')->implode(' '));
             $this->assertDatabaseMissing('products', ['sku' => 'PT-SCHEMA']);
+            $this->assertTrue(Storage::disk('public')->exists($path), 'A schema failure must keep the workbook for retry.');
         } finally {
             DB::statement("ALTER TABLE `products` MODIFY `product_type` ENUM('simple','variable') NOT NULL DEFAULT 'simple'");
         }
+    }
+
+    public function test_retry_endpoint_re_imports_after_the_schema_is_repaired(): void
+    {
+        $this->skipOnLiveDatabase();
+
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+        $narrow = "ALTER TABLE `products` MODIFY `product_type` ENUM('simple') NOT NULL DEFAULT 'simple'";
+        $canonical = "ALTER TABLE `products` MODIFY `product_type` ENUM('simple','variable') NOT NULL DEFAULT 'simple'";
+
+        DB::statement($narrow);
+
+        try {
+            $tmp = $this->createWorkbook([
+                ['sku' => 'PT-RETRY', 'name_en' => 'Retry', 'price' => 10, 'quantity' => 5, 'product_type' => 'simple', 'status' => 1, 'in_stock' => 1],
+            ]);
+            [$import, $path] = $this->createPendingImport($user, $tmp, 1);
+
+            (new ImportProductsJob($import->id))->handle();
+            $import->refresh();
+            $this->assertSame('failed', $import->status);
+
+            DB::statement($canonical);
+
+            Sanctum::actingAs($user, ['*']);
+            $response = $this->postJson(self::PREFIX . '/products/import/' . $import->id . '/retry');
+
+            $response->assertStatus(202);
+            $import->refresh();
+            $this->assertSame('completed', $import->status);
+            $this->assertSame(1, $import->success_rows);
+            $this->assertDatabaseHas('products', ['sku' => 'PT-RETRY']);
+            $this->assertFalse(Storage::disk('public')->exists($path), 'A successful retry deletes the workbook.');
+        } finally {
+            DB::statement($canonical);
+        }
+    }
+
+    public function test_retry_is_rejected_when_the_workbook_is_missing(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+        Sanctum::actingAs($user, ['*']);
+
+        $import = Import::create([
+            'type' => 'product-import',
+            'file_path' => 'imports/missing_' . uniqid() . '.xlsx',
+            'file_name' => 'products.xlsx',
+            'status' => 'failed',
+            'total_rows' => 0,
+            'created_by' => $user->id,
+        ]);
+
+        $this->postJson(self::PREFIX . '/products/import/' . $import->id . '/retry')
+            ->assertStatus(409);
+    }
+
+    public function test_retry_is_rejected_for_a_completed_import(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+        Sanctum::actingAs($user, ['*']);
+
+        $import = Import::create([
+            'type' => 'product-import',
+            'file_path' => 'imports/missing_' . uniqid() . '.xlsx',
+            'file_name' => 'products.xlsx',
+            'status' => 'completed',
+            'total_rows' => 1,
+            'created_by' => $user->id,
+        ]);
+
+        $this->postJson(self::PREFIX . '/products/import/' . $import->id . '/retry')
+            ->assertStatus(409);
+    }
+
+    /**
+     * @return array{0: Import, 1: string}
+     */
+    private function createPendingImport(User $user, string $tmpPath, int $totalRows): array
+    {
+        $path = 'imports/test_' . uniqid() . '.xlsx';
+        Storage::disk('public')->put($path, file_get_contents($tmpPath));
+        @unlink($tmpPath);
+
+        $import = Import::create([
+            'type' => 'product-import',
+            'file_path' => $path,
+            'file_name' => 'products.xlsx',
+            'status' => 'pending',
+            'total_rows' => $totalRows,
+            'created_by' => $user->id,
+        ]);
+
+        return [$import, $path];
     }
 
     public function test_in_stock_false_without_quantity_uses_the_persisted_quantity(): void

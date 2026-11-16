@@ -269,6 +269,7 @@ Route::middleware(['auth:sanctum', 'throttle:admin', 'lang'])->group(function ()
     Route::post('products/import', [ProductImportController::class, 'import'])->name('admin.products.import')->middleware('permission:import-product');
     Route::get('products/import/{id}', [ProductImportController::class, 'status'])->whereNumber('id')->name('admin.products.import.status')->middleware('permission:import-product');
     Route::post('products/import/{id}/cancel', [ProductImportController::class, 'cancel'])->whereNumber('id')->name('admin.products.import.cancel')->middleware('permission:import-product');
+    Route::post('products/import/{id}/retry', [ProductImportController::class, 'retry'])->whereNumber('id')->name('admin.products.import.retry')->middleware('permission:import-product');
     Route::get('products/import/{id}/download-errors', [ProductImportController::class, 'downloadErrors'])->whereNumber('id')->name('admin.products.import.download-errors')->middleware('permission:import-product');
     Route::apiResource('products', ProductController::class)->middleware('permission:view-products|view-product|create-product|update-product|delete-product');
 

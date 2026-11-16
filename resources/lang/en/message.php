@@ -342,6 +342,9 @@ return [
     'MESSAGE.IMPORT_NO_ERRORS' => 'No errors found',
     'MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY' => 'Import cancelled successfully',
     'MESSAGE.IMPORT_CANNOT_CANCEL' => 'Import cannot be cancelled in its current state',
+    'MESSAGE.IMPORT_RETRY_STARTED' => 'Product import retry started successfully',
+    'MESSAGE.IMPORT_RETRY_NOT_ALLOWED' => 'Import cannot be retried in its current state',
+    'MESSAGE.IMPORT_RETRY_FILE_MISSING' => 'The original import file is no longer available',
 
     // Tags
     'MESSAGE.TAG_CREATED_SUCCESSFULLY' => 'Tag created successfully',
