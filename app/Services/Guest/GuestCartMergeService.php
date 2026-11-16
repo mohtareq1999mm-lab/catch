@@ -2,7 +2,6 @@
 
 namespace App\Services\Guest;
 
-use App\Contexts\ChannelContext;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\QueryException;
@@ -11,11 +10,8 @@ use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Product;
-use Marvel\Database\Models\ProductVariant;
 use Marvel\Database\Models\User;
 use Marvel\Database\Repositories\CartRepository;
-use Marvel\Enums\ItemType;
-use Marvel\Enums\ShippingMethod;
 use Marvel\Http\Resources\CartResource;
 
 /**
@@ -36,6 +32,7 @@ class GuestCartMergeService
         private GuestIdentityService $identities,
         private CartRepository $cartRepository,
         private CartInventoryService $cartInventoryService,
+        private GuestCartEligibility $eligibility,
     ) {
     }
 
@@ -111,15 +108,30 @@ class GuestCartMergeService
                     continue;
                 }
 
-                $availability = $this->availability($guestItem);
+                $product = $guestItem->product_id
+                    ? Product::withTrashed()->find($guestItem->product_id)
+                    : null;
 
-                if (!$availability['available']) {
+                if (!$product || (method_exists($product, 'trashed') && $product->trashed())) {
                     $this->preserveUnavailable($accountCart, $guestItem);
-                    $unavailable[] = $this->itemSummary($guestItem, $availability['reason']);
+                    $unavailable[] = $this->itemSummary($guestItem, 'product_deleted');
                     continue;
                 }
 
-                $product = $availability['product'];
+                // Single source of truth: the same evaluation the add path uses.
+                $verdict = $this->eligibility->evaluate(
+                    $product,
+                    $guestItem->product_variant_id,
+                    (int) $guestItem->quantity,
+                    (string) $guestItem->shipping_method
+                );
+
+                if (!$verdict->allowed) {
+                    $this->preserveUnavailable($accountCart, $guestItem);
+                    $unavailable[] = $this->itemSummary($guestItem, $verdict->reason->value);
+                    continue;
+                }
+
                 $existing = $this->findAccountLine($accountCart, $guestItem);
                 $existingQty = $existing ? (int) $existing->quantity : 0;
 
@@ -128,9 +140,8 @@ class GuestCartMergeService
                     $existingQty + (int) $guestItem->quantity
                 );
 
-                $availableQty = $this->knownAvailableQuantity($product, $guestItem->product_variant_id);
-                if ($availableQty !== null) {
-                    $target = min($target, $availableQty);
+                if ($verdict->availableQuantity !== null) {
+                    $target = min($target, $verdict->availableQuantity);
                 }
 
                 $target = max($existingQty, $target);
@@ -238,53 +249,6 @@ class GuestCartMergeService
         return $result;
     }
 
-    /**
-     * @return array{available: bool, reason: ?string, product: ?Product}
-     */
-    private function availability(CartItem $item): array
-    {
-        $product = $item->product_id
-            ? Product::withTrashed()->find($item->product_id)
-            : null;
-
-        if (!$product) {
-            return ['available' => false, 'reason' => 'product_deleted', 'product' => null];
-        }
-
-        if (method_exists($product, 'trashed') && $product->trashed()) {
-            return ['available' => false, 'reason' => 'product_deleted', 'product' => $product];
-        }
-
-        if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
-            return ['available' => false, 'reason' => 'digital_not_supported', 'product' => $product];
-        }
-
-        if (!Product::query()->active()->whereKey($product->id)->exists()) {
-            return ['available' => false, 'reason' => 'product_unavailable', 'product' => $product];
-        }
-
-        if (
-            config('channel.enabled', true)
-            && app(ChannelContext::class)->isHome()
-            && (bool) $product->is_fast_shipping_available
-        ) {
-            return ['available' => false, 'reason' => 'channel_not_eligible', 'product' => $product];
-        }
-
-        if ($item->product_variant_id) {
-            $variantExists = ProductVariant::query()
-                ->whereKey($item->product_variant_id)
-                ->where('product_id', $product->id)
-                ->exists();
-
-            if (!$variantExists) {
-                return ['available' => false, 'reason' => 'variant_unavailable', 'product' => $product];
-            }
-        }
-
-        return ['available' => true, 'reason' => null, 'product' => $product];
-    }
-
     private function findAccountLine(Cart $accountCart, CartItem $guestItem): ?CartItem
     {
         return CartItem::query()
@@ -339,29 +303,6 @@ class GuestCartMergeService
 
         $guestItem->cart_id = $accountCart->id;
         $guestItem->save();
-    }
-
-    private function knownAvailableQuantity(Product $product, ?int $variantId = null): ?int
-    {
-        if ($variantId) {
-            $variant = ProductVariant::query()->whereKey($variantId)->first();
-            $variantStock = (int) ($variant->stock_quantity ?? 0);
-
-            if ($variant) {
-                // Variant stock is stricter than product-level stock.
-                return $variantStock > 0
-                    ? max(0, $variantStock - (int) ($variant->reserved_quantity ?? 0))
-                    : 0;
-            }
-        }
-
-        $stock = (int) ($product->stock_quantity ?? 0);
-
-        if ($stock <= 0) {
-            return null; // unlimited/unknown stock semantics
-        }
-
-        return max(0, $stock - (int) ($product->reserved_quantity ?? 0));
     }
 
     private function ensureAccountCart(User $user): Cart

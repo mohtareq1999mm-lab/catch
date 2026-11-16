@@ -5,24 +5,25 @@ namespace App\Services\Guest;
 use App\Contexts\ChannelContext;
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
+use App\ValueObjects\GuestEligibilityVerdict;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 use Marvel\Enums\ItemType;
 use Marvel\Enums\ShippingMethod;
 
 /**
- * Guest Eligibility policy for one cart line.
+ * Guest Eligibility policy for one cart line — the single source of truth
+ * for both the cart-add path and Login Merge.
  *
- * One home for "may this line exist as a guest?" so the rule is not restated
- * per consumer. Consumers load the product and pass the raw item fields; the
- * module owns the variant lookup, the stock arithmetic and the reason codes.
+ * `evaluate()` returns the verdict (allowed, reason, available quantity);
+ * `assertEligible()` is the throwing wrapper the add path uses.
  *
  * Semantics (approved S11 / D2):
  *  - variant stock and in_stock are enforced ONLY when variant stock is known
  *    (stock_quantity > 0); `0/NULL` keeps the documented unlimited/unknown
  *    semantics, mirroring the product-level rule.
  *  - a variant outside the product, or a known-stock variant that is fully
- *    reserved/unavailable, is variant_unavailable.
+ *    reserved/unavailable, is not eligible.
  */
 class GuestCartEligibility
 {
@@ -35,11 +36,28 @@ class GuestCartEligibility
         int $quantity,
         string $shippingMethod
     ): void {
-        if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
+        $verdict = $this->evaluate($product, $variantId, $quantity, $shippingMethod);
+
+        if (!$verdict->allowed) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED,
-                __('guest_checkout.digital_not_supported')
+                $verdict->reason,
+                __('guest_checkout.' . $verdict->reason->value)
             );
+        }
+    }
+
+    public function evaluate(
+        Product $product,
+        ?int $variantId,
+        int $quantity,
+        string $shippingMethod
+    ): GuestEligibilityVerdict {
+        if (!$this->isActive($product)) {
+            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE);
+        }
+
+        if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
+            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED);
         }
 
         if (
@@ -47,60 +65,73 @@ class GuestCartEligibility
             && app(ChannelContext::class)->isHome()
             && (bool) $product->is_fast_shipping_available
         ) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionReason::PRODUCT_UNAVAILABLE,
-                __('guest_checkout.product_unavailable')
-            );
+            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE);
         }
-
-        $method = strtoupper($shippingMethod);
 
         // Guest checkout currently has no fast-shipping checkout path (the
         // canonical order builder consumes SCHEDULED lines only). Reject
         // instead of silently dropping the line later.
-        if ($method !== ShippingMethod::SCHEDULED) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionReason::FAST_SHIPPING_NOT_SUPPORTED,
-                __('guest_checkout.fast_shipping_not_supported')
-            );
+        if (strtoupper($shippingMethod) !== ShippingMethod::SCHEDULED) {
+            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::FAST_SHIPPING_NOT_SUPPORTED);
         }
 
         if (($product->product_type ?? null) === 'variable' && empty($variantId)) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionReason::VARIANT_REQUIRED,
-                __('guest_checkout.variant_required')
+            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::VARIANT_REQUIRED);
+        }
+
+        $productAvailable = $this->productAvailableQuantity($product);
+
+        if (empty($variantId)) {
+            return GuestEligibilityVerdict::allowed($productAvailable);
+        }
+
+        $variant = ProductVariant::query()
+            ->whereKey($variantId)
+            ->where('product_id', $product->id)
+            ->first();
+
+        if (!$variant) {
+            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::VARIANT_UNAVAILABLE);
+        }
+
+        $variantStock = (int) ($variant->stock_quantity ?? 0);
+        $variantAvailable = max(0, $variantStock - (int) ($variant->reserved_quantity ?? 0));
+
+        if ($variantStock > 0 && $quantity > $variantAvailable) {
+            return GuestEligibilityVerdict::rejected(
+                GuestCartRejectionReason::INSUFFICIENT_STOCK,
+                $variantAvailable
             );
         }
 
-        if (!empty($variantId)) {
-            $variant = ProductVariant::query()
-                ->whereKey($variantId)
-                ->where('product_id', $product->id)
-                ->first();
-
-            if (!$variant) {
-                throw new GuestCartRejectionException(
-                    GuestCartRejectionReason::VARIANT_UNAVAILABLE,
-                    __('guest_checkout.variant_unavailable')
-                );
-            }
-
-            $variantStock = (int) ($variant->stock_quantity ?? 0);
-            $variantAvailable = max(0, $variantStock - (int) ($variant->reserved_quantity ?? 0));
-
-            if ($variantStock > 0 && $quantity > $variantAvailable) {
-                throw new GuestCartRejectionException(
-                    GuestCartRejectionReason::INSUFFICIENT_STOCK,
-                    __('guest_checkout.insufficient_stock')
-                );
-            }
-
-            if ($variantStock > 0 && !$variant->in_stock && $variantAvailable <= 0) {
-                throw new GuestCartRejectionException(
-                    GuestCartRejectionReason::VARIANT_UNAVAILABLE,
-                    __('guest_checkout.variant_unavailable')
-                );
-            }
+        if ($variantStock > 0 && !$variant->in_stock && $variantAvailable <= 0) {
+            return GuestEligibilityVerdict::rejected(
+                GuestCartRejectionReason::VARIANT_UNAVAILABLE,
+                $variantAvailable
+            );
         }
+
+        // Known variant stock is the line ceiling; 0/NULL means unknown, so the
+        // product-level ceiling (possibly also unknown) applies.
+        return GuestEligibilityVerdict::allowed(
+            $variantStock > 0 ? $variantAvailable : $productAvailable
+        );
+    }
+
+    private function isActive(Product $product): bool
+    {
+        return Product::query()->active()->whereKey($product->id)->exists();
+    }
+
+    /** Known product ceiling, or null for unlimited/unknown. */
+    private function productAvailableQuantity(Product $product): ?int
+    {
+        $stock = (int) ($product->stock_quantity ?? 0);
+
+        if ($stock <= 0) {
+            return null;
+        }
+
+        return max(0, $stock - (int) ($product->reserved_quantity ?? 0));
     }
 }

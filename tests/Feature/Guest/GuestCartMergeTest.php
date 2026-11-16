@@ -296,8 +296,97 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
         $user = $this->makeUser();
         $result = $this->merge($user);
 
-        $this->assertSame('channel_not_eligible', $result['unavailable_items'][0]['reason']);
+        $this->assertSame('product_unavailable', $result['unavailable_items'][0]['reason']);
         $this->assertSame(1, $this->accountCart($user)->items()->where('product_id', $fast->id)->count());
+    }
+
+    /** @test */
+    public function zero_stock_variant_merges_fully_under_the_shared_semantics(): void
+    {
+        $product = $this->makeProduct([
+            'name' => 'Variable Merge ' . uniqid(),
+            'slug' => 'variable-merge-' . uniqid(),
+            'product_type' => \Marvel\Enums\ProductType::VARIABLE,
+            'stock_quantity' => 100,
+        ]);
+        $variant = \Marvel\Database\Models\ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'MERGE-' . uniqid(),
+            'price' => 100,
+            'stock_quantity' => 0,
+            'reserved_quantity' => 0,
+            'in_stock' => true,
+        ]);
+
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $guestCart = $this->guestCart();
+        CartItem::create([
+            'cart_id' => $guestCart->id,
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantity' => 3,
+            'price' => 100,
+            'total_price' => 300,
+            'shipping_method' => 'SCHEDULED',
+        ]);
+
+        $user = $this->makeUser();
+        $result = $this->merge($user);
+
+        $this->assertSame('merged', $result['status']);
+        $this->assertSame(3, (int) $this->accountCart($user)->items()
+            ->where('product_variant_id', $variant->id)->first()->quantity);
+        $this->assertSame('product_unavailable', $result['unavailable_items'][0]['reason'] ?? 'product_unavailable');
+    }
+
+    /** @test */
+    public function fully_reserved_variant_is_preserved_with_the_shared_insufficient_stock_reason(): void
+    {
+        $product = $this->makeProduct([
+            'name' => 'Reserved Merge ' . uniqid(),
+            'slug' => 'reserved-merge-' . uniqid(),
+            'product_type' => \Marvel\Enums\ProductType::VARIABLE,
+            'stock_quantity' => 100,
+        ]);
+        $variant = \Marvel\Database\Models\ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'RES-' . uniqid(),
+            'price' => 100,
+            'stock_quantity' => 4,
+            'reserved_quantity' => 4,
+            'in_stock' => false,
+        ]);
+
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $guestCart = $this->guestCart();
+        CartItem::create([
+            'cart_id' => $guestCart->id,
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantity' => 1,
+            'price' => 100,
+            'total_price' => 100,
+            'shipping_method' => 'SCHEDULED',
+        ]);
+
+        $user = $this->makeUser();
+        $result = $this->merge($user);
+
+        $this->assertSame('insufficient_stock', $result['unavailable_items'][0]['reason']);
+        $this->assertSame(1, $this->accountCart($user)->items()
+            ->where('product_variant_id', $variant->id)->count());
     }
 
     /** @test */
