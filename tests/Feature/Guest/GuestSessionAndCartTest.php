@@ -292,6 +292,32 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function updating_a_line_for_an_unavailable_product_is_rejected(): void
+    {
+        $this->startGuestSession();
+        $this->addToGuestCart(['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'])
+            ->assertCreated();
+
+        $this->product->update(['status' => false]);
+
+        $response = $this->asGuest()->putJson(self::PREFIX . '/cart/items', [
+            'item' => [
+                'product_id' => $this->product->id,
+                'quantity' => 2,
+                'shipping_method' => 'scheduled',
+                'operation' => 'increment',
+            ],
+        ], $this->csrfHeaders());
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('data.reason', 'product_unavailable');
+        $response->assertJsonPath('message', __('guest_checkout.product_unavailable'));
+
+        $this->assertSame(1, (int) $this->currentGuestItem()->quantity);
+    }
+
+    /** @test */
     public function guest_cannot_reach_another_guest_cart_through_ids(): void
     {
         $this->startGuestSession();

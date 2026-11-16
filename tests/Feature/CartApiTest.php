@@ -228,6 +228,8 @@ class CartApiTest extends TestCase
         $response->assertJsonPath('message', 'This product is not available for purchase.');
         $this->assertStringNotContainsString('Marvel\\', $response->getContent());
         $this->assertDatabaseMissing('cart_items', ['product_id' => $productId]);
+        $this->assertDatabaseMissing('carts', ['user_id' => $this->user->id]);
+        $this->assertSame(0, (int) $this->product->fresh()->reserved_quantity);
     }
 
     public function test_add_item_rejects_out_of_stock_product_with_clean_422()
@@ -244,6 +246,8 @@ class CartApiTest extends TestCase
         $response->assertJsonPath('message', 'This product is not available for purchase.');
         $this->assertStringNotContainsString('Marvel\\', $response->getContent());
         $this->assertDatabaseMissing('cart_items', ['product_id' => $this->product->id]);
+        $this->assertDatabaseMissing('carts', ['user_id' => $this->user->id]);
+        $this->assertSame(0, (int) $this->product->fresh()->reserved_quantity);
     }
 
     public function test_add_item_rejects_product_not_offered_in_the_requested_channel()
@@ -261,6 +265,8 @@ class CartApiTest extends TestCase
         $response->assertJsonPath('message', 'This product is not available for purchase.');
         $this->assertStringNotContainsString('Marvel\\', $response->getContent());
         $this->assertDatabaseMissing('cart_items', ['product_id' => $this->product->id]);
+        $this->assertDatabaseMissing('carts', ['user_id' => $this->user->id]);
+        $this->assertSame(0, (int) $this->product->fresh()->reserved_quantity);
     }
 
     public function test_add_item_rejects_fast_shipping_ineligible_product_with_clean_422()
