@@ -12,6 +12,8 @@ class GuestRouteBehaviourTest extends GuestCheckoutTestCase
 {
     public function test_guest_responses_are_not_cacheable(): void
     {
+        $this->startGuestSession();
+
         $this->asGuest()->getJson(self::PREFIX . '/cart')
             ->assertOk()
             ->assertHeader('cache-control', 'no-store, private');
