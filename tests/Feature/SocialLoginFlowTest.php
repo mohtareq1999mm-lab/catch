@@ -208,6 +208,105 @@ class SocialLoginFlowTest extends TestCase
         $this->assertSame(1, User::whereNull('email')->count());
     }
 
+    public function test_callback_rejects_existing_admin_email_without_code_or_link(): void
+    {
+        $admin = User::create([
+            'name' => 'Existing Admin',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000111',
+            'type' => 'admin',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+
+        $this->mockGoogleProvider($this->socialiteUser());
+
+        $response = $this->get(self::PREFIX . '/social/google/callback?state=mobile');
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertDatabaseMissing('social_login_codes', ['user_id' => $admin->id]);
+        $this->assertDatabaseMissing('providers', ['user_id' => $admin->id]);
+        $this->assertSame(0, $admin->tokens()->count());
+    }
+
+    public function test_callback_rejects_provider_linked_admin_without_code(): void
+    {
+        $admin = User::create([
+            'name' => 'Provider Linked Admin',
+            'email' => 'linked.admin@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000114',
+            'type' => 'admin',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+        $admin->providers()->create([
+            'provider' => 'google',
+            'provider_user_id' => 'linked-admin-provider-id',
+        ]);
+
+        $this->mockGoogleProvider($this->socialiteUser(
+            email: 'linked.admin@gmail.com',
+            name: 'Provider Linked Admin',
+            id: 'linked-admin-provider-id'
+        ));
+
+        $response = $this->get(self::PREFIX . '/social/google/callback?state=mobile');
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertDatabaseMissing('social_login_codes', ['user_id' => $admin->id]);
+        $this->assertSame(0, $admin->tokens()->count());
+    }
+
+    public function test_callback_rejects_existing_other_non_customer_email_without_code_or_link(): void
+    {
+        $vendor = User::create([
+            'name' => 'Existing Vendor',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000112',
+            'type' => 'vendor',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+
+        $this->mockGoogleProvider($this->socialiteUser());
+
+        $response = $this->get(self::PREFIX . '/social/google/callback?state=mobile');
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertDatabaseMissing('social_login_codes', ['user_id' => $vendor->id]);
+        $this->assertDatabaseMissing('providers', ['user_id' => $vendor->id]);
+        $this->assertSame(0, $vendor->tokens()->count());
+    }
+
+    public function test_callback_rejects_inactive_customer_email_without_code_or_link(): void
+    {
+        $inactive = User::create([
+            'name' => 'Inactive Customer',
+            'email' => 'user@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000113',
+            'type' => 'user',
+            'is_active' => false,
+            'email_verified_at' => now(),
+        ]);
+
+        $this->mockGoogleProvider($this->socialiteUser());
+
+        $response = $this->get(self::PREFIX . '/social/google/callback?state=mobile');
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertDatabaseMissing('social_login_codes', ['user_id' => $inactive->id]);
+        $this->assertDatabaseMissing('providers', ['user_id' => $inactive->id]);
+        $this->assertSame(0, $inactive->tokens()->count());
+    }
+
     public function test_callback_redirects_to_frontend_error_when_provider_fails(): void
     {
         $provider = Mockery::mock(GoogleProvider::class);
@@ -348,6 +447,87 @@ class SocialLoginFlowTest extends TestCase
         $this->assertSame(3, User::where('email', 'user@gmail.com')->first()->tokens()->count());
 
         // The code itself survived all exchanges.
+        $this->assertDatabaseHas('social_login_codes', ['id' => $code->id]);
+    }
+
+    public function test_exchange_rejects_admin_code_without_token(): void
+    {
+        $admin = User::create([
+            'name' => 'Exchange Admin',
+            'email' => 'exchange.admin@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000121',
+            'type' => 'admin',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+
+        $code = SocialLoginCode::create([
+            'user_id' => $admin->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => now()->addMinutes(5),
+            'used' => false,
+        ]);
+
+        $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertSame(0, $admin->tokens()->count());
+        $this->assertDatabaseHas('social_login_codes', ['id' => $code->id]);
+    }
+
+    public function test_exchange_rejects_other_non_customer_code_without_token(): void
+    {
+        $vendor = User::create([
+            'name' => 'Exchange Vendor',
+            'email' => 'exchange.vendor@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000122',
+            'type' => 'vendor',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+
+        $code = SocialLoginCode::create([
+            'user_id' => $vendor->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => now()->addMinutes(5),
+            'used' => false,
+        ]);
+
+        $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertSame(0, $vendor->tokens()->count());
+        $this->assertDatabaseHas('social_login_codes', ['id' => $code->id]);
+    }
+
+    public function test_exchange_rejects_inactive_customer_code_without_token(): void
+    {
+        $inactive = User::create([
+            'name' => 'Exchange Inactive',
+            'email' => 'exchange.inactive@gmail.com',
+            'password' => Hash::make('secret123'),
+            'phone_number' => '01000000123',
+            'type' => 'user',
+            'is_active' => false,
+            'email_verified_at' => now(),
+        ]);
+
+        $code = SocialLoginCode::create([
+            'user_id' => $inactive->id,
+            'code' => bin2hex(random_bytes(32)),
+            'expires_at' => now()->addMinutes(5),
+            'used' => false,
+        ]);
+
+        $response = $this->postJson(self::PREFIX . '/social/exchange', ['code' => $code->code]);
+
+        $response->assertStatus(400);
+        $response->assertJsonPath('success', false);
+        $this->assertSame(0, $inactive->tokens()->count());
         $this->assertDatabaseHas('social_login_codes', ['id' => $code->id]);
     }
 

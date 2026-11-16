@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Rest;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\User;
 use Tests\Concerns\CreatesTestTables;
@@ -93,5 +94,65 @@ class OtpLocalLoginTest extends TestCase
         ]);
 
         $response->assertStatus(404);
+    }
+
+    /** @test */
+    public function otp_login_rejects_active_admin_without_token()
+    {
+        $admin = User::factory()->admin()->withoutEmail()->create([
+            'phone_number' => '+2011185152',
+            'password' => bcrypt('password'),
+            'is_active' => true,
+        ]);
+        $baseline = DB::table('personal_access_tokens')->count();
+
+        $response = $this->postJson('/api/v1/otp-login', [
+            'phone_number' => $admin->phone_number,
+            'otp_id' => 'local-verification-id',
+            'code' => '123456',
+        ]);
+
+        $response->assertStatus(404);
+        $response->assertJsonPath('success', false);
+        $this->assertSame($baseline, DB::table('personal_access_tokens')->count());
+    }
+
+    /** @test */
+    public function otp_login_rejects_other_non_customer_type_without_token()
+    {
+        $vendor = User::factory()->withoutEmail()->create([
+            'phone_number' => '+2011185153',
+            'password' => bcrypt('password'),
+            'type' => 'vendor',
+            'is_active' => true,
+        ]);
+        $baseline = DB::table('personal_access_tokens')->count();
+
+        $response = $this->postJson('/api/v1/otp-login', [
+            'phone_number' => $vendor->phone_number,
+            'otp_id' => 'local-verification-id',
+            'code' => '123456',
+        ]);
+
+        $response->assertStatus(404);
+        $response->assertJsonPath('success', false);
+        $this->assertSame($baseline, DB::table('personal_access_tokens')->count());
+    }
+
+    /** @test */
+    public function otp_login_rejects_inactive_customer_without_token()
+    {
+        $this->user->update(['is_active' => false]);
+        $baseline = DB::table('personal_access_tokens')->count();
+
+        $response = $this->postJson('/api/v1/otp-login', [
+            'phone_number' => $this->user->phone_number,
+            'otp_id' => 'local-verification-id',
+            'code' => '123456',
+        ]);
+
+        $response->assertStatus(404);
+        $response->assertJsonPath('success', false);
+        $this->assertSame($baseline, DB::table('personal_access_tokens')->count());
     }
 }
