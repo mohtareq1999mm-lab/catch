@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Product;
+use Marvel\Database\Models\ProductVariant;
 use Marvel\Database\Repositories\CartRepository;
 use Marvel\Enums\ItemType;
 use Marvel\Enums\ShippingMethod;
@@ -247,6 +248,36 @@ class GuestCartService
         }
 
         $quantity = max(1, (int) ($item['quantity'] ?? 0));
+
+        // S11/D2: a supplied variant must belong to this product and be
+        // available at add time. Mirrors the Login Merge precedent
+        // (GuestCartMergeService): a foreign or removed variant is
+        // variant_unavailable, and variant stock is stricter than
+        // product-level stock (stock - reserved is the ceiling; 0 available
+        // cannot be added). The in_stock flag is the materialized
+        // (stock - reserved) > 0 signal maintained by the inventory
+        // lifecycle, so an explicit false is authoritative (D2).
+        if (!empty($item['product_variant_id'])) {
+            $variant = ProductVariant::query()
+                ->whereKey((int) $item['product_variant_id'])
+                ->where('product_id', $product->id)
+                ->first();
+
+            if (!$variant) {
+                throw new \InvalidArgumentException(__('guest_checkout.variant_unavailable'));
+            }
+
+            if (!$variant->in_stock) {
+                throw new \InvalidArgumentException(__('guest_checkout.variant_unavailable'));
+            }
+
+            $variantAvailable = (int) $variant->available_stock;
+
+            if ($quantity > $variantAvailable) {
+                throw new \InvalidArgumentException(__('guest_checkout.insufficient_stock'));
+            }
+        }
+
         $stockQuantity = (int) ($product->stock_quantity ?? 0);
         $reserved = (int) ($product->reserved_quantity ?? 0);
         $available = max(0, $stockQuantity - $reserved);
