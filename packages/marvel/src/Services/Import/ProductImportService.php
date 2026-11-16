@@ -47,11 +47,8 @@ class ProductImportService
      */
     protected array $verifiedProductTypes = [];
 
-    protected int $successCount = 0;
+    protected RunOutcome $outcome;
 
-    // Product is the canonical work unit (products sheet data rows).
-    // Variants, barcodes, images and taxonomy are auxiliary: their failures
-    // must NOT inflate product-row counters (see BE-012, 4104→4913 forensic).
     protected int $variantSuccessCount = 0;
     protected int $barcodeSuccessCount = 0;
 
@@ -78,8 +75,6 @@ class ProductImportService
 
     protected float $currentProgress = 0.0;
 
-    protected int $knownTotalRows = 0;
-
     protected const FLUSH_THRESHOLD = 10;
 
     /**
@@ -99,6 +94,7 @@ class ProductImportService
     {
         $this->urlHandler = new UrlImageHandler();
         $this->report = new ImportReport();
+        $this->outcome = new RunOutcome($this->report);
         $this->importId = $importId;
         $this->pricingService = $pricingService ?? app(ProductPricingService::class);
         $now = microtime(true);
@@ -145,7 +141,7 @@ class ProductImportService
 
     public function getSuccessCount(): int
     {
-        return $this->successCount;
+        return $this->outcome->successCount();
     }
 
     public function getVariantErrors(): array
@@ -184,7 +180,7 @@ class ProductImportService
             return;
         }
 
-        $this->processedCount = $this->successCount + $this->report->failedRowCount();
+        $this->processedCount = $this->outcome->processed();
 
         $rowsSinceLastTick = $this->processedCount - $this->lastTickProcessedCount;
         $timeSinceLastTick = microtime(true) - $this->lastTickTime;
@@ -200,15 +196,15 @@ class ProductImportService
                 (int) $this->importId,
                 $this->currentProgress,
                 $this->processedCount,
-                $this->successCount,
-                $this->report->failedRowCount()
+                $this->outcome->successCount(),
+                $this->outcome->failedCount()
             );
         }
 
         $this->writeSignal('progress', [
             'processed_rows' => $this->processedCount,
-            'success_rows' => $this->successCount,
-            'failed_rows' => $this->report->failedRowCount(),
+            'success_rows' => $this->outcome->successCount(),
+            'failed_rows' => $this->outcome->failedCount(),
             'progress' => $this->currentProgress,
         ]);
 
@@ -256,12 +252,12 @@ class ProductImportService
             return;
         }
         $this->currentProgress = $progress;
-        $this->lastTickProcessedCount = $this->successCount + $this->report->failedRowCount();
+        $this->lastTickProcessedCount = $this->outcome->processed();
         $this->lastTickTime = microtime(true);
         $this->writeSignal('progress', [
-            'processed_rows' => $this->successCount + $this->report->failedRowCount(),
-            'success_rows' => $this->successCount,
-            'failed_rows' => $this->report->failedRowCount(),
+            'processed_rows' => $this->outcome->processed(),
+            'success_rows' => $this->outcome->successCount(),
+            'failed_rows' => $this->outcome->failedCount(),
             'progress' => $progress,
         ]);
 
@@ -270,23 +266,23 @@ class ProductImportService
             'product-import',
             (int) $this->importId,
             $progress,
-            $this->successCount + $this->report->failedRowCount(),
-            $this->successCount,
-            $this->report->failedRowCount()
+            $this->outcome->processed(),
+            $this->outcome->successCount(),
+            $this->outcome->failedCount()
         );
     }
 
     public function setTotalRows(int $total): void
     {
-        $this->knownTotalRows = max(0, $total);
+        $this->outcome->setTotalRows($total);
     }
 
     protected function calculateSmoothProgress(): float
     {
-        $processed = $this->successCount + $this->report->failedRowCount();
-        if ($this->knownTotalRows > 0) {
+        $processed = $this->outcome->processed();
+        if ($this->outcome->totalRows() > 0) {
             // Honest progress: processed / total * 99, capped
-            $real = ($processed / $this->knownTotalRows) * 99.0;
+            $real = ($processed / $this->outcome->totalRows()) * 99.0;
             return round(min(max($real, 0.0), 99.0), 2);
         }
         $elapsed = max(microtime(true) - $this->startedAt, 0);
@@ -305,20 +301,8 @@ class ProductImportService
                 $query->where('status', 'processing');
             }
 
-            // Invariant: processed = success + failed, must not exceed knownTotalRows
-            // Clamp in DB write to prevent runaway due to auxiliary sheets (see 4104→4913)
-            $processed = $this->successCount + $this->report->failedRowCount();
-            if ($this->knownTotalRows > 0) {
-                $processed = min($processed, $this->knownTotalRows);
-            }
-
-            $query->update([
-                'processed_rows' => $processed,
-                'success_rows' => min($this->successCount, $this->knownTotalRows > 0 ? $this->knownTotalRows : $this->successCount),
-                'failed_rows' => min($this->report->failedRowCount(), $this->knownTotalRows > 0 ? $this->knownTotalRows : $this->report->failedRowCount()),
-                // Persist errors incrementally so API does not return failed_rows>0 with errors=null (4104→4913)
-                'errors' => array_slice($this->getAllErrors(), 0, 1000),
-            ]);
+            // Single write shape owned by RunOutcome (invariant + error cap).
+            $query->update($this->outcome->rowAttributes());
         } catch (\Throwable $e) {
             report($e);
         }
@@ -330,19 +314,19 @@ class ProductImportService
             return;
         }
 
-        $this->processedCount = $this->successCount + $this->report->failedRowCount();
+        $this->processedCount = $this->outcome->processed();
 
         if ($this->isCancelled()) {
             throw new ImportCancelledException();
         }
 
         Import::where('id', $this->importId)
-            ->update([
-                'processed_rows' => $this->processedCount,
-                'success_rows' => $this->successCount,
-                'failed_rows' => $this->report->failedRowCount(),
-                'errors' => array_slice($this->getAllErrors(), 0, 1000),
-            ]);
+            ->update($this->outcome->rowAttributes());
+    }
+
+    public function outcome(): RunOutcome
+    {
+        return $this->outcome;
     }
 
     public function getCreatedProductIds(): array
@@ -406,7 +390,7 @@ class ProductImportService
             DB::commit();
 
             $this->recordInStockInconsistency($product, $productData);
-            $this->successCount++;
+            $this->outcome->recordSuccess();
         } catch (Exception $e) {
             DB::rollBack();
             $this->report->addProductRowError(
