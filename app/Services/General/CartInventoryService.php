@@ -2,8 +2,8 @@
 
 namespace App\Services\General;
 
+use App\Exceptions\CartLineRejectionException;
 use Carbon\Carbon;
-use Exception;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
@@ -70,7 +70,7 @@ class CartInventoryService
             $item = $this->findCartItemForLock($cart, $product->id, $variant?->id, $shippingMethod);
 
             if (!$item) {
-                throw new Exception(INVALID_ITEM_DATA);
+                throw new CartLineRejectionException(INVALID_ITEM_DATA);
             }
 
             $targetQuantity = (int) $item->quantity - max(1, $quantity);
@@ -214,12 +214,12 @@ class CartInventoryService
             $cart = Cart::whereKey($cart->id)->lockForUpdate()->firstOrFail();
 
             if ($desiredQuantity < 1) {
-                throw new Exception(__(QUANTITY_MINIMUM));
+                throw new CartLineRejectionException(__(QUANTITY_MINIMUM));
             }
 
             $maxQuantity = self::maxItemQuantity();
             if ($desiredQuantity > $maxQuantity) {
-                throw new Exception(__(QUANTITY_MAXIMUM, ['max' => $maxQuantity]));
+                throw new CartLineRejectionException(__(QUANTITY_MAXIMUM, ['max' => $maxQuantity]));
             }
 
             $price = $variant

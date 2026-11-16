@@ -279,6 +279,7 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
         ])->assertStatus(422);
 
         $inactiveResponse->assertJsonPath('success', false);
+        $inactiveResponse->assertJsonPath('status', false);
         $inactiveResponse->assertJsonPath('message', __('guest_checkout.product_unavailable'));
         $inactiveResponse->assertJsonPath('data.reason', 'product_unavailable');
         $this->assertStringNotContainsString('Marvel\\', $inactiveResponse->getContent());

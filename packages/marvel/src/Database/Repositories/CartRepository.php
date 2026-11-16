@@ -2,6 +2,8 @@
 
 namespace Marvel\Database\Repositories;
 
+use App\Contracts\ApiRejection;
+use App\Exceptions\CartLineRejectionException;
 use App\Exceptions\ProductNotPurchasableException;
 use App\Services\General\CartInventoryService;
 use Exception;
@@ -136,7 +138,7 @@ $affected = $cart->items()
             DB::commit();
 
             return $cart;
-        } catch (ProductNotPurchasableException $e) {
+        } catch (ApiRejection $e) {
             DB::rollBack();
             throw $e;
         } catch (AuthorizationException $e) {
@@ -162,7 +164,7 @@ $affected = $cart->items()
             $cart->update(['status' => 'active']);
 
             if (!$this->syncItems($cart, $item, $mode)) {
-                throw new Exception(INVALID_ITEM_DATA);
+                throw new CartLineRejectionException(INVALID_ITEM_DATA);
             }
 
             $cart->update([
@@ -218,18 +220,18 @@ $affected = $cart->items()
         $productName = is_array($product->name) ? ($product->name[app()->getLocale()] ?? $product->name['en'] ?? '') : $product->name;
 
         if ($shippingMethod === ShippingMethod::FAST && !$product->is_fast_shipping_available) {
-            throw new Exception(__('message.MESSAGE.FAST_SHIPPING_PRODUCT_NOT_ELIGIBLE', ['product_name' => $productName]));
+            throw new CartLineRejectionException(__('message.MESSAGE.FAST_SHIPPING_PRODUCT_NOT_ELIGIBLE', ['product_name' => $productName]));
         }
 
         if ($variantId) {
             $variant = $product->variations()->whereKey($variantId)->first();
             if (!$variant) {
-                throw new Exception(__('message.ERROR.INVALID_ITEM_DATA', ['product_name' => $productName]));
+                throw new CartLineRejectionException(__('message.ERROR.INVALID_ITEM_DATA', ['product_name' => $productName]));
             }
         }
 
         if ($product->product_type === 'variable' && !$variantId) {
-            throw new Exception(__('message.ERROR.INVALID_ITEM_DATA', ['product_name' => $productName]));
+            throw new CartLineRejectionException(__('message.ERROR.INVALID_ITEM_DATA', ['product_name' => $productName]));
         }
 
         $inventoryService = app(CartInventoryService::class);
@@ -241,9 +243,9 @@ $affected = $cart->items()
         } else {
             // Unknown operation: fail loudly instead of returning "true" with
             // an unchanged cart (a silent no-op that surfaced as 201 success).
-            // The vendored kernel stays domain-neutral: no app translation
-            // keys here; the application layer owns the user-facing reason.
-            throw new Exception('INVALID_OPERATION');
+            // The message stays a raw code: the HTTP renderer owns user-facing
+            // text, so the vendored kernel stays domain-neutral.
+            throw new CartLineRejectionException('INVALID_OPERATION');
         }
 
         return true;

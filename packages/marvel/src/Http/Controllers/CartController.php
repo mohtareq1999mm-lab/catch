@@ -3,7 +3,6 @@
 namespace Marvel\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Exceptions\ProductNotPurchasableException;
 use Marvel\Database\Repositories\CartRepository;
 use App\Services\General\CartInventoryService;
 use Marvel\Database\Models\Cart;
@@ -58,15 +57,10 @@ class CartController extends CoreController
 
     public function store(CartCreateRequest $request)
     {
-        try {
-            $cart = $this->repository->storeCart($request);
-            $this->repository->revalidatePromotion($cart);
-            return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, CartResource::make($cart));
-        } catch (ProductNotPurchasableException $e) {
-            return $e->render($request);
-        } catch (\Exception $e) {
-            return $this->apiResponse($e->getMessage(), 400, false);
-        }
+        $cart = $this->repository->storeCart($request);
+        $this->repository->revalidatePromotion($cart);
+
+        return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, CartResource::make($cart));
     }
 
     public function show(Request $request, $id)
@@ -84,15 +78,10 @@ class CartController extends CoreController
 
     public function update(CartUpdateRequest $request)
     {
-        try {
-            $cart = $this->repository->updateCart($request);
-            $this->repository->revalidatePromotion($cart);
-            return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, CartResource::make($cart));
-        } catch (ProductNotPurchasableException $e) {
-            return $e->render($request);
-        } catch (\Exception $e) {
-            return $this->apiResponse($e->getMessage(), 400, false);
-        }
+        $cart = $this->repository->updateCart($request);
+        $this->repository->revalidatePromotion($cart);
+
+        return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, CartResource::make($cart));
     }
 
     public function deleteItemFromCart(Request $request, $ItemId)

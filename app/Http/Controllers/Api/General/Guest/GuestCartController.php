@@ -2,13 +2,9 @@
 
 namespace App\Http\Controllers\Api\General\Guest;
 
-use App\Enums\GuestCartRejectionReason;
-use App\Exceptions\GuestCartRejectionException;
-use App\Exceptions\ProductNotPurchasableException;
 use App\Http\Controllers\Controller;
 use App\Services\Guest\GuestCartService;
 use App\Services\Guest\GuestIdentityService;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Marvel\Http\Requests\CartCreateRequest;
@@ -59,32 +55,11 @@ class GuestCartController extends Controller
             return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
         }
 
-        try {
-            $cart = $this->cartService->addItem($request, $identity, (array) $request->input('item', []));
+        $cart = $this->cartService->addItem($request, $identity, (array) $request->input('item', []));
 
-            return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, [
-                'cart' => CartResource::make($cart),
-            ]);
-        } catch (GuestCartRejectionException $e) {
-            // S12: additive machine-readable reason; message + status unchanged.
-            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()->value]);
-        } catch (\InvalidArgumentException $e) {
-            return $this->apiResponse($e->getMessage(), 422, false);
-        } catch (ProductNotPurchasableException $e) {
-            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
-                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
-            ]);
-        } catch (ModelNotFoundException $e) {
-            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
-                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
-            ]);
-        } catch (\Throwable $e) {
-            report($e);
-
-            return $this->apiResponse(INVALID_ITEM_DATA, 422, false, [
-                'reason' => GuestCartRejectionReason::INVALID_ITEM_DATA->value,
-            ]);
-        }
+        return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, [
+            'cart' => CartResource::make($cart),
+        ]);
     }
 
     public function update(CartUpdateRequest $request): JsonResponse
@@ -95,32 +70,11 @@ class GuestCartController extends Controller
             return $this->apiResponse(__('guest_checkout.session_required'), 401, false);
         }
 
-        try {
-            $cart = $this->cartService->updateItem($request, $identity, (array) $request->input('item', []));
+        $cart = $this->cartService->updateItem($request, $identity, (array) $request->input('item', []));
 
-            return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, [
-                'cart' => CartResource::make($cart),
-            ]);
-        } catch (GuestCartRejectionException $e) {
-            // S12: additive machine-readable reason; message + status unchanged.
-            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()->value]);
-        } catch (\InvalidArgumentException $e) {
-            return $this->apiResponse($e->getMessage(), 422, false);
-        } catch (ProductNotPurchasableException $e) {
-            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
-                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
-            ]);
-        } catch (ModelNotFoundException $e) {
-            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
-                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
-            ]);
-        } catch (\Throwable $e) {
-            report($e);
-
-            return $this->apiResponse(INVALID_ITEM_DATA, 422, false, [
-                'reason' => GuestCartRejectionReason::INVALID_ITEM_DATA->value,
-            ]);
-        }
+        return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, [
+            'cart' => CartResource::make($cart),
+        ]);
     }
 
     public function destroyItem(Request $request, int $itemId): JsonResponse

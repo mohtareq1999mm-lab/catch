@@ -3,8 +3,8 @@
 namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use App\Contracts\ApiRejection;
 use App\Exceptions\GuestSessionRejection;
-use App\Exceptions\ProductNotPurchasableException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -104,13 +104,17 @@ class Handler extends ExceptionHandler
         $statusCode = 500;
         $message = __('message.ERROR.INTERNAL');
         $errors = [];
+        $data = [];
         $guestErrorCode = null;
 
-        // Handle product not purchasable (cart Eligibility rejection)
-        if ($exception instanceof ProductNotPurchasableException) {
-            $statusCode = 422;
-            $message = $exception->getMessage();
-            $errors = ['item.product_id' => [$message]];
+        // One renderer for typed business rejections (cart Eligibility, guest
+        // cart rules, future typed domains). Controllers never build these
+        // envelopes themselves.
+        if ($exception instanceof ApiRejection) {
+            $statusCode = $exception->statusCode();
+            $message = $exception->message();
+            $errors = $exception->errors();
+            $data = $exception->data();
         } elseif ($exception instanceof ModelNotFoundException) {
             $statusCode = 404;
             $message = __('message.ERROR.RESOURCE_NOT_FOUND');
@@ -247,6 +251,10 @@ class Handler extends ExceptionHandler
 
         if (!empty($errors)) {
             $responseData['errors'] = $errors;
+        }
+
+        if (!empty($data)) {
+            $responseData['data'] = $data;
         }
 
         // Guest machine-readable error codes (A10): additive `code` key for
