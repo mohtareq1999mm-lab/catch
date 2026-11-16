@@ -2,7 +2,7 @@
 
 namespace Marvel\Traits;
 
-use Illuminate\Support\Facades\Lang;
+// One notice-key translator (round-2 ticket #50): see Marvel\Support\NoticeTranslator.
 
 trait ApiResponse
 {
