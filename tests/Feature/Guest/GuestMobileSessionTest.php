@@ -41,7 +41,7 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         $response = $this->clearCredentials()->postJson(self::PREFIX . '/mobile/session');
 
         $response->assertCreated()
-            ->assertHeader('cache-control', 'no-store')
+            ->assertHeader('cache-control', 'no-store, private')
             ->assertJsonPath('data.token_type', 'Bearer')
             ->assertJsonPath('data.cart', null);
 
@@ -66,7 +66,7 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
 
         $this->asBearer($token)->getJson(self::PREFIX . '/cart')
             ->assertOk()
-            ->assertJsonPath('data.cart.items.0.product_id', $this->product->id);
+            ->assertJsonPath('data.cart.normal_items.0.product_id', $this->product->id);
     }
 
     public function test_store_with_usable_bearer_credential_returns_409(): void
@@ -114,7 +114,7 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
 
         $rotate = $this->asBearer($old)->postJson(self::PREFIX . '/mobile/session/rotate');
 
-        $rotate->assertOk()->assertHeader('cache-control', 'no-store');
+        $rotate->assertOk()->assertHeader('cache-control', 'no-store, private');
         $new = $rotate->json('data.token');
 
         $this->assertIsString($new);
@@ -128,7 +128,7 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         // New token: same identity, same cart.
         $this->asBearer($new)->getJson(self::PREFIX . '/cart')
             ->assertOk()
-            ->assertJsonPath('data.cart.items.0.product_id', $this->product->id);
+            ->assertJsonPath('data.cart.normal_items.0.product_id', $this->product->id);
     }
 
     public function test_revocation_kills_the_credential_and_clears_the_hash(): void
@@ -138,7 +138,7 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
 
         $this->asBearer($token)->deleteJson(self::PREFIX . '/mobile/session')
             ->assertOk()
-            ->assertHeader('cache-control', 'no-store');
+            ->assertHeader('cache-control', 'no-store, private');
 
         $row = GuestIdentity::query()->findOrFail($guestId);
         $this->assertNull($row->mobile_token_hash);

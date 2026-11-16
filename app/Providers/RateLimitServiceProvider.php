@@ -45,8 +45,11 @@ class RateLimitServiceProvider extends ServiceProvider
                 // rotating guest identities cannot multiply the budget.
                 // guest_session joins it per D8: session-creation identity
                 // farming from one IP is capped at the same 3x ceiling.
+                // The key is namespaced differently from guestKey()'s
+                // anonymous fallback ('ip:…'); sharing that string made both
+                // limits hit ONE counter, silently halving the budget.
                 if (in_array($name, ['guest_checkout', 'guest_payment', 'guest_session'], true)) {
-                    $limits[] = Limit::perMinutes($decay, $max * 3)->by('ip:' . (string) $request->ip());
+                    $limits[] = Limit::perMinutes($decay, $max * 3)->by('ceiling:ip:' . (string) $request->ip());
                 }
 
                 return $limits;

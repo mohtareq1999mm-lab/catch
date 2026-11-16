@@ -77,13 +77,7 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
 
         $this->addToGuestCart($payload)->assertCreated();
 
-        $token = $this->mobileToken();
-        $this->asBearer($token)->postJson(
-            self::PREFIX . '/cart/items',
-            ['item' => $payload]
-        )->assertCreated();
-
-        // ---- rejection parity -----------------------------------------------
+        // ---- cookie rejection (while the client is still cookie-only) -------
         $product = $this->variableProduct();
         $foreignVariant = $this->variant($this->variableProduct());
 
@@ -94,15 +88,25 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
             'shipping_method' => 'scheduled',
         ];
 
+        // Variant ownership is a FormRequest validation rule (S9) -> 422 with
+        // a field error on both transports.
         $this->addToGuestCart($rejected)
             ->assertStatus(422)
-            ->assertJsonPath('data.reason', 'variant_unavailable');
+            ->assertJsonStructure(['errors' => ['item.product_variant_id']]);
+
+        // ---- mobile success + rejection parity ------------------------------
+        $token = $this->mobileToken();
+
+        $this->asBearer($token)->postJson(
+            self::PREFIX . '/cart/items',
+            ['item' => $payload]
+        )->assertCreated();
 
         $this->asBearer($token)->postJson(
             self::PREFIX . '/cart/items',
             ['item' => $rejected]
         )->assertStatus(422)
-            ->assertJsonPath('data.reason', 'variant_unavailable');
+            ->assertJsonStructure(['errors' => ['item.product_variant_id']]);
     }
 
     public function test_csrf_mismatch_still_returns_419_for_browser_guests(): void
@@ -144,13 +148,13 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
 
         $this->asGuest()->getJson(self::PREFIX . '/cart')
             ->assertOk()
-            ->assertHeader('cache-control', 'no-store');
+            ->assertHeader('cache-control', 'no-store, private');
 
         $token = $this->mobileToken();
 
         $this->asBearer($token)->getJson(self::PREFIX . '/cart')
             ->assertOk()
-            ->assertHeader('cache-control', 'no-store');
+            ->assertHeader('cache-control', 'no-store, private');
     }
 
     public function test_session_creation_is_ip_rate_limited_by_the_middleware(): void
@@ -186,14 +190,15 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
 
         try {
             for ($i = 1; $i <= 10; $i++) {
-                $this->assertTrue(
-                    $limiter->attempt($key, 10, 60),
+                $this->assertFalse(
+                    $limiter->tooManyAttempts($key, 10),
                     'Attempt ' . $i . ' of 10 must pass on the Redis store.'
                 );
+                $limiter->hit($key, 60);
             }
 
-            $this->assertFalse(
-                $limiter->attempt($key, 10, 60),
+            $this->assertTrue(
+                $limiter->tooManyAttempts($key, 10),
                 'The 11th attempt must be limited on the Redis store.'
             );
         } finally {

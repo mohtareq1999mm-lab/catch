@@ -103,18 +103,23 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
         $this->asBearer($token)->deleteJson(self::PREFIX . '/cart')->assertOk();
     }
 
-    public function test_foreign_variant_is_rejected_with_reason(): void
+    public function test_foreign_variant_is_rejected_by_form_request_validation(): void
     {
         $token = $this->createMobileSession();
         $product = $this->variableProduct();
         $foreign = $this->variableProduct();
         $foreignVariant = $this->variant($foreign);
 
+        // S9: variant ownership is a field-level validation rule at the HTTP
+        // boundary (proper 422 with a field error, not a generic reason). The
+        // service-level machine-readable reason is covered by
+        // GuestEligibilityTest (variant_unavailable).
         $this->addItem($token, [
             'product_id' => $product->id,
             'product_variant_id' => $foreignVariant->id,
         ])->assertStatus(422)
-            ->assertJsonPath('data.reason', GuestCartRejectionException::VARIANT_UNAVAILABLE);
+            ->assertJsonPath('success', false)
+            ->assertJsonStructure(['errors' => ['item.product_variant_id']]);
     }
 
     public function test_out_of_stock_variant_is_rejected_with_reason(): void
@@ -169,7 +174,9 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
         $afterRead = Carbon::parse((string) Cart::query()->first()->guest_expires_at);
         $this->assertTrue($before->equalTo($afterRead), 'Reads must never extend guest retention.');
 
-        // Mutation: retention moves forward.
+        // Mutation: retention moves forward (timestamp precision is seconds).
+        $this->travel(5)->seconds();
+
         $this->addItem($token, ['product_id' => $this->product->id, 'quantity' => 1])->assertCreated();
 
         $afterWrite = Carbon::parse((string) Cart::query()->first()->guest_expires_at);
