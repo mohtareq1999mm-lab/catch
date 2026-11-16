@@ -81,7 +81,7 @@ class ProductTypeSchema
 
         return __('message.IMPORT.PRODUCT.PRODUCT_TYPE_COLUMN_INCOMPATIBLE', [
             'column_type' => $type,
-            'canonical_type' => $this->canonicalEnumDefinition(),
+            'canonical_type' => $this->canonicalEnum(),
         ]);
     }
 
@@ -157,11 +157,14 @@ class ProductTypeSchema
 
         DB::statement(
             'ALTER TABLE `' . self::TABLE . '` MODIFY `' . self::COLUMN . '` '
-            . $this->canonicalEnumDefinition() . ' NOT NULL DEFAULT \'' . ProductType::SIMPLE . '\''
+            . $this->canonicalEnum() . ' NOT NULL DEFAULT \'' . ProductType::SIMPLE . '\''
         );
     }
 
-    private function canonicalEnumDefinition(): string
+    /**
+     * The canonical ENUM text, used for ALTER and for importer diagnostics.
+     */
+    public function canonicalEnum(): string
     {
         $values = implode(',', array_map(
             static fn (string $value): string => "'" . $value . "'",
