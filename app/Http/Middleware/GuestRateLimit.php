@@ -2,28 +2,30 @@
 
 namespace App\Http\Middleware;
 
-use Closure;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
-use Illuminate\Routing\Middleware\ThrottleRequests;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
- * Guest-surface throttle.
+ * Guest-surface throttle: a FAIL-CLOSED policy.
  *
- * Deliberately NOT the project-wide BypassThrottle alias: public guest
+ * Deliberately NOT the project-wide bypassable `throttle` alias: public guest
  * endpoints must remain protected even when global throttling is disabled.
  * Any limiter-backend failure fails CLOSED with a safe retry response.
+ *
+ * The named-limiter argument contract lives in PolicyThrottle.
  */
-class GuestRateLimit extends ThrottleRequests
+class GuestRateLimit extends PolicyThrottle
 {
-    public function handle($request, Closure $next, $maxAttempts = 60, $decayMinutes = 1, $prefix = '')
+    public function __construct(RateLimiter $limiter)
+    {
+        parent::__construct($limiter, failClosed: true);
+    }
+
+    protected function enforce($request, \Closure $next, ...$args)
     {
         try {
-            // Exactly three arguments: ThrottleRequests only resolves a NAMED
-            // limiter when func_num_args() === 3. Passing the unused
-            // $decayMinutes/$prefix here would silently degrade the limiter to
-            // "maxAttempts = 0" and reject every request.
-            return parent::handle($request, $next, $maxAttempts);
+            return parent::enforce($request, $next, ...$args);
         } catch (ThrottleRequestsException $e) {
             // Keep the limiter's Retry-After/X-RateLimit headers and a stable
             // JSON contract (the generic Handler render drops them).
