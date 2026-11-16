@@ -5,6 +5,7 @@ namespace App\Services\Guest;
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\Exceptions\ProductNotPurchasableException;
+use App\Support\UniqueViolation;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -77,7 +78,7 @@ class GuestCartService
                 'guest_expires_at' => now()->addDays($this->ttlDays()),
             ]);
         } catch (QueryException $e) {
-            if (!$this->isDuplicateKeyError($e)) {
+            if (!UniqueViolation::detect($e)) {
                 throw $e;
             }
 
@@ -263,15 +264,5 @@ class GuestCartService
         // including the quantity-vs-ceiling comparison for simple and variant
         // lines).
         $this->eligibility->assertEligible($product, $variantId, $quantity, $shippingMethod);
-    }
-
-    private function isDuplicateKeyError(QueryException $e): bool
-    {
-        $errorInfo = $e->errorInfo ?? [];
-
-        return ($errorInfo[1] ?? null) === 1062
-            || $e->getCode() === '23000'
-            || $e->getCode() === '23505'
-            || (string) $e->getCode() === '1062';
     }
 }

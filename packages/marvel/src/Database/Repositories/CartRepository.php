@@ -6,6 +6,7 @@ use App\Contracts\ApiRejection;
 use App\Exceptions\CartLineRejectionException;
 use App\Exceptions\ProductNotPurchasableException;
 use App\Services\General\CartInventoryService;
+use App\Support\UniqueViolation;
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -107,7 +108,7 @@ $affected = $cart->items()
                         'status' => 'active',
                     ]);
                 } catch (QueryException $e) {
-                    if (!self::isDuplicateKeyError($e)) {
+                    if (!UniqueViolation::detect($e)) {
                         throw $e;
                     }
 
@@ -173,19 +174,6 @@ $affected = $cart->items()
 
             return $cart->load(['items.product', 'items.productVariant.attributeProducts.attributeValue.attribute']);
         });
-    }
-
-    /**
-     * F-04: true only for unique-constraint violations (MySQL 1062 /
-     * SQLSTATE 23000). Any other database error must keep propagating.
-     */
-    private static function isDuplicateKeyError(QueryException $e): bool
-    {
-        $errorInfo = $e->errorInfo ?? [];
-
-        return ($errorInfo[1] ?? null) === 1062
-            || $e->getCode() === '23000'
-            || (string) $e->getCode() === '1062';
     }
 
     private function syncItems(Cart $cart, array $item, string $mode): bool
