@@ -160,6 +160,27 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
         ])->assertStatus(422);
     }
 
+    public function test_repository_rejects_unknown_operation_directly(): void
+    {
+        $token = $this->createMobileSession();
+
+        $this->addItem($token, ['product_id' => $this->product->id, 'quantity' => 1])->assertCreated();
+
+        $cart = $this->currentGuestCart();
+        $this->assertNotNull($cart);
+
+        // Defence in depth: non-HTTP callers hit the same guard (T10).
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage(__('guest_checkout.invalid_operation'));
+
+        app(\Marvel\Database\Repositories\CartRepository::class)->applyItemToCart($cart, [
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+            'operation' => 'multiply',
+        ], 'add');
+    }
+
     public function test_reads_do_not_extend_retention_but_mutations_do(): void
     {
         $token = $this->createMobileSession();
