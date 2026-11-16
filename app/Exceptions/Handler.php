@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use App\Exceptions\GuestSessionRejection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -186,24 +187,19 @@ class Handler extends ExceptionHandler
             $message = __('message.ERROR.INVALID_DATA');
             $errors = $exception->validator->errors()->toArray();
         }
+        // Handle guest session/credential rejections (A10): the typed
+        // exception carries the approved machine-readable code. Only the two
+        // approved codes are emitted; a plain 401 carries none.
+        elseif ($exception instanceof GuestSessionRejection) {
+            $statusCode = $exception->getStatusCode();
+            $guestErrorCode = $exception->guestCode()?->value;
+            $messageKey = $exception->messageKey();
+            $message = Lang::has($messageKey) ? __($messageKey) : __('message.ERROR.HTTP_EXCEPTION');
+        }
         // Handle HttpException (includes various HTTP status codes)
         elseif ($exception instanceof HttpException) {
             $statusCode = $exception->getStatusCode();
-            $rawHttpExceptionMessage = $exception->getMessage();
-
-            // Guest machine-readable codes (A10): the guest credential core
-            // throws RAW `guest_checkout.*` translation keys as the exception
-            // message. The additive `code` key exposes the suffix without
-            // touching any existing response shape; existing HttpExceptions
-            // never carry this prefix, so their behaviour is unchanged.
-            if (str_starts_with($rawHttpExceptionMessage, 'guest_checkout.')) {
-                $guestErrorCode = substr($rawHttpExceptionMessage, strlen('guest_checkout.'));
-                $message = Lang::has($rawHttpExceptionMessage)
-                    ? __($rawHttpExceptionMessage)
-                    : __('message.ERROR.HTTP_EXCEPTION');
-            } else {
-                $message = $this->translateHttpMessage($rawHttpExceptionMessage);
-            }
+            $message = $this->translateHttpMessage($exception->getMessage());
         }
         // Handle QueryException (SQL errors)
         elseif ($exception instanceof QueryException) {

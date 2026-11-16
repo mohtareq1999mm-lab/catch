@@ -4,53 +4,36 @@ namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Http\Controllers\Controller;
 use App\Models\GuestIdentity;
-use App\Services\Guest\GuestIdentityService;
+use App\Services\Guest\GuestMobileSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Marvel\Traits\ApiResponse;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
- * Mobile Guest Session lifecycle (D1/D6/D9 + A4).
+ * Mobile Guest Session HTTP surface (D1/D6/D9, A3/A4).
  *
- * Native clients authenticate with an opaque `Authorization: Bearer` token.
- * No cookies are ever issued from these endpoints, CSRF does not apply, and
- * Origin is not required (GuestOrigin validates only when a header is
- * present). The raw token appears in the JSON exactly once, at issuance or
- * rotation; the database stores only its domain-separated HMAC hash.
- *
- * A4: this endpoint is NOT an idempotent session-resume. Calling `store()`
- * while a usable credential (either transport) is presented is rejected with
- * 409 `mobile_session_exists` — the exception message is the RAW translation
- * key so Handler exposes the machine-readable `code` (A10). Cold-start
- * clients probe `GET /guest/cart` first (A5): 200 => reuse; 401 => store().
+ * Thin: policy lives in GuestMobileSessionService. This controller only
+ * shapes the approved response payloads. No cookies are ever issued; the raw
+ * token appears exactly once, at open/rotate; every response is no-store.
  */
 class GuestMobileSessionController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private GuestIdentityService $identities)
+    public function __construct(private GuestMobileSessionService $sessions)
     {
     }
 
     public function store(Request $request): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if ($identity !== null) {
-            // A4: a usable credential is already presented. Never create a
-            // second identity; never idempotent-resume.
-            throw new HttpException(409, 'guest_checkout.mobile_session_exists');
-        }
-
-        [$identity, $token] = $this->identities->createForMobile($request);
+        $result = $this->sessions->open($request);
 
         return $this->respond(
             __('guest_checkout.mobile_session_ready'),
             201,
             [
-                'guest' => $this->guestPayload($identity),
-                'token' => $token,
+                'guest' => $this->guestPayload($result['identity']),
+                'token' => $result['token'],
                 'token_type' => 'Bearer',
                 'cart' => null,
             ]
@@ -59,45 +42,35 @@ class GuestMobileSessionController extends Controller
 
     public function rotate(Request $request): JsonResponse
     {
-        $identity = $this->identities->current($request);
+        $result = $this->sessions->rotate($request);
 
-        if (!$identity || $this->identities->authMode($request) !== GuestIdentityService::MODE_BEARER) {
-            return $this->respond(__('guest_checkout.session_required'), 401);
-        }
-
-        $token = $this->identities->rotateMobileToken($request, $identity);
-
+        // §2.1 contract: flat payload (token, token_type, expires_at).
         return $this->respond(
             __('guest_checkout.mobile_session_rotated'),
             200,
             [
-                'guest' => $this->guestPayload($identity),
-                'token' => $token,
+                'token' => $result['token'],
                 'token_type' => 'Bearer',
+                'expires_at' => $this->expiresAt($result['identity']),
             ]
         );
     }
 
     public function destroy(Request $request): JsonResponse
     {
-        $identity = $this->identities->current($request);
-
-        if (!$identity || $this->identities->authMode($request) !== GuestIdentityService::MODE_BEARER) {
-            return $this->respond(__('guest_checkout.session_required'), 401);
-        }
-
-        $this->identities->revokeMobile($identity);
-
-        // Clear cookies too, in case the same request also carried a browser
-        // credential for this identity (identity-level revocation kills both).
-        $this->identities->clearCookies();
+        $this->sessions->revoke($request);
 
         return $this->respond(__('guest_checkout.mobile_session_revoked'), 200);
     }
 
     private function guestPayload(GuestIdentity $identity): array
     {
-        return ['expires_at' => $identity->expires_at?->toIso8601String()];
+        return ['expires_at' => $this->expiresAt($identity)];
+    }
+
+    private function expiresAt(GuestIdentity $identity): ?string
+    {
+        return $identity->expires_at?->toIso8601String();
     }
 
     private function respond(string $message, int $status, array $data = []): JsonResponse

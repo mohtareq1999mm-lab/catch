@@ -100,7 +100,7 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
             ->assertStatus(401);
     }
 
-    public function test_rotation_invalidates_the_old_token_immediately(): void
+    public function test_rotation_returns_flat_payload_and_invalidates_the_old_token(): void
     {
         $old = $this->createMobileSession();
 
@@ -114,7 +114,12 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
 
         $rotate = $this->asBearer($old)->postJson(self::PREFIX . '/mobile/session/rotate');
 
-        $rotate->assertOk()->assertHeader('cache-control', 'no-store, private');
+        $rotate->assertOk()
+            ->assertHeader('cache-control', 'no-store, private')
+            ->assertJsonPath('data.token_type', 'Bearer')
+            ->assertJsonStructure(['data' => ['token', 'token_type', 'expires_at']])
+            ->assertJsonMissingPath('data.guest');
+
         $new = $rotate->json('data.token');
 
         $this->assertIsString($new);
@@ -136,9 +141,13 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         $token = $this->createMobileSession();
         $guestId = $this->currentGuestId();
 
-        $this->asBearer($token)->deleteJson(self::PREFIX . '/mobile/session')
-            ->assertOk()
-            ->assertHeader('cache-control', 'no-store, private');
+        $destroy = $this->asBearer($token)->deleteJson(self::PREFIX . '/mobile/session');
+
+        $destroy->assertOk()->assertHeader('cache-control', 'no-store, private');
+
+        // Bearer-only requests carried no cookies, so revocation must not emit
+        // Set-Cookie deletions (S5: clear cookies only if present).
+        $this->assertCount(0, $destroy->headers->getCookies(), 'No cookie clearing on a bearer-only request.');
 
         $row = GuestIdentity::query()->findOrFail($guestId);
         $this->assertNull($row->mobile_token_hash);
@@ -147,6 +156,24 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         $this->asBearer($token)->getJson(self::PREFIX . '/cart')
             ->assertOk()
             ->assertJsonPath('data.cart', null);
+    }
+
+    public function test_revocation_clears_cookies_when_the_request_carried_them(): void
+    {
+        // Same identity on both transports: browser cookie + mobile Bearer.
+        $this->startGuestSession();
+        $identity = GuestIdentity::query()->findOrFail($this->currentGuestId());
+        $token = app(\App\Services\Guest\GuestIdentityService::class)->rotateMobileToken(
+            \Illuminate\Http\Request::create('/api/v1/general/guest/mobile/session/rotate', 'POST'),
+            $identity
+        );
+
+        $destroy = $this->asGuest()
+            ->withHeaders(['Authorization' => 'Bearer ' . $token])
+            ->deleteJson(self::PREFIX . '/mobile/session');
+
+        $destroy->assertOk();
+        $this->assertGreaterThan(0, count($destroy->headers->getCookies()), 'Cookie-carrying request must clear cookies.');
     }
 
     public function test_sanctum_shaped_token_is_not_accepted_as_a_guest_credential(): void

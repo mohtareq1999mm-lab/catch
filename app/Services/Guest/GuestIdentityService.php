@@ -2,11 +2,12 @@
 
 namespace App\Services\Guest;
 
+use App\Enums\GuestErrorCode;
+use App\Exceptions\GuestSessionRejection;
 use App\Models\GuestIdentity;
 use Illuminate\Cookie\CookieJar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Server-managed guest credential.
@@ -45,6 +46,9 @@ class GuestIdentityService
 
     /** Shape gate applied to Bearer tokens before any database lookup. */
     private const TOKEN_PATTERN = '/^[A-Za-z0-9_-]{20,120}$/';
+
+    /** Upper bound for a raw credential before any comparison (legacy column width). */
+    private const TOKEN_MAX_LENGTH = 191;
 
     public static function cookieName(): string
     {
@@ -104,15 +108,22 @@ class GuestIdentityService
         $bearerIdentity = $this->fromBearer($request);
 
         if ($cookieIdentity && $bearerIdentity && $cookieIdentity->id !== $bearerIdentity->id) {
-            throw new HttpException(401, 'guest_checkout.credential_conflict');
+            throw new GuestSessionRejection(
+                GuestErrorCode::CREDENTIAL_CONFLICT,
+                401,
+                'guest_checkout.credential_conflict'
+            );
         }
 
         $identity = $cookieIdentity ?? $bearerIdentity;
 
         if ($identity !== null) {
+            // The explicit Bearer credential wins when both transports resolve
+            // the same identity: rotate/revoke then work from a cookie-carrying
+            // client, and the strictest credential determines the mode.
             $request->attributes->set(
                 self::ATTR_MODE,
-                $cookieIdentity !== null ? self::MODE_COOKIE : self::MODE_BEARER
+                $bearerIdentity !== null ? self::MODE_BEARER : self::MODE_COOKIE
             );
         } else {
             $request->attributes->set(self::ATTR_MODE, null);
@@ -279,7 +290,7 @@ class GuestIdentityService
     /** Format gate for Bearer tokens; rejects Sanctum customer tokens ("id|…"). */
     public function isValidTokenFormat(?string $token): bool
     {
-        return is_string($token) && $token !== '' && strlen($token) <= 191
+        return is_string($token) && $token !== '' && strlen($token) <= self::TOKEN_MAX_LENGTH
             && (bool) preg_match(self::TOKEN_PATTERN, $token);
     }
 
@@ -294,7 +305,7 @@ class GuestIdentityService
 
         $cookie = $request->cookie(self::cookieName());
 
-        if (!is_string($cookie) || $cookie === '' || strlen($cookie) > 191) {
+        if (!is_string($cookie) || $cookie === '' || strlen($cookie) > self::TOKEN_MAX_LENGTH) {
             return null;
         }
 
@@ -306,7 +317,7 @@ class GuestIdentityService
     {
         $raw = $request->cookie(self::cookieName());
 
-        if (!is_string($raw) || $raw === '' || strlen($raw) > 191) {
+        if (!is_string($raw) || $raw === '' || strlen($raw) > self::TOKEN_MAX_LENGTH) {
             return null;
         }
 
