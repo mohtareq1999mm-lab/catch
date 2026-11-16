@@ -2,7 +2,7 @@
 
 namespace Marvel\Imports\Sheets;
 
-use Marvel\Imports\ProductWorkbookSchema;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductsSheetImport extends RowSheetImport
 {

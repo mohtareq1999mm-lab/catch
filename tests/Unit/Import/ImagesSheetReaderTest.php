@@ -41,6 +41,20 @@ class ImagesSheetReaderTest extends TestCase
         }
     }
 
+    public function test_a_sheet_without_the_key_column_is_rejected(): void
+    {
+        $file = $this->workbook([['sku', 'image'], ['SKU-1', 'https://example.com/a.jpg']]);
+
+        try {
+            $this->expectException(\InvalidArgumentException::class);
+            $this->expectExceptionMessage("missing the 'product_sku' column");
+
+            (new ImagesSheetReader())->rows($file);
+        } finally {
+            @unlink($file);
+        }
+    }
+
     /**
      * @param  array<int, array<int, string>>  $rows
      */

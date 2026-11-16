@@ -6,7 +6,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
-use Marvel\Imports\ProductWorkbookSchema;
+use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Database\Models\ProductVariant;
 
 class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping

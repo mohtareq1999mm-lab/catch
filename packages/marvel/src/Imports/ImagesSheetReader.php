@@ -2,9 +2,11 @@
 
 namespace Marvel\Imports;
 
-use Illuminate\Support\Str;
+use InvalidArgumentException;
+use Maatwebsite\Excel\Imports\HeadingRowFormatter;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 /**
  * Reads the images sheet for the asynchronous image pipeline.
@@ -52,11 +54,11 @@ final class ImagesSheetReader
             return [];
         }
 
-        $columns = $this->columnMap($sheet->rangeToArray("A1:{$highestColumn}1")[0]);
+        $columns = $this->columnMap($sheet->rangeToArray("A1:{$highestColumn}1", null, false, false)[0]);
         $keyColumn = ProductWorkbookSchema::keyColumn(ProductWorkbookSchema::IMAGES);
 
         if (!isset($columns[$keyColumn])) {
-            return [];
+            throw new InvalidArgumentException("Images sheet is missing the '{$keyColumn}' column.");
         }
 
         $rows = [];
@@ -83,7 +85,7 @@ final class ImagesSheetReader
      */
     private function readRow(Worksheet $sheet, int $rowNumber, string $highestColumn, array $columns): array
     {
-        $values = $sheet->rangeToArray("A{$rowNumber}:{$highestColumn}{$rowNumber}")[0];
+        $values = $sheet->rangeToArray("A{$rowNumber}:{$highestColumn}{$rowNumber}", null, false, false)[0];
         $row = [];
 
         foreach ($columns as $heading => $index) {
@@ -102,7 +104,8 @@ final class ImagesSheetReader
         $columns = [];
 
         foreach ($headerRow as $index => $heading) {
-            $normalized = Str::slug((string) $heading, '_');
+            $formatted = HeadingRowFormatter::format([(string) $heading]);
+            $normalized = (string) ($formatted[0] ?? '');
 
             if ($normalized !== '') {
                 $columns[$normalized] = $index;

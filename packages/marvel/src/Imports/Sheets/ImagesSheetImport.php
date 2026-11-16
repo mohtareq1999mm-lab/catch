@@ -2,7 +2,7 @@
 
 namespace Marvel\Imports\Sheets;
 
-use Marvel\Imports\ProductWorkbookSchema;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ImagesSheetImport extends RowSheetImport
 {
@@ -10,7 +10,8 @@ class ImagesSheetImport extends RowSheetImport
 
     protected function processRow(array $row, int $excelRow): void
     {
-        $sku = $row['product_sku'] ?? '';
+        $keyColumn = ProductWorkbookSchema::keyColumn(static::SHEET);
+        $sku = $row[$keyColumn] ?? '';
 
         if (empty($sku)) {
             return;

@@ -8,7 +8,7 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Marvel\Database\Models\Product;
-use Marvel\Imports\ProductWorkbookSchema;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {

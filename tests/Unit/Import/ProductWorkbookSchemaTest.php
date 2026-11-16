@@ -3,7 +3,7 @@
 namespace Tests\Unit\Import;
 
 use InvalidArgumentException;
-use Marvel\Imports\ProductWorkbookSchema;
+use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Imports\Sheets\ChunkedSheetImport;
 use Tests\TestCase;
 
@@ -47,6 +47,16 @@ class ProductWorkbookSchemaTest extends TestCase
         );
 
         $this->assertSame([], ProductWorkbookSchema::imageUrls(['image' => '', 'images' => '']));
+    }
+
+    public function test_images_use_separate_read_and_dispatch_chunk_sizes(): void
+    {
+        $this->assertSame(200, ProductWorkbookSchema::chunkSize(ProductWorkbookSchema::IMAGES));
+        $this->assertSame(500, ProductWorkbookSchema::dispatchChunkSize(ProductWorkbookSchema::IMAGES));
+        $this->assertSame(
+            ProductWorkbookSchema::chunkSize(ProductWorkbookSchema::PRODUCTS),
+            ProductWorkbookSchema::dispatchChunkSize(ProductWorkbookSchema::PRODUCTS)
+        );
     }
 
     public function test_an_unknown_sheet_is_rejected(): void

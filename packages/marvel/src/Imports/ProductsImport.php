@@ -5,6 +5,7 @@ namespace Marvel\Imports;
 use Maatwebsite\Excel\Concerns\SkipsUnknownSheets;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Marvel\Services\Import\ProductImportService;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductsImport implements WithMultipleSheets, SkipsUnknownSheets
 {

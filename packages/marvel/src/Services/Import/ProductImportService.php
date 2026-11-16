@@ -25,6 +25,7 @@ use Marvel\Enums\ProductType;
 use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Services\Import\ImageHandlers\UrlImageHandler;
 use Marvel\Services\Pricing\ProductPricingService;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductImportService
 {
@@ -87,11 +88,11 @@ class ProductImportService
      * @var array<string, array{label_key: string, relation: string, model: class-string<\Illuminate\Database\Eloquent\Model>}>
      */
     private const TAXONOMY_SHEETS = [
-        'categories' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.CATEGORY', 'relation' => 'categories', 'model' => Category::class],
-        'brands' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.BRAND', 'relation' => 'brands', 'model' => Brand::class],
-        'flash_sales' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.FLASH_SALE', 'relation' => 'flash_sales', 'model' => FlashSale::class],
-        'sliders' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.SLIDER', 'relation' => 'sliders', 'model' => Slider::class],
-        'tags' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.TAG', 'relation' => 'tags', 'model' => Tag::class],
+        ProductWorkbookSchema::CATEGORIES => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.CATEGORY', 'relation' => 'categories', 'model' => Category::class],
+        ProductWorkbookSchema::BRANDS => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.BRAND', 'relation' => 'brands', 'model' => Brand::class],
+        ProductWorkbookSchema::FLASH_SALES => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.FLASH_SALE', 'relation' => 'flash_sales', 'model' => FlashSale::class],
+        ProductWorkbookSchema::SLIDERS => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.SLIDER', 'relation' => 'sliders', 'model' => Slider::class],
+        ProductWorkbookSchema::TAGS => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.TAG', 'relation' => 'tags', 'model' => Tag::class],
     ];
 
     public function __construct(?int $importId = null, ?ProductPricingService $pricingService = null)

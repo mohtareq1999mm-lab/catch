@@ -3,6 +3,7 @@
 namespace Marvel\Imports\Sheets;
 
 use Illuminate\Support\Collection;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 /**
  * A sheet that maps many rows per product onto one queued reference list.
@@ -11,7 +12,9 @@ abstract class TaxonomySheetImport extends ChunkedSheetImport
 {
     protected function handleChunk(Collection $rows): void
     {
-        foreach ($rows->groupBy(fn ($row) => $row['product_sku'] ?? '') as $sku => $skuRows) {
+        $keyColumn = ProductWorkbookSchema::keyColumn(static::SHEET);
+
+        foreach ($rows->groupBy(fn ($row) => $row[$keyColumn] ?? '') as $sku => $skuRows) {
             if (empty($sku)) {
                 continue;
             }

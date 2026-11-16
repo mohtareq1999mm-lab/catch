@@ -2,6 +2,8 @@
 
 namespace Marvel\Services\Import;
 
+use Marvel\Workbook\ProductWorkbookSchema;
+
 /**
  * Accumulates the outcome of one product import.
  *
@@ -43,22 +45,42 @@ final class ImportReport
 
     public function addProductRowError(int $row, string $sku, string $message): void
     {
-        $this->productRows[] = $this->error('products', $row, $sku, $message);
+        $this->productRows[] = $this->error(
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCTS),
+            $row,
+            $sku,
+            $message
+        );
     }
 
     public function addVariantError(int $row, string $sku, string $message): void
     {
-        $this->variants[] = $this->error('product_variants', $row, $sku, $message);
+        $this->variants[] = $this->error(
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCT_VARIANTS),
+            $row,
+            $sku,
+            $message
+        );
     }
 
     public function addBarcodeError(int $row, string $sku, string $message): void
     {
-        $this->barcodes[] = $this->error('product_barcodes', $row, $sku, $message);
+        $this->barcodes[] = $this->error(
+            ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCT_BARCODES),
+            $row,
+            $sku,
+            $message
+        );
     }
 
     public function addImageError(int $row, string $sku, string $message): void
     {
-        $this->images[] = $this->error('images', $row, $sku, $message);
+        $this->images[] = $this->error(
+            ProductWorkbookSchema::title(ProductWorkbookSchema::IMAGES),
+            $row,
+            $sku,
+            $message
+        );
     }
 
     /**

@@ -1,6 +1,6 @@
 <?php
 
-namespace Marvel\Imports;
+namespace Marvel\Workbook;
 
 use InvalidArgumentException;
 use Marvel\Imports\Sheets\FlashSalesSheetImport;
@@ -12,6 +12,15 @@ use Marvel\Imports\Sheets\ProductsSheetImport;
 use Marvel\Imports\Sheets\ProductVariantsSheetImport;
 use Marvel\Imports\Sheets\SlidersSheetImport;
 use Marvel\Imports\Sheets\TagsSheetImport;
+use Marvel\Exports\Sheets\BrandsSheetExport;
+use Marvel\Exports\Sheets\CategoriesSheetExport;
+use Marvel\Exports\Sheets\FlashSalesSheetExport;
+use Marvel\Exports\Sheets\ImagesSheetExport;
+use Marvel\Exports\Sheets\ProductBarcodesSheetExport;
+use Marvel\Exports\Sheets\ProductsSheetExport;
+use Marvel\Exports\Sheets\ProductVariantsSheetExport;
+use Marvel\Exports\Sheets\SlidersSheetExport;
+use Marvel\Exports\Sheets\TagsSheetExport;
 
 /**
  * The product workbook contract: one definition per sheet.
@@ -44,8 +53,10 @@ final class ProductWorkbookSchema
      * @var array<string, array{
      *     title: string,
      *     importer: class-string,
+     *     exporter: class-string,
      *     key_column: string,
      *     chunk_size: int,
+     *     dispatch_chunk_size?: int,
      *     headings: array<int, string>
      * }>
      */
@@ -53,6 +64,7 @@ final class ProductWorkbookSchema
         self::PRODUCTS => [
             'title' => 'products',
             'importer' => ProductsSheetImport::class,
+            'exporter' => ProductsSheetExport::class,
             'key_column' => 'sku',
             'chunk_size' => 1000,
             'headings' => [
@@ -85,6 +97,7 @@ final class ProductWorkbookSchema
         self::PRODUCT_BARCODES => [
             'title' => 'product_barcodes',
             'importer' => ProductBarcodesSheetImport::class,
+            'exporter' => ProductBarcodesSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'piece_barcode', 'carton_barcode', 'pieces_per_carton'],
@@ -92,6 +105,7 @@ final class ProductWorkbookSchema
         self::PRODUCT_VARIANTS => [
             'title' => 'product_variants',
             'importer' => ProductVariantsSheetImport::class,
+            'exporter' => ProductVariantsSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 1000,
             'headings' => [
@@ -111,6 +125,7 @@ final class ProductWorkbookSchema
         self::CATEGORIES => [
             'title' => 'categories',
             'importer' => ProductCategoriesSheetImport::class,
+            'exporter' => CategoriesSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'category_slug'],
@@ -118,6 +133,7 @@ final class ProductWorkbookSchema
         self::BRANDS => [
             'title' => 'brands',
             'importer' => ProductBrandsSheetImport::class,
+            'exporter' => BrandsSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'brand_slug'],
@@ -125,6 +141,7 @@ final class ProductWorkbookSchema
         self::FLASH_SALES => [
             'title' => 'flash_sales',
             'importer' => FlashSalesSheetImport::class,
+            'exporter' => FlashSalesSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'flash_sale_slug'],
@@ -132,6 +149,7 @@ final class ProductWorkbookSchema
         self::SLIDERS => [
             'title' => 'sliders',
             'importer' => SlidersSheetImport::class,
+            'exporter' => SlidersSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'slider_slug'],
@@ -139,6 +157,7 @@ final class ProductWorkbookSchema
         self::TAGS => [
             'title' => 'tags',
             'importer' => TagsSheetImport::class,
+            'exporter' => TagsSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'tag_slug'],
@@ -147,8 +166,10 @@ final class ProductWorkbookSchema
         self::IMAGES => [
             'title' => 'images',
             'importer' => ImagesSheetImport::class,
+            'exporter' => ImagesSheetExport::class,
             'key_column' => 'product_sku',
             'chunk_size' => 200,
+            'dispatch_chunk_size' => 500,
             'headings' => ['product_sku', 'image'],
         ],
     ];
@@ -188,6 +209,20 @@ final class ProductWorkbookSchema
         return $importers;
     }
 
+    /**
+     * @return array<string, class-string>
+     */
+    public static function exporters(): array
+    {
+        $exporters = [];
+
+        foreach (self::SHEETS as $key => $definition) {
+            $exporters[$key] = $definition['exporter'];
+        }
+
+        return $exporters;
+    }
+
     public static function keyColumn(string $sheet): string
     {
         return self::definition($sheet)['key_column'];
@@ -196,6 +231,16 @@ final class ProductWorkbookSchema
     public static function chunkSize(string $sheet): int
     {
         return self::definition($sheet)['chunk_size'];
+    }
+
+    /**
+     * Rows per dispatched async job. Defaults to the Excel read chunk size.
+     */
+    public static function dispatchChunkSize(string $sheet): int
+    {
+        $definition = self::definition($sheet);
+
+        return $definition['dispatch_chunk_size'] ?? $definition['chunk_size'];
     }
 
     /**
@@ -242,7 +287,7 @@ final class ProductWorkbookSchema
     }
 
     /**
-     * @return array{title: string, importer: class-string, key_column: string, chunk_size: int, headings: array<int, string>}
+     * @return array{title: string, importer: class-string, exporter: class-string, key_column: string, chunk_size: int, dispatch_chunk_size?: int, headings: array<int, string>}
      */
     private static function definition(string $sheet): array
     {

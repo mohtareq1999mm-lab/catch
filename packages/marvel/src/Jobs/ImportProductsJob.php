@@ -14,8 +14,8 @@ use Marvel\Database\Models\Import;
 use Marvel\Enums\ImportStatus;
 use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Imports\ImagesSheetReader;
-use Marvel\Imports\ProductWorkbookSchema;
 use Marvel\Imports\ProductsImport;
+use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Services\Import\ProductImportService;
 use Throwable;
 use Illuminate\Bus\Queueable;
@@ -476,7 +476,7 @@ class ImportProductsJob implements ShouldQueue
                 return;
             }
 
-            $chunkSize = ProductWorkbookSchema::chunkSize(ProductWorkbookSchema::IMAGES);
+            $chunkSize = ProductWorkbookSchema::dispatchChunkSize(ProductWorkbookSchema::IMAGES);
 
             foreach (array_chunk($rows, $chunkSize) as $chunk) {
                 ImportProductImagesJob::dispatch($this->importId, $chunk);
