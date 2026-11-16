@@ -146,30 +146,13 @@ class GuestCheckoutService
 
     /**
      * Defense in depth: every guest line is re-evaluated through the same
-     * Eligibility verdict the add path uses, so a line injected or changed
-     * after add cannot reach the order builder.
+     * Eligibility verdict the add path uses, with a constant number of
+     * queries, so a line injected or changed after add cannot reach the
+     * order builder.
      */
     private function assertCartIsGuestEligible(Cart $cart): void
     {
-        $cart->loadMissing('items.product');
-
-        foreach ($cart->items as $item) {
-            $product = $item->product;
-
-            if (!$product) {
-                throw new GuestCheckoutConflictException(
-                    __('guest_checkout.product_unavailable'),
-                    422
-                );
-            }
-
-            $verdict = $this->eligibility->evaluate(
-                $product,
-                $item->product_variant_id,
-                (int) $item->quantity,
-                (string) $item->shipping_method
-            );
-
+        foreach ($this->eligibility->evaluateCart($cart) as $verdict) {
             if (!$verdict->allowed) {
                 throw new GuestCheckoutConflictException(
                     __('guest_checkout.' . $verdict->reason->value),
