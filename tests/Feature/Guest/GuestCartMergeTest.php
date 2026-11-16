@@ -595,6 +595,44 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function product_stock_caps_a_variant_line_before_variant_stock(): void
+    {
+        $product = $this->makeProduct([
+            'product_type' => ProductType::VARIABLE,
+            'name' => 'Parent Ceiling Merge ' . uniqid(),
+            'slug' => 'parent-ceiling-merge-' . uniqid(),
+            'stock_quantity' => 5,
+        ]);
+
+        $variant = ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'VAR-PARENT-' . uniqid(),
+            'price' => 100,
+            'stock_quantity' => 10,
+            'in_stock' => true,
+        ]);
+
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantity' => 4,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $user = $this->makeUser();
+        $cart = $this->accountCart($user);
+        $this->addAccountLine($cart, $product, 3, $variant);
+
+        $result = $this->merge($user);
+
+        $this->assertSame(5, (int) $cart->items()->first()->fresh()->quantity);
+        $this->assertNotEmpty($result['adjusted_items']);
+        $this->assertSame('quantity_capped', $result['adjusted_items'][0]['reason']);
+        $this->assertSame(2, $result['adjusted_items'][0]['dropped_quantity']);
+    }
+
+    /** @test */
     public function hard_deleted_product_is_preserved_and_blocks_checkout(): void
     {
         $product = $this->makeProduct([

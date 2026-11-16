@@ -183,6 +183,28 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function a_line_that_became_unavailable_after_add_blocks_checkout(): void
+    {
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $this->product->update([
+            'in_stock' => false,
+            'stock_quantity' => 0,
+            'reserved_quantity' => 0,
+        ]);
+
+        $this->submitGuestCheckout([], 'unavailable-after-add-key')
+            ->assertStatus(422);
+
+        $this->assertSame(0, $this->currentGuestOrders()->count());
+    }
+
+    /** @test */
     public function cod_orders_are_created_unpaid_and_commit_inventory_through_the_canonical_path(): void
     {
         $this->seedCart(1);
