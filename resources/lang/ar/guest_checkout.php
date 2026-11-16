@@ -8,6 +8,7 @@ return [
     'mobile_session_ready' => 'جلسة الزائر جاهزة.',
     'mobile_session_rotated' => 'تم تحديث رمز جلسة الزائر.',
     'mobile_session_revoked' => 'تم إلغاء جلسة الزائر.',
+    'mobile_session_exists' => 'توجد جلسة زائر صالحة بالفعل. أعد استخدامها أو اطلب تجديد الرمز صراحةً.',
 
     'cart_not_found' => 'لا توجد سلة زائر نشطة.',
     'product_unavailable' => 'هذا المنتج غير متاح للشراء كزائر.',

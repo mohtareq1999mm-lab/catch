@@ -8,6 +8,7 @@ return [
     'mobile_session_ready' => 'Guest session is ready.',
     'mobile_session_rotated' => 'Guest session token has been rotated.',
     'mobile_session_revoked' => 'Guest session has been revoked.',
+    'mobile_session_exists' => 'A usable guest session was presented. Reuse it or rotate the token explicitly.',
 
     'cart_not_found' => 'No active guest cart was found.',
     'product_unavailable' => 'This product is not available for guest checkout.',
