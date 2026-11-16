@@ -2,6 +2,7 @@
 
 namespace App\Services\Guest;
 
+use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
@@ -124,7 +125,7 @@ class GuestCartService
 
         if (!in_array($operation, CartOperation::getValues(), true)) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::INVALID_OPERATION,
+                GuestCartRejectionReason::INVALID_OPERATION,
                 __('guest_checkout.invalid_operation')
             );
         }
@@ -240,7 +241,7 @@ class GuestCartService
 
         if (!$product) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+                GuestCartRejectionReason::PRODUCT_UNAVAILABLE,
                 __('guest_checkout.product_unavailable')
             );
         }
@@ -259,7 +260,7 @@ class GuestCartService
 
         if ($stockQuantity > 0 && $quantity > $available) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::INSUFFICIENT_STOCK,
+                GuestCartRejectionReason::INSUFFICIENT_STOCK,
                 __('guest_checkout.insufficient_stock')
             );
         }

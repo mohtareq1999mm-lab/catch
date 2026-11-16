@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\General\Guest;
 
+use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\Http\Controllers\Controller;
 use App\Services\Guest\GuestCartService;
@@ -65,18 +66,18 @@ class GuestCartController extends Controller
             ]);
         } catch (GuestCartRejectionException $e) {
             // S12: additive machine-readable reason; message + status unchanged.
-            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()]);
+            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()->value]);
         } catch (\InvalidArgumentException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         } catch (ModelNotFoundException $e) {
             return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
-                'reason' => GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
             ]);
         } catch (\Throwable $e) {
             report($e);
 
             return $this->apiResponse(INVALID_ITEM_DATA, 422, false, [
-                'reason' => GuestCartRejectionException::INVALID_ITEM_DATA,
+                'reason' => GuestCartRejectionReason::INVALID_ITEM_DATA->value,
             ]);
         }
     }
@@ -97,18 +98,18 @@ class GuestCartController extends Controller
             ]);
         } catch (GuestCartRejectionException $e) {
             // S12: additive machine-readable reason; message + status unchanged.
-            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()]);
+            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()->value]);
         } catch (\InvalidArgumentException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         } catch (ModelNotFoundException $e) {
             return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
-                'reason' => GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
             ]);
         } catch (\Throwable $e) {
             report($e);
 
             return $this->apiResponse(INVALID_ITEM_DATA, 422, false, [
-                'reason' => GuestCartRejectionException::INVALID_ITEM_DATA,
+                'reason' => GuestCartRejectionReason::INVALID_ITEM_DATA->value,
             ]);
         }
     }

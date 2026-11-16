@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Guest;
 
+use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\Models\GuestIdentity;
 use App\Services\Guest\GuestCartService;
@@ -59,7 +60,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         ], $overrides));
     }
 
-    private function assertRejected(string $reason, array $item, ?Product $product = null): void
+    private function assertRejected(GuestCartRejectionReason $reason, array $item, ?Product $product = null): void
     {
         $item = array_merge([
             'product_id' => ($product ?? $this->product)->id,
@@ -69,7 +70,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
 
         try {
             $this->cartService->addItem(Request::create('/x', 'POST'), $this->guest(), $item);
-            $this->fail('Expected the item to be rejected with reason ' . $reason);
+            $this->fail('Expected the item to be rejected with reason ' . $reason->value);
         } catch (GuestCartRejectionException $e) {
             $this->assertSame($reason, $e->reason());
         }
@@ -79,20 +80,20 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
     {
         $inactive = $this->makeProduct(['status' => false]);
 
-        $this->assertRejected(GuestCartRejectionException::PRODUCT_UNAVAILABLE, [], $inactive);
+        $this->assertRejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE, [], $inactive);
     }
 
     public function test_digital_product_is_rejected(): void
     {
         $digital = $this->makeProduct(['item_type' => ItemType::DIGITAL]);
 
-        $this->assertRejected(GuestCartRejectionException::DIGITAL_NOT_SUPPORTED, [], $digital);
+        $this->assertRejected(GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED, [], $digital);
     }
 
     public function test_fast_shipping_method_is_rejected(): void
     {
         $this->assertRejected(
-            GuestCartRejectionException::FAST_SHIPPING_NOT_SUPPORTED,
+            GuestCartRejectionReason::FAST_SHIPPING_NOT_SUPPORTED,
             ['shipping_method' => 'fast']
         );
     }
@@ -101,7 +102,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
     {
         $product = $this->variableProduct();
 
-        $this->assertRejected(GuestCartRejectionException::VARIANT_REQUIRED, [], $product);
+        $this->assertRejected(GuestCartRejectionReason::VARIANT_REQUIRED, [], $product);
     }
 
     public function test_variant_from_another_product_is_rejected(): void
@@ -111,7 +112,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $foreignVariant = $this->variant($foreign);
 
         $this->assertRejected(
-            GuestCartRejectionException::VARIANT_UNAVAILABLE,
+            GuestCartRejectionReason::VARIANT_UNAVAILABLE,
             ['product_variant_id' => $foreignVariant->id],
             $product
         );
@@ -126,7 +127,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $variant->forceFill(['in_stock' => false])->save();
 
         $this->assertRejected(
-            GuestCartRejectionException::INSUFFICIENT_STOCK,
+            GuestCartRejectionReason::INSUFFICIENT_STOCK,
             ['product_variant_id' => $variant->id],
             $product
         );
@@ -160,7 +161,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $variant = $this->variant($product, ['stock_quantity' => 5]);
 
         $this->assertRejected(
-            GuestCartRejectionException::INSUFFICIENT_STOCK,
+            GuestCartRejectionReason::INSUFFICIENT_STOCK,
             ['product_variant_id' => $variant->id, 'quantity' => 6],
             $product
         );
@@ -172,7 +173,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $variant = $this->variant($product, ['stock_quantity' => 5, 'reserved_quantity' => 5]);
 
         $this->assertRejected(
-            GuestCartRejectionException::INSUFFICIENT_STOCK,
+            GuestCartRejectionReason::INSUFFICIENT_STOCK,
             ['product_variant_id' => $variant->id, 'quantity' => 1],
             $product
         );
@@ -183,7 +184,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $product = $this->makeProduct(['stock_quantity' => 5]);
 
         $this->assertRejected(
-            GuestCartRejectionException::INSUFFICIENT_STOCK,
+            GuestCartRejectionReason::INSUFFICIENT_STOCK,
             ['quantity' => 6],
             $product
         );

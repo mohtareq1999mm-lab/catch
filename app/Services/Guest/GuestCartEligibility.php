@@ -3,6 +3,7 @@
 namespace App\Services\Guest;
 
 use App\Contexts\ChannelContext;
+use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
@@ -36,7 +37,7 @@ class GuestCartEligibility
     ): void {
         if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::DIGITAL_NOT_SUPPORTED,
+                GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED,
                 __('guest_checkout.digital_not_supported')
             );
         }
@@ -47,7 +48,7 @@ class GuestCartEligibility
             && (bool) $product->is_fast_shipping_available
         ) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+                GuestCartRejectionReason::PRODUCT_UNAVAILABLE,
                 __('guest_checkout.product_unavailable')
             );
         }
@@ -59,14 +60,14 @@ class GuestCartEligibility
         // instead of silently dropping the line later.
         if ($method !== ShippingMethod::SCHEDULED) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::FAST_SHIPPING_NOT_SUPPORTED,
+                GuestCartRejectionReason::FAST_SHIPPING_NOT_SUPPORTED,
                 __('guest_checkout.fast_shipping_not_supported')
             );
         }
 
         if (($product->product_type ?? null) === 'variable' && empty($variantId)) {
             throw new GuestCartRejectionException(
-                GuestCartRejectionException::VARIANT_REQUIRED,
+                GuestCartRejectionReason::VARIANT_REQUIRED,
                 __('guest_checkout.variant_required')
             );
         }
@@ -79,7 +80,7 @@ class GuestCartEligibility
 
             if (!$variant) {
                 throw new GuestCartRejectionException(
-                    GuestCartRejectionException::VARIANT_UNAVAILABLE,
+                    GuestCartRejectionReason::VARIANT_UNAVAILABLE,
                     __('guest_checkout.variant_unavailable')
                 );
             }
@@ -89,14 +90,14 @@ class GuestCartEligibility
 
             if ($variantStock > 0 && $quantity > $variantAvailable) {
                 throw new GuestCartRejectionException(
-                    GuestCartRejectionException::INSUFFICIENT_STOCK,
+                    GuestCartRejectionReason::INSUFFICIENT_STOCK,
                     __('guest_checkout.insufficient_stock')
                 );
             }
 
             if ($variantStock > 0 && !$variant->in_stock && $variantAvailable <= 0) {
                 throw new GuestCartRejectionException(
-                    GuestCartRejectionException::VARIANT_UNAVAILABLE,
+                    GuestCartRejectionReason::VARIANT_UNAVAILABLE,
                     __('guest_checkout.variant_unavailable')
                 );
             }

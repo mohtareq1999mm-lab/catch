@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Guest;
 
+use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\Services\Guest\GuestIdentityService;
 use Illuminate\Support\Carbon;
@@ -133,7 +134,7 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
             'product_id' => $product->id,
             'product_variant_id' => $variant->id,
         ])->assertStatus(422)
-            ->assertJsonPath('data.reason', GuestCartRejectionException::INSUFFICIENT_STOCK);
+            ->assertJsonPath('data.reason', GuestCartRejectionReason::INSUFFICIENT_STOCK->value);
     }
 
     public function test_quantity_above_stock_is_rejected_with_reason(): void
@@ -147,7 +148,7 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
             'product_variant_id' => $variant->id,
             'quantity' => 4,
         ])->assertStatus(422)
-            ->assertJsonPath('data.reason', GuestCartRejectionException::INSUFFICIENT_STOCK);
+            ->assertJsonPath('data.reason', GuestCartRejectionReason::INSUFFICIENT_STOCK->value);
     }
 
     public function test_invalid_operation_fails_validation(): void
