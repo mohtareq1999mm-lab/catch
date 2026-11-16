@@ -227,19 +227,13 @@ class GuestIdentityService
 
     /**
      * Extend retention after a GENUINE cart mutation only (reads never call
-     * this). Re-queues the same raw cookie with the new expiry. Bearer-only
-     * requests have no cookie to re-queue; the identity row expiry still
-     * moves, which is exactly the shared Retention policy (A1).
+     * this). Only the identity row expiry moves — the cookie transport is
+     * re-queued separately at the HTTP seam, which is exactly the shared
+     * Retention policy (A1).
      */
-    public function extend(Request $request, GuestIdentity $identity): void
+    public function extendRetention(GuestIdentity $identity): void
     {
         $identity->forceFill(['expires_at' => now()->addDays($this->ttlDays())])->save();
-
-        $raw = $this->rawToken($request);
-
-        if ($raw !== null) {
-            $this->queueCookies($request, $identity, $raw);
-        }
     }
 
     public function clearCookies(): void

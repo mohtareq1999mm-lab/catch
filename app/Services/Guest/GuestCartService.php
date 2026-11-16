@@ -10,7 +10,6 @@ use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
@@ -92,26 +91,26 @@ class GuestCartService
         }
     }
 
-    public function addItem(Request $request, GuestIdentity $identity, array $item): Cart
+    public function addItem(GuestIdentity $identity, array $item): Cart
     {
         $this->assertEligibleItem($item);
         $this->assertKnownOperation($item);
 
         $cart = $this->ensureCart($identity);
         $cart = $this->applyWithRetry($cart, $item, 'add');
-        $this->touch($request, $identity, $cart);
+        $this->touch($identity, $cart);
 
         return $cart;
     }
 
-    public function updateItem(Request $request, GuestIdentity $identity, array $item): Cart
+    public function updateItem(GuestIdentity $identity, array $item): Cart
     {
         $this->assertEligibleItem($item);
         $this->assertKnownOperation($item);
 
         $cart = $this->ensureCart($identity);
         $cart = $this->applyWithRetry($cart, $item, 'set');
-        $this->touch($request, $identity, $cart);
+        $this->touch($identity, $cart);
 
         return $cart;
     }
@@ -161,9 +160,9 @@ class GuestCartService
         return GuestIdentity::query()->findOrFail($cart->guest_id);
     }
 
-    public function removeItem(Request $request, GuestIdentity $identity, int $itemId): ?Cart
+    public function removeItem(GuestIdentity $identity, int $itemId): ?Cart
     {
-        return DB::transaction(function () use ($request, $identity, $itemId) {
+        return DB::transaction(function () use ($identity, $itemId) {
             $cart = Cart::query()
                 ->where('guest_id', $identity->id)
                 ->lockForUpdate()
@@ -190,7 +189,7 @@ class GuestCartService
                 'total_price' => round((float) CartItem::query()->where('cart_id', $cart->id)->sum('total_price'), 2),
             ]);
 
-            $this->touch($request, $identity, $cart);
+            $this->touch($identity, $cart);
 
             return $cart->load([
                 'items.product',
@@ -199,9 +198,9 @@ class GuestCartService
         });
     }
 
-    public function clear(Request $request, GuestIdentity $identity): ?Cart
+    public function clear(GuestIdentity $identity): ?Cart
     {
-        return DB::transaction(function () use ($request, $identity) {
+        return DB::transaction(function () use ($identity) {
             $cart = Cart::query()
                 ->where('guest_id', $identity->id)
                 ->lockForUpdate()
@@ -212,7 +211,7 @@ class GuestCartService
             }
 
             $this->cartInventoryService->releaseCart($cart, true);
-            $this->touch($request, $identity, $cart->refresh());
+            $this->touch($identity, $cart->refresh());
 
             return $cart->load([
                 'items.product',
@@ -222,10 +221,10 @@ class GuestCartService
     }
 
     /**
-     * Genuine mutation: extend guest cart retention + credential expiry and
-     * refresh the cookie exactly once per successful mutation.
+     * Genuine mutation: extend guest cart retention + credential expiry. The
+     * cookie transport is re-queued once at the HTTP seam, not here.
      */
-    private function touch(Request $request, GuestIdentity $identity, Cart $cart): void
+    private function touch(GuestIdentity $identity, Cart $cart): void
     {
         $expiresAt = now()->addDays($this->ttlDays());
 
@@ -234,7 +233,7 @@ class GuestCartService
             'status' => 'active',
         ])->save();
 
-        $this->identityService->extend($request, $identity);
+        $this->identityService->extendRetention($identity);
     }
 
     /**

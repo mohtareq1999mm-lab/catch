@@ -61,7 +61,7 @@ class ImportProductImagesJob implements ShouldQueue
             $newErrors = $service->getImageErrors();
             if (!empty($newErrors)) {
                 $merged = array_merge($existing, $newErrors);
-                $import->update(['errors' => array_slice($merged, 0, 2000)]);
+                $import->update(['errors' => array_slice($merged, 0, \Marvel\Services\Import\RunOutcome::ERROR_CAP)]);
             }
         } catch (Throwable $e) {
             report($e);

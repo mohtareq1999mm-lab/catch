@@ -5,10 +5,14 @@ namespace Tests\Unit\Guest;
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\Models\GuestIdentity;
+use App\Services\Guest\GuestCartEligibility;
 use App\Services\Guest\GuestCartService;
 use App\Services\Guest\GuestIdentityService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Marvel\Database\Models\Cart;
+use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 use Marvel\Enums\ItemType;
@@ -69,7 +73,7 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         ], $item);
 
         try {
-            $this->cartService->addItem(Request::create('/x', 'POST'), $this->guest(), $item);
+            $this->cartService->addItem($this->guest(), $item);
             $this->fail('Expected the item to be rejected with reason ' . $reason->value);
         } catch (GuestCartRejectionException $e) {
             $this->assertSame($reason, $e->reason());
@@ -142,7 +146,6 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $variant = $this->variant($product, ['stock_quantity' => 0]);
 
         $cart = $this->cartService->addItem(
-            Request::create('/x', 'POST'),
             $this->guest(),
             [
                 'product_id' => $product->id,
@@ -207,7 +210,6 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $product = $this->makeProduct(['stock_quantity' => 0]);
 
         $cart = $this->cartService->addItem(
-            Request::create('/x', 'POST'),
             $this->guest(),
             ['product_id' => $product->id, 'quantity' => 3, 'shipping_method' => 'scheduled']
         );
@@ -221,7 +223,6 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $variant = $this->variant($product, ['stock_quantity' => 4, 'reserved_quantity' => 1]);
 
         $cart = $this->cartService->addItem(
-            Request::create('/x', 'POST'),
             $this->guest(),
             [
                 'product_id' => $product->id,
@@ -232,5 +233,45 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         );
 
         $this->assertSame(3, (int) $cart->items()->first()->quantity);
+    }
+
+    public function test_evaluate_cart_uses_a_constant_number_of_queries(): void
+    {
+        $guest = $this->guest();
+        $cart = $this->cartService->ensureCart($guest);
+
+        $simple = $this->makeProduct(['stock_quantity' => 10]);
+        $variable = $this->variableProduct(['stock_quantity' => 10]);
+        $variant = $this->variant($variable, ['stock_quantity' => 5]);
+
+        foreach ([[$simple, null], [$variable, $variant], [$simple, null]] as [$product, $lineVariant]) {
+            CartItem::create([
+                'cart_id' => $cart->id,
+                'product_id' => $product->id,
+                'product_variant_id' => $lineVariant?->id,
+                'quantity' => 1,
+                'price' => 100,
+                'total_price' => 100,
+                'shipping_method' => 'SCHEDULED',
+            ]);
+        }
+
+        $cart->load('items');
+
+        DB::enableQueryLog();
+        $verdicts = app(GuestCartEligibility::class)->evaluateCart($cart);
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertCount(3, $verdicts);
+        $this->assertTrue(
+            collect($verdicts)->every(fn ($v) => $v->allowed),
+            'A three-line in-stock cart must be fully allowed'
+        );
+        $this->assertSame(
+            2,
+            $queries,
+            'evaluateCart must use exactly the two batched lookups, not two queries per line'
+        );
     }
 }

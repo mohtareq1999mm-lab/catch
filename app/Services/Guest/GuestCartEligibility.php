@@ -6,6 +6,7 @@ use App\Contexts\ChannelContext;
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
 use App\ValueObjects\GuestEligibilityVerdict;
+use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 use Marvel\Enums\ItemType;
@@ -56,6 +57,77 @@ class GuestCartEligibility
             return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE);
         }
 
+        $variant = null;
+
+        if (!empty($variantId)) {
+            $variant = ProductVariant::query()->whereKey($variantId)->first();
+        }
+
+        return $this->evaluateLoaded($product, $variantId, $variant, $quantity, $shippingMethod);
+    }
+
+    /**
+     * Verdicts for a whole cart with a CONSTANT number of queries: one
+     * batched product lookup inside the active/channel scopes and one
+     * batched variant lookup, then per-line in-memory evaluation.
+     *
+     * @return array<int, GuestEligibilityVerdict> keyed by cart item id
+     */
+    public function evaluateCart(Cart $cart): array
+    {
+        $items = $cart->items;
+
+        if ($items->isEmpty()) {
+            return [];
+        }
+
+        $products = Product::query()->active()
+            ->whereIn('id', $items->pluck('product_id')->filter()->unique())
+            ->get()
+            ->keyBy('id');
+
+        $variantIds = $items->pluck('product_variant_id')->filter()->unique();
+        $variants = $variantIds->isEmpty()
+            ? collect()
+            : ProductVariant::query()->whereIn('id', $variantIds)->get()->keyBy('id');
+
+        $verdicts = [];
+
+        foreach ($items as $item) {
+            $product = $products->get($item->product_id);
+
+            if (!$product) {
+                $verdicts[$item->id] = GuestEligibilityVerdict::rejected(
+                    GuestCartRejectionReason::PRODUCT_UNAVAILABLE
+                );
+                continue;
+            }
+
+            $variantId = $item->product_variant_id ? (int) $item->product_variant_id : null;
+
+            $verdicts[$item->id] = $this->evaluateLoaded(
+                $product,
+                $variantId,
+                $variantId ? $variants->get($variantId) : null,
+                (int) $item->quantity,
+                (string) $item->shipping_method
+            );
+        }
+
+        return $verdicts;
+    }
+
+    /**
+     * One line against the already-resolved product/variant: the caller owns
+     * resolution, this method owns the rules.
+     */
+    private function evaluateLoaded(
+        Product $product,
+        ?int $variantId,
+        ?ProductVariant $variant,
+        int $quantity,
+        string $shippingMethod
+    ): GuestEligibilityVerdict {
         if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
             return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED);
         }
@@ -92,12 +164,7 @@ class GuestCartEligibility
             return GuestEligibilityVerdict::allowed($productAvailable);
         }
 
-        $variant = ProductVariant::query()
-            ->whereKey($variantId)
-            ->where('product_id', $product->id)
-            ->first();
-
-        if (!$variant) {
+        if (!$variant || (int) $variant->product_id !== (int) $product->id) {
             return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::VARIANT_UNAVAILABLE);
         }
 

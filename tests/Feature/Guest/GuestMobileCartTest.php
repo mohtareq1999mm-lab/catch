@@ -77,7 +77,9 @@ class GuestMobileCartTest extends GuestCheckoutTestCase
 
         // Add twice: default operation increments the same line.
         $this->addItem($token, ['product_id' => $this->product->id, 'quantity' => 1])->assertCreated();
-        $this->addItem($token, ['product_id' => $this->product->id, 'quantity' => 1])->assertCreated();
+        $this->addItem($token, ['product_id' => $this->product->id, 'quantity' => 1])
+            ->assertCreated()
+            ->assertHeaderMissing('Set-Cookie');
 
         $this->assertSame(2, (int) $this->currentGuestItem()->quantity);
 
