@@ -21,6 +21,7 @@ class GuestIdentity extends Model
 
     protected $fillable = [
         'token_hash',
+        'mobile_token_hash',
         'expires_at',
         'revoked_at',
     ];
@@ -32,6 +33,7 @@ class GuestIdentity extends Model
 
     protected $hidden = [
         'token_hash',
+        'mobile_token_hash',
     ];
 
     public function carts(): HasMany
