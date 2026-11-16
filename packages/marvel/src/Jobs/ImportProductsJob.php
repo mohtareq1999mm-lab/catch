@@ -442,7 +442,7 @@ class ImportProductsJob implements ShouldQueue
     protected function failImportWithSystemError(Import $import, string $message, string $batchUuid): void
     {
         $import->update([
-            'status' => 'failed',
+            'status' => ImportStatus::FAILED,
             'errors' => [[
                 'sheet' => 'system',
                 'row' => 0,

@@ -26,13 +26,18 @@ final class ImportReport
     /** @var array<int, array<string, mixed>> */
     private array $images = [];
 
-    /** @var array<int, array<string, mixed>> */
-    private array $taxonomy = [];
+    /**
+     * Unknown slug -> affected product SKUs, per sheet. Kept as a map so every
+     * call to all() is idempotent and later chunks merge into the same entry.
+     *
+     * @var array<string, array{label: string, slugs: array<string, array<string, true>>}>
+     */
+    private array $unknownSlugs = [];
 
     /**
-     * @var array<string, array{label: string, slugs: array<string, array<int, string>>, skus: array<string, true>}>
+     * @var array<string, array{label: string, skus: array<string, true>}>
      */
-    private array $pendingTaxonomy = [];
+    private array $missingTaxonomyProducts = [];
 
     private int $inStockInconsistencies = 0;
 
@@ -61,17 +66,17 @@ final class ImportReport
      */
     public function noteUnknownTaxonomySlugs(string $sheet, string $label, array $slugs, string $productSku): void
     {
-        $this->pendingTaxonomy[$sheet] ??= ['label' => $label, 'slugs' => [], 'skus' => []];
+        $this->unknownSlugs[$sheet] ??= ['label' => $label, 'slugs' => []];
 
         foreach ($slugs as $slug) {
-            $this->pendingTaxonomy[$sheet]['slugs'][$slug][] = $productSku;
+            $this->unknownSlugs[$sheet]['slugs'][$slug][$productSku] = true;
         }
     }
 
     public function noteMissingTaxonomyProduct(string $sheet, string $label, string $sku): void
     {
-        $this->pendingTaxonomy[$sheet] ??= ['label' => $label, 'slugs' => [], 'skus' => []];
-        $this->pendingTaxonomy[$sheet]['skus'][$sku] = true;
+        $this->missingTaxonomyProducts[$sheet] ??= ['label' => $label, 'skus' => []];
+        $this->missingTaxonomyProducts[$sheet]['skus'][$sku] = true;
     }
 
     public function noteInStockInconsistency(): void
@@ -112,36 +117,49 @@ final class ImportReport
      */
     public function all(): array
     {
-        $this->materializeTaxonomyErrors();
-
         $warnings = $this->inStockWarning();
         $warnings = $warnings === null ? [] : [$warnings];
 
-        return array_merge($warnings, $this->productRows, $this->barcodes, $this->variants, $this->images, $this->taxonomy);
+        return array_merge(
+            $warnings,
+            $this->productRows,
+            $this->barcodes,
+            $this->variants,
+            $this->images,
+            $this->taxonomyErrors()
+        );
     }
 
-    private function materializeTaxonomyErrors(): void
+    /**
+     * Built from the maps on every call, so repeated calls are idempotent and
+     * later chunks merge into the same per-slug entry.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function taxonomyErrors(): array
     {
-        foreach ($this->pendingTaxonomy as $sheet => $issue) {
+        $errors = [];
+
+        foreach ($this->unknownSlugs as $sheet => $issue) {
             foreach ($issue['slugs'] as $slug => $skus) {
-                $this->taxonomy[] = $this->unknownSlugError($sheet, $issue['label'], $slug, $skus);
-            }
-
-            $missingProducts = array_keys($issue['skus']);
-
-            if ($missingProducts !== []) {
-                sort($missingProducts);
-                $this->taxonomy[] = $this->error($sheet, 0, '', __(
-                    'message.IMPORT.PRODUCT.MISSING_TAXONOMY_PRODUCTS',
-                    [
-                        'sku_count' => count($missingProducts),
-                        'sku_list' => $this->preview($missingProducts),
-                    ]
-                ));
+                $errors[] = $this->unknownSlugError($sheet, $issue['label'], $slug, array_keys($skus));
             }
         }
 
-        $this->pendingTaxonomy = [];
+        foreach ($this->missingTaxonomyProducts as $sheet => $issue) {
+            $skus = array_keys($issue['skus']);
+            sort($skus);
+
+            $errors[] = $this->error($sheet, 0, '', __(
+                'message.IMPORT.PRODUCT.MISSING_TAXONOMY_PRODUCTS',
+                [
+                    'sku_count' => count($skus),
+                    'sku_list' => $this->preview($skus),
+                ]
+            ));
+        }
+
+        return $errors;
     }
 
     /**
@@ -200,6 +218,6 @@ final class ImportReport
         $shown = array_slice($values, 0, self::PREVIEW_LIMIT);
         $hidden = count($values) - count($shown);
 
-        return implode(', ', $shown) . ($hidden > 0 ? " … (+{$hidden} more)" : '');
+        return implode(', ', $shown) . ($hidden > 0 ? ' ' . __('message.IMPORT.PRODUCT.MORE_ITEMS', ['count' => $hidden]) : '');
     }
 }

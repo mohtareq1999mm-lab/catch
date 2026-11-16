@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\ImportExport;
 
+use App\Contexts\ChannelContext;
+use App\Enums\Channel;
 use App\Support\ProductTypeSchema;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +43,13 @@ class ProductTypeIntegrityTest extends TestCase
         app()->setLocale('en');
     }
 
+    private function skipOnLiveDatabase(): void
+    {
+        if (DB::getDatabaseName() === 'catch') {
+            $this->markTestSkipped('Refusing to ALTER the live catch schema; run with DB_DATABASE=catch_verify.');
+        }
+    }
+
     private function makeAdmin(): User
     {
         Permission::findOrCreate(Perm::IMPORT_PRODUCT, 'api');
@@ -61,7 +70,7 @@ class ProductTypeIntegrityTest extends TestCase
         return $user;
     }
 
-    private function createWorkbook(array $productRows, array $categoryRows = []): string
+    private function createWorkbook(array $productRows, array $categoryRows = [], array $brandRows = []): string
     {
         $book = new Spreadsheet();
         $sheet = $book->getActiveSheet()->setTitle('products');
@@ -90,7 +99,14 @@ class ProductTypeIntegrityTest extends TestCase
             $categoryRow++;
         }
 
-        $book->createSheet()->setTitle('brands')->fromArray(['product_sku', 'brand_slug'], null, 'A1');
+        $brands = $book->createSheet()->setTitle('brands');
+        $brands->fromArray(['product_sku', 'brand_slug'], null, 'A1');
+        $brandRow = 2;
+        foreach ($brandRows as $row) {
+            $brands->fromArray([$row['product_sku'] ?? '', $row['brand_slug'] ?? ''], null, "A{$brandRow}");
+            $brandRow++;
+        }
+
         $book->createSheet()->setTitle('flash_sales')->fromArray(['product_sku', 'flash_sale_slug'], null, 'A1');
         $book->createSheet()->setTitle('sliders')->fromArray(['product_sku', 'slider_slug'], null, 'A1');
         $book->createSheet()->setTitle('tags')->fromArray(['product_sku', 'tag_slug'], null, 'A1');
@@ -152,6 +168,9 @@ class ProductTypeIntegrityTest extends TestCase
             [
                 ['product_sku' => 'PT-CAT', 'category_slug' => $category->slug],
                 ['product_sku' => 'PT-CAT', 'category_slug' => 'missing-category'],
+            ],
+            [
+                ['product_sku' => 'PT-CAT', 'brand_slug' => 'missing-brand'],
             ]
         );
 
@@ -160,8 +179,12 @@ class ProductTypeIntegrityTest extends TestCase
         $this->assertSame('completed', $import->status);
         $this->assertSame(0, $import->failed_rows);
         $this->assertSame([$category->id], Product::where('sku', 'PT-CAT')->firstOrFail()->categories()->pluck('categories.id')->all());
-        $this->assertStringContainsString('missing-category', collect($import->errors)->pluck('error_message')->implode(' '));
-        $this->assertStringContainsString('Unknown category slug', collect($import->errors)->pluck('error_message')->implode(' '));
+
+        $messages = collect($import->errors)->pluck('error_message')->implode(' ');
+        $this->assertStringContainsString('missing-category', $messages);
+        $this->assertStringContainsString('Unknown category slug', $messages);
+        $this->assertStringContainsString('missing-brand', $messages);
+        $this->assertStringContainsString('Unknown brand slug', $messages);
     }
 
     public function test_in_stock_false_with_positive_quantity_is_imported_as_written_and_reported(): void
@@ -202,6 +225,8 @@ class ProductTypeIntegrityTest extends TestCase
 
     public function test_import_fails_fast_when_the_enum_cannot_store_a_required_value(): void
     {
+        $this->skipOnLiveDatabase();
+
         Storage::fake('public');
         $user = $this->makeAdmin();
         DB::statement("ALTER TABLE `products` MODIFY `product_type` ENUM('simple') NOT NULL DEFAULT 'simple'");
@@ -251,6 +276,75 @@ class ProductTypeIntegrityTest extends TestCase
         $this->assertStringContainsString('in_stock=0 while quantity>0', collect($import->errors)->pluck('error_message')->implode(' '));
     }
 
+    public function test_styled_blank_row_does_not_shift_the_reported_excel_row(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+
+        $tmp = $this->createWorkbook([
+            ['sku' => 'PT-ROW-2', 'name_en' => 'Row 2', 'price' => 10, 'quantity' => 5, 'product_type' => 'simple', 'status' => 1, 'in_stock' => 1],
+            [],
+            ['sku' => 'PT-ROW-4', 'name_en' => 'Row 4', 'price' => 10, 'quantity' => 5, 'product_type' => 'simple', 'item_type' => 'INVALID', 'status' => 1, 'in_stock' => 1],
+        ]);
+
+        // A ward with no cells is absent from the row iterator; a styled blank
+        // keeps the physical row while remaining empty for the importer.
+        $book = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp);
+        $book->getSheetByName('products')->getStyle('A3')->getFont()->setBold(true);
+        (new Xlsx($book))->save($tmp);
+        $book->disconnectWorksheets();
+
+        $import = $this->runImport($user, $tmp, 3);
+
+        $this->assertSame('completed_with_errors', $import->status);
+        $this->assertEqualsCanonicalizing([4], array_column($import->errors, 'row'));
+    }
+
+    public function test_numeric_boolean_values_other_than_one_or_zero_fail_the_row(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+
+        $tmp = $this->createWorkbook([
+            ['sku' => 'PT-BOOL-2', 'name_en' => 'Bool 2', 'price' => 10, 'quantity' => 5, 'product_type' => 'simple', 'status' => 1, 'in_stock' => 2],
+        ]);
+
+        $import = $this->runImport($user, $tmp, 1);
+
+        $this->assertSame('failed', $import->status);
+        $this->assertSame(1, $import->failed_rows);
+        $this->assertStringContainsString('Invalid boolean value', collect($import->errors)->pluck('error_message')->implode(' '));
+    }
+
+    public function test_persisted_product_type_guard_bypasses_the_fast_shipping_scope(): void
+    {
+        $service = new class extends ProductImportService {
+            public function guard(Product $product, ?string $expected): void
+            {
+                $this->assertPersistedProductType($product, $expected);
+            }
+        };
+
+        $product = Product::create([
+            'sku' => 'PT-SCOPE',
+            'name' => ['en' => 'Scope'],
+            'slug' => 'pt-scope-' . uniqid(),
+            'price' => 10,
+            'quantity' => 5,
+            'stock_quantity' => 5,
+            'product_type' => 'simple',
+            'status' => true,
+            'in_stock' => true,
+            'is_fast_shipping_available' => false,
+        ]);
+
+        app(ChannelContext::class)->setChannel(Channel::FAST_SHIPPING);
+
+        $service->guard($product->fresh(), 'simple');
+
+        $this->addToAssertionCount(1);
+    }
+
     public function test_persisted_product_type_guard_rejects_silently_empty_enum_value(): void
     {
         $service = new class extends ProductImportService {
@@ -284,6 +378,8 @@ class ProductTypeIntegrityTest extends TestCase
 
     public function test_schema_repair_widens_a_narrow_enum(): void
     {
+        $this->skipOnLiveDatabase();
+
         DB::statement("ALTER TABLE `products` MODIFY `product_type` ENUM('simple') NOT NULL DEFAULT 'simple'");
 
         try {

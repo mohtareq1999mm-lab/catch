@@ -15,8 +15,9 @@ use Marvel\Services\Import\ProductImportService;
  * The offset is owned here because chunks restart their index at 0; without it
  * error rows in chunk 2+ point at the wrong Excel row. Empty rows are NOT
  * filtered by the engine (SkipsEmptyRows is deliberately absent): filtering
- * before collection() would shrink the chunk count and shift every later row.
- * Subclasses skip empties themselves while keeping the physical index.
+ * before collection() would shrink the rows delivered per chunk and shift the
+ * accumulated offset. Subclasses skip empties themselves while keeping the
+ * physical index.
  */
 abstract class ChunkedSheetImport implements ToCollection, WithTitle, WithHeadingRow, WithChunkReading
 {

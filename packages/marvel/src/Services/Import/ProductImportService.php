@@ -82,16 +82,16 @@ class ProductImportService
     protected const SIGNAL_DIR = 'imports';
 
     /**
-     * Taxonomy sheet contract: display label, Eloquent relation, lookup model.
+     * Taxonomy sheet contract: translated label key, Eloquent relation, lookup model.
      *
-     * @var array<string, array{label: string, relation: string, model: class-string<\Illuminate\Database\Eloquent\Model>}>
+     * @var array<string, array{label_key: string, relation: string, model: class-string<\Illuminate\Database\Eloquent\Model>}>
      */
     private const TAXONOMY_SHEETS = [
-        'categories' => ['label' => 'category', 'relation' => 'categories', 'model' => Category::class],
-        'brands' => ['label' => 'brand', 'relation' => 'brands', 'model' => Brand::class],
-        'flash_sales' => ['label' => 'flash sale', 'relation' => 'flash_sales', 'model' => FlashSale::class],
-        'sliders' => ['label' => 'slider', 'relation' => 'sliders', 'model' => Slider::class],
-        'tags' => ['label' => 'tag', 'relation' => 'tags', 'model' => Tag::class],
+        'categories' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.CATEGORY', 'relation' => 'categories', 'model' => Category::class],
+        'brands' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.BRAND', 'relation' => 'brands', 'model' => Brand::class],
+        'flash_sales' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.FLASH_SALE', 'relation' => 'flash_sales', 'model' => FlashSale::class],
+        'sliders' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.SLIDER', 'relation' => 'sliders', 'model' => Slider::class],
+        'tags' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.TAG', 'relation' => 'tags', 'model' => Tag::class],
     ];
 
     public function __construct(?int $importId = null, ?ProductPricingService $pricingService = null)
@@ -655,11 +655,11 @@ class ProductImportService
 
             $this->keptVariantIds[$product->id][] = $variant->id;
 
-            DB::commit();
-
             $product->product_type = ProductType::VARIABLE;
             $product->saveQuietly();
             $this->assertPersistedProductType($product, ProductType::VARIABLE);
+
+            DB::commit();
 
             $this->variantSuccessCount++;
         } catch (Exception $e) {
@@ -882,7 +882,8 @@ class ProductImportService
     private function syncTaxonomy(string $sheet, string $productSku, array $slugs): void
     {
         $config = self::TAXONOMY_SHEETS[$sheet];
-        $product = $this->findProductForTaxonomy($productSku, $sheet, $config['label']);
+        $label = __($config['label_key']);
+        $product = $this->findProductForTaxonomy($productSku, $sheet, $label);
 
         if (!$product) {
             return;
@@ -915,7 +916,7 @@ class ProductImportService
         $missing = array_values(array_udiff($slugs, $idsBySlug->keys()->all(), 'strcasecmp'));
 
         if ($missing !== []) {
-            $this->report->noteUnknownTaxonomySlugs($sheet, $config['label'], $missing, $productSku);
+            $this->report->noteUnknownTaxonomySlugs($sheet, __($config['label_key']), $missing, $productSku);
         }
 
         return $idsBySlug->values()->all();
@@ -1160,7 +1161,9 @@ class ProductImportService
             return;
         }
 
-        $stored = Product::whereKey($product->getKey())->value('product_type');
+        // Read the physical column, bypassing model scopes: the guard exists to
+        // prove what the database stored, not what the current channel can see.
+        $stored = DB::table('products')->where('id', $product->getKey())->value('product_type');
         $columnContract = $this->productTypeColumnContract();
 
         if ($expected !== null && $stored !== $expected) {
@@ -1250,8 +1253,17 @@ class ProductImportService
         if ($value === null) {
             return false;
         }
-        if (is_numeric($value)) {
-            return (int) $value === 1;
+        if (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))) {
+            $numeric = (float) $value;
+            if ($numeric === 1.0) {
+                return true;
+            }
+            if ($numeric === 0.0) {
+                return false;
+            }
+            throw new \InvalidArgumentException(__('message.IMPORT.PRODUCT.INVALID_BOOLEAN', [
+                'given_value' => $value,
+            ]));
         }
         if (is_string($value)) {
             $normalized = strtolower(trim($value));
