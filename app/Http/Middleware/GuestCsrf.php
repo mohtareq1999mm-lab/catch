@@ -39,6 +39,13 @@ class GuestCsrf
             return $next($request);
         }
 
+        // Bearer-authenticated requests have no ambient cookie credential to
+        // ride, so double-submit CSRF does not apply (D1: mobile transport).
+        // Cookie-authenticated requests keep the strict check below.
+        if ($this->identities->authMode($request) === GuestIdentityService::MODE_BEARER) {
+            return $next($request);
+        }
+
         $cookie = $request->cookie(GuestIdentityService::csrfCookieName());
         $header = $request->header('X-CSRF-Token');
 
