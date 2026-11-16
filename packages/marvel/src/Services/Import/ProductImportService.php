@@ -3,6 +3,7 @@
 namespace Marvel\Services\Import;
 
 use App\Events\FileOperationEvent;
+use App\Support\OperationHeartbeat;
 use App\Support\ProductTypeSchema;
 use App\Traits\BroadcastsFileOperationProgress;
 use Carbon\Carbon;
@@ -81,8 +82,6 @@ class ProductImportService
 
     protected const FLUSH_THRESHOLD = 10;
 
-    protected const SIGNAL_DIR = 'imports';
-
     /**
      * Taxonomy sheet contract: translated label key, Eloquent relation, lookup model.
      *
@@ -105,65 +104,38 @@ class ProductImportService
         $now = microtime(true);
         $this->startedAt = $now;
         $this->lastTickTime = $now;
-        $this->ensureSignalDir();
     }
 
-    protected function ensureSignalDir(): void
+    protected function heartbeat(): OperationHeartbeat
     {
-        $dir = storage_path('app/' . self::SIGNAL_DIR);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-    }
-
-    protected function signalPath(string $type): ?string
-    {
-        if ($this->importId === null) {
-            return null;
-        }
-        return storage_path('app/' . self::SIGNAL_DIR) . '/' . $type . '_' . $this->importId . '.json';
+        return OperationHeartbeat::for($this->importId ?? 0);
     }
 
     protected function writeSignal(string $type, array $data = []): void
     {
-        $path = $this->signalPath($type);
-        if ($path === null) {
+        if ($this->importId === null) {
             return;
         }
-        try {
-            file_put_contents($path, json_encode($data));
-        } catch (\Throwable $e) {
-            report($e);
-        }
+
+        $this->heartbeat()->write($type, $data);
     }
 
     protected function readSignal(string $type): ?array
     {
-        $path = $this->signalPath($type);
-        if ($path === null || !file_exists($path)) {
+        if ($this->importId === null) {
             return null;
         }
-        try {
-            $contents = file_get_contents($path);
-            return json_decode($contents, true) ?: null;
-        } catch (\Throwable $e) {
-            return null;
-        }
+
+        return $this->heartbeat()->read($type);
     }
 
     protected function removeSignal(string $type): void
     {
-        $path = $this->signalPath($type);
-        if ($path === null) {
+        if ($this->importId === null) {
             return;
         }
-        try {
-            if (file_exists($path)) {
-                @unlink($path);
-            }
-        } catch (\Throwable $e) {
-            report($e);
-        }
+
+        $this->heartbeat()->remove($type);
     }
 
     public function getFailedRows(): array
@@ -389,7 +361,7 @@ class ProductImportService
             return false;
         }
 
-        return file_exists(storage_path('app/' . self::SIGNAL_DIR) . '/cancel_' . $this->importId . '.json');
+        return $this->heartbeat()->cancelRequested();
     }
 
     public function rollbackCreatedData(): void

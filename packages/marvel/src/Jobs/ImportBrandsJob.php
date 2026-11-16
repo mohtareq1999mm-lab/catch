@@ -4,6 +4,7 @@ namespace Marvel\Jobs;
 
 use App\Enums\FrontendResource;
 use App\Events\FileOperationEvent;
+use App\Support\OperationHeartbeat;
 use App\Services\General\HomeService;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Bus\Queueable;
@@ -40,21 +41,19 @@ class ImportBrandsJob implements ShouldQueue
         $this->onQueue(config('queue.queues.medium'));
     }
 
-    protected function removeSignalFile(string $signalType): void
+    protected function heartbeat(): OperationHeartbeat
     {
-        $path = storage_path("app/imports/{$signalType}_{$this->importId}.json");
+        return OperationHeartbeat::for($this->importId);
+    }
 
-        if (file_exists($path)) {
-            @unlink($path);
-        }
+    protected function removeSignalFile(string $type): void
+    {
+        $this->heartbeat()->remove($type);
     }
 
     protected function cancelSignalFileExists(): bool
     {
-        $path = storage_path("app/imports/cancel_{$this->importId}.json");
-        clearstatcache(true, $path);
-
-        return file_exists($path);
+        return $this->heartbeat()->cancelRequested();
     }
 
     protected function cleanSignals(): void

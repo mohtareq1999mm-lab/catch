@@ -3,6 +3,7 @@
 namespace Marvel\Jobs;
 
 use App\Events\FileOperationEvent;
+use App\Support\OperationHeartbeat;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -34,43 +35,19 @@ class BulkDeleteCategoriesJob implements ShouldQueue
         $this->onQueue(config('queue.queues.medium'));
     }
 
-    protected function signalPath(string $type): ?string
+    protected function heartbeat(): OperationHeartbeat
     {
-        return storage_path("app/imports/{$type}_{$this->importId}.json");
+        return OperationHeartbeat::for($this->importId);
     }
 
     protected function writeSignal(string $type, array $data): void
     {
-        $path = $this->signalPath($type);
-
-        if ($path === null) {
-            return;
-        }
-
-        $dir = dirname($path);
-
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-
-        try {
-            file_put_contents($path, json_encode($data), LOCK_EX);
-        } catch (Throwable $e) {
-            report($e);
-        }
+        $this->heartbeat()->write($type, $data);
     }
 
     protected function isCancelled(): bool
     {
-        $path = $this->signalPath('cancel');
-
-        if ($path === null) {
-            return false;
-        }
-
-        clearstatcache(true, $path);
-
-        return file_exists($path);
+        return $this->heartbeat()->cancelRequested();
     }
 
     public function handle(): void
@@ -221,19 +198,10 @@ class BulkDeleteCategoriesJob implements ShouldQueue
 
     protected function loadRequestedIds(Import $import): array
     {
-        $path = $this->signalPath('ids');
+        $data = $this->heartbeat()->read('ids');
 
-        if ($path === null || !file_exists($path)) {
-            return [];
-        }
-
-        try {
-            $data = json_decode((string) file_get_contents($path), true);
-
-            if (is_array($data) && isset($data['ids']) && is_array($data['ids'])) {
-                return array_values(array_filter(array_map('intval', $data['ids'])));
-            }
-        } catch (Throwable $e) {
+        if (is_array($data) && isset($data['ids']) && is_array($data['ids'])) {
+            return array_values(array_filter(array_map('intval', $data['ids'])));
         }
 
         return [];

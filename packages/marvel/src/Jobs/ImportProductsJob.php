@@ -13,6 +13,7 @@ use Illuminate\Support\Str;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\ImportStatus;
 use Marvel\Exceptions\ImportCancelledException;
+use App\Support\OperationHeartbeat;
 use Marvel\Imports\ImagesSheetReader;
 use Marvel\Imports\ProductsImport;
 use Marvel\Workbook\ProductWorkbookSchema;
@@ -45,20 +46,19 @@ class ImportProductsJob implements ShouldQueue
         $this->onQueue(config('queue.queues.medium'));
     }
 
+    protected function heartbeat(): OperationHeartbeat
+    {
+        return OperationHeartbeat::for($this->importId);
+    }
+
     protected function removeSignalFile(string $type): void
     {
-        $path = storage_path("app/imports/{$type}_{$this->importId}.json");
-        clearstatcache(true, $path);
-        if (file_exists($path)) {
-            @unlink($path);
-        }
+        $this->heartbeat()->remove($type);
     }
 
     protected function cancelSignalFileExists(): bool
     {
-        $path = storage_path("app/imports/cancel_{$this->importId}.json");
-        clearstatcache(true, $path);
-        return file_exists($path);
+        return $this->heartbeat()->cancelRequested();
     }
 
     protected function cleanSignals(): void

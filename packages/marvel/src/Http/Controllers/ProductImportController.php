@@ -4,6 +4,7 @@ namespace Marvel\Http\Controllers;
 
 use App\Events\FileOperationEvent;
 use App\Http\Controllers\Controller;
+use App\Support\OperationHeartbeat;
 use App\Traits\BroadcastsFileOperationProgress;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
@@ -28,39 +29,9 @@ class ProductImportController extends Controller
         $this->middleware('permission:' . Permission::IMPORT_PRODUCT);
     }
 
-    protected function readSignalFile(int $importId, string $signalType): ?array
+    protected function heartbeat(int $operationId): OperationHeartbeat
     {
-        $path = storage_path("app/imports/{$signalType}_{$importId}.json");
-        clearstatcache(true, $path);
-        if (!file_exists($path)) {
-            return null;
-        }
-        try {
-            $contents = file_get_contents($path);
-            return json_decode($contents, true) ?: null;
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
-
-    protected function signalFileExists(int $importId, string $signalType): bool
-    {
-        $path = storage_path("app/imports/{$signalType}_{$importId}.json");
-        clearstatcache(true, $path);
-        return file_exists($path);
-    }
-
-    protected function writeSignalFile(int $importId, string $signalType, array $data = []): void
-    {
-        $dir = storage_path('app/imports');
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        try {
-            file_put_contents($dir . "/{$signalType}_{$importId}.json", json_encode($data), LOCK_EX);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        return OperationHeartbeat::for($operationId);
     }
 
     public function import(ProductImportRequest $request): JsonResponse
@@ -136,7 +107,7 @@ class ProductImportController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        $this->writeSignalFile($import->id, 'progress', [
+        $this->heartbeat($import->id)->write('progress', [
             'processed_rows' => 0,
             'success_rows' => 0,
             'failed_rows' => 0,
@@ -217,8 +188,8 @@ class ProductImportController extends Controller
 
         $this->authorize('view', $import);
 
-        $cancelPending = $this->signalFileExists($id, 'cancel');
-        $progressData = $this->readSignalFile($id, 'progress');
+        $cancelPending = $this->heartbeat($id)->cancelRequested();
+        $progressData = $this->heartbeat($id)->read('progress');
 
         $effectiveStatus = $cancelPending ? 'cancelling' : $import->status;
 
@@ -350,7 +321,7 @@ class ProductImportController extends Controller
             return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
         }
 
-        $this->writeSignalFile($import->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
+        $this->heartbeat($import->id)->write('cancel', ['cancelled_at' => now()->toIso8601String()]);
 
         // Emit cancelling lifecycle event before terminal
         $this->broadcastFileOperationCancelling(

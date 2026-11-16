@@ -4,6 +4,7 @@ namespace Marvel\Services\Import;
 
 use App\Events\FileOperationEvent;
 use App\Services\General\CategoryHierarchyService;
+use App\Support\OperationHeartbeat;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
@@ -948,47 +949,27 @@ class CategoryImportService
         return $this->successCount;
     }
 
-    protected function signalPath(string $type): ?string
+    protected function heartbeat(): OperationHeartbeat
     {
-        if ($this->importId === null) {
-            return null;
-        }
-
-        return storage_path("app/imports/{$type}_{$this->importId}.json");
+        return OperationHeartbeat::for($this->importId ?? 0);
     }
 
     protected function writeSignal(string $type, array $data): void
     {
-        $path = $this->signalPath($type);
-
-        if ($path === null) {
+        if ($this->importId === null) {
             return;
         }
 
-        $dir = dirname($path);
-
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-
-        try {
-            file_put_contents($path, json_encode($data), LOCK_EX);
-        } catch (Throwable $e) {
-            report($e);
-        }
+        $this->heartbeat()->write($type, $data);
     }
 
     protected function isCancelled(): bool
     {
-        $path = $this->signalPath('cancel');
-
-        if ($path === null) {
+        if ($this->importId === null) {
             return false;
         }
 
-        clearstatcache(true, $path);
-
-        return file_exists($path);
+        return $this->heartbeat()->cancelRequested();
     }
 
     public function writeExplicitProgress(float $progress): void

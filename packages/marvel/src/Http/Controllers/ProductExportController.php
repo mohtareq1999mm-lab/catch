@@ -4,6 +4,7 @@ namespace Marvel\Http\Controllers;
 
 use App\Events\FileOperationEvent;
 use App\Http\Controllers\Controller;
+use App\Support\OperationHeartbeat;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -27,38 +28,9 @@ class ProductExportController extends Controller
         $this->middleware('permission:' . Permission::EXPORT_PRODUCT);
     }
 
-    protected function readSignalFile(int $operationId, string $signalType): ?array
+    protected function heartbeat(int $operationId): OperationHeartbeat
     {
-        $path = storage_path("app/imports/{$signalType}_{$operationId}.json");
-        clearstatcache(true, $path);
-        if (!file_exists($path)) {
-            return null;
-        }
-        try {
-            return json_decode((string) file_get_contents($path), true) ?: null;
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
-
-    protected function signalFileExists(int $operationId, string $signalType): bool
-    {
-        $path = storage_path("app/imports/{$signalType}_{$operationId}.json");
-        clearstatcache(true, $path);
-        return file_exists($path);
-    }
-
-    protected function writeSignalFile(int $operationId, string $signalType, array $data = []): void
-    {
-        $dir = storage_path('app/imports');
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        try {
-            file_put_contents($dir . "/{$signalType}_{$operationId}.json", json_encode($data), LOCK_EX);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        return OperationHeartbeat::for($operationId);
     }
 
     public function export(\Illuminate\Http\Request $request): JsonResponse
@@ -138,7 +110,7 @@ class ProductExportController extends Controller
 
         $this->authorize('view', $exportOperation);
 
-        $cancelPending = $this->signalFileExists($id, 'cancel');
+        $cancelPending = $this->heartbeat($id)->cancelRequested();
         $effectiveStatus = $cancelPending ? 'cancelling' : $exportOperation->status;
         $isTerminal = in_array($exportOperation->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true);
 
@@ -208,7 +180,7 @@ class ProductExportController extends Controller
             return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
         }
 
-        $this->writeSignalFile($exportOperation->id, 'cancel', ['cancelled_at' => now()->toIso8601String()]);
+        $this->heartbeat($exportOperation->id)->write('cancel', ['cancelled_at' => now()->toIso8601String()]);
 
         $this->broadcastFileOperationCancelling(
             FileOperationEvent::PRODUCT_EXPORT_CANCELLING,

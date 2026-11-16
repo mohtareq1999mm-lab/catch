@@ -5,6 +5,7 @@ namespace Marvel\Http\Controllers;
 
 use App\Enums\FrontendResource;
 use App\Services\General\CategoryHierarchyService;
+use App\Support\OperationHeartbeat;
 use App\Traits\HasCache;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -290,49 +291,25 @@ class CategoryController extends CoreController
         ]);
     }
 
-    protected function bulkDeleteSignalPath(int $importId, string $type): string
+    protected function heartbeat(int $operationId): OperationHeartbeat
     {
-        return storage_path("app/imports/{$type}_{$importId}.json");
+        return OperationHeartbeat::for($operationId);
     }
 
     protected function bulkDeleteSignalExists(int $importId, string $type): bool
     {
-        $path = $this->bulkDeleteSignalPath($importId, $type);
-        clearstatcache(true, $path);
-
-        return file_exists($path);
+        return $this->heartbeat($importId)->exists($type);
     }
 
     protected function readBulkDeleteSignal(int $importId, string $type): ?array
     {
-        $path = $this->bulkDeleteSignalPath($importId, $type);
-        clearstatcache(true, $path);
-
-        if (!file_exists($path)) {
-            return null;
-        }
-
-        try {
-            return json_decode((string) file_get_contents($path), true) ?: null;
-        } catch (\Throwable $e) {
-            return null;
-        }
+        return $this->heartbeat($importId)->read($type);
     }
 
     protected function writeBulkDeleteIdsSignal(int $importId, ?array $ids, string $type = 'ids'): void
     {
-        $dir = storage_path('app/imports');
-
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-
         $data = $type === 'cancel' ? ['cancelled_at' => now()->toIso8601String()] : ['ids' => $ids];
 
-        try {
-            file_put_contents($this->bulkDeleteSignalPath($importId, $type), json_encode($data), LOCK_EX);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        $this->heartbeat($importId)->write($type, $data);
     }
 }
