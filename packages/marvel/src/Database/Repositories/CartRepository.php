@@ -229,6 +229,10 @@ $affected = $cart->items()
             $inventoryService->incrementItem($cart, $product, $variantId ? $variant : null, $quantity, $attributes, $shippingMethod);
         } elseif ($operation === CartOperation::DECREMENT) {
             $inventoryService->decrementItem($cart, $product, $variantId ? $variant : null, $quantity, $shippingMethod);
+        } else {
+            // Unknown operation: fail loudly instead of returning "true" with
+            // an unchanged cart (a silent no-op that surfaced as 201 success).
+            throw new Exception(__('guest_checkout.invalid_operation'));
         }
 
         return true;
