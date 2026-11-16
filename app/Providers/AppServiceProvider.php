@@ -85,6 +85,15 @@ class AppServiceProvider extends ServiceProvider
     {
         ini_set('serialize_precision', '-1');
 
+        // Telescope is NOT installed in this project (config/telescope.php is
+        // dead config). If it is ever added, these redactions must activate so
+        // guest Bearer tokens, cookies and CSRF tokens never reach the
+        // telescope_entries table (approved plan S8).
+        if (class_exists(\Laravel\Telescope\Telescope::class)) {
+            \Laravel\Telescope\Telescope::hideRequestHeaders(['authorization', 'cookie', 'x-csrf-token']);
+            \Laravel\Telescope\Telescope::hideResponseHeaders(['set-cookie']);
+        }
+
         // NOTE: use Builder directly (not Schema facade). Schema::defaultStringLength()
         // resolves 'db.schema' which requires the default DB connection, so any
         // environment with an unconfigured/missing DB (e.g. composer
