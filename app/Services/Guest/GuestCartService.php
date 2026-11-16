@@ -3,6 +3,7 @@
 namespace App\Services\Guest;
 
 use App\Contexts\ChannelContext;
+use App\Exceptions\GuestCartRejectionException;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -14,6 +15,7 @@ use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 use Marvel\Database\Repositories\CartRepository;
+use Marvel\Enums\CartOperation;
 use Marvel\Enums\ItemType;
 use Marvel\Enums\ShippingMethod;
 
@@ -91,6 +93,7 @@ class GuestCartService
     public function addItem(Request $request, GuestIdentity $identity, array $item): Cart
     {
         $this->assertEligibleItem($item);
+        $this->assertKnownOperation($item);
 
         $cart = $this->ensureCart($identity);
         $cart = $this->applyWithRetry($cart, $item, 'add');
@@ -102,12 +105,30 @@ class GuestCartService
     public function updateItem(Request $request, GuestIdentity $identity, array $item): Cart
     {
         $this->assertEligibleItem($item);
+        $this->assertKnownOperation($item);
 
         $cart = $this->ensureCart($identity);
         $cart = $this->applyWithRetry($cart, $item, 'set');
         $this->touch($request, $identity, $cart);
 
         return $cart;
+    }
+
+    /**
+     * S12: reject unknown cart operations at the guest boundary with a
+     * machine-readable reason. The repository keeps its own defensive guard
+     * for non-HTTP callers; this keeps the HTTP reason precise.
+     */
+    private function assertKnownOperation(array $item): void
+    {
+        $operation = $item['operation'] ?? CartOperation::INCREMENT;
+
+        if (!in_array($operation, CartOperation::getValues(), true)) {
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::INVALID_OPERATION,
+                __('guest_checkout.invalid_operation')
+            );
+        }
     }
 
     /**
@@ -219,11 +240,17 @@ class GuestCartService
         $product = Product::query()->active()->find((int) ($item['product_id'] ?? 0));
 
         if (!$product) {
-            throw new \InvalidArgumentException(__('guest_checkout.product_unavailable'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+                __('guest_checkout.product_unavailable')
+            );
         }
 
         if (($product->item_type ?? ItemType::PHYSICAL) === ItemType::DIGITAL) {
-            throw new \InvalidArgumentException(__('guest_checkout.digital_not_supported'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::DIGITAL_NOT_SUPPORTED,
+                __('guest_checkout.digital_not_supported')
+            );
         }
 
         if (
@@ -231,7 +258,10 @@ class GuestCartService
             && app(ChannelContext::class)->isHome()
             && (bool) $product->is_fast_shipping_available
         ) {
-            throw new \InvalidArgumentException(__('guest_checkout.product_unavailable'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+                __('guest_checkout.product_unavailable')
+            );
         }
 
         $shippingMethod = strtoupper((string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED));
@@ -240,11 +270,17 @@ class GuestCartService
         // canonical order builder consumes SCHEDULED lines only). Reject
         // instead of silently dropping the line later.
         if ($shippingMethod !== ShippingMethod::SCHEDULED) {
-            throw new \InvalidArgumentException(__('guest_checkout.fast_shipping_not_supported'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::FAST_SHIPPING_NOT_SUPPORTED,
+                __('guest_checkout.fast_shipping_not_supported')
+            );
         }
 
         if (($product->product_type ?? null) === 'variable' && empty($item['product_variant_id'])) {
-            throw new \InvalidArgumentException(__('guest_checkout.variant_required'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::VARIANT_REQUIRED,
+                __('guest_checkout.variant_required')
+            );
         }
 
         $quantity = max(1, (int) ($item['quantity'] ?? 0));
@@ -264,17 +300,26 @@ class GuestCartService
                 ->first();
 
             if (!$variant) {
-                throw new \InvalidArgumentException(__('guest_checkout.variant_unavailable'));
+                throw new GuestCartRejectionException(
+                    GuestCartRejectionException::VARIANT_UNAVAILABLE,
+                    __('guest_checkout.variant_unavailable')
+                );
             }
 
             if (!$variant->in_stock) {
-                throw new \InvalidArgumentException(__('guest_checkout.variant_unavailable'));
+                throw new GuestCartRejectionException(
+                    GuestCartRejectionException::VARIANT_UNAVAILABLE,
+                    __('guest_checkout.variant_unavailable')
+                );
             }
 
             $variantAvailable = (int) $variant->available_stock;
 
             if ($quantity > $variantAvailable) {
-                throw new \InvalidArgumentException(__('guest_checkout.insufficient_stock'));
+                throw new GuestCartRejectionException(
+                    GuestCartRejectionException::INSUFFICIENT_STOCK,
+                    __('guest_checkout.insufficient_stock')
+                );
             }
         }
 
@@ -283,7 +328,10 @@ class GuestCartService
         $available = max(0, $stockQuantity - $reserved);
 
         if ($stockQuantity > 0 && $quantity > $available) {
-            throw new \InvalidArgumentException(__('guest_checkout.insufficient_stock'));
+            throw new GuestCartRejectionException(
+                GuestCartRejectionException::INSUFFICIENT_STOCK,
+                __('guest_checkout.insufficient_stock')
+            );
         }
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\General\Guest;
 
+use App\Exceptions\GuestCartRejectionException;
 use App\Http\Controllers\Controller;
 use App\Services\Guest\GuestCartService;
 use App\Services\Guest\GuestIdentityService;
@@ -62,14 +63,21 @@ class GuestCartController extends Controller
             return $this->apiResponse(CREATE_CART_SUCCESSFULLY, 201, true, [
                 'cart' => CartResource::make($cart),
             ]);
+        } catch (GuestCartRejectionException $e) {
+            // S12: additive machine-readable reason; message + status unchanged.
+            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()]);
         } catch (\InvalidArgumentException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         } catch (ModelNotFoundException $e) {
-            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false);
+            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
+                'reason' => GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+            ]);
         } catch (\Throwable $e) {
             report($e);
 
-            return $this->apiResponse(INVALID_ITEM_DATA, 422, false);
+            return $this->apiResponse(INVALID_ITEM_DATA, 422, false, [
+                'reason' => GuestCartRejectionException::INVALID_ITEM_DATA,
+            ]);
         }
     }
 
@@ -87,14 +95,21 @@ class GuestCartController extends Controller
             return $this->apiResponse(UPDATE_CART_SUCCESSFULLY, 200, true, [
                 'cart' => CartResource::make($cart),
             ]);
+        } catch (GuestCartRejectionException $e) {
+            // S12: additive machine-readable reason; message + status unchanged.
+            return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()]);
         } catch (\InvalidArgumentException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
         } catch (ModelNotFoundException $e) {
-            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false);
+            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
+                'reason' => GuestCartRejectionException::PRODUCT_UNAVAILABLE,
+            ]);
         } catch (\Throwable $e) {
             report($e);
 
-            return $this->apiResponse(INVALID_ITEM_DATA, 422, false);
+            return $this->apiResponse(INVALID_ITEM_DATA, 422, false, [
+                'reason' => GuestCartRejectionException::INVALID_ITEM_DATA,
+            ]);
         }
     }
 
