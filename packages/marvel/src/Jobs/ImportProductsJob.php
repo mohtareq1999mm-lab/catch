@@ -13,7 +13,9 @@ use Illuminate\Support\Str;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\ImportStatus;
 use Marvel\Exceptions\ImportCancelledException;
+use Marvel\Imports\ImagesSheetReader;
 use Marvel\Imports\ProductsImport;
+use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Services\Import\ProductImportService;
 use Throwable;
 use Illuminate\Bus\Queueable;
@@ -262,7 +264,7 @@ class ImportProductsJob implements ShouldQueue
             ]);
 
             // Phase 2: image processing in bounded async chunks (medium queue via config queue.queues.medium)
-            $this->dispatchImageJobs($filePath, $service);
+            $this->dispatchImageJobs($filePath);
             $service->writeExplicitProgress(99.0);
 
             $failedRows = $service->getFailedRows();
@@ -434,12 +436,14 @@ class ImportProductsJob implements ShouldQueue
             return false;
         }
 
-        $this->failImportWithSystemError($import, $reason, $batchUuid);
+        // A schema failure does not invalidate the workbook: keep it so the
+        // admin can retry after repairing the column (retry endpoint).
+        $this->failImportWithSystemError($import, $reason, $batchUuid, keepFile: true);
 
         return true;
     }
 
-    protected function failImportWithSystemError(Import $import, string $message, string $batchUuid): void
+    protected function failImportWithSystemError(Import $import, string $message, string $batchUuid, bool $keepFile = false): void
     {
         $import->update([
             'status' => ImportStatus::FAILED,
@@ -460,46 +464,28 @@ class ImportProductsJob implements ShouldQueue
             ['progress' => 100.0, 'download_available' => false]
         );
 
-        $this->deleteImportFile($import);
+        if (!$keepFile) {
+            $this->deleteImportFile($import);
+        }
+
         $this->removeSignalFile('progress');
         $this->recordImportFailed($import, $batchUuid);
     }
 
-    protected function dispatchImageJobs(string $filePath, ProductImportService $service): void
+    protected function dispatchImageJobs(string $filePath): void
     {
         try {
-            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($filePath);
-            $reader->setReadDataOnly(true);
-            $spreadsheet = $reader->load($filePath);
-            $sheet = $spreadsheet->getSheetByName('images');
-            if (!$sheet) {
-                $spreadsheet->disconnectWorksheets();
+            $rows = (new ImagesSheetReader())->rows($filePath);
+
+            if ($rows === []) {
                 return;
             }
-            $highest = $sheet->getHighestDataRow();
-            if ($highest < 2) {
-                $spreadsheet->disconnectWorksheets();
-                return;
+
+            $chunkSize = ProductWorkbookSchema::dispatchChunkSize(ProductWorkbookSchema::IMAGES);
+
+            foreach (array_chunk($rows, $chunkSize) as $chunk) {
+                ImportProductImagesJob::dispatch($this->importId, $chunk);
             }
-            $rows = [];
-            $chunkSize = 500;
-            for ($r = 2; $r <= $highest; $r++) {
-                $sku = trim((string) $sheet->getCell('A' . $r)->getValue());
-                $image = trim((string) $sheet->getCell('B' . $r)->getValue());
-                if ($sku === '' || $image === '') {
-                    continue;
-                }
-                $rows[] = ['product_sku' => $sku, 'image' => $image, 'row' => $r];
-                if (count($rows) >= $chunkSize) {
-                    ImportProductImagesJob::dispatch($this->importId, $rows);
-                    $rows = [];
-                }
-            }
-            if (!empty($rows)) {
-                ImportProductImagesJob::dispatch($this->importId, $rows);
-            }
-            $spreadsheet->disconnectWorksheets();
-            unset($spreadsheet, $reader);
         } catch (\Throwable $e) {
             report($e);
         }
@@ -523,12 +509,12 @@ class ImportProductsJob implements ShouldQueue
             // Fallback to single sheet if multi-sheet inspect fails
             try {
                 $spreadsheet = $reader->load($filePath);
-                $productsSheet = $spreadsheet->getSheetByName('products');
+                $productsSheet = $spreadsheet->getSheetByName(ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCTS));
                 if ($productsSheet) {
                     $total = max(0, $productsSheet->getHighestDataRow() - 1);
                 } else {
                     // Fallback: first sheet
-                    $sheet = $spreadsheet->getSheetByName($spreadsheet->getSheetNames()[0] ?? 'products');
+                    $sheet = $spreadsheet->getSheetByName($spreadsheet->getSheetNames()[0] ?? ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCTS));
                     $total = $sheet ? max(0, $sheet->getHighestDataRow() - 1) : 0;
                 }
                 $spreadsheet->disconnectWorksheets();

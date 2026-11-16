@@ -7,20 +7,21 @@ use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Services\Import\ProductImportService;
 
 /**
  * Shared plumbing for one chunk of a product workbook sheet.
  *
- * The offset is owned here because chunks restart their index at 0; without it
- * error rows in chunk 2+ point at the wrong Excel row. Empty rows are NOT
- * filtered by the engine (SkipsEmptyRows is deliberately absent): filtering
- * before collection() would shrink the rows delivered per chunk and shift the
- * accumulated offset. Subclasses skip empties themselves while keeping the
- * physical index.
+ * Sheet identity (title, chunk size) comes from ProductWorkbookSchema; this
+ * class only owns chunk delivery and the physical Excel row offset. The offset
+ * is owned here because chunks restart their index at 0; empty rows are skipped
+ * by subclasses while keeping the physical index, so error rows stay accurate.
  */
 abstract class ChunkedSheetImport implements ToCollection, WithTitle, WithHeadingRow, WithChunkReading
 {
+    protected const SHEET = '';
+
     protected ProductImportService $service;
 
     protected int $rowOffset;
@@ -29,6 +30,16 @@ abstract class ChunkedSheetImport implements ToCollection, WithTitle, WithHeadin
     {
         $this->service = $service;
         $this->rowOffset = $rowOffset;
+    }
+
+    public function title(): string
+    {
+        return ProductWorkbookSchema::title(static::SHEET);
+    }
+
+    public function chunkSize(): int
+    {
+        return ProductWorkbookSchema::chunkSize(static::SHEET);
     }
 
     final public function collection(Collection $rows): void

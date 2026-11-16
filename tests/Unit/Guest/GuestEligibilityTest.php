@@ -167,6 +167,18 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         );
     }
 
+    public function test_variant_line_cannot_exceed_the_product_ceiling(): void
+    {
+        $product = $this->variableProduct(['stock_quantity' => 3]);
+        $variant = $this->variant($product, ['stock_quantity' => 10]);
+
+        $this->assertRejected(
+            GuestCartRejectionReason::INSUFFICIENT_STOCK,
+            ['product_variant_id' => $variant->id, 'quantity' => 4],
+            $product
+        );
+    }
+
     public function test_reserved_variant_quantity_reduces_availability(): void
     {
         $product = $this->variableProduct();

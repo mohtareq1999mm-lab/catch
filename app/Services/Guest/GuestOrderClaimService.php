@@ -6,7 +6,9 @@ use App\Audit\ActivityAuditService;
 use App\Contracts\GuestPhoneVerificationContract;
 use App\Models\GuestIdentity;
 use App\Models\GuestOrderClaimToken;
+use App\Support\UniqueViolation;
 use App\ValueObjects\VerifiedPhoneIdentity;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
@@ -240,8 +242,8 @@ class GuestOrderClaimService
                         'guest_tracking_revoked_at' => now(),
                         'updated_at' => now(),
                     ]);
-            } catch (\Illuminate\Database\QueryException $e) {
-                if ($this->isDuplicateKeyError($e)) {
+            } catch (QueryException $e) {
+                if (UniqueViolation::detect($e)) {
                     return ['status' => 'pending_order_conflict'];
                 }
 
@@ -359,16 +361,6 @@ class GuestOrderClaimService
             ->where('status', Order::ORDER_STATUS_PENDING)
             ->whereKeyNot($order->id)
             ->exists();
-    }
-
-    private function isDuplicateKeyError(\Illuminate\Database\QueryException $e): bool
-    {
-        $errorInfo = $e->errorInfo ?? [];
-
-        return ($errorInfo[1] ?? null) === 1062
-            || $e->getCode() === '23000'
-            || $e->getCode() === '23505'
-            || (string) $e->getCode() === '1062';
     }
 
     private function hashToken(string $raw): string

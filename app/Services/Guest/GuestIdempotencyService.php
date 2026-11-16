@@ -4,6 +4,7 @@ namespace App\Services\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Models\GuestIdempotencyKey;
+use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
@@ -44,7 +45,7 @@ class GuestIdempotencyService
 
             return ['replay' => false, 'response' => null, 'claim' => $claim];
         } catch (QueryException $e) {
-            if (!$this->isDuplicateKeyError($e)) {
+            if (!UniqueViolation::detect($e)) {
                 throw $e;
             }
         }
@@ -159,15 +160,5 @@ class GuestIdempotencyService
         $value = $normalize($payload);
 
         return is_array($value) ? $value : [];
-    }
-
-    private function isDuplicateKeyError(QueryException $e): bool
-    {
-        $errorInfo = $e->errorInfo ?? [];
-
-        return ($errorInfo[1] ?? null) === 1062
-            || $e->getCode() === '23000'
-            || $e->getCode() === '23505'
-            || (string) $e->getCode() === '1062';
     }
 }

@@ -9,9 +9,7 @@ use App\Models\GuestIdentity;
 use App\Models\GuestIdempotencyKey;
 use Illuminate\Http\Request;
 use Marvel\Database\Models\Cart;
-use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Order;
-use Marvel\Enums\ItemType;
 
 /**
  * Guest checkout orchestration around the CANONICAL order creation path
@@ -24,6 +22,7 @@ class GuestCheckoutService
         private GuestOrderTokenService $tokenService,
         private GuestIdempotencyService $idempotency,
         private \App\Services\General\OrderService $orderService,
+        private GuestCartEligibility $eligibility,
     ) {
     }
 
@@ -146,31 +145,37 @@ class GuestCheckoutService
     }
 
     /**
-     * Defense in depth: guest checkout is physical-only even if a digital line
-     * predates the guest-cart guard.
+     * Defense in depth: every guest line is re-evaluated through the same
+     * Eligibility verdict the add path uses, so a line injected or changed
+     * after add cannot reach the order builder.
      */
     private function assertCartIsGuestEligible(Cart $cart): void
     {
-        $digital = CartItem::query()
-            ->where('cart_id', $cart->id)
-            ->where(function ($q) {
-                $q->whereHas('product', fn ($p) => $p->where('item_type', ItemType::DIGITAL));
-            })
-            ->exists();
+        $cart->loadMissing('items.product');
 
-        if ($digital) {
-            throw new GuestCheckoutConflictException(__('guest_checkout.digital_not_supported'), 422);
-        }
+        foreach ($cart->items as $item) {
+            $product = $item->product;
 
-        $nonScheduled = CartItem::query()
-            ->where('cart_id', $cart->id)
-            ->where('shipping_method', '!=', \Marvel\Enums\ShippingMethod::SCHEDULED)
-            ->exists();
+            if (!$product) {
+                throw new GuestCheckoutConflictException(
+                    __('guest_checkout.product_unavailable'),
+                    422
+                );
+            }
 
-        if ($nonScheduled) {
-            // The canonical order builder consumes SCHEDULED lines only; a
-            // fast line would otherwise be silently dropped by checkout.
-            throw new GuestCheckoutConflictException(__('guest_checkout.fast_shipping_not_supported'), 422);
+            $verdict = $this->eligibility->evaluate(
+                $product,
+                $item->product_variant_id,
+                (int) $item->quantity,
+                (string) $item->shipping_method
+            );
+
+            if (!$verdict->allowed) {
+                throw new GuestCheckoutConflictException(
+                    __('guest_checkout.' . $verdict->reason->value),
+                    422
+                );
+            }
         }
     }
 

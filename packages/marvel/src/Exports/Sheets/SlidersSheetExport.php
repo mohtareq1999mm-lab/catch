@@ -7,6 +7,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class SlidersSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -19,7 +20,7 @@ class SlidersSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapp
 
     public function title(): string
     {
-        return 'sliders';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::SLIDERS);
     }
 
     public function query()
@@ -71,9 +72,6 @@ class SlidersSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapp
 
     public function headings(): array
     {
-        return [
-            'product_sku',
-            'slider_slug',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::SLIDERS);
     }
 }

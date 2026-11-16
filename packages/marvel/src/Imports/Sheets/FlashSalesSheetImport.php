@@ -2,17 +2,11 @@
 
 namespace Marvel\Imports\Sheets;
 
+use Marvel\Workbook\ProductWorkbookSchema;
+
 class FlashSalesSheetImport extends TaxonomySheetImport
 {
-    public function title(): string
-    {
-        return 'flash_sales';
-    }
-
-    public function chunkSize(): int
-    {
-        return 500;
-    }
+    protected const SHEET = ProductWorkbookSchema::FLASH_SALES;
 
     protected function slugColumn(): string
     {

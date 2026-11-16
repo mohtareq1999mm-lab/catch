@@ -2,24 +2,24 @@
 
 namespace App\Exceptions;
 
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Contracts\ApiRejection;
 use RuntimeException;
 
 /**
  * A product exists but cannot enter a cart under the current Eligibility rules
  * (inactive, soft-deleted, out of stock, or not offered in the active channel).
  *
- * Carries the rejected product id so callers can log or extend the response
- * without exposing framework internals. Rendered as a 422 field-scoped error on
- * the cart line, using the same envelope as request validation failures.
+ * Carries the rejected product id and a raw translation key. Rendering happens
+ * at the HTTP seam so the vendored cart kernel never has to localize.
  */
-class ProductNotPurchasableException extends RuntimeException
+class ProductNotPurchasableException extends RuntimeException implements ApiRejection
 {
+    private const MESSAGE_KEY = 'message.ERROR.PRODUCT_NOT_PURCHASABLE';
+
     public function __construct(
         private readonly int $productId
     ) {
-        parent::__construct(__('message.ERROR.PRODUCT_NOT_PURCHASABLE'));
+        parent::__construct(self::MESSAGE_KEY);
     }
 
     public function productId(): int
@@ -27,17 +27,25 @@ class ProductNotPurchasableException extends RuntimeException
         return $this->productId;
     }
 
-    public function render(Request $request): JsonResponse
+    public function statusCode(): int
     {
-        $message = $this->getMessage();
+        return 422;
+    }
 
-        return response()->json([
-            'message' => $message,
-            'status' => false,
-            'success' => false,
-            'errors' => [
-                'item.product_id' => [$message],
-            ],
-        ], 422);
+    public function message(): string
+    {
+        return __($this->getMessage());
+    }
+
+    public function errors(): array
+    {
+        return [
+            'item.product_id' => [$this->message()],
+        ];
+    }
+
+    public function data(): array
+    {
+        return [];
     }
 }

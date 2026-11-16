@@ -268,6 +268,46 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function insufficient_stock_line_is_preserved_with_localized_message(): void
+    {
+        $product = $this->makeProduct([
+            'name' => 'Over Stock Merge ' . uniqid(),
+            'slug' => 'over-stock-merge-' . uniqid(),
+            'stock_quantity' => 3,
+        ]);
+
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $guestCart = $this->guestCart();
+        CartItem::create([
+            'cart_id' => $guestCart->id,
+            'product_id' => $product->id,
+            'quantity' => 5,
+            'price' => 100,
+            'total_price' => 500,
+            'shipping_method' => 'SCHEDULED',
+        ]);
+
+        $user = $this->makeUser();
+        $result = $this->merge($user);
+
+        $this->assertSame('insufficient_stock', $result['unavailable_items'][0]['reason']);
+        $this->assertSame(
+            __('guest_checkout.merge_insufficient_stock'),
+            $result['unavailable_items'][0]['message']
+        );
+        $this->assertNotSame(
+            'guest_checkout.merge_insufficient_stock',
+            $result['unavailable_items'][0]['message']
+        );
+    }
+
+    /** @test */
     public function channel_ineligible_product_is_preserved_and_reported(): void
     {
         $fast = $this->makeProduct([
@@ -591,6 +631,44 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
 
         $this->assertSame(5, (int) $cart->items()->first()->fresh()->quantity);
         $this->assertNotEmpty($result['adjusted_items']);
+        $this->assertSame(2, $result['adjusted_items'][0]['dropped_quantity']);
+    }
+
+    /** @test */
+    public function product_stock_caps_a_variant_line_before_variant_stock(): void
+    {
+        $product = $this->makeProduct([
+            'product_type' => ProductType::VARIABLE,
+            'name' => 'Parent Ceiling Merge ' . uniqid(),
+            'slug' => 'parent-ceiling-merge-' . uniqid(),
+            'stock_quantity' => 5,
+        ]);
+
+        $variant = ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'VAR-PARENT-' . uniqid(),
+            'price' => 100,
+            'stock_quantity' => 10,
+            'in_stock' => true,
+        ]);
+
+        $this->startGuestSession();
+        $this->addToGuestCart([
+            'product_id' => $product->id,
+            'product_variant_id' => $variant->id,
+            'quantity' => 4,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $user = $this->makeUser();
+        $cart = $this->accountCart($user);
+        $this->addAccountLine($cart, $product, 3, $variant);
+
+        $result = $this->merge($user);
+
+        $this->assertSame(5, (int) $cart->items()->first()->fresh()->quantity);
+        $this->assertNotEmpty($result['adjusted_items']);
+        $this->assertSame('quantity_capped', $result['adjusted_items'][0]['reason']);
         $this->assertSame(2, $result['adjusted_items'][0]['dropped_quantity']);
     }
 

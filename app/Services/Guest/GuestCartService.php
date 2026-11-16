@@ -4,6 +4,8 @@ namespace App\Services\Guest;
 
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
+use App\Exceptions\ProductNotPurchasableException;
+use App\Support\UniqueViolation;
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -76,7 +78,7 @@ class GuestCartService
                 'guest_expires_at' => now()->addDays($this->ttlDays()),
             ]);
         } catch (QueryException $e) {
-            if (!$this->isDuplicateKeyError($e)) {
+            if (!UniqueViolation::detect($e)) {
                 throw $e;
             }
 
@@ -139,6 +141,14 @@ class GuestCartService
     {
         try {
             return $this->cartRepository->applyItemToCart($cart, $item, $mode);
+        } catch (ProductNotPurchasableException $e) {
+            // The product changed between assertEligibleItem() and the locked
+            // mutation; keep the guest contract (message + data.reason) instead
+            // of leaking the authenticated field-error envelope.
+            throw new GuestCartRejectionException(
+                GuestCartRejectionReason::PRODUCT_UNAVAILABLE,
+                __('guest_checkout.product_unavailable')
+            );
         } catch (ModelNotFoundException $e) {
             $fresh = $this->ensureCart($this->identityForCart($cart));
 
@@ -250,29 +260,9 @@ class GuestCartService
         $variantId = empty($item['product_variant_id']) ? null : (int) $item['product_variant_id'];
         $shippingMethod = (string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED);
 
-        // Line policy lives in GuestCartEligibility (one home for the rule).
+        // Line policy lives in GuestCartEligibility (one home for the rule,
+        // including the quantity-vs-ceiling comparison for simple and variant
+        // lines).
         $this->eligibility->assertEligible($product, $variantId, $quantity, $shippingMethod);
-
-        // Product-level stock keeps the 0/NULL unlimited/unknown semantics.
-        $stockQuantity = (int) ($product->stock_quantity ?? 0);
-        $reserved = (int) ($product->reserved_quantity ?? 0);
-        $available = max(0, $stockQuantity - $reserved);
-
-        if ($stockQuantity > 0 && $quantity > $available) {
-            throw new GuestCartRejectionException(
-                GuestCartRejectionReason::INSUFFICIENT_STOCK,
-                __('guest_checkout.insufficient_stock')
-            );
-        }
-    }
-
-    private function isDuplicateKeyError(QueryException $e): bool
-    {
-        $errorInfo = $e->errorInfo ?? [];
-
-        return ($errorInfo[1] ?? null) === 1062
-            || $e->getCode() === '23000'
-            || $e->getCode() === '23505'
-            || (string) $e->getCode() === '1062';
     }
 }

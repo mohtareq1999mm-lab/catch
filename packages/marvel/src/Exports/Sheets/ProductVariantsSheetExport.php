@@ -6,6 +6,7 @@ use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Database\Models\ProductVariant;
 
 class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
@@ -19,7 +20,7 @@ class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, 
 
     public function title(): string
     {
-        return 'product_variants';
+        return ProductWorkbookSchema::title(ProductWorkbookSchema::PRODUCT_VARIANTS);
     }
 
     public function query()
@@ -52,19 +53,7 @@ class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, 
 
     public function headings(): array
     {
-        return [
-            'variant_sku',
-            'product_sku',
-            'price',
-            'sale_price',
-            'quantity',
-            'in_stock',
-            'height',
-            'width',
-            'length',
-            'weight',
-            'attributes',
-        ];
+        return ProductWorkbookSchema::headings(ProductWorkbookSchema::PRODUCT_VARIANTS);
     }
 
     public function map($variant): array

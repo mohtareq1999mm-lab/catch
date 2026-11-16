@@ -82,6 +82,13 @@ class GuestCartEligibility
         $productAvailable = $this->productAvailableQuantity($product);
 
         if (empty($variantId)) {
+            if ($productAvailable !== null && $quantity > $productAvailable) {
+                return GuestEligibilityVerdict::rejected(
+                    GuestCartRejectionReason::INSUFFICIENT_STOCK,
+                    $productAvailable
+                );
+            }
+
             return GuestEligibilityVerdict::allowed($productAvailable);
         }
 
@@ -97,10 +104,17 @@ class GuestCartEligibility
         $variantStock = (int) ($variant->stock_quantity ?? 0);
         $variantAvailable = max(0, $variantStock - (int) ($variant->reserved_quantity ?? 0));
 
-        if ($variantStock > 0 && $quantity > $variantAvailable) {
+        // Effective line ceiling: known variant stock, tightened by the
+        // product ceiling when both are known. 0/NULL keeps the documented
+        // unlimited/unknown semantics.
+        $ceiling = $variantStock > 0
+            ? ($productAvailable === null ? $variantAvailable : min($variantAvailable, $productAvailable))
+            : $productAvailable;
+
+        if ($ceiling !== null && $quantity > $ceiling) {
             return GuestEligibilityVerdict::rejected(
                 GuestCartRejectionReason::INSUFFICIENT_STOCK,
-                $variantAvailable
+                $ceiling
             );
         }
 
@@ -111,11 +125,7 @@ class GuestCartEligibility
             );
         }
 
-        // Known variant stock is the line ceiling; 0/NULL means unknown, so the
-        // product-level ceiling (possibly also unknown) applies.
-        return GuestEligibilityVerdict::allowed(
-            $variantStock > 0 ? $variantAvailable : $productAvailable
-        );
+        return GuestEligibilityVerdict::allowed($ceiling);
     }
 
     private function isActive(Product $product): bool

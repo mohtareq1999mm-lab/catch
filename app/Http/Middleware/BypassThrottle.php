@@ -2,30 +2,19 @@
 
 namespace App\Http\Middleware;
 
-use Closure;
-use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Cache\RateLimiter;
 
-class BypassThrottle extends ThrottleRequests
+/**
+ * The `throttle` alias: a BYPASSABLE policy.
+ *
+ * If rate limiting is disabled via env / config (default: disabled), pass
+ * through immediately. Otherwise delegate to the shared enforcement contract.
+ * The argument contract (named limiter vs numeric) lives in PolicyThrottle.
+ */
+class BypassThrottle extends PolicyThrottle
 {
-    /**
-     * Handle an incoming request.
-     *
-     * If rate limiting is disabled via env / config (default: disabled), pass through immediately.
-     * Otherwise, delegate to standard Laravel ThrottleRequests.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Closure  $next
-     * @param  int|string  $maxAttempts
-     * @param  float|int  $decayMinutes
-     * @param  string  $prefix
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
-    public function handle($request, Closure $next, $maxAttempts = 60, $decayMinutes = 1, $prefix = '')
+    public function __construct(RateLimiter $limiter)
     {
-        if (config('app.disable_rate_limiting', true)) {
-            return $next($request);
-        }
-
-        return parent::handle($request, $next, $maxAttempts, $decayMinutes, $prefix);
+        parent::__construct($limiter, failClosed: false);
     }
 }

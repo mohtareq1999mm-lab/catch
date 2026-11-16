@@ -4,16 +4,8 @@ namespace Marvel\Imports;
 
 use Maatwebsite\Excel\Concerns\SkipsUnknownSheets;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
-use Marvel\Imports\Sheets\ProductBarcodesSheetImport;
-use Marvel\Imports\Sheets\ProductBrandsSheetImport;
-use Marvel\Imports\Sheets\ProductCategoriesSheetImport;
-use Marvel\Imports\Sheets\FlashSalesSheetImport;
-use Marvel\Imports\Sheets\ImagesSheetImport;
-use Marvel\Imports\Sheets\ProductsSheetImport;
-use Marvel\Imports\Sheets\ProductVariantsSheetImport;
-use Marvel\Imports\Sheets\SlidersSheetImport;
-use Marvel\Imports\Sheets\TagsSheetImport;
 use Marvel\Services\Import\ProductImportService;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductsImport implements WithMultipleSheets, SkipsUnknownSheets
 {
@@ -28,19 +20,16 @@ class ProductsImport implements WithMultipleSheets, SkipsUnknownSheets
 
     public function sheets(): array
     {
-        $sheets = [
-            'products' => new ProductsSheetImport($this->service),
-            'product_barcodes' => new ProductBarcodesSheetImport($this->service),
-            'product_variants' => new ProductVariantsSheetImport($this->service),
-            'categories' => new ProductCategoriesSheetImport($this->service),
-            'brands' => new ProductBrandsSheetImport($this->service),
-            'flash_sales' => new FlashSalesSheetImport($this->service),
-            'sliders' => new SlidersSheetImport($this->service),
-            'tags' => new TagsSheetImport($this->service),
-        ];
-        if ($this->withImages) {
-            $sheets['images'] = new ImagesSheetImport($this->service);
+        $sheets = [];
+
+        foreach (ProductWorkbookSchema::importers() as $key => $importerClass) {
+            if ($key === ProductWorkbookSchema::IMAGES && !$this->withImages) {
+                continue;
+            }
+
+            $sheets[ProductWorkbookSchema::title($key)] = new $importerClass($this->service);
         }
+
         return $sheets;
     }
 

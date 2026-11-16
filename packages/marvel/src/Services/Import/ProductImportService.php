@@ -3,6 +3,7 @@
 namespace Marvel\Services\Import;
 
 use App\Events\FileOperationEvent;
+use App\Support\ProductTypeSchema;
 use App\Traits\BroadcastsFileOperationProgress;
 use Carbon\Carbon;
 use Exception;
@@ -25,6 +26,7 @@ use Marvel\Enums\ProductType;
 use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Services\Import\ImageHandlers\UrlImageHandler;
 use Marvel\Services\Pricing\ProductPricingService;
+use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductImportService
 {
@@ -87,11 +89,11 @@ class ProductImportService
      * @var array<string, array{label_key: string, relation: string, model: class-string<\Illuminate\Database\Eloquent\Model>}>
      */
     private const TAXONOMY_SHEETS = [
-        'categories' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.CATEGORY', 'relation' => 'categories', 'model' => Category::class],
-        'brands' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.BRAND', 'relation' => 'brands', 'model' => Brand::class],
-        'flash_sales' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.FLASH_SALE', 'relation' => 'flash_sales', 'model' => FlashSale::class],
-        'sliders' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.SLIDER', 'relation' => 'sliders', 'model' => Slider::class],
-        'tags' => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.TAG', 'relation' => 'tags', 'model' => Tag::class],
+        ProductWorkbookSchema::CATEGORIES => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.CATEGORY', 'relation' => 'categories', 'model' => Category::class],
+        ProductWorkbookSchema::BRANDS => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.BRAND', 'relation' => 'brands', 'model' => Brand::class],
+        ProductWorkbookSchema::FLASH_SALES => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.FLASH_SALE', 'relation' => 'flash_sales', 'model' => FlashSale::class],
+        ProductWorkbookSchema::SLIDERS => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.SLIDER', 'relation' => 'sliders', 'model' => Slider::class],
+        ProductWorkbookSchema::TAGS => ['label_key' => 'message.IMPORT.PRODUCT.TAXONOMY.TAG', 'relation' => 'tags', 'model' => Tag::class],
     ];
 
     public function __construct(?int $importId = null, ?ProductPricingService $pricingService = null)
@@ -1164,7 +1166,7 @@ class ProductImportService
         // Read the physical column, bypassing model scopes: the guard exists to
         // prove what the database stored, not what the current channel can see.
         $stored = DB::table('products')->where('id', $product->getKey())->value('product_type');
-        $columnContract = $this->productTypeColumnContract();
+        $columnContract = $this->productTypeSchema()->canonicalEnum();
 
         if ($expected !== null && $stored !== $expected) {
             throw new \RuntimeException(__('message.IMPORT.PRODUCT.PRODUCT_TYPE_NOT_STORED', [
@@ -1184,11 +1186,9 @@ class ProductImportService
         $this->verifiedProductTypes[$cacheKey] = true;
     }
 
-    private function productTypeColumnContract(): string
+    private function productTypeSchema(): ProductTypeSchema
     {
-        $values = implode("','", ProductType::getValues());
-
-        return "ENUM('{$values}')";
+        return new ProductTypeSchema();
     }
 
     protected function validateNumeric($value, string $field, bool $allowFloat = false, bool $isInteger = false)

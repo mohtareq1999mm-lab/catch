@@ -109,6 +109,52 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
             ->assertJsonStructure(['errors' => ['item.product_variant_id']]);
     }
 
+    public function test_authenticated_leg_asserts_the_documented_divergences(): void
+    {
+        $customer = \Marvel\Database\Models\User::create([
+            'name' => 'Parity Customer',
+            'email' => 'parity-' . uniqid() . '@example.test',
+            'password' => bcrypt('password'),
+            'type' => 'user',
+            'is_active' => true,
+        ]);
+
+        $digital = $this->makeProduct(['item_type' => \Marvel\Enums\ItemType::DIGITAL]);
+
+        // Documented divergence (Q7/D3): guests may not buy digital products;
+        // an authenticated customer may.
+        $this->actingAs($customer, 'sanctum')->postJson('/api/v1/cart', [
+            'item' => [
+                'product_id' => $digital->id,
+                'quantity' => 1,
+                'shipping_method' => 'scheduled',
+            ],
+        ])->assertCreated();
+
+        // Documented divergence: guests may never use the fast-shipping
+        // method; an authenticated customer may — when the product itself is
+        // fast-shipping eligible (customer eligibility is product-gated).
+        $fastProduct = $this->makeProduct(['is_fast_shipping_available' => true]);
+
+        $this->actingAs($customer, 'sanctum')->postJson('/api/v1/cart', [
+            'item' => [
+                'product_id' => $fastProduct->id,
+                'quantity' => 1,
+                'shipping_method' => 'fast',
+            ],
+        ])->assertCreated();
+
+        // Shared simple physical product: guests and customers add it
+        // identically (same eligibility outcome across the credential divide).
+        $this->startGuestSession();
+
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+    }
+
     public function test_csrf_mismatch_still_returns_419_for_browser_guests(): void
     {
         $this->startGuestSession();

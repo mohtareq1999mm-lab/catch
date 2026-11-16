@@ -2,17 +2,11 @@
 
 namespace Marvel\Imports\Sheets;
 
+use Marvel\Workbook\ProductWorkbookSchema;
+
 class SlidersSheetImport extends TaxonomySheetImport
 {
-    public function title(): string
-    {
-        return 'sliders';
-    }
-
-    public function chunkSize(): int
-    {
-        return 500;
-    }
+    protected const SHEET = ProductWorkbookSchema::SLIDERS;
 
     protected function slugColumn(): string
     {

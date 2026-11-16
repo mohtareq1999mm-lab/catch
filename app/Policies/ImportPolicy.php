@@ -33,6 +33,15 @@ class ImportPolicy
     }
 
     /**
+     * Determine if the user can retry a failed import.
+     */
+    public function retry(User $user, Import $import): bool
+    {
+        // Same logic as view - super admin or owner
+        return $this->view($user, $import);
+    }
+
+    /**
      * Determine if the user can download import results.
      */
     public function download(User $user, Import $import): bool

@@ -4,6 +4,7 @@ namespace App\Services\Guest;
 
 use App\Models\GuestIdentity;
 use App\Services\General\CartInventoryService;
+use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -320,7 +321,7 @@ class GuestCartMergeService
                 'total_price' => 0,
             ]));
         } catch (QueryException $e) {
-            if (!$this->isDuplicateKeyError($e)) {
+            if (!UniqueViolation::detect($e)) {
                 throw $e;
             }
 
@@ -358,15 +359,5 @@ class GuestCartMergeService
             'guest_cart_removed' => false,
             'cart' => null,
         ];
-    }
-
-    private function isDuplicateKeyError(QueryException $e): bool
-    {
-        $errorInfo = $e->errorInfo ?? [];
-
-        return ($errorInfo[1] ?? null) === 1062
-            || $e->getCode() === '23000'
-            || $e->getCode() === '23505'
-            || (string) $e->getCode() === '1062';
     }
 }
