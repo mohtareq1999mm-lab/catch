@@ -2,6 +2,7 @@
 
 namespace Marvel\Database\Repositories;
 
+use App\Exceptions\ProductNotPurchasableException;
 use App\Services\General\CartInventoryService;
 use Exception;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -135,6 +136,9 @@ $affected = $cart->items()
             DB::commit();
 
             return $cart;
+        } catch (ProductNotPurchasableException $e) {
+            DB::rollBack();
+            throw $e;
         } catch (AuthorizationException $e) {
             DB::rollBack();
             throw new HttpException(401, $e->getMessage());
@@ -205,7 +209,12 @@ $affected = $cart->items()
             return false;
         }
 
-        $product = Product::query()->active()->findOrFail($productId);
+        $product = Product::query()->active()->find($productId);
+
+        if (!$product) {
+            throw new ProductNotPurchasableException((int) $productId);
+        }
+
         $productName = is_array($product->name) ? ($product->name[app()->getLocale()] ?? $product->name['en'] ?? '') : $product->name;
 
         if ($shippingMethod === ShippingMethod::FAST && !$product->is_fast_shipping_available) {

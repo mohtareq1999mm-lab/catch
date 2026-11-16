@@ -253,9 +253,11 @@ class ActiveVisibilityTest extends TestCase
         Sanctum::actingAs($user);
         $inactive = $this->inactiveProduct(['slug' => 'cart-inactive-'.uniqid()]);
 
-        $resp = $this->postJson('/api/cart', ['item' => ['product_id' => $inactive->id, 'quantity' => 1]]);
-        // CartRepository throws HttpException 400 when product not found via active scope
-        $this->assertTrue(in_array($resp->getStatusCode(), [400, 404, 422]));
+        $resp = $this->postJson('/api/v1/cart', ['item' => ['product_id' => $inactive->id, 'quantity' => 1, 'shipping_method' => 'scheduled']]);
+        $resp->assertStatus(422);
+        $resp->assertJsonPath('success', false);
+        $resp->assertJsonPath('message', 'This product is not available for purchase.');
+        $this->assertStringNotContainsString('Marvel\\', $resp->getContent());
         $this->assertFalse(Cart::where('user_id', $user->id)->whereHas('items', fn($q) => $q->where('product_id', $inactive->id))->exists());
     }
 

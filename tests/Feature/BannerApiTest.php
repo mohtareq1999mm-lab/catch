@@ -609,7 +609,7 @@ class BannerApiTest extends TestCase
         $publicUrl = url(self::PREFIX . '/general/banners');
         $cacheKey = fn (string $locale) => md5($publicUrl) . '|lang:' . $locale;
 
-        $warm = function (): void use ($publicUrl) {
+        $warm = function () use ($publicUrl): void {
             $this->getJson($publicUrl, ['lang' => 'en'])->assertOk();
             $this->getJson($publicUrl, ['lang' => 'ar'])->assertOk();
         };

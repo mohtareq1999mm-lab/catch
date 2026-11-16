@@ -4,6 +4,7 @@ namespace Marvel\Jobs;
 
 use App\Events\FileOperationEvent;
 use App\Audit\ActivityAuditService;
+use App\Support\ProductTypeSchema;
 use App\Traits\BroadcastsFileOperationProgress;
 use App\Enums\FrontendResource;
 use App\Services\General\HomeService;
@@ -202,6 +203,13 @@ class ImportProductsJob implements ShouldQueue
 
         $service = new ProductImportService($this->importId);
         $service->writeExplicitProgress(1.0);
+
+        // Guard the product_type ENUM before any row is written: non-strict
+        // MySQL stores '' instead of failing, which corrupts the catalog
+        // silently. Fail once, with an actionable system error.
+        if ($this->failForIncompatibleProductTypeSchema($import, $batchUuid)) {
+            return;
+        }
 
         $totalRows = $this->countRows();
         $service->setTotalRows($totalRows);
@@ -415,6 +423,48 @@ class ImportProductsJob implements ShouldQueue
         }
     }
 
+    /**
+     * @return bool true when the import was failed and must not continue
+     */
+    protected function failForIncompatibleProductTypeSchema(Import $import, string $batchUuid): bool
+    {
+        $reason = app(ProductTypeSchema::class)->incompatibilityReason();
+
+        if ($reason === null) {
+            return false;
+        }
+
+        $this->failImportWithSystemError($import, $reason, $batchUuid);
+
+        return true;
+    }
+
+    protected function failImportWithSystemError(Import $import, string $message, string $batchUuid): void
+    {
+        $import->update([
+            'status' => ImportStatus::FAILED,
+            'errors' => [[
+                'sheet' => 'system',
+                'row' => 0,
+                'sku' => '',
+                'error_message' => $message,
+            ]],
+        ]);
+
+        $this->broadcastFileOperationTerminal(
+            FileOperationEvent::PRODUCT_IMPORT_FAILED,
+            'product-import',
+            $this->importId,
+            'failed',
+            true,
+            ['progress' => 100.0, 'download_available' => false]
+        );
+
+        $this->deleteImportFile($import);
+        $this->removeSignalFile('progress');
+        $this->recordImportFailed($import, $batchUuid);
+    }
+
     protected function dispatchImageJobs(string $filePath, ProductImportService $service): void
     {
         try {
@@ -511,6 +561,7 @@ class ImportProductsJob implements ShouldQueue
                 ['progress' => 100.0, 'download_available' => false]
             );
             $this->deleteImportFile($import);
+            $this->removeSignalFile('cancel');
             $this->removeSignalFile('progress');
         }
     }

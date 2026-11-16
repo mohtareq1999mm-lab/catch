@@ -182,7 +182,102 @@ class CartApiTest extends TestCase
             'item' => ['product_id' => 99999, 'quantity' => 1, 'shipping_method' => 'scheduled'],
         ]);
 
-        $this->assertContains($response->status(), [400, 422]);
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $this->assertArrayHasKey('item.product_id', $response->json('errors'));
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
+    }
+
+    public function test_add_item_rejects_inactive_product_with_clean_422()
+    {
+        $this->auth();
+        $this->product->update(['status' => 0]);
+
+        $response = $this->postJson(self::PREFIX . '/cart', [
+            'item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('status', false);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'This product is not available for purchase.');
+
+        $errors = $response->json('errors');
+        $this->assertArrayHasKey('item.product_id', $errors);
+        $this->assertSame(['This product is not available for purchase.'], $errors['item.product_id']);
+
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
+        $this->assertDatabaseMissing('cart_items', ['product_id' => $this->product->id]);
+    }
+
+    public function test_add_item_rejects_soft_deleted_product_with_clean_422()
+    {
+        $this->auth();
+        $productId = $this->product->id;
+        $this->product->delete();
+
+        $response = $this->postJson(self::PREFIX . '/cart', [
+            'item' => ['product_id' => $productId, 'quantity' => 1, 'shipping_method' => 'scheduled'],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'This product is not available for purchase.');
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
+        $this->assertDatabaseMissing('cart_items', ['product_id' => $productId]);
+    }
+
+    public function test_add_item_rejects_out_of_stock_product_with_clean_422()
+    {
+        $this->auth();
+        $this->product->update(['in_stock' => false, 'stock_quantity' => 0, 'reserved_quantity' => 0]);
+
+        $response = $this->postJson(self::PREFIX . '/cart', [
+            'item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled'],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'This product is not available for purchase.');
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
+        $this->assertDatabaseMissing('cart_items', ['product_id' => $this->product->id]);
+    }
+
+    public function test_add_item_rejects_product_not_offered_in_the_requested_channel()
+    {
+        $this->auth();
+
+        $response = $this->postJson(
+            self::PREFIX . '/cart',
+            ['item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled']],
+            ['X-Channel' => 'fast-shipping']
+        );
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'This product is not available for purchase.');
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
+        $this->assertDatabaseMissing('cart_items', ['product_id' => $this->product->id]);
+    }
+
+    public function test_add_item_returns_localized_arabic_message()
+    {
+        $this->auth();
+        $this->product->update(['status' => 0]);
+
+        $response = $this->postJson(
+            self::PREFIX . '/cart',
+            ['item' => ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'scheduled']],
+            ['lang' => 'ar']
+        );
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('message', 'هذا المنتج غير متاح للشراء.');
+        $this->assertSame(
+            ['هذا المنتج غير متاح للشراء.'],
+            $response->json('errors')['item.product_id']
+        );
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
     }
 
     public function test_add_multiple_items_accumulates_in_cart()
@@ -227,6 +322,30 @@ class CartApiTest extends TestCase
         $cart = Cart::where('user_id', $this->user->id)->first();
         $cart->load('items');
         $this->assertEquals(5, (int) $cart->items->first()->quantity);
+    }
+
+    public function test_update_item_rejects_unavailable_product_with_clean_422()
+    {
+        $this->auth();
+        $this->postJson(self::PREFIX . '/cart', [
+            'item' => ['product_id' => $this->product->id, 'quantity' => 2, 'shipping_method' => 'scheduled'],
+        ])->assertStatus(201);
+
+        $this->product->update(['status' => 0]);
+
+        $response = $this->putJson(self::PREFIX . '/cart/update-item', [
+            'item' => ['product_id' => $this->product->id, 'quantity' => 3, 'operation' => 'increment', 'shipping_method' => 'SCHEDULED'],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('status', false);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'This product is not available for purchase.');
+        $this->assertStringNotContainsString('Marvel\\', $response->getContent());
+
+        $cart = Cart::where('user_id', $this->user->id)->first();
+        $this->assertNotNull($cart);
+        $this->assertSame(2, (int) $cart->items()->first()->quantity);
     }
 
     public function test_update_item_adjusts_reserved_quantity()
@@ -419,6 +538,27 @@ $response = $this->postJson(self::PREFIX . '/general/coupons/apply', [
 
         $cart = Cart::where('user_id', $this->user->id)->first();
         $this->assertNull($cart);
+    }
+
+    public function test_bulk_add_reports_localized_reason_without_internal_details()
+    {
+        $this->auth();
+
+        $response = $this->postJson(self::PREFIX . '/cart/bulk-items', [
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 1, 'shipping_method' => 'fast'],
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('data.skipped_product_ids', []);
+
+        $failed = $response->json('data.failed_items');
+        $this->assertCount(1, $failed);
+        $this->assertSame($this->product->id, $failed[0]['product_id']);
+        $this->assertStringNotContainsString('Marvel\\', $failed[0]['reason']);
+        $this->assertStringNotContainsString('message.', $failed[0]['reason']);
     }
 
     public function test_bulk_add_mixed_valid_and_nonexistent_skips_invalid()
