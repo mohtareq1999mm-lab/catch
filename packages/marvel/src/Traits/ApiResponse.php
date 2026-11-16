@@ -23,30 +23,10 @@ trait ApiResponse
 
     private function translateNotice(string $key, array $replace = []): string
     {
-        $normalizedKey = $this->stripNoticeDomain($key);
-        $messageKey = 'message.' . $normalizedKey;
-
-        if (Lang::has($messageKey)) {
-            return __($messageKey, $replace);
-        }
-
-        $translated = __($normalizedKey, $replace);
-
-        if ($translated === $normalizedKey && $normalizedKey !== $key) {
-            $translated = __($key, $replace);
-        }
-
-        return $translated;
-    }
-
-    private function stripNoticeDomain(string $key): string
-    {
-        $prefix = config('shop.app_notice_domain');
-
-        if ($prefix && str_starts_with($key, $prefix)) {
-            return substr($key, strlen($prefix));
-        }
-
-        return $key;
+        // One notice-key translator (round-2 ticket #50): the API response
+        // trait and the exception handler share the implementation, with the
+        // fail-closed rule — an unresolved KEY-LIKE input never reaches a
+        // client.
+        return app(\Marvel\Support\NoticeTranslator::class)->translate($key, $replace);
     }
 }

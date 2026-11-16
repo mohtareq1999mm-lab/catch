@@ -268,26 +268,10 @@ class Handler extends ExceptionHandler
 
     private function translateNotice(string $key, array $replace = []): string
     {
-        $normalizedKey = $this->stripNoticeDomain($key);
-        $messageKey = 'message.' . $normalizedKey;
-
-        if (Lang::has($messageKey)) {
-            return __($messageKey, $replace);
-        }
-
-        $translated = __($normalizedKey, $replace);
-
-        if ($translated === $normalizedKey && $normalizedKey !== $key) {
-            $translated = __($key, $replace);
-        }
-
-        // Fail closed: never surface a raw translation key (e.g.
-        // "ERROR.SOMETHING_WENT_WRONG") as the user-facing message.
-        if ($translated === $normalizedKey || $translated === $key) {
-            return __('message.ERROR.SOMETHING_WENT_WRONG', $replace);
-        }
-
-        return $translated;
+        // The single notice-key translator (round-2 ticket #50): the
+        // exception handler and the API response trait share one
+        // implementation, so the fail-closed rule cannot drift apart.
+        return app(\Marvel\Support\NoticeTranslator::class)->translate($key, $replace);
     }
 
     /**
@@ -317,17 +301,6 @@ class Handler extends ExceptionHandler
         }
 
         return $rawMessage;
-    }
-
-    private function stripNoticeDomain(string $key): string
-    {
-        $prefix = config('shop.app_notice_domain');
-
-        if ($prefix && str_starts_with($key, $prefix)) {
-            return substr($key, strlen($prefix));
-        }
-
-        return $key;
     }
 
     private function messageForSpatieUnauthorized(SpatieUnauthorizedException $exception): string
