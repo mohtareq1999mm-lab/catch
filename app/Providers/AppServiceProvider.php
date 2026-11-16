@@ -122,17 +122,23 @@ class AppServiceProvider extends ServiceProvider
         // });
 
 
-        // RateLimiter::for('public-api', function (Request $request) {
-        //     return Limit::perMinute(120)
-        //         ->by($request->ip())
-        //         ->response(function (Request $request, array $headers) {
-        //             return response()->json([
-        //                 'success' => false,
-        //                 'message' => __('message.too_many_requests'),
-        //                 'data' => null,
-        //             ], 429, $headers);
-        //         });
-        // });
+        // Public API limiter: BypassThrottle:public-api is attached to the
+        // guest route group, so an UNDEFINED limiter would 500 the whole guest
+        // surface whenever rate limiting is enabled (DISABLE_RATE_LIMITING=false).
+        // Values are config-driven; the limit itself is bypassed by default.
+        RateLimiter::for('public-api', function (Request $request) {
+            $max = max(1, (int) config('app.public_api_throttle_per_minute', 120));
+
+            return Limit::perMinute($max)
+                ->by((string) $request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => __('message.too_many_requests'),
+                        'data' => null,
+                    ], 429, $headers);
+                });
+        });
 
         // RateLimiter::for('authenticated', function (Request $request) {
         //     return Limit::perMinute(300)

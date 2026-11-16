@@ -211,7 +211,7 @@ Route::prefix('v1/general')->group(function () {
 
             Route::get('orders/{orderId}', [GuestOrderController::class, 'show'])
                 ->whereNumber('orderId')
-                ->middleware(['guest.origin', 'guest.csrf', 'guest.throttle:guest_cart_read'])
+                ->middleware(['guest.origin', 'guest.throttle:guest_cart_read'])
                 ->name('api.guest.orders.show');
             Route::post('orders/{orderId}/payment', [GuestOrderController::class, 'payment'])
                 ->whereNumber('orderId')
