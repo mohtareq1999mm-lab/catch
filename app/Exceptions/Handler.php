@@ -4,6 +4,7 @@ namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use App\Exceptions\GuestSessionRejection;
+use App\Exceptions\ProductNotPurchasableException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -105,8 +106,12 @@ class Handler extends ExceptionHandler
         $errors = [];
         $guestErrorCode = null;
 
-        // Handle ModelNotFoundException
-        if ($exception instanceof ModelNotFoundException) {
+        // Handle product not purchasable (cart Eligibility rejection)
+        if ($exception instanceof ProductNotPurchasableException) {
+            $statusCode = 422;
+            $message = $exception->getMessage();
+            $errors = ['item.product_id' => [$message]];
+        } elseif ($exception instanceof ModelNotFoundException) {
             $statusCode = 404;
             $message = __('message.ERROR.RESOURCE_NOT_FOUND');
         }

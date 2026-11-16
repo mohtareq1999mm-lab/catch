@@ -272,11 +272,16 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
 
         $this->startGuestSession();
 
-        $this->addToGuestCart([
+        $inactiveResponse = $this->addToGuestCart([
             'product_id' => $inactive->id,
             'quantity' => 1,
             'shipping_method' => 'scheduled',
         ])->assertStatus(422);
+
+        $inactiveResponse->assertJsonPath('success', false);
+        $inactiveResponse->assertJsonPath('message', __('guest_checkout.product_unavailable'));
+        $inactiveResponse->assertJsonPath('data.reason', 'product_unavailable');
+        $this->assertStringNotContainsString('Marvel\\', $inactiveResponse->getContent());
 
         $this->addToGuestCart([
             'product_id' => 99999999,

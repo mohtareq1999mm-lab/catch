@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Enums\GuestCartRejectionReason;
 use App\Exceptions\GuestCartRejectionException;
+use App\Exceptions\ProductNotPurchasableException;
 use App\Http\Controllers\Controller;
 use App\Services\Guest\GuestCartService;
 use App\Services\Guest\GuestIdentityService;
@@ -69,6 +70,10 @@ class GuestCartController extends Controller
             return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()->value]);
         } catch (\InvalidArgumentException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
+        } catch (ProductNotPurchasableException $e) {
+            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
+                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
+            ]);
         } catch (ModelNotFoundException $e) {
             return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
                 'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
@@ -101,6 +106,10 @@ class GuestCartController extends Controller
             return $this->apiResponse($e->getMessage(), 422, false, ['reason' => $e->reason()->value]);
         } catch (\InvalidArgumentException $e) {
             return $this->apiResponse($e->getMessage(), 422, false);
+        } catch (ProductNotPurchasableException $e) {
+            return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
+                'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
+            ]);
         } catch (ModelNotFoundException $e) {
             return $this->apiResponse(__('guest_checkout.product_unavailable'), 422, false, [
                 'reason' => GuestCartRejectionReason::PRODUCT_UNAVAILABLE->value,
