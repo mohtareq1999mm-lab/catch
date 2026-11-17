@@ -251,26 +251,17 @@ class ImportCategoriesJob implements ShouldQueue
 
             $service->finalizeProgress();
 
-            $failedRows = $service->getFailedRows();
-            $successCount = $service->getSuccessCount();
+            $outcome = $service->outcome();
 
-            $status = 'completed';
-
-            if (!empty($failedRows) && $successCount > 0) {
-                $status = 'completed_with_errors';
-            } elseif ($successCount === 0) {
-                $status = 'failed';
-            }
-
+            // Terminal write owned by RunOutcome: status derivation, the
+            // processed = success + failed invariant, the single error cap
+            // and the single row-write shape.
             $affected = Import::where('id', $import->id)
                 ->whereIn('status', ['pending', 'processing', 'cancelling'])
                 ->update([
-                    'status' => $status,
-                    'total_rows' => $successCount + count($failedRows),
-                    'processed_rows' => $successCount + count($failedRows),
-                    'success_rows' => $successCount,
-                    'failed_rows' => count($failedRows),
-                    'errors' => $failedRows,
+                    'status' => $outcome->status(),
+                    'total_rows' => $outcome->terminalTotalRows(),
+                    ...$outcome->rowAttributes(),
                 ]);
             if ($affected === 0) {
                 $import->refresh();
@@ -281,17 +272,21 @@ class ImportCategoriesJob implements ShouldQueue
                 $import->refresh();
             }
 
-            if ($successCount > 0) {
+            if ($outcome->successCount() > 0) {
                 $this->invalidateFrontendCaches();
             }
 
-            $this->broadcastCategoryImportTerminal($status, !empty($failedRows), [
-                'progress' => 100.0,
-                'total_rows' => $successCount + count($failedRows),
-                'processed_rows' => $successCount + count($failedRows),
-                'success_rows' => $successCount,
-                'failed_rows' => count($failedRows),
-            ]);
+            $this->broadcastCategoryImportTerminal(
+                $outcome->status(),
+                $outcome->failedCount() > 0,
+                [
+                    'progress' => 100.0,
+                    'total_rows' => $outcome->terminalTotalRows(),
+                    'processed_rows' => $outcome->processed(),
+                    'success_rows' => $outcome->successCount(),
+                    'failed_rows' => $outcome->failedCount(),
+                ]
+            );
 
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');
