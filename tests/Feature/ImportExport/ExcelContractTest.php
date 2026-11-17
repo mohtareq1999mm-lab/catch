@@ -26,8 +26,6 @@ class ExcelContractTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const PREFIX = '/api/v1';
-
     // Brand sheet - 7 headers exact order
     public function test_brand_export_has_exact_sheet_name_and_headers(): void
     {
