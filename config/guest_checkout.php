@@ -150,15 +150,15 @@ return [
             'max' => (int) env('GUEST_THROTTLE_TRACKING', 20),
             'decay' => 1,
         ],
-        'guest_cancel' => [
-            'max' => (int) env('GUEST_THROTTLE_CANCEL', 5),
-            'decay' => 1,
-        ],
         // Code requests trigger channel sends; in addition to the per-IP key
         // the cancellation-OTP limiter counts a per-token-hash key so rotating
         // IPs cannot multiply one link's send budget (#81).
         'guest_cancel_otp' => [
             'max' => (int) env('GUEST_THROTTLE_CANCEL_OTP', 5),
+            'decay' => 1,
+        ],
+        'guest_cancel' => [
+            'max' => (int) env('GUEST_THROTTLE_CANCEL', 5),
             'decay' => 1,
         ],
         // Each attempt re-issues a credential and triggers channel sends, so

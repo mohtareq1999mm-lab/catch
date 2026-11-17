@@ -418,6 +418,7 @@ return [
     'IMPORT.PRODUCT.PRODUCT_TYPE_COLUMN_MISSING' => 'عمود products.product_type غير موجود.',
     'IMPORT.PRODUCT.PRODUCT_TYPE_ENUM_MISSING_VALUES' => 'عمود products.product_type ENUM تنقصه القيم: :missing_values. شغّل الترحيلات المعلقة.',
     'IMPORT.PRODUCT.PRODUCT_TYPE_COLUMN_INCOMPATIBLE' => 'عمود products.product_type نوعه غير متوافق ":column_type". المتوقع :canonical_type. عدّل العمود قبل الاستيراد.',
+    'IMPORT.PRODUCT.IMAGE_CHUNKS_FAILED' => 'تعذر معالجة بعض صفوف الصور؛ قد تكون أخطاء الصور مفقودة من هذا التقرير.',
     'IMPORT.PRODUCT.TAXONOMY.CATEGORY' => 'فئة',
     'IMPORT.PRODUCT.TAXONOMY.BRAND' => 'علامة تجارية',
     'IMPORT.PRODUCT.TAXONOMY.FLASH_SALE' => 'تخفيض',

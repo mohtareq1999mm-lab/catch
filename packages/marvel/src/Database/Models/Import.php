@@ -19,6 +19,7 @@ class Import extends Model
         'images_source',
         'zip_file_path',
         'status',
+        'run_uuid',
         'total_rows',
         'processed_rows',
         'success_rows',
