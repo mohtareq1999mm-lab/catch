@@ -45,11 +45,28 @@ class GuestPublicOrderController extends Controller
 
     public function cancel(Request $request): JsonResponse
     {
+        // Two-step cancellation, step 2 (design D6): the confirm endpoint
+        // requires the Cancellation Token + the OTP identifier from the
+        // request step + the code. This is the disclosed breaking change
+        // of the token-only contract; the response shape stays identical.
+        // otp_id stays required even on the static-bypass path (D4): the
+        // LocalGateway pins its id and the provider path needs it.
         $validated = $request->validate([
             'token' => ['required', 'string', 'max:200'],
+            'otp_id' => ['required', 'string', 'max:200'],
+            'code' => ['required', 'string', 'max:120'],
         ]);
 
         try {
+            // Verification is a gate IN FRONT of the canonical
+            // cancellation authority: no events and no used-mark here —
+            // the canonical flow below stays the sole authority.
+            $this->cancellationOtp->verify(
+                $validated['token'],
+                $validated['otp_id'],
+                $validated['code'],
+            );
+
             $order = $this->cancellation->cancel($validated['token']);
 
             return $this->apiResponse(__('checkout.order_cancelled_successfully'), 200, true, [
