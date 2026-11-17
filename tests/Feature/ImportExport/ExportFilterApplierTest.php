@@ -9,6 +9,13 @@ use Illuminate\Support\Facades\DB;
 use Marvel\Exports\ExportFilterApplier;
 use Marvel\Exports\Sheets\ProductsSheetExport;
 use Marvel\Exports\Sheets\ProductVariantsSheetExport;
+use Marvel\Exports\Sheets\BrandsSheetExport;
+use Marvel\Exports\Sheets\CategoriesSheetExport;
+use Marvel\Exports\Sheets\TagsSheetExport;
+use Marvel\Exports\Sheets\FlashSalesSheetExport;
+use Marvel\Exports\Sheets\SlidersSheetExport;
+use Marvel\Exports\Sheets\ProductBarcodesSheetExport;
+use Marvel\Exports\Sheets\ImagesSheetExport;
 use Marvel\Database\Models\Brand;
 use Marvel\Database\Models\Category;
 use Marvel\Database\Models\Product;
@@ -153,8 +160,7 @@ class ExportFilterApplierTest extends TestCase
     }
 
     public function test_variants_sheet_query_constrains_through_the_parent_product(): void
-    {
-        $brand = Brand::create(['name' => ['en' => 'Variant Sheet Brand ' . uniqid()], 'slug' => 'variant-sheet-brand-' . uniqid(), 'status' => 1]);
+    {        $brand = Brand::create(['name' => ['en' => 'Variant Sheet Brand ' . uniqid()], 'slug' => 'variant-sheet-brand-' . uniqid(), 'status' => 1]);
         $product = Product::create([
             'sku' => 'SHEET-VAR-PARENT-001',
             'name' => ['en' => 'Variant Parent'],
@@ -189,5 +195,55 @@ class ExportFilterApplierTest extends TestCase
         $invalidItemType = new ProductVariantsSheetExport(['item_type' => 'SERVICE']);
 
         $this->assertSame(0, $invalidItemType->query()->whereIn('sku', [$variant->sku])->count());
+    }
+
+    /**
+     * Every join-builder sheet declares the contract and relies on the
+     * pivot whereExists mode; each must execute its filtered query against
+     * the database without a fatal (the missing-DB-import bug class).
+     *
+     * @return array<string, array{0: class-string, 1: string}>
+     */
+    public static function joinSheetProvider(): array
+    {
+        return [
+            'brands' => [BrandsSheetExport::class, 'BRANDS'],
+            'categories' => [CategoriesSheetExport::class, 'CATEGORIES'],
+            'tags' => [TagsSheetExport::class, 'TAGS'],
+            'flash_sales' => [FlashSalesSheetExport::class, 'FLASH_SALES'],
+            'sliders' => [SlidersSheetExport::class, 'SLIDERS'],
+            'product_barcodes' => [ProductBarcodesSheetExport::class, 'PRODUCT_BARCODES'],
+            'images' => [ImagesSheetExport::class, 'IMAGES'],
+        ];
+    }
+
+    /**
+     * @param  class-string  $sheetClass
+     * @dataProvider joinSheetProvider
+     */
+    public function test_every_join_sheet_executes_the_declared_filters(string $sheetClass, string $sheetKey): void
+    {
+        $product = Product::create([
+            'sku' => 'JOIN-' . strtoupper($sheetKey),
+            'name' => ['en' => 'Join ' . $sheetKey],
+            'slug' => 'join-' . $sheetKey . '-' . uniqid(),
+            'price' => 10,
+            'quantity' => 5,
+            'stock_quantity' => 5,
+            'product_type' => 'simple',
+            'status' => true,
+            'in_stock' => true,
+        ]);
+
+        $invalid = new $sheetClass(['item_type' => 'SERVICE']);
+
+        $this->assertSame(0, $invalid->query()->count());
+
+        $sheet = new $sheetClass(['status' => 1, 'product_type' => 'simple']);
+
+        $count = $sheet->query()->count();
+
+        $this->assertGreaterThanOrEqual(0, $count);
+        $this->assertDatabaseHas('products', ['sku' => 'JOIN-' . strtoupper($sheetKey)]);
     }
 }
