@@ -92,6 +92,7 @@ class SocialController extends CoreController
                             'name' => $socialUser->getName(),
                             'password' => Hash::make(Str::random(32)),
                             'type' => 'user',
+                            'is_active' => true,
                         ]
                     );
                 } else {
@@ -101,10 +102,21 @@ class SocialController extends CoreController
                         'name' => $socialUser->getName(),
                         'password' => Hash::make(Str::random(32)),
                         'type' => 'user',
+                        'is_active' => true,
                         'phone_number' => null,
                     ]);
                 }
+            }
 
+            // Mobile Authentication tokens are restricted to active customers.
+            // Reject before linking a provider identity or creating a code.
+            // The single eligibility decision lives in the post-auth
+            // authentication module (#53).
+            if (!app(\App\Services\Customer\PostAuthenticationService::class)->isEligibleCustomer($user)) {
+                throw new MarvelException(SOCIAL_LOGIN_FAILED);
+            }
+
+            if (!$provider) {
                 $user->providers()->updateOrCreate(
                     [
                         'provider' => $providerName,
@@ -171,21 +183,36 @@ class SocialController extends CoreController
             return $this->invalidCodeResponse();
         }
 
-        $user = User::where('id', $code->user_id)->where('is_active', true)->first();
+        $user = User::where('id', $code->user_id)
+            ->where('type', 'user')
+            ->where('is_active', true)
+            ->first();
 
-        if (!$user) {
+        if (!$user || !app(\App\Services\Customer\PostAuthenticationService::class)->isEligibleCustomer($user)) {
             return $this->invalidCodeResponse();
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
+        $data = [
             'success' => true,
             'message' => __('message.MESSAGE.SOCIAL_LOGIN_SUCCESSFUL'),
             'token' => $token,
             'token_type' => 'Bearer',
             'user' => new UserResource($user->load('roles')),
-        ], 200);
+        ];
+
+        // Credential issued: the authentication moment (both web and mobile
+        // clients exchange this code). One post-authentication module (#53)
+        // runs currency adoption and the guest cart Login Merge exactly once,
+        // non-fatal; additive response key only when something merged.
+        $merge = app(\App\Services\Customer\PostAuthenticationService::class)
+            ->afterAuthentication($user, $request);
+        if ($merge !== null) {
+            $data['guest_cart_merge'] = $merge;
+        }
+
+        return response()->json($data, 200);
     }
 
     protected function validateProvider(string $provider): void

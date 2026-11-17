@@ -41,7 +41,6 @@ use Marvel\Traits\ApiResponse;
 use Marvel\Traits\UsersTrait;
 use Marvel\Traits\WalletsTrait;
 use App\Enums\UserType;
-use App\Services\Currency\UserCurrencyPreferenceService;
 use Spatie\Newsletter\Facades\Newsletter;
 
 /**
@@ -496,11 +495,9 @@ class UserController extends CoreController
                 ->orWhere('phone_number', $request->phone_number);
         })->where('is_active', true)->first();
 
-if (!$user || !Hash::check($request->password, $user->password)) {
+        if (!$user || !app(\App\Services\Customer\PostAuthenticationService::class)->isEligibleCustomer($user) || !Hash::check($request->password, $user->password)) {
             return $this->apiResponse(INVALID_CREDENTIALS, 404, false);
         }
-
-        app(UserCurrencyPreferenceService::class)->adoptGuestCurrencyOnLogin($user, $request);
 
         $email_verified = $user->hasVerifiedEmail();
         $data = [
@@ -511,9 +508,11 @@ if (!$user || !Hash::check($request->password, $user->password)) {
             'expires_at' => $user->tokens()->latest()->first()?->expires_at,
         ];
 
-        // Guest cart merge runs ONLY after password authentication succeeded
-        // (this point). It is non-fatal: a merge failure never blocks login.
-        $merge = $this->mergeGuestCartOnLogin($request, $user);
+        // One post-authentication module (#53): currency adoption + the guest
+        // cart Login Merge run exactly once, after password authentication
+        // succeeded. Merge failure is non-fatal for the login itself.
+        $merge = app(\App\Services\Customer\PostAuthenticationService::class)
+            ->afterAuthentication($user, $request);
         if ($merge !== null) {
             $data['guest_cart_merge'] = $merge;
         }
@@ -521,30 +520,6 @@ if (!$user || !Hash::check($request->password, $user->password)) {
         return $this->apiResponse(USER_LOGGED_IN_SUCCESSFULLY, 200, true, $data);
     }
 
-    /**
-     * Merge the verified guest cookie's cart into the authenticated cart.
-     * Returns null when there is no guest cart to merge.
-     *
-     * Security: ownership comes from GuestIdentityService (verified cookie);
-     * no client-supplied cart id is accepted. Failures are logged and never
-     * fail the login itself; the guest cart remains intact on failure.
-     */
-    private function mergeGuestCartOnLogin(\Illuminate\Http\Request $request, User $user): ?array
-    {
-        try {
-            $result = app(\App\Services\Guest\GuestCartMergeService::class)->merge($request, $user);
-
-            if (($result['status'] ?? null) === 'no_guest_cart') {
-                return null;
-            }
-
-            return $result;
-        } catch (\Throwable $e) {
-            report($e);
-
-            return ['status' => 'failed'];
-        }
-    }
     public function adminToken(UserAuthEmailAndPasswordRequest $request)
     {
         $request->validated();
@@ -623,9 +598,12 @@ if (!$user || !Hash::check($request->password, $user->password)) {
         if ($this->isAuthVerifyLockedOut($lockoutKey)) {
             return $this->authVerifyLockoutResponse();
         }
-        $user = User::where('email', $request->email)->where('is_active', true)->first();
+        $user = User::where('email', $request->email)
+            ->where('type', 'user')
+            ->where('is_active', true)
+            ->first();
 
-        if (!$user) {
+        if (!$user || !app(\App\Services\Customer\PostAuthenticationService::class)->isEligibleCustomer($user)) {
             $this->recordAuthVerifyFailure($lockoutKey);
             return $this->apiResponse(USER_NOT_FOUND, 404, false);
         }
@@ -633,17 +611,15 @@ if (!$user || !Hash::check($request->password, $user->password)) {
 if ($user->verifyOneTimePassword($request->code)) {
             $user->update(['email_verified_at' => now()]);
 
-            app(UserCurrencyPreferenceService::class)->adoptGuestCurrencyOnLogin($user, $request);
-
             $data = [
                 "token" => $user->createToken('auth_token',[],now()->addWeek())->plainTextToken,
             ];
 
-            // Authenticated OTP login: merge guest cart exactly like password
-            // login. OTP BUSINESS RULES ARE UNCHANGED; merge is post-auth and
-            // non-fatal. Guest ORDER CLAIM remains disabled (needs a real
-            // GuestPhoneVerificationContract binding).
-            $merge = $this->mergeGuestCartOnLogin($request, $user);
+            // One post-authentication module (#53): currency adoption + the
+            // guest cart Login Merge run exactly once at this authentication
+            // moment. OTP verification rules unchanged; merge is non-fatal.
+            $merge = app(\App\Services\Customer\PostAuthenticationService::class)
+                ->afterAuthentication($user, $request);
             if ($merge !== null) {
                 $data['guest_cart_merge'] = $merge;
             }
@@ -721,7 +697,7 @@ if ($user->verifyOneTimePassword($request->code)) {
             ]);
 
             if ($request->hasFile('avatar')) {
-                $user->addMedia($request->file('avatar'))->toMediaCollection('avatar');
+                $user->addMedia($request->file('avatar'))->toMediaCollection('user-image');
             }
 
             DB::commit();
@@ -750,7 +726,8 @@ if ($user->verifyOneTimePassword($request->code)) {
             return $this->apiResponse(USER_REGISTERED_SUCCESSFULLY, 200, true, ['otp_status' => true]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->apiResponse(SOMETHING_WENT_WRONG, 500, false, $e->getMessage());
+            report($e);
+            return $this->apiResponse(SOMETHING_WENT_WRONG, 500, false);
         }
     }
 
@@ -1066,8 +1043,13 @@ if ($user->verifyOneTimePassword($request->code)) {
                     'name' => $user->getName(),
                     'password' => Hash::make(Str::random(16)),
                     'type' => 'user',
+                    'is_active' => true,
                 ]
             );
+
+            if (!app(\App\Services\Customer\PostAuthenticationService::class)->isEligibleCustomer($userCreated)) {
+                throw new MarvelException(INVALID_CREDENTIALS);
+            }
 
 $userCreated->providers()->updateOrCreate(
                 [
@@ -1076,15 +1058,15 @@ $userCreated->providers()->updateOrCreate(
                 ]
             );
 
-            app(UserCurrencyPreferenceService::class)->adoptGuestCurrencyOnLogin($userCreated, $request);
-
             $data = [
                 "token" => $userCreated->createToken('auth_token',[],now()->addWeek())->plainTextToken,
             ];
 
-            // Authenticated social login: same guest cart merge contract as
-            // password login (non-fatal; guest cart preserved on failure).
-            $merge = $this->mergeGuestCartOnLogin($request, $userCreated);
+            // One post-authentication module (#53): same contract as password
+            // login (currency adoption + non-fatal guest cart merge, exactly
+            // once at the authentication moment).
+            $merge = app(\App\Services\Customer\PostAuthenticationService::class)
+                ->afterAuthentication($userCreated, $request);
             if ($merge !== null) {
                 $data['guest_cart_merge'] = $merge;
             }
@@ -1249,8 +1231,11 @@ $userCreated->providers()->updateOrCreate(
                 return $this->authVerifyLockoutResponse();
             }
             if ($request->has("phone_number") && $this->verifyOtp($request)) {
-                $user = User::where('phone_number', $request->phone_number)->first();
-                if (!$user) {
+                $user = User::where('phone_number', $request->phone_number)
+                    ->where('type', 'user')
+                    ->where('is_active', true)
+                    ->first();
+                if (!$user || !app(\App\Services\Customer\PostAuthenticationService::class)->isEligibleCustomer($user)) {
                     $this->recordAuthVerifyFailure($lockoutKey);
                     return $this->apiResponse(REQUIRED_INFO_MISSING, 404, false);
                 } else {
@@ -1260,12 +1245,15 @@ $userCreated->providers()->updateOrCreate(
                 $token = $user->createToken('auth_token',[],now()->addWeek())->plainTextToken;
                 $this->clearAuthVerifyFailures($lockoutKey);
 
-                // Authenticated phone-OTP login: same non-fatal cart merge as
-                // password/social login. OTP verification rules unchanged.
-                // Guest ORDER CLAIM remains disabled until a real
-                // GuestPhoneVerificationContract binding exists.
+                // Authenticated phone-OTP login: one post-authentication
+                // module (#53) — currency adoption + non-fatal guest cart
+                // merge, exactly once at the authentication moment. OTP
+                // verification rules unchanged. Guest ORDER CLAIM remains
+                // disabled until a real GuestPhoneVerificationContract
+                // binding exists.
                 $data = ['token' => $token];
-                $merge = $this->mergeGuestCartOnLogin($request, $user);
+                $merge = app(\App\Services\Customer\PostAuthenticationService::class)
+                    ->afterAuthentication($user, $request);
                 if ($merge !== null) {
                     $data['guest_cart_merge'] = $merge;
                 }

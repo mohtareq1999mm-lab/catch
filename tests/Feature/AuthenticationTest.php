@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Schema\Blueprint;
 use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\User;
+use Marvel\Database\Repositories\UserRepository;
 use Tests\Concerns\CreatesTestTables;
 use Tests\TestCase;
 
@@ -85,6 +88,7 @@ class AuthenticationTest extends TestCase
     public function test_login_with_inactive_user_returns_404()
     {
         $this->user->update(['is_active' => false]);
+        $baseline = DB::table('personal_access_tokens')->count();
 
         $response = $this->postJson(self::PREFIX . '/token', [
             'email' => $this->user->email,
@@ -93,6 +97,53 @@ class AuthenticationTest extends TestCase
 
         $response->assertStatus(404);
         $response->assertJsonPath('success', false);
+        $this->assertSame($baseline, DB::table('personal_access_tokens')->count());
+    }
+
+    public function test_login_rejects_active_admin_without_token()
+    {
+        $admin = User::create([
+            'name' => 'Admin Login Probe',
+            'email' => 'admin.login.probe@example.com',
+            'password' => Hash::make($this->plainPassword),
+            'phone_number' => '01000000101',
+            'type' => 'admin',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+        $baseline = DB::table('personal_access_tokens')->count();
+
+        $response = $this->postJson(self::PREFIX . '/token', [
+            'email' => $admin->email,
+            'password' => $this->plainPassword,
+        ]);
+
+        $response->assertStatus(404);
+        $response->assertJsonPath('success', false);
+        $this->assertSame($baseline, DB::table('personal_access_tokens')->count());
+    }
+
+    public function test_login_rejects_other_non_customer_type_without_token()
+    {
+        $vendor = User::create([
+            'name' => 'Vendor Login Probe',
+            'email' => 'vendor.login.probe@example.com',
+            'password' => Hash::make($this->plainPassword),
+            'phone_number' => '01000000102',
+            'type' => 'vendor',
+            'is_active' => true,
+            'email_verified_at' => now(),
+        ]);
+        $baseline = DB::table('personal_access_tokens')->count();
+
+        $response = $this->postJson(self::PREFIX . '/token', [
+            'email' => $vendor->email,
+            'password' => $this->plainPassword,
+        ]);
+
+        $response->assertStatus(404);
+        $response->assertJsonPath('success', false);
+        $this->assertSame($baseline, DB::table('personal_access_tokens')->count());
     }
 
     public function test_login_with_phone_number_works()
@@ -257,6 +308,57 @@ class AuthenticationTest extends TestCase
         ]);
 
         $response->assertStatus(422);
+    }
+
+    public function test_register_stores_avatar_in_the_user_image_collection()
+    {
+        Storage::fake('users');
+
+        $response = $this->post(self::PREFIX . '/register', [
+            'first_name' => 'Avatar',
+            'last_name' => 'User',
+            'email' => 'avatar.user@gmail.com',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+            'phone_number' => '01000000007',
+            'policy' => '1',
+            'avatar' => UploadedFile::fake()->image('avatar.jpg', 200, 200),
+        ], ['Accept' => 'application/json']);
+
+        $this->assertContains($response->status(), [200, 201]);
+        $response->assertJsonPath('success', true);
+
+        $user = User::where('email', 'avatar.user@gmail.com')->firstOrFail();
+
+        $this->assertSame(1, $user->getMedia('user-image')->count());
+        $this->assertSame(0, $user->getMedia('avatar')->count());
+    }
+
+    public function test_register_500_does_not_expose_internal_exception_details()
+    {
+        $this->mock(UserRepository::class, function ($mock) {
+            $mock->shouldReceive('checkIfApplicationIsValid')->andReturn(true);
+            $mock->shouldReceive('create')->once()->andThrow(
+                new \RuntimeException('SQLSTATE[HY000] sensitive internal detail')
+            );
+        });
+
+        $response = $this->postJson(self::PREFIX . '/register', [
+            'first_name' => 'Failure',
+            'last_name' => 'User',
+            'email' => 'failure.user@gmail.com',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+            'phone_number' => '01000000008',
+            'policy' => '1',
+        ]);
+
+        $response->assertStatus(500);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'Something went wrong.');
+        $this->assertArrayNotHasKey('data', $response->json());
+        $this->assertStringNotContainsString('SQLSTATE', $response->getContent());
+        $this->assertStringNotContainsString('sensitive internal detail', $response->getContent());
     }
 
     public function test_register_creates_user_with_type_user()
