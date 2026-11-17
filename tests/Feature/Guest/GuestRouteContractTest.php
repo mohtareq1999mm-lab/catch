@@ -45,6 +45,7 @@ class GuestRouteContractTest extends TestCase
         'api.guest.orders.show' => GuestSurface::ORDER_READ,
         'api.guest.orders.payment' => GuestSurface::ORDER_PAYMENT,
         'api.guest.orders.access-tokens' => GuestSurface::ORDER_PAYMENT,
+        'api.guest.orders.resend-tracking-link' => GuestSurface::ORDER_RESEND,
         'api.guest.checkout' => GuestSurface::CHECKOUT,
     ];
 
@@ -65,6 +66,7 @@ class GuestRouteContractTest extends TestCase
         'GET api/v1/general/guest/orders/{orderId}' => 'guest_cart_read',
         'POST api/v1/general/guest/orders/{orderId}/payment' => 'guest_payment',
         'POST api/v1/general/guest/orders/{orderId}/access-tokens' => 'guest_payment',
+        'POST api/v1/general/guest/orders/{orderId}/resend-tracking-link' => 'guest_resend',
         'POST api/v1/general/guest/checkout' => 'guest_checkout',
     ];
 

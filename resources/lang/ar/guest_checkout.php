@@ -39,6 +39,7 @@ return [
     'tracking_link_invalid' => 'رابط التتبع غير صالح أو منتهي الصلاحية.',
     'tracking_retrieved' => 'تم استرجاع حالة الطلب بنجاح.',
     'tracking_revoked' => 'تم إلغاء صلاحية تتبع الزائر.',
+    'tracking_link_resent' => 'تم إرسال رابط تتبع جديد إليك.',
 
     'cancel_link_invalid' => 'رابط الإلغاء غير صالح.',
     'cancel_link_used' => 'تم استخدام رابط الإلغاء هذا بالفعل.',

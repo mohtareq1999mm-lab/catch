@@ -98,7 +98,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Rate limiting (7 public guest surfaces)
+    | Rate limiting (8 public guest surfaces)
     |--------------------------------------------------------------------------
     |
     | Values are per-minute attempts. Key = resolved guest identity when the
@@ -133,6 +133,12 @@ return [
         ],
         'guest_cancel' => [
             'max' => (int) env('GUEST_THROTTLE_CANCEL', 5),
+            'decay' => 1,
+        ],
+        // Each attempt re-issues a credential and triggers channel sends, so
+        // the budget stays tight and identity-keyed (#80).
+        'guest_resend' => [
+            'max' => (int) env('GUEST_THROTTLE_RESEND', 2),
             'decay' => 1,
         ],
     ],

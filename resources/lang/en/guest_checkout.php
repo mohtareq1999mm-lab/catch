@@ -39,6 +39,7 @@ return [
     'tracking_link_invalid' => 'This tracking link is invalid or has expired.',
     'tracking_retrieved' => 'Order status retrieved successfully.',
     'tracking_revoked' => 'Guest tracking access has been revoked.',
+    'tracking_link_resent' => 'A fresh tracking link has been sent to you.',
 
     'cancel_link_invalid' => 'This cancellation link is invalid.',
     'cancel_link_used' => 'This cancellation link has already been used.',
