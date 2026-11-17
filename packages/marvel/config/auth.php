@@ -148,4 +148,20 @@ return [
 
     'local_otp_code' => env('LOCAL_OTP_CODE', '123456'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Master OTP (static bypass value override)
+    |--------------------------------------------------------------------------
+    |
+    | When non-empty, this code replaces `local_otp_code` as the accepted
+    | static value of the OTP bypass gate. It is a VALUE override only —
+    | it never enables the bypass on its own (see ADR-0003: acceptance is
+    | gated solely on `local_otp_enabled` and hard-blocked in production).
+    | Defaults to unset so "not configured" stays distinguishable from an
+    | explicitly configured code.
+    |
+    */
+
+    'master_otp' => env('MASTER_OTP'),
+
 ];
