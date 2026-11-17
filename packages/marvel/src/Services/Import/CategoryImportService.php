@@ -38,7 +38,7 @@ class CategoryImportService
 
     protected ?int $broadcastUserId = null;
 
-    protected int $successCount = 0;
+    protected RunOutcome $outcome;
 
     protected array $failedRows = [];
 
@@ -63,6 +63,9 @@ class CategoryImportService
     public function __construct(?int $importId = null)
     {
         $this->importId = $importId;
+        $this->outcome = new RunOutcome(
+            fn () => count($this->failedRows)
+        );
         $this->startedAt = microtime(true);
         $this->lastTickTime = $this->startedAt;
     }
@@ -446,7 +449,7 @@ class CategoryImportService
             // Single authoritative success count. Images are best-effort (Brand parity):
             // parent success + category persisted = row success, image attach failure is logged
             // but does not revert success or delete existing valid media.
-            $this->successCount++;
+            $this->outcome->recordSuccess();
             $pending[$index] = $row;
 
             if (!$attached) {
@@ -946,7 +949,7 @@ class CategoryImportService
 
     public function getSuccessCount(): int
     {
-        return $this->successCount;
+        return $this->outcome->successCount();
     }
 
     protected function heartbeat(): OperationHeartbeat
@@ -975,7 +978,7 @@ class CategoryImportService
     public function writeExplicitProgress(float $progress): void
     {
         $this->currentProgress = $progress;
-        $this->lastTickProcessedCount = $this->successCount + count($this->failedRows);
+        $this->lastTickProcessedCount = $this->outcome->successCount() + $this->outcome->failedCount();
         $this->lastTickTime = microtime(true);
 
         $this->publishProgress($progress);
@@ -983,7 +986,7 @@ class CategoryImportService
 
     protected function flushProgressTick(): void
     {
-        $this->processedCount = $this->successCount + count($this->failedRows);
+        $this->processedCount = $this->outcome->successCount() + $this->outcome->failedCount();
 
         if ($this->processedCount % self::FLUSH_THRESHOLD !== 0) {
             return;
@@ -998,7 +1001,7 @@ class CategoryImportService
             return;
         }
 
-        $this->processedCount = $this->successCount + count($this->failedRows);
+        $this->processedCount = $this->outcome->successCount() + $this->outcome->failedCount();
 
         if ($this->isCancelled()) {
             throw new ImportCancelledException();
@@ -1006,8 +1009,8 @@ class CategoryImportService
 
         Import::where('id', $this->importId)->update([
             'processed_rows' => $this->processedCount,
-            'success_rows' => $this->successCount,
-            'failed_rows' => count($this->failedRows),
+            'success_rows' => $this->outcome->successCount(),
+            'failed_rows' => $this->outcome->failedCount(),
         ]);
 
         $this->publishProgress(100.0);
@@ -1020,9 +1023,9 @@ class CategoryImportService
     protected function publishProgress(float $progress): void
     {
         $data = [
-            'processed_rows' => $this->successCount + count($this->failedRows),
-            'success_rows' => $this->successCount,
-            'failed_rows' => count($this->failedRows),
+            'processed_rows' => $this->outcome->successCount() + $this->outcome->failedCount(),
+            'success_rows' => $this->outcome->successCount(),
+            'failed_rows' => $this->outcome->failedCount(),
             'progress' => $progress,
         ];
 
@@ -1037,9 +1040,9 @@ class CategoryImportService
             'category-import',
             (int) $this->importId,
             $progress,
-            $this->successCount + count($this->failedRows),
-            $this->successCount,
-            count($this->failedRows)
+            $this->outcome->successCount() + $this->outcome->failedCount(),
+            $this->outcome->successCount(),
+            $this->outcome->failedCount()
         );
     }
 }
