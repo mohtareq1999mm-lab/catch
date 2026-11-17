@@ -44,6 +44,10 @@ class GuestTrackingLinkNotifier
 
     public function notify(Order $order, string $trackingToken, ?string $locale = null): void
     {
+        if (!$this->hasDeliverableBaseUrl($order)) {
+            return;
+        }
+
         $url = $this->trackingUrl($trackingToken);
         $replace = ['order_number' => $order->order_number, 'url' => $url];
         $locale = $locale ?: app()->getLocale();
@@ -58,6 +62,34 @@ class GuestTrackingLinkNotifier
         $path = '/' . ltrim((string) config('guest_checkout.tracking_link.path', '/track-order'), '/');
 
         return $base . $path . '?' . http_build_query(['token' => $trackingToken]);
+    }
+
+    /**
+     * A malformed or non-https base URL would deliver the credential link to
+     * an unintended host. Production skips the send entirely and logs a
+     * token-free warning; other environments keep the legacy behavior so
+     * local (http://localhost) setups keep working.
+     */
+    private function hasDeliverableBaseUrl(Order $order): bool
+    {
+        if (!app()->isProduction()) {
+            return true;
+        }
+
+        $base = rtrim((string) config('guest_checkout.tracking_link.base_url'), '/');
+        $host = parse_url($base, PHP_URL_HOST);
+
+        if (is_string($host) && $host !== '' && strtolower((string) parse_url($base, PHP_URL_SCHEME)) === 'https') {
+            return true;
+        }
+
+        // Context deliberately excludes the token and the full link.
+        Log::warning('Guest tracking link skipped: configured base URL is not a valid https frontend URL', [
+            'order_id' => $order->id,
+            'base_url_host' => is_string($host) && $host !== '' ? $host : null,
+        ]);
+
+        return false;
     }
 
     private function shouldNotify(Order $order, ?string $trackingToken): bool

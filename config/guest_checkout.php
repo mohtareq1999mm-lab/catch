@@ -51,6 +51,13 @@ return [
     | token from the query string and POSTs it to /api/v1/guest/orders/track.
     | Only the tracking token is ever sent - the cancellation token is never
     | placed in a shareable link.
+    |
+    | Cross-domain/CORS (same constraints as the guest cookie): for same-site
+    | subdomains keep the cookie domain empty and allow exactly the frontend
+    | origin (wildcards are rejected when credentials are sent); for different
+    | registrable domains a same-site BFF/reverse proxy is required. In
+    | production base_url must be a valid https:// URL - delivery is skipped
+    | with a token-free warning otherwise.
     */
     'tracking_link' => [
         'enabled' => filter_var(env('GUEST_TRACKING_LINK_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
