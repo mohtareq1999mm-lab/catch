@@ -241,7 +241,11 @@ class ProductTypeIntegrityTest extends TestCase
 
         $import = $this->runImport($user, $tmp, 1);
 
-        $this->assertSame('completed', $import->status);
+        $this->assertSame(
+            'completed',
+            $import->status,
+            'row errors: ' . json_encode($import->errors ?? [], JSON_UNESCAPED_UNICODE)
+        );
         $this->assertSame(1, $import->success_rows);
         $this->assertSame('variable', Product::where('sku', 'PT-PRE-VAR')->value('product_type'));
         $this->assertTrue(Product::where('sku', 'PT-PRE-VAR')->firstOrFail()->variations()->exists());

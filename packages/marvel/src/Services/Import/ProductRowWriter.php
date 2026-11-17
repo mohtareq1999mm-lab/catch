@@ -94,7 +94,7 @@ final class ProductRowWriter
     /**
      * @param  array<string, mixed>  $productData
      */
-    private function saveProduct(array $row, array $productData): Product
+    private function saveProduct(array $row, array &$productData): Product
     {
         $sku = $row['sku'] ?? null;
         $product = empty($sku) ? null : Product::where('sku', $sku)->first();
@@ -111,7 +111,9 @@ final class ProductRowWriter
 
             // A product that owns variant rows is variable by domain
             // definition (ProductTypeSchema); the sheet's product_type cell
-            // must not clobber that on upsert. Variants the sheet adds later
+            // must not clobber that on upsert. The correction propagates to
+            // the caller's expected value so the persisted-ENUM verification
+            // checks what was actually written. Variants the sheet adds later
             // in the same run re-assert it in processVariantRow.
             if ($this->productOwnsVariants($product->getKey())) {
                 $productData['product_type'] = ProductType::VARIABLE;
