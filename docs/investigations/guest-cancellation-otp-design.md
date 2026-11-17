@@ -193,3 +193,63 @@ fail against that pre-existing data (7 such assertions were observed). The suite
 was taken after `php artisan migrate:fresh --force` on the same isolated database — this was demo
 data pollution, not a code regression, and it is not reachable through the normal test flow
 (`DatabaseTransactions` rolls each test back).
+
+## 9. Post-implementation review outcomes (two-axis code review, second round)
+
+The final two-axis review (Standards vs AGENTS.md/CLAUDE + smell baseline; Spec vs #67–#71, this
+record, ADR-0003) verified the feature end to end and produced the following outcomes.
+
+### 9.1 Fixed: production hole in the provider path (Spec axis, highest severity)
+
+With `ACTIVE_OTP_GATEWAY=local` + `LOCAL_OTP_ENABLED=true` in production, `StaticOtpBypassGate`
+refused the static code (hard block), but the provider path did not: `LocalGateway::
+checkVerification` accepted the static code with only the flag as its gate — so the static code
+could still cancel an order in production under exactly the misconfiguration ADR-0003 claims to
+neutralize. Neither the HTTP production test (which uses the recording fake) nor the unit matrix
+covered gateway=local in production.
+
+Closed in `6ee1d12`: the Local gateway is now inert in production — `startVerification` refuses
+(the request step surfaces this as 502 `cancel_otp_send_failed` instead of a fake success) and
+`isLocalCodeAccepted` refuses regardless of the flag. Pinned by two unit tests
+(`OtpLocalGatewayTest`: static code dead in production, no verification ids in production) and
+two HTTP tests (`GuestCancellationOtpConfirmTest`: the hole scenario end to end → 422 and no
+cancellation; request-otp in production → 502). Battery after the fix: 166/166 (1544 assertions);
+login-OTP and phone-E2E regressions green.
+
+### 9.2 Accepted with reasons (reviewer findings)
+
+- **Gateway resolution "third copy"** — the `AppServiceProvider` binding mirrors
+  `UserController::getOtpGateway()` verbatim (verified against the committed base: same
+  string-building, same `catch (\Throwable)` → LocalGateway + warning fallback). The divergence
+  claim against `SmsTrait` compared the wrong helper. Single resolution logic across the app is
+  a larger refactor spanning marvel-owned files; deferred.
+- **502 + `cancel_otp_send_failed`** at the request step, and **no-phone 422 at confirm too** —
+  disclosed fail-closed deviations from §4 (the matrix has no row for provider-dispatch failure;
+  confirm's phone row reads n/a). Both keep the system closed under conditions the matrix did
+  not specify.
+- **Lockout constants hardcoded** (5 attempts / 900s) — D8 pins the number as a security policy;
+  making it config-tunable would let environment mistakes weaken it. The sibling request limiter
+  stays config-driven because it is an operational throttle.
+- **Controller validation, `OtpGateway` wrapper injection, exception naming, digest-scheme
+  variance (limiter sha256 vs lockout HMAC), test-helper duplication** — all follow the file's or
+  the kernel's established precedent; cosmetic churn was not justified.
+
+### 9.3 Known limitation (accepted, documented)
+
+During a provider outage, `checkVerification` returns an invalid Result (the Twilio gateway
+converts exceptions into invalid results), so the confirm step answers 422 `cancel_otp_invalid`
+and consumes a lockout attempt for a correct code — while the request step classifies the same
+condition as 502 and consumes nothing. This matches §4 as written ("invalid result covers wrong,
+expired and provider-refused codes alike") but is an asymmetry worth a future ticket: marking
+provider-originated failures in `Result` would allow 502-without-attempt-consumption at confirm.
+Not changed now because it alters the marvel `Result` semantics shared with the login-OTP flow
+(a file owned by the parallel stream).
+
+### 9.4 Release checklist (carried in PR #85)
+
+- `.env.example` documents only `ACTIVE_OTP_GATEWAY`; `LOCAL_OTP_ENABLED`, `LOCAL_OTP_CODE`,
+  `MASTER_OTP` exist only in code/config. The file is owned by the parallel stream's WIP and was
+  deliberately not touched; ship the keys with the release.
+- `docs/guest-checkout-frontend-contract.md` and `docs/guest-api-frontend-reference.md` still
+  describe the token-only cancellation payload (§8.3). Update them in the same release as the
+  breaking change.
