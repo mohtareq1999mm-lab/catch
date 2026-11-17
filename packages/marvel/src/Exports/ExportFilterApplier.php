@@ -3,6 +3,8 @@
 namespace Marvel\Exports;
 
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\DB;
+use Marvel\Enums\ItemType;
 
 /**
  * One owner for the export filter contract: each export sheet declares which
@@ -30,6 +32,13 @@ final class ExportFilterApplier
                 $query->where('products.product_type', $value);
             },
             'item_type' => static function ($query, $value): void {
+                if (!in_array($value, ItemType::getValues(), true)) {
+                    // Invalid values filter to nothing rather than applying raw
+                    // input (never trust user input).
+                    $query->whereRaw('1 = 0');
+                    return;
+                }
+
                 $query->where('products.item_type', $value);
             },
             'category_id' => static function ($query, $value): void {
