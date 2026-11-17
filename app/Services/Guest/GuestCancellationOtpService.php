@@ -3,7 +3,6 @@
 namespace App\Services\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
-use App\Services\Payment\PaymentAttemptLifecycleService;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Marvel\Otp\Gateways\OtpGateway;
@@ -27,8 +26,7 @@ use Marvel\Otp\Gateways\OtpGateway;
 class GuestCancellationOtpService
 {
     public function __construct(
-        private GuestOrderTokenService $tokenService,
-        private PaymentAttemptLifecycleService $attemptLifecycle,
+        private GuestCancellationService $cancellation,
         private OtpGateway $otpGateway,
         private StaticOtpBypassGate $bypassGate,
         private GuestCancellationOtpLockout $lockout,
@@ -112,44 +110,16 @@ class GuestCancellationOtpService
     }
 
     /**
-     * Hash lookup under a row lock with the cancellation policy checks —
-     * the read-only half of GuestCancellationService::cancel(): the SAME
-     * checks, the SAME message keys and statuses, but no used-mark write.
+     * The cancellation policy exists exactly once — inside the canonical
+     * GuestCancellationService::cancel() guard half (format/hash/used/
+     * expiry/cancellable/unresolved-attempt, same keys and statuses, no
+     * used-mark write). This OTP wrapper adds only the D5 phone-presence
+     * refusal both OTP steps need.
      */
     private function resolveCancellableOrder(string $rawToken): Order
     {
-        $hash = $this->tokenService->hash($rawToken);
-
-        return DB::transaction(function () use ($hash) {
-            /** @var Order|null $order */
-            $order = Order::query()
-                ->where('guest_cancellation_token_hash', $hash)
-                ->lockForUpdate()
-                ->first();
-
-            if (!$order) {
-                throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
-            }
-
-            if ($order->guest_cancellation_token_used_at !== null) {
-                throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
-            }
-
-            $expiresAt = $order->guest_cancellation_token_expires_at;
-
-            if ($expiresAt !== null && $expiresAt->isPast()) {
-                throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_expired'), 422);
-            }
-
-            if (!$this->tokenService->isOrderCancellable($order)) {
-                throw new GuestCheckoutConflictException(__('checkout.order_cancel_not_allowed'), 422);
-            }
-
-            // T-03 / R-POL-1: an unresolved attempt could still collect money.
-            // Refused BEFORE any OTP dispatch (design §4: 409 before any SMS).
-            if ($this->attemptLifecycle->hasUnresolvedAttempt($order->id)) {
-                throw new GuestCheckoutConflictException(__('checkout.order_payment_in_progress'), 409);
-            }
+        return DB::transaction(function () use ($rawToken) {
+            $order = $this->cancellation->resolveCancellableOrderUnderLock($rawToken);
 
             // D5: guests have no verified phone at capture; an order recorded
             // without one cannot receive a Cancellation OTP, so neither step

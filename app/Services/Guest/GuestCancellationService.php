@@ -25,9 +25,18 @@ class GuestCancellationService
     }
 
     /**
+     * The read-only guard half of the cancellation policy, shared by the
+     * confirm flow and the OTP steps so the policy exists exactly once:
+     * token format, hash lookup under a row lock, used/expiry checks,
+     * isOrderCancellable, and the unresolved-payment-attempt guard — with
+     * the canonical message keys and statuses. No used-mark write happens
+     * here; the caller owns every mutation.
+     *
+     * Must run inside an open DB transaction (it takes the row lock).
+     *
      * @throws GuestCheckoutConflictException
      */
-    public function cancel(string $rawToken): Order
+    public function resolveCancellableOrderUnderLock(string $rawToken): Order
     {
         if (!$this->tokenService->isValidTokenFormat($rawToken)) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
@@ -35,35 +44,47 @@ class GuestCancellationService
 
         $hash = $this->tokenService->hash($rawToken);
 
-        $order = DB::transaction(function () use ($hash) {
-            /** @var Order|null $order */
-            $order = Order::query()
-                ->where('guest_cancellation_token_hash', $hash)
-                ->lockForUpdate()
-                ->first();
+        /** @var Order|null $order */
+        $order = Order::query()
+            ->where('guest_cancellation_token_hash', $hash)
+            ->lockForUpdate()
+            ->first();
 
-            if (!$order) {
-                throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
-            }
+        if (!$order) {
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
+        }
 
-            if ($order->guest_cancellation_token_used_at !== null) {
-                throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
-            }
+        if ($order->guest_cancellation_token_used_at !== null) {
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
+        }
 
-            $expiresAt = $order->guest_cancellation_token_expires_at;
+        $expiresAt = $order->guest_cancellation_token_expires_at;
 
-            if ($expiresAt !== null && $expiresAt->isPast()) {
-                throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_expired'), 422);
-            }
+        if ($expiresAt !== null && $expiresAt->isPast()) {
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_expired'), 422);
+        }
 
-            if (!$this->tokenService->isOrderCancellable($order)) {
-                throw new GuestCheckoutConflictException(__('checkout.order_cancel_not_allowed'), 422);
-            }
+        if (!$this->tokenService->isOrderCancellable($order)) {
+            throw new GuestCheckoutConflictException(__('checkout.order_cancel_not_allowed'), 422);
+        }
 
-            // T-03 / R-POL-1: an unresolved attempt could still collect money.
-            if ($this->attemptLifecycle->hasUnresolvedAttempt($order->id)) {
-                throw new GuestCheckoutConflictException(__('checkout.order_payment_in_progress'), 409);
-            }
+        // T-03 / R-POL-1: an unresolved attempt could still collect money.
+        // The request step refuses here BEFORE any OTP dispatch (design §4:
+        // 409 before any SMS).
+        if ($this->attemptLifecycle->hasUnresolvedAttempt($order->id)) {
+            throw new GuestCheckoutConflictException(__('checkout.order_payment_in_progress'), 409);
+        }
+
+        return $order;
+    }
+
+    /**
+     * @throws GuestCheckoutConflictException
+     */
+    public function cancel(string $rawToken): Order
+    {
+        $order = DB::transaction(function () use ($rawToken) {
+            $order = $this->resolveCancellableOrderUnderLock($rawToken);
 
             // Atomic single-use claim. If a concurrent request already used
             // the link, this update matches zero rows and the transaction
