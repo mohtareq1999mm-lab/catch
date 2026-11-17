@@ -8,6 +8,7 @@ use App\Support\OperationHeartbeat;
 use App\Traits\BroadcastsFileOperationProgress;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
+use Marvel\Enums\ImportStatus;
 use Marvel\Http\Requests\ProductImportRequest;
 use Marvel\Jobs\ImportProductsJob;
 use Illuminate\Database\QueryException;
@@ -317,7 +318,18 @@ class ProductImportController extends Controller
 
         $this->authorize('cancel', $import);
 
-        if (in_array($import->status, ['completed', 'completed_with_errors', 'failed', 'cancelled'], true)) {
+        if ($import->status === ImportStatus::CANCELLED) {
+            // Already cancelled (a previous request, or the deferred
+            // finalizer observed the signal first). Idempotent success.
+            $this->heartbeat($import->id)->remove('cancel');
+
+            return $this->apiResponse(__('message.MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY'), 200, true, [
+                'import_id' => $import->id,
+                'status' => ImportStatus::CANCELLED,
+            ]);
+        }
+
+        if (in_array($import->status, ['completed', 'completed_with_errors', 'failed'], true)) {
             return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
         }
 
@@ -335,12 +347,26 @@ class ProductImportController extends Controller
             $affected = Import::where('id', $import->id)
                 ->whereIn('status', ['pending', 'processing'])
                 ->update([
-                    'status' => 'cancelled',
+                    'status' => ImportStatus::CANCELLED,
                 ]);
 
             if ($affected === 0) {
                 $import->refresh();
+
+                // The deferred finalizer may have observed the cancel signal
+                // first and already written the same terminal state.
+                if ($import->status === ImportStatus::CANCELLED) {
+                    return $this->apiResponse(__('message.MESSAGE.IMPORT_CANCELLED_SUCCESSFULLY'), 200, true, [
+                        'import_id' => $import->id,
+                        'status' => ImportStatus::CANCELLED,
+                    ]);
+                }
+
                 if ($import->isTerminal()) {
+                    // Another terminal won after the signal was written; the
+                    // request did not cancel anything, so drop the signal.
+                    $this->heartbeat($import->id)->remove('cancel');
+
                     return $this->apiResponse(__('message.MESSAGE.IMPORT_CANNOT_CANCEL'), 409, false);
                 }
             } else {
@@ -393,6 +419,7 @@ class ProductImportController extends Controller
 
         Import::where('id', $import->id)->where('status', 'failed')->update([
             'status' => 'pending',
+            'run_uuid' => null,
             'total_rows' => 0,
             'processed_rows' => 0,
             'success_rows' => 0,

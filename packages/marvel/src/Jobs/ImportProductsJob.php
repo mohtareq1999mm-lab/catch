@@ -14,11 +14,12 @@ use Marvel\Database\Models\Import;
 use Marvel\Enums\ImportStatus;
 use Marvel\Exceptions\ImportCancelledException;
 use App\Support\OperationHeartbeat;
+use Illuminate\Support\Facades\Bus;
 use Marvel\Imports\ImagesSheetReader;
 use Marvel\Imports\ProductsImport;
 use Marvel\Workbook\ProductWorkbookSchema;
+use Marvel\Services\Import\DeletesImportFile;
 use Marvel\Services\Import\ProductImportService;
-use Marvel\Services\Import\RunOutcome;
 use Throwable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,6 +33,7 @@ class ImportProductsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use BroadcastsFileOperationProgress;
+    use DeletesImportFile;
 
     public int $tries = 3;
 
@@ -86,26 +88,6 @@ class ImportProductsJob implements ShouldQueue
             return Storage::disk('imports')->path($import->file_path);
         } catch (Throwable $e) {
             return null;
-        }
-    }
-
-    protected function deleteImportFile(Import $import): void
-    {
-        if (empty($import->file_path)) {
-            return;
-        }
-        try {
-            Storage::disk('imports')->delete($import->file_path);
-        } catch (Throwable $e) {
-            report($e);
-        }
-        try {
-            Storage::disk('public')->delete($import->file_path);
-        } catch (Throwable $e) {
-        }
-        try {
-            Storage::disk('local')->delete($import->file_path);
-        } catch (Throwable $e) {
         }
     }
 
@@ -167,6 +149,7 @@ class ImportProductsJob implements ShouldQueue
 
         $updated = Import::where('id', $import->id)->whereIn('status', ['pending', 'processing'])->update([
             'status' => 'processing',
+            'run_uuid' => $batchUuid,
             'processed_rows' => 0,
             'success_rows' => 0,
             'failed_rows' => 0,
@@ -251,85 +234,63 @@ class ImportProductsJob implements ShouldQueue
             $outcome = $service->outcome();
             $import->update($outcome->rowAttributes());
 
-            // Phase 2: image processing in bounded async chunks (medium queue via config queue.queues.medium)
-            $this->dispatchImageJobs($filePath);
-            $service->writeExplicitProgress(99.0);
-
-            // Single terminal write owned by RunOutcome. Image errors persisted by
-            // the (synchronous) image job are already in the refreshed row, so
-            // they survive the terminal write unchanged.
-            $import->refresh();
-            $allErrors = array_slice(
-                is_array($import->errors) ? $import->errors : [],
-                0,
-                RunOutcome::ERROR_CAP
-            );
-
-            $finalTotal = $outcome->terminalTotalRows();
-            $status = $outcome->status();
-
-            // Atomic terminal transition — prevents cancelled→completed race
-            $affected = Import::where('id', $import->id)
-                ->whereIn('status', ['pending', 'processing', 'cancelling'])
-                ->update([
-                    'status' => $status,
-                    'total_rows' => $finalTotal,
-                    'processed_rows' => $outcome->processed(),
-                    'success_rows' => $outcome->successCount(),
-                    'failed_rows' => $outcome->failedCount(),
-                    'errors' => $allErrors,
-                ]);
-            if ($affected === 0) {
-                $import->refresh();
-                if ($import->isTerminal()) {
-                    return;
-                }
-            } else {
-                $import->refresh();
+            // Invalidate frontend caches if any product rows were mutated (even if partially succeeded)
+            if ($outcome->successCount() > 0 || $service->getVariantSuccessCount() > 0) {
+                $this->invalidateFrontendCaches();
             }
 
-            \Illuminate\Support\Facades\Log::info('product.import.' . $status, [
+            // Phase 2: image processing in bounded async chunks. The terminal
+            // write is deferred until every chunk has merged its errors, so the
+            // final report and download_available are complete (stories 14/15/24).
+            $service->writeExplicitProgress(99.0);
+
+            // Core-phase diagnostics: the deferred terminal write happens on
+            // another job, so log the variant/image bookkeeping here where the
+            // service state still exists.
+            \Illuminate\Support\Facades\Log::info('product.import.core', [
                 'operation_id' => $this->importId,
-                'total_rows' => $finalTotal,
+                'total_rows' => $outcome->totalRows(),
                 'processed_rows' => $outcome->processed(),
                 'successful_rows' => $outcome->successCount(),
                 'failed_rows' => $outcome->failedCount(),
                 'variant_success' => $service->getVariantSuccessCount(),
                 'variant_failed' => count($service->getVariantErrors()),
                 'image_failed' => count($service->getImageErrors()),
-                'status' => $status,
             ]);
 
-            $this->recordImportTerminal($import, $status, $batchUuid, $outcome->successCount(), $outcome->failedCount());
+            $imageJobs = $this->imageJobs($filePath);
+            $successRows = $outcome->successCount();
+            $failedRows = $outcome->failedCount();
+            $totalRows = $outcome->totalRows();
 
-            // Invalidate frontend caches if any product rows were mutated (even if partially succeeded)
-            if ($outcome->successCount() > 0 || $service->getVariantSuccessCount() > 0) {
-                $this->invalidateFrontendCaches();
+            if ($imageJobs === []) {
+                self::dispatchFinalizer(
+                    $this->importId,
+                    $batchUuid,
+                    $successRows,
+                    $failedRows,
+                    $totalRows,
+                );
+
+                return;
             }
 
-            $terminalEvent = match ($status) {
-                'completed', 'completed_with_errors' => FileOperationEvent::PRODUCT_IMPORT_COMPLETED,
-                'failed' => FileOperationEvent::PRODUCT_IMPORT_FAILED,
-                default => FileOperationEvent::PRODUCT_IMPORT_COMPLETED,
-            };
-            $this->broadcastFileOperationTerminal(
-                $terminalEvent,
-                'product-import',
-                $this->importId,
-                $status,
-                $allErrors !== [],
-                [
-                    'progress' => 100.0,
-                    'total_rows' => $finalTotal,
-                    'processed_rows' => $outcome->processed(),
-                    'success_rows' => $outcome->successCount(),
-                    'failed_rows' => $outcome->failedCount(),
-                    'download_available' => $allErrors !== [],
-                ]
-            );
+            $importId = $this->importId;
 
-            $this->deleteImportFile($import);
-            $this->removeSignalFile('progress');
+            Bus::batch($imageJobs)
+                ->onQueue(config('queue.queues.medium'))
+                ->allowFailures()
+                ->finally(static function ($batch, $e = null) use ($importId, $batchUuid, $successRows, $failedRows, $totalRows): void {
+                    self::dispatchFinalizer(
+                        $importId,
+                        $batchUuid,
+                        $successRows,
+                        $failedRows,
+                        $totalRows,
+                        $batch->failedJobs > 0,
+                    );
+                })
+                ->dispatch();
         } catch (ImportCancelledException $e) {
             $service->rollbackCreatedData();
             $this->deleteImportFile($import);
@@ -451,22 +412,47 @@ class ImportProductsJob implements ShouldQueue
         $this->recordImportFailed($import, $batchUuid);
     }
 
-    protected function dispatchImageJobs(string $filePath): void
+    /**
+     * The batch callback and the no-chunks path share one dispatch shape.
+     *
+     * @param  bool  $chunksFailed  true when at least one image chunk
+     *                              exhausted its retries; the finalizer
+     *                              must keep the report honest about it.
+     */
+    protected static function dispatchFinalizer(int $importId, string $batchUuid, int $successRows, int $failedRows, int $totalRows, bool $chunksFailed = false): void
+    {
+        FinalizeProductImportJob::dispatch(
+            $importId,
+            $batchUuid,
+            $successRows,
+            $failedRows,
+            $totalRows,
+            $chunksFailed,
+        );
+    }
+
+    /**
+     * @return array<int, ImportProductImagesJob>
+     */
+    protected function imageJobs(string $filePath): array
     {
         try {
             $rows = (new ImagesSheetReader())->rows($filePath);
 
             if ($rows === []) {
-                return;
+                return [];
             }
 
             $chunkSize = ProductWorkbookSchema::dispatchChunkSize(ProductWorkbookSchema::IMAGES);
 
-            foreach (array_chunk($rows, $chunkSize) as $chunk) {
-                ImportProductImagesJob::dispatch($this->importId, $chunk);
-            }
+            return array_map(
+                fn (array $chunk): ImportProductImagesJob => new ImportProductImagesJob($this->importId, $chunk),
+                array_chunk($rows, $chunkSize)
+            );
         } catch (\Throwable $e) {
             report($e);
+
+            return [];
         }
     }
 
@@ -571,29 +557,6 @@ class ImportProductsJob implements ShouldQueue
             __('activity.import_started'),
             context: ['source' => 'import', 'import_id' => $import->id, 'batch_uuid' => $batchUuid],
             properties: ['import_id' => $import->id],
-            batchUuid: $batchUuid,
-            causerId: $import->created_by,
-            causerType: \Marvel\Database\Models\User::class,
-        );
-    }
-
-    protected function recordImportTerminal(Import $import, string $status, string $batchUuid, int $successCount, int $failedCount): void
-    {
-        $failed = $status === ImportStatus::FAILED;
-        $event = $failed ? 'import_failed' : 'import_completed';
-        $description = $failed ? __('activity.import_failed') : __('activity.import_completed');
-
-        ActivityAuditService::recordBatch(
-            'imports',
-            $event,
-            $description,
-            context: ['source' => 'import', 'import_id' => $import->id, 'batch_uuid' => $batchUuid],
-            properties: [
-                'import_id' => $import->id,
-                'success_rows' => $successCount,
-                'failed_rows' => $failedCount,
-                'status' => $status,
-            ],
             batchUuid: $batchUuid,
             causerId: $import->created_by,
             causerType: \Marvel\Database\Models\User::class,

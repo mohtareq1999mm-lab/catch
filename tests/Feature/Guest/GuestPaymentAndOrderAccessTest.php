@@ -264,6 +264,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $first = $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ]);
         $first->assertOk()->assertJsonPath('data.order.status', Order::ORDER_STATUS_CANCELLED);
 
@@ -272,6 +273,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(422);
     }
 
@@ -285,6 +287,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(409);
 
         $this->assertSame(Order::ORDER_STATUS_PENDING, $data['order']->fresh()->status);
@@ -314,9 +317,50 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(422);
 
         $this->assertSame(Order::ORDER_STATUS_COMPLETED, $order->fresh()->status);
+    }
+
+    /** @test */
+    public function request_cancel_otp_succeeds_and_returns_otp_id(): void
+    {
+        $data = $this->createOrder('cod');
+
+        $response = $this->postJson(self::PREFIX . '/orders/cancel/request-otp', [
+            'token' => $data['cancellation_token'],
+            'phone_number' => '+2011185151',
+        ]);
+
+        $response->assertOk();
+        $this->assertNotEmpty($response->json('data.otp_id'));
+    }
+
+    /** @test */
+    public function request_cancel_otp_rejects_unresolved_payment_attempt_with_409(): void
+    {
+        $this->mockOnlineGateway();
+        $data = $this->createOrder('online');
+
+        $this->initiateOnline($data['order']->id, 'cancel-otp-race-key')->assertOk();
+
+        $this->postJson(self::PREFIX . '/orders/cancel/request-otp', [
+            'token' => $data['cancellation_token'],
+        ])->assertStatus(409);
+    }
+
+    /** @test */
+    public function cancel_fails_with_invalid_otp_code(): void
+    {
+        $data = $this->createOrder('cod');
+
+        $this->postJson(self::PREFIX . '/orders/cancel', [
+            'token' => $data['cancellation_token'],
+            'code' => '999999',
+        ])->assertStatus(422);
+
+        $this->assertSame(Order::ORDER_STATUS_PENDING, $data['order']->fresh()->status);
     }
 
     /** @test */

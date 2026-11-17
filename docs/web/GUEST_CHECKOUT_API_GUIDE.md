@@ -585,10 +585,10 @@ Content-Type: application/json
 
 ---
 
-### 13. Public Order Cancellation (Token in Body)
-- **Method & Path:** `POST /api/v1/guest/orders/cancel`
-- **What It Does (in two sentences):** Cancels the guest order permanently using the single-use `cancellation_token`. It locks the order, releases reserved warehouse stock, and marks the token as used so it cannot be executed twice.
-- **Where to Go Next (Flow):** Display an "Order Cancelled" notification message and redirect the user back to the store homepage.
+### 13. Request Cancellation OTP
+- **Method & Path:** `POST /api/v1/guest/orders/cancel/request-otp`
+- **What It Does (in two sentences):** Validates the guest's cancellation token, verifies order eligibility, and dispatches a one-time verification code (OTP) to the customer's phone number on file. In local development (`LOCAL_OTP_ENABLED=true`), external SMS is bypassed and returns `otp_id: "local-verification-id"` where code `123456` is accepted.
+- **Where to Go Next (Flow):** Open the OTP Verification modal, display the masked phone number, and prompt the user to enter the OTP code.
 
 **Headers:**
 ```http
@@ -599,13 +599,68 @@ Content-Type: application/json
 **Request Body:**
 ```json
 {
-  "token": "cnc_xyz987654321..."
+  "token": "cnc_xyz987654321...",
+  "phone_number": "01012345678"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `token` | string | Yes | Secret cancellation token issued at checkout. |
+| `phone_number` | string | Optional | Customer phone number to match against the order for extra verification. |
 
 **Response (200 OK):**
 ```json
 {
+  "status": 200,
+  "success": true,
+  "message": "Verification code has been sent to your phone.",
+  "data": {
+    "otp_id": "local-verification-id",
+    "provider": "local",
+    "phone": "010****5678"
+  }
+}
+```
+
+**Common Errors:**
+- `404 Not Found`: Invalid or non-existent cancellation token.
+- `409 Conflict`: An online payment attempt is currently unresolved.
+- `422 Unprocessable Entity`: Token expired, token already used, order not in cancellable state, order has no phone on file, or phone number mismatch.
+- `429 Too Many Requests`: Throttle limit exceeded.
+
+---
+
+### 14. Confirm Order Cancellation with OTP
+- **Method & Path:** `POST /api/v1/guest/orders/cancel`
+- **What It Does (in two sentences):** Verifies the customer's OTP code and permanently cancels the guest order, releasing warehouse stock and revoking the single-use cancellation token. If 5 failed verification attempts occur, the token is temporarily locked out with `429 Too Many Requests` to prevent brute-force attacks.
+- **Where to Go Next (Flow):** Show an "Order Successfully Cancelled" confirmation screen and navigate the user back to the home/catalog screen.
+
+**Headers:**
+```http
+Accept: application/json
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "token": "cnc_xyz987654321...",
+  "code": "123456",
+  "otp_id": "local-verification-id"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `token` | string | Yes | Secret cancellation token. |
+| `code` | string | Yes | OTP code received by SMS (or `123456` in development). |
+| `otp_id` | string | Optional | OTP request identifier returned from the `request-otp` step. |
+
+**Response (200 OK):**
+```json
+{
+  "status": 200,
   "success": true,
   "message": "Order cancelled successfully.",
   "data": {
@@ -617,9 +672,10 @@ Content-Type: application/json
 }
 ```
 
-**Errors:**
-- `404 Not Found`: Invalid cancellation token.
-- `422 Unprocessable Entity`: Token already used, token expired, or order already in non-cancellable state (e.g. `processing` / `delivered`).
+**Common Errors:**
+- `404 Not Found`: Invalid or non-existent cancellation token.
+- `422 Unprocessable Entity`: Invalid or expired OTP code, token already used, or order in non-cancellable status.
+- `429 Too Many Requests`: Lockout triggered after 5 consecutive failed code attempts.
 
 ---
 

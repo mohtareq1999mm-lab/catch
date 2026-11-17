@@ -41,14 +41,43 @@ class GuestPublicOrderController extends Controller
         }
     }
 
+    public function requestCancelOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'token' => ['required', 'string', 'max:200'],
+            'phone_number' => ['sometimes', 'nullable', 'string', 'max:30'],
+        ]);
+
+        try {
+            $payload = $this->cancellation->requestOtp(
+                $validated['token'],
+                $validated['phone_number'] ?? null
+            );
+
+            return $this->apiResponse(__('guest_checkout.cancel_otp_sent'), 200, true, $payload);
+        } catch (GuestCheckoutConflictException $e) {
+            return $this->apiResponse($e->getMessage(), $e->httpStatus(), false);
+        } catch (\RuntimeException $e) {
+            report($e);
+
+            return $this->apiResponse(__('guest_checkout.otp_send_failed'), 422, false);
+        }
+    }
+
     public function cancel(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'token' => ['required', 'string', 'max:200'],
+            'code' => ['required', 'string', 'min:4', 'max:10'],
+            'otp_id' => ['sometimes', 'nullable', 'string', 'max:200'],
         ]);
 
         try {
-            $order = $this->cancellation->cancel($validated['token']);
+            $order = $this->cancellation->cancel(
+                $validated['token'],
+                $validated['code'],
+                $validated['otp_id'] ?? null
+            );
 
             return $this->apiResponse(__('checkout.order_cancelled_successfully'), 200, true, [
                 'order' => [
