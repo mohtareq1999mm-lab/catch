@@ -24,9 +24,11 @@ class SMSService
     public function send(string $to, string $message, array $metadata = []): array
     {
         if (!$this->enabled || !class_exists(\Twilio\Rest\Client::class)) {
+            // Never log the message body or the recipient in clear: the body
+            // carries the guest tracking link (raw token) and the number is PII.
             Log::info('SMS sending disabled/simulated', [
-                'to' => $to,
-                'message' => $message,
+                'to' => $this->maskRecipient($to),
+                'message' => '[redacted]',
                 'metadata' => $metadata,
             ]);
 
@@ -66,12 +68,30 @@ class SMSService
                 ],
             ];
         } catch (\Throwable $e) {
+            // The provider error text can echo the recipient number; log the
+            // exception identity instead, and mask the recipient.
             Log::error('SMS sending failed', [
-                'to' => $to,
-                'error' => $e->getMessage(),
+                'to' => $this->maskRecipient($to),
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
             ]);
             throw new \RuntimeException("SMS sending failed: " . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Recipient numbers are PII: keep only the prefix and the last two digits
+     * so logs and Telescope never hold a usable phone number.
+     */
+    private function maskRecipient(string $phone): string
+    {
+        $length = strlen($phone);
+
+        if ($length <= 5) {
+            return str_repeat('*', $length);
+        }
+
+        return substr($phone, 0, 3) . str_repeat('*', $length - 5) . substr($phone, -2);
     }
 
     public function validatePhone(string $phone): bool
