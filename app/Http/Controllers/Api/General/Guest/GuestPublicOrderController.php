@@ -70,7 +70,10 @@ class GuestPublicOrderController extends Controller
     {
         $validated = $request->validate([
             'token' => ['required', 'string', 'max:200'],
-            'code' => ['required', 'string', 'min:4', 'max:10'],
+            // max:64: a configured bypass value outside 4-10 chars must still
+            // be able to reach the universal StaticBypass check (ADR 0003
+            // resolves the accepted value as Master OTP when explicitly set).
+            'code' => ['required', 'string', 'min:4', 'max:64'],
         ]);
 
         try {

@@ -48,22 +48,42 @@ class AppServiceProvider extends ServiceProvider
         // ADR 0003: one app-level OTP gateway binding. The configured provider
         // wins; when it cannot be constructed (a dev machine with
         // ACTIVE_OTP_GATEWAY=twilio and no credentials) the committed
-        // LocalGateway is the dev path. Production stays fail-closed: the
-        // LocalGateway only accepts codes while the Local OTP switch is on,
-        // and the static bypass is hard-gated to non-production.
+        // LocalGateway is the dev path. Production NEVER falls back silently:
+        // a broken provider there resolves to a LOUD gateway that throws at
+        // call time, surfacing as the translated 422 instead of a
+        // LocalGateway that "sends" nothing — #89 review finding. Throwing at
+        // call time (not at resolve time) keeps the failure inside the
+        // endpoint's exception handling. The static bypass stays hard-gated
+        // to non-production regardless.
         $this->app->bind(\Marvel\Otp\OtpInterface::class, function () {
             $name = (string) config('auth.active_otp_gateway', 'twilio');
             $class = 'Marvel\\Otp\\Gateways\\' . ucfirst($name) . 'Gateway';
 
-            if (class_exists($class)) {
-                try {
-                    return new $class();
-                } catch (\Throwable $e) {
-                    report($e);
+            $notProduction = !app()->environment('production');
+
+            if (!class_exists($class)) {
+                $message = "OTP gateway [{$name}] is not implemented.";
+
+                if ($notProduction) {
+                    report(new \RuntimeException($message));
+
+                    return new \Marvel\Otp\Gateways\LocalGateway();
                 }
+
+                return new \Marvel\Otp\FailingGateway($message);
             }
 
-            return new \Marvel\Otp\Gateways\LocalGateway();
+            try {
+                return new $class();
+            } catch (\Throwable $e) {
+                report($e);
+
+                if ($notProduction) {
+                    return new \Marvel\Otp\Gateways\LocalGateway();
+                }
+
+                return new \Marvel\Otp\FailingGateway('OTP gateway unavailable: ' . $e->getMessage());
+            }
         });
 
         $this->app->bind(WebhookSignature::class, function ($app) {

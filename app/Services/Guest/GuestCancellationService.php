@@ -4,7 +4,6 @@ namespace App\Services\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Services\General\OrderService;
-use App\Services\Payment\PaymentAttemptLifecycleService;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 
@@ -22,7 +21,7 @@ class GuestCancellationService
     public function __construct(
         private GuestOrderTokenService $tokenService,
         private OrderService $orderService,
-        private PaymentAttemptLifecycleService $attemptLifecycle,
+        private GuestCancellationGate $gate,
         private GuestCancellationOtpService $cancellationOtp,
     ) {
     }
@@ -127,6 +126,8 @@ class GuestCancellationService
      */
     private function assertCancellable(Order $order): void
     {
+        // Link-STATE checks stay here (worded per surface); the POLICY gate
+        // is the one shared with the code-request endpoint (#81 review).
         if ($order->guest_cancellation_token_used_at !== null) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
         }
@@ -137,13 +138,6 @@ class GuestCancellationService
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_expired'), 422);
         }
 
-        if (!$this->tokenService->isOrderCancellable($order)) {
-            throw new GuestCheckoutConflictException(__('checkout.order_cancel_not_allowed'), 422);
-        }
-
-        // T-03 / R-POL-1: an unresolved attempt could still collect money.
-        if ($this->attemptLifecycle->hasUnresolvedAttempt($order->id)) {
-            throw new GuestCheckoutConflictException(__('checkout.order_payment_in_progress'), 409);
-        }
+        $this->gate->assertCancellable($order);
     }
 }

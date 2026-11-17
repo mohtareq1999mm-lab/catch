@@ -4,9 +4,9 @@ namespace App\Services\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Services\Notifications\SMSService;
-use App\Services\Payment\PaymentAttemptLifecycleService;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
 use Marvel\Otp\Gateways\OtpGateway;
 use Marvel\Otp\StaticBypass;
@@ -38,7 +38,7 @@ class GuestCancellationOtpService
 
     public function __construct(
         private GuestOrderTokenService $tokens,
-        private PaymentAttemptLifecycleService $attempts,
+        private GuestCancellationGate $gate,
         private SMSService $sms,
         private StaticBypass $staticBypass,
         private OtpGateway $gateway,
@@ -63,20 +63,27 @@ class GuestCancellationOtpService
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
         }
 
-        if (!$this->tokens->isOrderCancellable($order)) {
-            throw new GuestCheckoutConflictException(__('checkout.order_cancel_not_allowed'), 422);
-        }
-
-        // T-03 / R-POL-1: never issue a cancellation credential while money
-        // may still be collected.
-        if ($this->attempts->hasUnresolvedAttempt($order->id)) {
-            throw new GuestCheckoutConflictException(__('checkout.order_payment_in_progress'), 409);
-        }
+        // The ONE policy gate: the same cancellable-status and unresolved-
+        // payment rules the cancel endpoint runs (#81 review: no drift).
+        $this->gate->assertCancellable($order);
 
         $hash = $this->tokens->hash($rawToken);
         $this->assertNotLocked($hash);
 
-        $result = $this->gateway->startVerification($this->phone($order));
+        try {
+            $result = $this->gateway->startVerification($this->phone($order));
+        } catch (\Throwable $e) {
+            // Provider error text can echo the recipient number: log the
+            // exception identity only and answer the translated failure
+            // (spec #73: no clear phone in any log).
+            Log::error('Guest cancellation OTP dispatch failed', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
+            ]);
+
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 422);
+        }
 
         if (!$result?->isValid()) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 422);
@@ -126,8 +133,13 @@ class GuestCancellationOtpService
             );
         } catch (\Throwable $e) {
             // A provider outage is not a guess: fail closed without burning
-            // one of the five attempts, and never cancel.
-            report($e);
+            // one of the five attempts, and never cancel. The provider error
+            // text can echo the recipient number — log the identity only.
+            Log::error('Guest cancellation OTP verification failed', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
+            ]);
 
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 422);
         }

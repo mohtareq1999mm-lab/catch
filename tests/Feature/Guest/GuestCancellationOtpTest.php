@@ -6,9 +6,11 @@ use App\Models\OrderStatusHistory;
 use App\Services\Guest\GuestOrderTokenService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use Marvel\Database\Models\Order;
+use Mockery;
 
 /**
  * Cancellation possession proof (#81, spec #73).
@@ -372,6 +374,65 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
         // A provider-verified code still works in production.
         $this->requestCode($token)->assertOk();
         $this->cancelWithCode($token, '654321')->assertOk();
+    }
+
+    /** @test */
+    public function production_never_falls_back_to_a_silent_local_gateway(): void
+    {
+        $data = $this->createGuestOrder('cod');
+
+        // A misconfigured provider in production must surface as a LOUD 422:
+        // the pre-#89-review binding silently substituted the LocalGateway,
+        // whose answer looks like a successful send while nothing was sent.
+        $this->app['env'] = 'production';
+        config(['auth.active_otp_gateway' => 'nonexistent']);
+
+        $this->requestCode($data['cancellation_token'])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_failed'));
+
+        // Nothing was stored: the state key must not exist for a failed send.
+        $this->assertFalse(Cache::has($this->stateKey($data['cancellation_token'])));
+    }
+
+    /** @test */
+    public function a_provider_outage_is_reported_without_leaking_the_phone_number(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $token = $data['cancellation_token'];
+
+        $logEvents = [];
+        Log::listen(function ($event) use (&$logEvents) {
+            $logEvents[] = ['message' => (string) $event->message, 'context' => $event->context];
+        });
+
+        // A configured-but-broken provider (constructor throws): non-production
+        // falls back to the committed LocalGateway, which WORKS — so prove the
+        // leak rule where an outage actually occurs: a startVerification that
+        // throws. Gateway errors must answer the translated failure and must
+        // never place the recipient number in any log line.
+        $gateway = Mockery::mock(\Marvel\Otp\Gateways\OtpGateway::class.'[startVerification]', [
+            new \Marvel\Otp\Gateways\LocalGateway(),
+        ]);
+        $gateway->shouldReceive('startVerification')
+            ->andThrow(new \RuntimeException('Twilio: unable to create record for +201000000001'));
+
+        $this->app->instance(\Marvel\Otp\Gateways\OtpGateway::class, $gateway);
+
+        $this->requestCode($token)
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_failed'));
+
+        $outageLogs = array_filter($logEvents, fn ($e) => str_contains($e['message'], 'OTP dispatch failed'));
+        $this->assertNotEmpty($outageLogs, 'The outage must be observable.');
+
+        $flat = collect($logEvents)->map(fn ($e) => $e['message'] . json_encode($e['context']))->implode("\n");
+        $this->assertStringNotContainsString(
+            '+201000000001',
+            $flat,
+            'The provider error text must not carry the phone number into logs.'
+        );
     }
 
     /** @test */
