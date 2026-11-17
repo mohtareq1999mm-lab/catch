@@ -56,4 +56,32 @@ class OtpLocalGatewayTest extends TestCase
 
         $this->assertFalse($result->isValid());
     }
+
+    /**
+     * ADR-0003: production can never accept the static code, even with the
+     * enabled flag on (misconfigured environment). The container 'env'
+     * snapshot is what app()->isProduction() reads, so it is simulated the
+     * same way the app itself detects the environment.
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function it_never_accepts_the_static_code_in_production()
+    {
+        $this->app['env'] = 'production';
+        config(['auth.local_otp_enabled' => true, 'auth.local_otp_code' => '123456']);
+
+        $result = (new LocalGateway())->checkVerification('local-verification-id', '123456', '+2011185151');
+
+        $this->assertFalse($result->isValid(), 'The static code must be dead in production.');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function it_never_starts_a_verification_in_production()
+    {
+        $this->app['env'] = 'production';
+        config(['auth.local_otp_enabled' => true, 'auth.local_otp_code' => '123456']);
+
+        $result = (new LocalGateway())->startVerification('+2011185151');
+
+        $this->assertFalse($result->isValid(), 'The local gateway must not hand out verification ids in production.');
+    }
 }
