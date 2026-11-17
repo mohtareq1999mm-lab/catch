@@ -10,7 +10,9 @@ use Marvel\Enums\ImportStatus;
  * cap and the single import-row write shape.
  *
  * The invariant is clamped to the known total so auxiliary sheets can never
- * inflate product-row counters (4104→4913).
+ * inflate product-row counters (4104→4913). The outcome is family-neutral:
+ * each import family provides its live failed-count (and optional error list)
+ * provider.
  */
 final class RunOutcome
 {
@@ -20,8 +22,14 @@ final class RunOutcome
 
     private int $successCount = 0;
 
-    public function __construct(private readonly ImportReport $report)
-    {
+    /**
+     * Family-neutral: the outcome doesn't own the error bucket — each family
+     * provides its live failed-count (and optional error list) provider.
+     */
+    public function __construct(
+        private readonly \Closure $failedCount,
+        private readonly ?\Closure $errors = null,
+    ) {
     }
 
     public function setTotalRows(int $total): void
@@ -46,7 +54,7 @@ final class RunOutcome
 
     public function failedCount(): int
     {
-        return $this->report->failedRowCount();
+        return ($this->failedCount)();
     }
 
     /**
@@ -102,33 +110,52 @@ final class RunOutcome
 
     /**
      * The single error cap: aggregated warnings are emitted first by the
-     * report, so they survive truncation.
+     * product report, so they survive truncation. Families without an error
+     * provider report no row-level errors.
      *
      * @return array<int, array<string, mixed>>
      */
     public function errors(): array
     {
-        return array_slice($this->report->all(), 0, self::ERROR_CAP);
+        $provider = $this->errors;
+
+        if ($provider === null) {
+            return [];
+        }
+
+        return array_slice($provider(), 0, self::ERROR_CAP);
     }
 
     public function downloadAvailable(): bool
     {
-        return $this->report->all() !== [];
+        $provider = $this->errors;
+
+        if ($provider === null) {
+            return false;
+        }
+
+        return $provider() !== [];
     }
 
     /**
-     * The single persistence shape for import-row counters and errors.
+     * The single persistence shape for import-row counters and errors. The
+     * errors key is present only for families that provide an error list.
      *
      * @return array<string, mixed>
      */
     public function rowAttributes(): array
     {
-        return [
+        $attributes = [
             'processed_rows' => $this->clampedProcessed(),
             'success_rows' => $this->clampedSuccess(),
             'failed_rows' => $this->clampedFailed(),
-            'errors' => $this->errors(),
         ];
+
+        if ($this->errors !== null) {
+            $attributes['errors'] = $this->errors();
+        }
+
+        return $attributes;
     }
 
     /**

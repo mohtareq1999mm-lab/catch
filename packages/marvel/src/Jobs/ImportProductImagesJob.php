@@ -11,7 +11,9 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Import;
-use Marvel\Services\Import\ProductImportService;
+use Marvel\Services\Import\ImageImporter;
+use Marvel\Services\Import\ImportReport;
+use Marvel\Services\Import\RunOutcome;
 use Throwable;
 
 class ImportProductImagesJob implements ShouldQueue
@@ -19,17 +21,28 @@ class ImportProductImagesJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $timeout = 600;
+
     public array $backoff = [30, 60, 120];
 
     protected int $importId;
-    protected array $imageRows; // each: ['product_sku'=>..., 'image'=>..., 'row'=>...]
+
+    /**
+     * Each entry: ['product_sku' => ..., 'image' => ..., 'row' => ...].
+     */
+    protected array $imageRows;
 
     public function __construct(int $importId, array $imageRows)
     {
         $this->importId = $importId;
         $this->imageRows = $imageRows;
         $this->onQueue(config('queue.queues.medium'));
+    }
+
+    public function imageRows(): array
+    {
+        return $this->imageRows;
     }
 
     public function handle(): void
@@ -39,17 +52,9 @@ class ImportProductImagesJob implements ShouldQueue
             return;
         }
 
-        $service = new ProductImportService($this->importId);
-
-        foreach ($this->imageRows as $row) {
-            $sku = $row['product_sku'] ?? '';
-            $image = $row['image'] ?? '';
-            $rowIndex = $row['row'] ?? 0;
-            if (empty($sku) || empty($image)) {
-                continue;
-            }
-            $service->processProductImage((string) $sku, (string) $image, (int) $rowIndex);
-        }
+        // One importer per chunk: handler and report state stay with the seam.
+        $importer = new ImageImporter(new ImportReport());
+        $importer->ingest($this->imageRows);
 
         // Merge image errors into import errors (append, keep product counters intact)
         try {
@@ -58,10 +63,10 @@ class ImportProductImagesJob implements ShouldQueue
             if (is_string($existing)) {
                 $existing = json_decode($existing, true) ?? [];
             }
-            $newErrors = $service->getImageErrors();
+            $newErrors = $importer->report()->imageErrors();
             if (!empty($newErrors)) {
                 $merged = array_merge($existing, $newErrors);
-                $import->update(['errors' => array_slice($merged, 0, \Marvel\Services\Import\RunOutcome::ERROR_CAP)]);
+                $import->update(['errors' => array_slice($merged, 0, RunOutcome::ERROR_CAP)]);
             }
         } catch (Throwable $e) {
             report($e);
@@ -90,6 +95,6 @@ class ImportProductImagesJob implements ShouldQueue
             if ($needsFlush) Cache::flush();
             HomeService::clearCache();
             Cache::increment('api_cache_version');
-        } catch (\Throwable $e) { report($e); }
+        } catch (Throwable $e) { report($e); }
     }
 }
