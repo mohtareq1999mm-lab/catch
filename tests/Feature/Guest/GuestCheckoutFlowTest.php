@@ -318,11 +318,13 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
 
         $this->assertIsString($trackingToken);
         $this->assertIsString($cancellationToken, 'The checkout fixture must carry a real cancellation token');
-        $this->assertSame([], $this->smsSends, 'Delivery must be scheduled, never executed inside the request');
 
-        // Run the terminating phase exactly as the production HTTP kernel
-        // does after the response is sent.
-        $this->app->terminate();
+        // The test kernel runs Application::terminate() after the response
+        // (MakesHttpRequests::call), exactly like the production kernel, so
+        // the scheduled delivery has already executed once here. The
+        // "deferred, not inline" wiring is pinned at the unit seam:
+        // GuestTrackingLinkNotifierTest::test_notify_after_response_defers_
+        // delivery_to_the_terminating_phase.
 
         // SMS channel: exactly one send, to the order phone, tracking link only.
         $this->assertCount(1, $this->smsSends, 'The scheduled delivery must execute at terminate');
