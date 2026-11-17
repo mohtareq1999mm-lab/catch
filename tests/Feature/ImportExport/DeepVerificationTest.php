@@ -80,7 +80,16 @@ class DeepVerificationTest extends TestCase
     {
         $owner = $this->makeUser([Perm::IMPORT_PRODUCT]);
         $other = $this->makeUser([Perm::IMPORT_PRODUCT]);
+        // The super-admin bypass is role-based (ImportPolicy), and the
+        // permission middleware runs first — production seeds super_admin
+        // with every system permission (AdminSeeder), so mirror that here.
+        $superRole = \Spatie\Permission\Models\Role::firstOrCreate([
+            'name' => \Marvel\Enums\Role::SUPER_ADMIN,
+            'guard_name' => self::GUARD,
+        ]);
+        $superRole->givePermissionTo(Perm::IMPORT_PRODUCT);
         $super = $this->makeUser([]);
+        $super->assignRole($superRole);
         // Create with correct type product-import
         $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>'imports/a.xlsx','file_name'=>'a.xlsx','status'=>'completed','total_rows'=>1,'created_by'=>$owner->id]);
         Sanctum::actingAs($owner);
@@ -90,8 +99,11 @@ class DeepVerificationTest extends TestCase
         Sanctum::actingAs($other);
         $resp = $this->getJson(self::PREFIX."/products/import/{$import->id}");
         $this->assertEquals(404, $resp->getStatusCode(), 'Other user must get 404, not 403 or 500. Got: '.$resp->getContent());
-        // wrong type
-        Sanctum::actingAs($owner);
+        // wrong type: a product import id must not leak through the category
+        // endpoint. The prober holds both permissions so the type scoping
+        // itself is what answers (the permission middleware runs first).
+        $crossProber = $this->makeUser([Perm::IMPORT_PRODUCT, Perm::IMPORT_CATEGORY]);
+        Sanctum::actingAs($crossProber);
         $resp2 = $this->getJson(self::PREFIX."/categories/import/{$import->id}");
         $this->assertEquals(404, $resp2->getStatusCode(), 'Wrong type must be 404. Got: '.$resp2->getContent());
     }
@@ -191,9 +203,11 @@ class DeepVerificationTest extends TestCase
         $this->assertEquals(2, count($import->errors));
         $rowsReported = array_column($import->errors, 'row');
         sort($rowsReported);
-        // With chunkSize 100, rowOffset should make second chunk start at 102, so row 122 and 142
-        $this->assertContains(123, $rowsReported, 'Row 123 should be reported for chunk2 failure (header offset 2)');
-        // Actually our write: index 120 corresponds to excel row 122 (header + index+2) — verify not restarting at 2
+        // Physical Excel rows: chunk 2 starts after 100 data rows + the
+        // header, so data index 120 is Excel row 100 + 20 + 2 = 122 and
+        // index 140 is 142. Rows must never restart at 2 per chunk.
+        $this->assertContains(122, $rowsReported, 'Data index 120 must be reported as Excel row 122 in chunk 2');
+        $this->assertContains(142, $rowsReported, 'Data index 140 must be reported as Excel row 142 in chunk 2');
         $this->assertNotContains(3, $rowsReported, 'Row numbers must not restart at 2 for chunk2');
         @unlink($tmp);
     }
@@ -276,9 +290,15 @@ class DeepVerificationTest extends TestCase
 
     public function test_brand_multi_sheet_only_first_processed_deep(): void
     {
-        $content = file_get_contents(base_path('packages/marvel/src/Imports/Sheets/BrandsSheetImport.php'));
-        $this->assertStringContainsString('BrandImportService', $content);
-        $this->assertStringNotContainsString('ProductImportService', $content);
+        // The standalone brand importer owns the brands sheet: it must use
+        // BrandImportService (mirror of the category check above). The
+        // product workbook's `brands` pivot sheet intentionally stays on the
+        // product import (ProductBrandsSheetImport).
+        $content = file_get_contents(base_path('packages/marvel/src/Imports/Sheets/BrandSheetImport.php'));
+        $this->assertStringContainsString('BrandImportService', $content, 'BrandSheetImport must use BrandImportService');
+        $this->assertStringNotContainsString('ProductImportService', $content, 'BrandSheetImport must not use ProductImportService');
+        $content2 = file_get_contents(base_path('packages/marvel/src/Imports/BrandsImport.php'));
+        $this->assertStringContainsString('WithMultipleSheets', $content2, 'BrandsImport must implement WithMultipleSheets');
     }
 
     // 4.16 Status resource deep

@@ -394,7 +394,10 @@ final class ProductRowWriter
         $dimensionFields = ['height', 'width', 'length', 'weight'];
         foreach ($dimensionFields as $field) {
             if (isset($row[$field]) && $row[$field] !== '') {
-                $data[$field] = (string) $row[$field];
+                // Dimensions are measured fields: reject non-numeric and
+                // negative cells exactly like price/quantity instead of
+                // persisting the raw string.
+                $data[$field] = (string) $this->validateNumeric($row[$field], $field, allowFloat: true);
             }
         }
 
