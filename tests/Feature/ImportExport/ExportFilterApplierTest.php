@@ -200,20 +200,63 @@ class ExportFilterApplierTest extends TestCase
     /**
      * Every join-builder sheet declares the contract and relies on the
      * pivot whereExists mode; each must execute its filtered query against
-     * the database without a fatal (the missing-DB-import bug class).
+     * the database without a fatal (the missing-DB-import bug class), and
+     * the valid filters must actually resolve: with the sheet's own domain
+     * row present, the filtered query returns the product row.
      *
-     * @return array<string, array{0: class-string, 1: string}>
+     * @return array<string, array{0: class-string, 1: string, 2: \Closure}>
      */
     public static function joinSheetProvider(): array
     {
         return [
-            'brands' => [BrandsSheetExport::class, 'BRANDS'],
-            'categories' => [CategoriesSheetExport::class, 'CATEGORIES'],
-            'tags' => [TagsSheetExport::class, 'TAGS'],
-            'flash_sales' => [FlashSalesSheetExport::class, 'FLASH_SALES'],
-            'sliders' => [SlidersSheetExport::class, 'SLIDERS'],
-            'product_barcodes' => [ProductBarcodesSheetExport::class, 'PRODUCT_BARCODES'],
-            'images' => [ImagesSheetExport::class, 'IMAGES'],
+            'brands' => [BrandsSheetExport::class, 'BRANDS', function (Product $product): void {
+                $brand = Brand::create(['name' => ['en' => 'JS Brand ' . uniqid()], 'slug' => 'js-brand-' . uniqid(), 'status' => 1]);
+                $product->brands()->attach($brand->id);
+            }],
+            'categories' => [CategoriesSheetExport::class, 'CATEGORIES', function (Product $product): void {
+                $category = Category::create(['name' => ['en' => 'JS Cat ' . uniqid()], 'slug' => 'js-cat-' . uniqid(), 'status' => 1]);
+                $product->categories()->attach($category->id);
+            }],
+            'tags' => [TagsSheetExport::class, 'TAGS', function (Product $product): void {
+                $tag = \Marvel\Database\Models\Tag::create(['name' => ['en' => 'JS Tag ' . uniqid()], 'slug' => 'js-tag-' . uniqid(), 'status' => 1]);
+                $product->tags()->attach($tag->id);
+            }],
+            'flash_sales' => [FlashSalesSheetExport::class, 'FLASH_SALES', function (Product $product): void {
+                $sale = \Marvel\Database\Models\FlashSale::create(['name' => 'JS Sale ' . uniqid(), 'status' => 1]);
+                \Illuminate\Support\Facades\DB::table('flash_sale_products')->insert([
+                    'flash_sale_id' => $sale->id,
+                    'product_id' => $product->id,
+                ]);
+            }],
+            'sliders' => [SlidersSheetExport::class, 'SLIDERS', function (Product $product): void {
+                $slider = \Marvel\Database\Models\Slider::create(['title' => ['en' => 'JS Slider ' . uniqid()], 'status' => 1]);
+                \Illuminate\Support\Facades\DB::table('slider_product')->insert([
+                    'slider_id' => $slider->id,
+                    'product_id' => $product->id,
+                ]);
+            }],
+            'product_barcodes' => [ProductBarcodesSheetExport::class, 'PRODUCT_BARCODES', function (Product $product): void {
+                \Illuminate\Support\Facades\DB::table('product_barcodes')->insert([
+                    'product_id' => $product->id,
+                    'piece_barcode' => '1234567890123',
+                    'carton_barcode' => '9876543210987',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }],
+            'images' => [ImagesSheetExport::class, 'IMAGES', function (Product $product): void {
+                \Illuminate\Support\Facades\DB::table('media')->insert([
+                    'model_type' => 'Marvel\\Database\\Models\\Product',
+                    'model_id' => $product->id,
+                    'collection_name' => 'products',
+                    'name' => 'img-' . uniqid(),
+                    'file_name' => 'img-' . uniqid() . '.png',
+                    'disk' => 'public',
+                    'size' => 1024,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }],
         ];
     }
 
@@ -221,7 +264,7 @@ class ExportFilterApplierTest extends TestCase
      * @param  class-string  $sheetClass
      * @dataProvider joinSheetProvider
      */
-    public function test_every_join_sheet_executes_the_declared_filters(string $sheetClass, string $sheetKey): void
+    public function test_every_join_sheet_executes_the_declared_filters(string $sheetClass, string $sheetKey, \Closure $seedDomainRow): void
     {
         $product = Product::create([
             'sku' => 'JOIN-' . strtoupper($sheetKey),
@@ -239,11 +282,49 @@ class ExportFilterApplierTest extends TestCase
 
         $this->assertSame(0, $invalid->query()->count());
 
+        $seedDomainRow($product);
+
         $sheet = new $sheetClass(['status' => 1, 'product_type' => 'simple']);
 
-        $count = $sheet->query()->count();
+        $this->assertGreaterThanOrEqual(1, $sheet->query()->count());
+    }
 
-        $this->assertGreaterThanOrEqual(0, $count);
-        $this->assertDatabaseHas('products', ['sku' => 'JOIN-' . strtoupper($sheetKey)]);
+    /**
+     * The images sheet excludes soft-deleted products (declared in the
+     * schema, asserted here on behaviour).
+     */
+    public function test_images_sheet_excludes_soft_deleted_products(): void
+    {
+        $product = Product::create([
+            'sku' => 'IMAGES-DEL-' . uniqid(),
+            'name' => ['en' => 'Soft Deleted Images'],
+            'slug' => 'images-del-' . uniqid(),
+            'price' => 10,
+            'quantity' => 5,
+            'stock_quantity' => 5,
+            'product_type' => 'simple',
+            'status' => true,
+            'in_stock' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('media')->insert([
+            'model_type' => 'Marvel\\Database\\Models\\Product',
+            'model_id' => $product->id,
+            'collection_name' => 'products',
+            'name' => 'del-img-' . uniqid(),
+            'file_name' => 'del-img-' . uniqid() . '.png',
+            'disk' => 'public',
+            'size' => 1024,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $sheet = new ImagesSheetExport(['status' => 1, 'product_type' => 'simple']);
+
+        $this->assertGreaterThanOrEqual(1, $sheet->query()->count());
+
+        $product->delete();
+
+        $this->assertSame(0, $sheet->query()->count());
     }
 }

@@ -4,7 +4,6 @@ namespace Marvel\Services\Import;
 
 use App\Services\General\CategoryHierarchyService;
 use Illuminate\Validation\ValidationException;
-use Marvel\Database\Models\Category;
 use Throwable;
 
 /**

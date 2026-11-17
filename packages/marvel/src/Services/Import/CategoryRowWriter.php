@@ -3,7 +3,6 @@
 namespace Marvel\Services\Import;
 
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Category;
 use RuntimeException;
@@ -21,18 +20,6 @@ use Throwable;
  */
 final class CategoryRowWriter
 {
-    protected const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-
-    protected const MAX_REDIRECTS = 5;
-
-    protected const IMAGE_TIMEOUT = 30;
-
-    protected const ALLOWED_IMAGE_MIMES = [
-        'image/jpeg',
-        'image/png',
-        'image/gif',
-    ];
-
     protected array $failedRows = [];
 
     protected array $createdIds = [];
@@ -43,10 +30,13 @@ final class CategoryRowWriter
 
     protected array $createdSlugs = [];
 
+    private readonly ImportImageDownloader $images;
+
     public function __construct(
         private readonly RunOutcome $outcome,
         private readonly \Closure $onRowProcessed,
     ) {
+        $this->images = new ImportImageDownloader('message.IMPORT.CATEGORY', 'category_img');
     }
 
     /**
@@ -153,7 +143,6 @@ final class CategoryRowWriter
             'errors' => [],
             'target' => null,
             'is_new' => false,
-            'original_parent_id' => null,
         ];
 
         if ($data['name_en'] === '') {
@@ -185,11 +174,11 @@ final class CategoryRowWriter
             $data['is_featured'] = $featured ?? 0;
         }
 
-        if ($data['image_desktop_url'] !== '' && !$this->isValidUrlFormat($data['image_desktop_url'])) {
+        if ($data['image_desktop_url'] !== '' && !$this->images->isValidUrlFormat($data['image_desktop_url'])) {
             $data['errors'][] = __('message.IMPORT.CATEGORY.INVALID_IMAGE_URL');
         }
 
-        if ($data['image_mobile_url'] !== '' && !$this->isValidUrlFormat($data['image_mobile_url'])) {
+        if ($data['image_mobile_url'] !== '' && !$this->images->isValidUrlFormat($data['image_mobile_url'])) {
             $data['errors'][] = __('message.IMPORT.CATEGORY.INVALID_IMAGE_URL');
         }
 
@@ -203,14 +192,14 @@ final class CategoryRowWriter
         // This aligns Category with Brand parity (BrandImportService) where images are
         // optional; validation failures (INVALID_IMAGE_URL) still fail the row above.
         try {
-            $data['temp_desktop'] = $data['image_desktop_url'] !== '' ? $this->downloadImage($data['image_desktop_url']) : null;
+            $data['temp_desktop'] = $data['image_desktop_url'] !== '' ? $this->images->downloadImage($data['image_desktop_url']) : null;
         } catch (Throwable $e) {
             report(new RuntimeException("Category '{$data['name_en']}' desktop image download failed: {$e->getMessage()}"));
             $data['temp_desktop'] = null;
         }
 
         try {
-            $data['temp_mobile'] = $data['image_mobile_url'] !== '' ? $this->downloadImage($data['image_mobile_url']) : null;
+            $data['temp_mobile'] = $data['image_mobile_url'] !== '' ? $this->images->downloadImage($data['image_mobile_url']) : null;
         } catch (Throwable $e) {
             report(new RuntimeException("Category '{$data['name_en']}' mobile image download failed: {$e->getMessage()}"));
             $data['temp_mobile'] = null;
@@ -263,7 +252,6 @@ final class CategoryRowWriter
 
                     $row['target'] = $category;
                     $row['is_new'] = false;
-                    $row['original_parent_id'] = $category->parent_id;
                 } else {
                     $slug = Str::slug($nameEn);
 
@@ -303,7 +291,6 @@ final class CategoryRowWriter
 
                     $row['target'] = $category;
                     $row['is_new'] = true;
-                    $row['original_parent_id'] = null;
                 }
 
                 $pending[$index] = $row;
@@ -498,287 +485,25 @@ final class CategoryRowWriter
 
         return 'invalid';
     }
-
-    protected function isValidUrlFormat(string $url): bool
-    {
-        if (filter_var($url, FILTER_VALIDATE_URL) === false) {
-            return false;
-        }
-
-        // Single-URL contract: reject pipe-separated gallery expectations.
-        // A cell containing '|' is one malformed URL, not 3 images.
-        if (str_contains($url, '|')) {
-            return false;
-        }
-
-        return true;
-    }
-
-    protected function downloadImage(string $url): string
-    {
-        if (!$this->isValidUrlFormat($url)) {
-            throw new RuntimeException(__('message.IMPORT.CATEGORY.INVALID_IMAGE_URL'));
-        }
-
-        $this->assertSafeUrl($url);
-
-        $currentUrl = $url;
-
-        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            $this->assertSafeUrl($currentUrl);
-
-            $response = Http::timeout(self::IMAGE_TIMEOUT)
-                ->withOptions(['allow_redirects' => false, 'verify' => true])
-                ->get($currentUrl);
-
-            $status = $response->status();
-
-            if (in_array($status, [301, 302, 303, 307, 308], true)) {
-                $location = $response->header('Location');
-
-                if (!$location) {
-                    throw new RuntimeException(__('message.IMPORT.CATEGORY.UNSAFE_IMAGE_URL'));
-                }
-
-                $currentUrl = $this->resolveRedirectUrl($currentUrl, $location);
-
-                continue;
-            }
-
-            if ($status < 200 || $status >= 300) {
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.IMAGE_DOWNLOAD_FAILED') . " (HTTP {$status})");
-            }
-
-            $contentLength = $response->header('Content-Length');
-
-            if ($contentLength !== null && (int) $contentLength > self::MAX_IMAGE_SIZE) {
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.IMAGE_TOO_LARGE'));
-            }
-
-            $body = $response->body();
-
-            if (strlen($body) > self::MAX_IMAGE_SIZE) {
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.IMAGE_TOO_LARGE'));
-            }
-
-            $mime = $this->detectMime($body);
-
-            if (!in_array($mime, self::ALLOWED_IMAGE_MIMES, true)) {
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.UNSUPPORTED_IMAGE_TYPE'));
-            }
-
-            if (stripos(substr($body, 0, 2048), '<svg') !== false) {
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.UNSUPPORTED_IMAGE_TYPE'));
-            }
-
-            $extension = $this->mimeToExtension($mime);
-            $tempDir = storage_path('app/temp');
-
-            if (!is_dir($tempDir)) {
-                mkdir($tempDir, 0755, true);
-            }
-
-            $tempPath = $tempDir . '/category_img_' . Str::random(16) . '.' . $extension;
-
-            file_put_contents($tempPath, $body);
-
-            if ($this->isActualImage($tempPath) === false) {
-                @unlink($tempPath);
-
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.INVALID_IMAGE_FILE'));
-            }
-
-            return $tempPath;
-        }
-
-        throw new RuntimeException(__('message.IMPORT.CATEGORY.TOO_MANY_REDIRECTS'));
-    }
-
+    /**
+     * Public seam: DeepVerificationTest exercises SSRF screening through
+     * the service, which delegates here. The pipeline itself lives on
+     * ImportImageDownloader (one owner for brand and category).
+     */
     public function assertSafeUrl(string $url): void
     {
-        $parts = parse_url($url);
-        $scheme = strtolower($parts['scheme'] ?? '');
-
-        if (!in_array($scheme, ['http', 'https'], true)) {
-            throw new RuntimeException(__('message.IMPORT.CATEGORY.UNSAFE_IMAGE_URL'));
-        }
-
-        $host = $parts['host'] ?? '';
-
-        if ($host === '') {
-            throw new RuntimeException(__('message.IMPORT.CATEGORY.INVALID_IMAGE_URL'));
-        }
-
-        $host = trim($host, '[]');
-
-        $ips = $this->resolveHost($host);
-
-        if (empty($ips)) {
-            throw new RuntimeException(__('message.IMPORT.CATEGORY.UNSAFE_IMAGE_URL'));
-        }
-
-        foreach ($ips as $ip) {
-            if ($this->isBlockedIp($ip)) {
-                throw new RuntimeException(__('message.IMPORT.CATEGORY.UNSAFE_IMAGE_URL'));
-            }
-        }
+        $this->images->assertSafeUrl($url);
     }
 
-    protected function resolveHost(string $host): array
+    public function cleanupTempFiles(array $pending): void
     {
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            return [$host];
-        }
-
-        $ips = gethostbynamel($host);
-
-        return is_array($ips) ? $ips : [];
+        $this->images->cleanupTempFiles($pending);
     }
 
-    protected function isBlockedIp(string $ip): bool
-    {
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            $long = ip2long($ip);
-
-            if ($long === false) {
-                return true;
-            }
-
-            $unsigned = sprintf('%u', $long);
-
-            $blocks = [
-                ['0.0.0.0', '0.255.255.255'],
-                ['10.0.0.0', '10.255.255.255'],
-                ['100.64.0.0', '100.127.255.255'],
-                ['127.0.0.0', '127.255.255.255'],
-                ['169.254.0.0', '169.254.255.255'],
-                ['172.16.0.0', '172.31.255.255'],
-                ['192.0.0.0', '192.0.0.255'],
-                ['192.0.2.0', '192.0.2.255'],
-                ['192.168.0.0', '192.168.255.255'],
-                ['198.18.0.0', '198.19.255.255'],
-                ['198.51.100.0', '198.51.100.255'],
-                ['203.0.113.0', '203.0.113.255'],
-                ['224.0.0.0', '239.255.255.255'],
-                ['240.0.0.0', '255.255.255.255'],
-            ];
-
-            foreach ($blocks as [$start, $end]) {
-                if ($unsigned >= sprintf('%u', ip2long($start)) && $unsigned <= sprintf('%u', ip2long($end))) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-            $bin = inet_pton($ip);
-
-            if ($bin === false) {
-                return true;
-            }
-
-            if ($bin === str_repeat("\x00", 16)) {
-                return true;
-            }
-
-            if ($bin === str_repeat("\x00", 15) . "\x01") {
-                return true;
-            }
-
-            if (substr($bin, 0, 10) === str_repeat("\x00", 10) && substr($bin, 10, 2) === "\xff\xff") {
-                return $this->isBlockedIp(inet_ntop(substr($bin, 12, 4)));
-            }
-
-            if ((ord($bin[0]) & 0xfe) === 0xfc) {
-                return true;
-            }
-
-            if ((ord($bin[0]) & 0xc0) === 0x80) {
-                return true;
-            }
-
-            if (substr($bin, 0, 4) === "\x20\x01\x0d\xb8") {
-                return true;
-            }
-
-            return false;
-        }
-
-        return true;
-    }
-
-    protected function resolveRedirectUrl(string $baseUrl, string $location): string
-    {
-        $location = trim($location);
-
-        if (filter_var($location, FILTER_VALIDATE_URL) !== false) {
-            return $location;
-        }
-
-        if (str_starts_with($location, '//')) {
-            $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
-
-            return $scheme . ':' . $location;
-        }
-
-        $parts = parse_url($baseUrl);
-        $scheme = $parts['scheme'] ?? 'http';
-        $host = $parts['host'] ?? '';
-
-        if (str_starts_with($location, '/')) {
-            return $scheme . '://' . $host . $location;
-        }
-
-        $path = $parts['path'] ?? '/';
-        $dir = substr($path, 0, (int) strrpos($path, '/') + 1);
-
-        return $scheme . '://' . $host . $dir . $location;
-    }
-
-    protected function detectMime(string $body): string
-    {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = finfo_buffer($finfo, $body);
-        finfo_close($finfo);
-
-        return is_string($mime) ? strtolower($mime) : '';
-    }
-
-    protected function mimeToExtension(string $mime): string
-    {
-        return match ($mime) {
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            default => 'jpg',
-        };
-    }
-
-    protected function isActualImage(string $tempPath): bool
-    {
-        $info = @getimagesize($tempPath);
-
-        return is_array($info) && ($info[0] > 0) && ($info[1] > 0);
-    }
-
-    protected function translateImageError(string $message): string
-    {
-        if (str_contains($message, 'image URL') || str_contains($message, 'address')) {
-            return __('message.IMPORT.CATEGORY.UNSAFE_IMAGE_URL');
-        }
-
-        if (str_contains($message, 'MIME') || str_contains($message, 'unsupported') || str_contains($message, 'image type')) {
-            return __('message.IMPORT.CATEGORY.UNSUPPORTED_IMAGE_TYPE');
-        }
-
-        if (str_contains($message, 'large')) {
-            return __('message.IMPORT.CATEGORY.IMAGE_TOO_LARGE');
-        }
-
-        return $message;
-    }
-
+    /**
+     * Remove one row's staged temp files. Public seam: the hierarchy linker
+     * cleans up after orphan-removal decisions.
+     */
     public function cleanupTempImages(array $row): void
     {
         foreach (['temp_desktop', 'temp_mobile'] as $key) {
@@ -788,13 +513,11 @@ final class CategoryRowWriter
         }
     }
 
-    public function cleanupTempFiles(array $pending): void
-    {
-        foreach ($pending as $row) {
-            $this->cleanupTempImages($row);
-        }
-    }
-
+    /**
+     * Record one row failure. Public by design: CategoryHierarchyLinker is
+     * a sibling collaborator and reports parent-resolution failures through
+     * this single writer seam.
+     */
     public function failPendingRow(array &$pending, int $index, array $row, string $message): void
     {
         $row['errors'][] = $message;

@@ -1410,3 +1410,16 @@ Full rules: LEAN-CTX.md (open on demand — do not auto-load).
 <!-- /lean-ctx -->
 
 ```
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `mohtareq1999mm-lab/catch` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), created on GitHub. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `GLOSSARY.md` at the repo root, ADRs in `docs/adr/`. See `docs/agents/domain.md`.

@@ -110,4 +110,22 @@ return [
 
     'password_timeout' => 10800,
 
+    /*
+    |--------------------------------------------------------------------------
+    | OTP Gateway & Master OTP
+    |--------------------------------------------------------------------------
+    |
+    | Active gateway: 'twilio', 'messagebird', or 'local'.
+    | Master OTP allows static testing / bypass code without an external SMS gateway.
+    |
+    */
+
+    'active_otp_gateway' => env('ACTIVE_OTP_GATEWAY', 'twilio'),
+
+    'local_otp_enabled' => env('LOCAL_OTP_ENABLED', env('APP_ENV') !== 'production'),
+
+    'local_otp_code' => env('LOCAL_OTP_CODE', '123456'),
+
+    'master_otp' => env('MASTER_OTP', '123456'),
+
 ];

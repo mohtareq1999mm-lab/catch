@@ -1,0 +1,88 @@
+{
+    "run_at": "2026-11-17T09:33:04+00:00",
+    "tree": "606aff58d326e6c26ee59bf37c7c7cc6ed9ae673",
+    "checks": [
+        {
+            "name": "category invariant processed = success + failed",
+            "ok": true,
+            "detail": "processed=3 success=2 failed=1"
+        },
+        {
+            "name": "category partial status",
+            "ok": true,
+            "detail": "status=completed_with_errors"
+        },
+        {
+            "name": "category counters",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "category error list carries the failing row",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "brand invariant processed = success + failed",
+            "ok": true,
+            "detail": "processed=2 success=1 failed=1"
+        },
+        {
+            "name": "brand partial status",
+            "ok": true,
+            "detail": "status=completed_with_errors"
+        },
+        {
+            "name": "brand counters",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "brand error list carries the failing row",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "empty sheet completes (category)",
+            "ok": true,
+            "detail": "status=completed"
+        },
+        {
+            "name": "empty sheet completes (brand)",
+            "ok": true,
+            "detail": "status=completed"
+        },
+        {
+            "name": "empty sheet counters zero (category)",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "empty sheet counters zero (brand)",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "row-write shape has the outcome columns",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "single error cap constant",
+            "ok": true,
+            "detail": "cap=1000"
+        },
+        {
+            "name": "category rows persisted",
+            "ok": true,
+            "detail": ""
+        },
+        {
+            "name": "brand rows persisted",
+            "ok": true,
+            "detail": ""
+        }
+    ],
+    "passed": 16,
+    "total": 16
+}

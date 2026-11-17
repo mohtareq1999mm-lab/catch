@@ -23,6 +23,7 @@ class GuestCheckoutService
         private GuestIdempotencyService $idempotency,
         private \App\Services\General\OrderService $orderService,
         private GuestCartEligibility $eligibility,
+        private GuestTrackingLinkNotifier $trackingLinks,
     ) {
     }
 
@@ -73,6 +74,10 @@ class GuestCheckoutService
             if ((int) $order->guest_id === (int) $guest->id) {
                 $trackingToken = $this->tokenService->issueTrackingToken($order);
                 $cancellationToken = $this->tokenService->issueCancellationToken($order);
+
+                // Frontend tracking link (SMS/email) after the response is
+                // sent; tracking token only, failures never affect the order.
+                $this->trackingLinks->notifyAfterResponse($order, $trackingToken);
             }
 
             $order->load(['orderItems.product', 'orderItems.productVariant']);

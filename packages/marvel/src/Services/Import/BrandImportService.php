@@ -40,6 +40,9 @@ class BrandImportService
     public function __construct(?int $importId = null)
     {
         $this->importId = $importId;
+        // The outcome's providers capture $this->rowWriter lazily; the writer
+        // is assigned below and the providers only fire after construction
+        // completes, so this ordering is safe by contract.
         $this->outcome = new RunOutcome(
             fn () => $this->rowWriter->failedRowCount(),
             fn () => $this->rowWriter->failedRows()

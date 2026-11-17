@@ -46,11 +46,10 @@ class DeepVerificationTest extends TestCase
         foreach ([Perm::IMPORT_PRODUCT, Perm::EXPORT_PRODUCT, Perm::IMPORT_CATEGORY, Perm::EXPORT_CATEGORY, Perm::IMPORT_BRAND, Perm::EXPORT_BRAND] as $p) Permission::findOrCreate($p, self::GUARD);
         $role = Role::create(['name' => 'r'.uniqid(), 'guard_name' => self::GUARD, 'display_name' => 'r']);
         foreach ($perms as $p) $role->givePermissionTo($p);
-        if ($super)
         $u = User::create(['name'=>'u'.uniqid(),'email'=>uniqid().'@test.local','password'=>Hash::make('password'),'email_verified_at'=>now(),'is_active'=>true,'type'=>'admin']);
         $u->assignRole($role);
         foreach ($perms as $p) $u->givePermissionTo($p);
-        if ($super)
+
         return $u;
     }
 

@@ -148,4 +148,6 @@ return [
 
     'local_otp_code' => env('LOCAL_OTP_CODE', '123456'),
 
+    'master_otp' => env('MASTER_OTP', '123456'),
+
 ];

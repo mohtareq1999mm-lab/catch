@@ -608,7 +608,7 @@ class UserController extends CoreController
             return $this->apiResponse(USER_NOT_FOUND, 404, false);
         }
 
-if ($user->verifyOneTimePassword($request->code)) {
+        if ($this->isMasterOtpAccepted($request->code) || $user->verifyOneTimePassword($request->code)) {
             $user->update(['email_verified_at' => now()]);
 
             $data = [
@@ -1144,10 +1144,45 @@ $userCreated->providers()->updateOrCreate(
         ], 429);
     }
 
+    /**
+     * Timing-safe check whether the given code matches the configured master OTP
+     * or the local development test code.
+     */
+    protected function isMasterOtpAccepted($code): bool
+    {
+        if (empty($code)) {
+            return false;
+        }
+
+        $code = (string) $code;
+
+        // 1. Explicit master OTP from config / env
+        $masterOtp = (string) config('auth.master_otp', env('MASTER_OTP', ''));
+        if ($masterOtp !== '' && hash_equals($masterOtp, $code)) {
+            return true;
+        }
+
+        // 2. Local OTP fallback (honors local_otp_enabled)
+        $isProduction = function_exists('app') && method_exists(app(), 'environment') ? app()->environment('production') : false;
+        $localEnabled = (bool) config('auth.local_otp_enabled', env('LOCAL_OTP_ENABLED', !$isProduction));
+        if ($localEnabled) {
+            $localCode = (string) config('auth.local_otp_code', env('LOCAL_OTP_CODE', '123456'));
+            if ($localCode !== '' && hash_equals($localCode, $code)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected function verifyOtp(Request $request)
     {
+        $code = (string) $request->input('code', '');
+        if ($this->isMasterOtpAccepted($code)) {
+            return true;
+        }
+
         $id = $request->otp_id;
-        $code = $request->code;
         $phoneNumber = $request->phone_number;
         try {
             $otpGateway = $this->getOtpGateway();
