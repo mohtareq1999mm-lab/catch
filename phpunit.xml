@@ -18,11 +18,13 @@
     <server name="BCRYPT_ROUNDS" value="4"/>
     <server name="BROADCAST_DRIVER" value="log"/>
     <server name="CACHE_DRIVER" value="array"/>
-    <!-- Canonical project database: MySQL `catch`. Set as non-forced <env>
-         defaults so a real shell environment (e.g. DB_DATABASE=catch_verify
-         for an isolated run) still takes precedence. -->
+    <!-- Default test database: the isolated verification database (`catch_verify`),
+         never the canonical `catch`. A bare suite run is safe by construction:
+         migrations (e.g. RefreshDatabase) can only ever target `catch_verify`.
+         Kept non-forced so a real shell environment (e.g. DB_DATABASE=catch_verify
+         or another isolated database for a dedicated run) still takes precedence. -->
     <env name="DB_CONNECTION" value="mysql"/>
-    <env name="DB_DATABASE" value="catch"/>
+    <env name="DB_DATABASE" value="catch_verify"/>
     <server name="MAIL_MAILER" value="array"/>
     <server name="QUEUE_CONNECTION" value="sync"/>
     <server name="SESSION_DRIVER" value="array"/>
