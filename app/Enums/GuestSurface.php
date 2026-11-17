@@ -52,6 +52,9 @@ enum GuestSurface: string
     /** Payment-bound order state changes. */
     case ORDER_PAYMENT = 'order_payment';
 
+    /** Session-bound tracking-link re-delivery to the owning guest (#80). */
+    case ORDER_RESEND = 'order_resend';
+
     /** Terminal checkout moment. */
     case CHECKOUT = 'checkout';
 
@@ -64,6 +67,7 @@ enum GuestSurface: string
             self::ORDER_TRACK => 'guest_tracking',
             self::ORDER_CANCEL => 'guest_cancel',
             self::ORDER_PAYMENT => 'guest_payment',
+            self::ORDER_RESEND => 'guest_resend',
             self::CHECKOUT => 'guest_checkout',
         };
     }
@@ -87,6 +91,7 @@ enum GuestSurface: string
             self::SESSION_REVOKE,
             self::CART_WRITE,
             self::ORDER_PAYMENT,
+            self::ORDER_RESEND,
             self::CHECKOUT => true,
             default => false,
         };

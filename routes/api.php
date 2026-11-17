@@ -229,6 +229,13 @@ Route::prefix('v1/general')->group(function () {
                 ->middleware(GuestSurface::ORDER_PAYMENT->middleware())
                 ->name('api.guest.orders.access-tokens');
 
+            // Session-bound re-delivery of the tracking link (#80): the owning
+            // device only, fresh credential rotated, notifier re-used verbatim.
+            Route::post('orders/{orderId}/resend-tracking-link', [GuestOrderController::class, 'resendTrackingLink'])
+                ->whereNumber('orderId')
+                ->middleware(GuestSurface::ORDER_RESEND->middleware())
+                ->name('api.guest.orders.resend-tracking-link');
+
             Route::post('checkout', [GuestCheckoutController::class, 'checkout'])
                 ->middleware(GuestSurface::CHECKOUT->middleware())
                 ->name('api.guest.checkout');
