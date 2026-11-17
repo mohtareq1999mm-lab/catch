@@ -6,11 +6,16 @@ use App\Services\Customer\PostAuthenticationService;
 use App\Services\Guest\GuestIdentityService;
 use App\Models\Currency;
 use App\Models\UserPreference;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\SocialLoginCode;
 use Marvel\Database\Models\User;
+use Spatie\OneTimePasswords\Models\OneTimePassword;
+use Spatie\OneTimePasswords\Support\OriginInspector\DoNotEnforceOrigin;
+use Spatie\OneTimePasswords\Support\OriginInspector\OriginEnforcer;
 
 /**
  * One post-authentication module (round-2 ticket #53).
@@ -26,6 +31,21 @@ class PostAuthenticationServiceTest extends GuestCheckoutTestCase
     {
         parent::setUp();
         parent::startGuestSession();
+
+        // The Spatie OTP model needs its table (defensive: the parallel
+        // session's fixture creates it the same way) and a no-origin check,
+        // since HTTP-test requests carry no signed origin.
+        if (!Schema::hasTable('one_time_passwords')) {
+            Schema::create('one_time_passwords', function (Blueprint $table) {
+                $table->id();
+                $table->string('password');
+                $table->text('origin_properties')->nullable();
+                $table->dateTime('expires_at');
+                $table->morphs('authenticatable');
+                $table->timestamps();
+            });
+        }
+        $this->app->bind(OriginEnforcer::class, DoNotEnforceOrigin::class);
 
         // Currency adoption validates against active Currency rows only.
         Currency::create([
@@ -203,5 +223,86 @@ class PostAuthenticationServiceTest extends GuestCheckoutTestCase
             0,
             DB::table('personal_access_tokens')->where('tokenable_type', User::class)->count()
         );
+    }
+
+    /**
+     * The phone-OTP entry point gains currency adoption through the module
+     * (#53): a successful phone-OTP login with an X-Currency header must
+     * persist the preference and merge the guest cart — one call, once.
+     */
+    public function test_phone_otp_login_adopts_the_header_currency(): void
+    {
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $user = $this->makeUser(['email' => null, 'email_verified_at' => null]);
+
+        $response = $this->call('POST', '/api/v1/otp-login', [
+            'phone_number' => $user->phone_number,
+            'otp_id' => 'local-verification-id',
+            'code' => '123456',
+        ], [
+            GuestIdentityService::COOKIE => $this->guestCookies[GuestIdentityService::COOKIE],
+        ], [], ['HTTP_X_CURRENCY' => 'KWD']);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+
+        $data = $response->getData(true);
+        $payload = $data['data'] ?? [];
+        $this->assertNotEmpty($payload['token'] ?? null, 'A successful phone-OTP login issues a token.');
+        $this->assertSame('merged', $payload['guest_cart_merge']['status'] ?? null, 'Phone-OTP login must merge the guest cart.');
+        $this->assertSame(
+            'KWD',
+            UserPreference::query()->where('user_id', $user->id)->value('currency_code'),
+            'Phone-OTP login must adopt the header currency (it never did before the module).'
+        );
+        $this->assertNull($this->guestCart());
+    }
+
+    /**
+     * The email-OTP entry point: same module contract — token, merge and
+     * currency adoption all flow through one afterAuthentication() call.
+     */
+    public function test_email_otp_login_adopts_the_header_currency(): void
+    {
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $user = $this->makeUser();
+
+        OneTimePassword::create([
+            'password' => '123456',
+            'origin_properties' => [],
+            'expires_at' => now()->addMinutes(2),
+            'authenticatable_id' => $user->id,
+            'authenticatable_type' => User::class,
+        ]);
+
+        $response = $this->call('POST', '/api/v1/otp-login', [
+            'email' => $user->email,
+            'code' => '123456',
+        ], [
+            GuestIdentityService::COOKIE => $this->guestCookies[GuestIdentityService::COOKIE],
+        ], [], ['HTTP_X_CURRENCY' => 'KWD']);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+
+        $data = $response->getData(true);
+        $payload = $data['data'] ?? [];
+        $this->assertNotEmpty($payload['token'] ?? null, 'A successful email-OTP login issues a token.');
+        $this->assertSame('merged', $payload['guest_cart_merge']['status'] ?? null, 'Email-OTP login must merge the guest cart.');
+        $this->assertSame(
+            'KWD',
+            UserPreference::query()->where('user_id', $user->id)->value('currency_code')
+        );
+        $this->assertNull($this->guestCart());
     }
 }
