@@ -124,6 +124,10 @@ return [
             'max' => (int) env('GUEST_THROTTLE_TRACKING', 20),
             'decay' => 1,
         ],
+        'guest_cancel_otp' => [
+            'max' => (int) env('GUEST_THROTTLE_CANCEL_OTP', 5),
+            'decay' => 1,
+        ],
         'guest_cancel' => [
             'max' => (int) env('GUEST_THROTTLE_CANCEL', 5),
             'decay' => 1,

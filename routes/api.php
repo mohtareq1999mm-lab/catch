@@ -212,6 +212,9 @@ Route::prefix('v1/general')->group(function () {
             Route::post('orders/track', [GuestPublicOrderController::class, 'track'])
                 ->middleware(GuestSurface::ORDER_TRACK->middleware())
                 ->name('api.guest.orders.track');
+            Route::post('orders/cancel/request-otp', [GuestPublicOrderController::class, 'requestCancelOtp'])
+                ->middleware(GuestSurface::ORDER_CANCEL_OTP->middleware())
+                ->name('api.guest.orders.cancel.otp');
             Route::post('orders/cancel', [GuestPublicOrderController::class, 'cancel'])
                 ->middleware(GuestSurface::ORDER_CANCEL->middleware())
                 ->name('api.guest.orders.cancel');
