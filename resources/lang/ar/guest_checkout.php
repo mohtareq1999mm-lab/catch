@@ -56,4 +56,7 @@ return [
     'merge_quantity_capped' => 'تم تعديل الكمية إلى الحد الأقصى المسموح حالياً.',
     'merge_failed' => 'تعذر دمج هذا العنصر تلقائياً وتم الاحتفاظ به للمراجعة.',
     'merge_gift_line_preserved' => 'تم الاحتفاظ بسطر هدية ترويجية للمراجعة.',
+    'tracking_sms' => 'شكراً لطلبك رقم :order_number. تابع طلبك من هنا: :url',
+    'tracking_email_subject' => 'طلبك :order_number - رابط التتبع',
+    'tracking_email_body' => "شكراً لطلبك رقم :order_number.\n\nيمكنك تتبع طلبك في أي وقت ومن أي جهاز عبر هذا الرابط الخاص:\n:url\n\nيرجى عدم مشاركة هذا الرابط.",
 ];

@@ -45,6 +45,19 @@ return [
     // this many days after the terminal status (delivered/cancelled).
     'tracking_grace_days' => (int) env('GUEST_TRACKING_GRACE_DAYS', 30),
 
+    /*
+    | Public tracking link sent to guests (SMS/email) after checkout.
+    | The link targets the FRONTEND (decoupled domain); the frontend reads the
+    | token from the query string and POSTs it to /api/v1/guest/orders/track.
+    | Only the tracking token is ever sent - the cancellation token is never
+    | placed in a shareable link.
+    */
+    'tracking_link' => [
+        'enabled' => filter_var(env('GUEST_TRACKING_LINK_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'base_url' => env('GUEST_FRONTEND_URL') ?: env('APP_URL_FRONTEND', 'http://localhost'),
+        'path' => env('GUEST_TRACKING_LINK_PATH', '/track-order'),
+    ],
+
     // Single-use cancellation link lifetime.
     'cancellation_link_ttl_hours' => (int) env('GUEST_CANCEL_TTL_HOURS', 72),
 

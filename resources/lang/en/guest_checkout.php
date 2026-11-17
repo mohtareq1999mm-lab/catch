@@ -56,4 +56,7 @@ return [
     'merge_quantity_capped' => 'The quantity was adjusted to the maximum currently allowed.',
     'merge_failed' => 'This item could not be merged automatically and was kept for review.',
     'merge_gift_line_preserved' => 'A promotional gift line was kept for review.',
+    'tracking_sms' => 'Thank you for your order :order_number. Track it here: :url',
+    'tracking_email_subject' => 'Your order :order_number - tracking link',
+    'tracking_email_body' => "Thank you for your order :order_number.\n\nYou can track it at any time, from any device, using this private link:\n:url\n\nPlease do not share this link.",
 ];

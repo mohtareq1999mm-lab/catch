@@ -20,12 +20,14 @@ use Marvel\Enums\FileOperationType;
 use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Imports\BrandsImport;
 use Marvel\Services\Import\BrandImportService;
+use Marvel\Services\Import\FinalizesImportOutcome;
 use Throwable;
 
 class ImportBrandsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use BroadcastsFileOperationProgress;
+    use FinalizesImportOutcome;
 
     public int $tries = 3;
 
@@ -251,40 +253,17 @@ class ImportBrandsJob implements ShouldQueue
 
             $outcome = $service->outcome();
 
-            // Terminal write owned by RunOutcome: status derivation, the
-            // processed = success + failed invariant, the single error cap
-            // and the single row-write shape.
-            $affected = Import::where('id', $import->id)
-                ->whereIn('status', ['pending', 'processing', 'cancelling'])
-                ->update([
-                    'status' => $outcome->status(),
-                    'total_rows' => $outcome->terminalTotalRows(),
-                    ...$outcome->rowAttributes(),
-                ]);
-            if ($affected === 0) {
-                $import->refresh();
-                if ($import->isTerminal()) {
-                    return;
-                }
-            } else {
-                $import->refresh();
-            }
-
-            if ($outcome->successCount() > 0) {
-                $this->invalidateFrontendCaches();
-            }
-
-            $this->broadcastBrandImportTerminal(
-                $outcome->status(),
-                $outcome->failedCount() > 0,
-                [
-                    'progress' => 100.0,
-                    'total_rows' => $outcome->terminalTotalRows(),
-                    'processed_rows' => $outcome->processed(),
-                    'success_rows' => $outcome->successCount(),
-                    'failed_rows' => $outcome->failedCount(),
-                ]
+            // Terminal write owned by RunOutcome; the shared orchestration
+            // (guarded write, terminal check, caches, broadcast) lives on
+            // FinalizesImportOutcome.
+            $alreadyTerminal = $this->finalizeSuccessTerminal(
+                $import,
+                $outcome,
+                $this->broadcastBrandImportTerminal(...)
             );
+            if ($alreadyTerminal) {
+                return;
+            }
 
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');
@@ -293,26 +272,11 @@ class ImportBrandsJob implements ShouldQueue
             $this->deleteImportFile($import);
             $this->cleanSignals();
 
-            $import->update([
-                'status' => 'cancelled',
-                'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                'processed_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                'success_rows' => $service->getSuccessCount(),
-                'failed_rows' => count($service->getFailedRows()),
-                'errors' => $service->getFailedRows(),
-            ]);
-
-            if ($service->getSuccessCount() > 0) {
-                $this->invalidateFrontendCaches();
-            }
-
-            $this->broadcastBrandImportTerminal('cancelled', !empty($service->getFailedRows()), [
-                    'progress' => 100.0,
-                    'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                    'processed_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                    'success_rows' => $service->getSuccessCount(),
-                    'failed_rows' => count($service->getFailedRows()),
-                ]
+            $this->writeCancelledTerminal(
+                $import,
+                $service->outcome(),
+                $service->getFailedRows(),
+                $this->broadcastBrandImportTerminal(...)
             );
         } catch (Throwable $e) {
             $sanitized = $this->sanitizeExceptionMessage($e);
