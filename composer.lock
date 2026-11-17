@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "6b8d6285261ef68430db3b5e37400f71",
+    "content-hash": "5b2f1ccdcab051454c9a5ef8b66823dc",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -3687,12 +3687,12 @@
             "version": "dev-main",
             "source": {
                 "type": "git",
-                "url": "https://github.com/CodersFaruk/laravel-bkash-tokenize.git",
+                "url": "https://github.com/karim-007/laravel-bkash-tokenize.git",
                 "reference": "785338254a632518f0090b3725d171c5c16eeb60"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/CodersFaruk/laravel-bkash-tokenize/zipball/785338254a632518f0090b3725d171c5c16eeb60",
+                "url": "https://api.github.com/repos/karim-007/laravel-bkash-tokenize/zipball/785338254a632518f0090b3725d171c5c16eeb60",
                 "reference": "785338254a632518f0090b3725d171c5c16eeb60",
                 "shasum": ""
             },
@@ -3746,12 +3746,12 @@
             "version": "dev-master",
             "source": {
                 "type": "git",
-                "url": "https://github.com/CodersFaruk/laravel-flutterwave.git",
+                "url": "https://github.com/kingflamez/laravelrave.git",
                 "reference": "f13187d29c37ee6159ee7df2c7b087f00230f93c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/CodersFaruk/laravel-flutterwave/zipball/f13187d29c37ee6159ee7df2c7b087f00230f93c",
+                "url": "https://api.github.com/repos/kingflamez/laravelrave/zipball/f13187d29c37ee6159ee7df2c7b087f00230f93c",
                 "reference": "f13187d29c37ee6159ee7df2c7b087f00230f93c",
                 "shasum": ""
             },
@@ -14162,7 +14162,7 @@
             "version": "7.12.0",
             "source": {
                 "type": "git",
-                "url": "git@github.com:twilio/twilio-php.git",
+                "url": "https://github.com/twilio/twilio-php.git",
                 "reference": "f281d7b793f02377ab0f38e7166e16820acc3eae"
             },
             "dist": {
@@ -14289,12 +14289,12 @@
             "version": "v5.6.4",
             "source": {
                 "type": "git",
-                "url": "https://github.com/vlucas/phpdotenv.git",
+                "url": "https://github.com/phpdotenv/phpdotenv.git",
                 "reference": "416df702837983f8d5ff48c9c3fee4f5f57b980b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/vlucas/phpdotenv/zipball/416df702837983f8d5ff48c9c3fee4f5f57b980b",
+                "url": "https://api.github.com/repos/phpdotenv/phpdotenv/zipball/416df702837983f8d5ff48c9c3fee4f5f57b980b",
                 "reference": "416df702837983f8d5ff48c9c3fee4f5f57b980b",
                 "shasum": ""
             },
@@ -17005,7 +17005,7 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": "^8.0|^8.1"
+        "php": "^8.1"
     },
     "platform-dev": {},
     "plugin-api-version": "2.9.0"
