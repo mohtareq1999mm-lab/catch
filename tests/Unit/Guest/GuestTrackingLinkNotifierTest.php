@@ -7,6 +7,7 @@ use App\Services\Guest\GuestTrackingLinkNotifier;
 use App\Services\Notifications\SMSService;
 use Illuminate\Mail\Transport\ArrayTransport;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Marvel\Database\Models\Order;
 use Mockery;
 use Mockery\MockInterface;
@@ -304,5 +305,88 @@ class GuestTrackingLinkNotifierTest extends TestCase
     {
         $this->assertStringNotContainsString($this->rawCancellationToken, $body, "{$label} leaked the raw cancellation token");
         $this->assertStringNotContainsString($this->cancellationTokenHash, $body, "{$label} leaked the cancellation token hash");
+    }
+
+    /**
+     * Minimal log fake (this framework snapshot ships no Log::fake): captures
+     * warnings on the container 'log' binding the Log facade resolves.
+     */
+    private function fakeLog(): object
+    {
+        $fake = new class {
+            /** @var array<int, array{message: string, context: array<string, mixed>}> */
+            public array $warnings = [];
+
+            public function warning(string $message, array $context = []): void
+            {
+                $this->warnings[] = ['message' => $message, 'context' => $context];
+            }
+        };
+
+        Log::swap($fake);
+
+        return $fake;
+    }
+
+    public function test_production_skips_delivery_for_non_https_base_url(): void
+    {
+        config(['guest_checkout.tracking_link' => ['enabled' => true, 'base_url' => 'http://meem.com', 'path' => '/track-order']]);
+        $log = $this->fakeLog();
+        Mail::fake();
+        $sms = Mockery::mock(SMSService::class);
+        $sms->shouldNotReceive('send');
+
+        try {
+            app()['env'] = 'production';
+            (new GuestTrackingLinkNotifier($sms))->notify(
+                $this->order(['user_email' => 'guest@example.com']),
+                'trk_token',
+                'en'
+            );
+        } finally {
+            app()['env'] = 'testing';
+        }
+
+        $this->assertCount(1, $log->warnings);
+        $this->assertStringContainsString('not a valid https', $log->warnings[0]['message']);
+        $this->assertSame(10, $log->warnings[0]['context']['order_id']);
+        // The raw token must never reach the log, message or context.
+        $this->assertStringNotContainsString('trk_token', json_encode($log->warnings, JSON_THROW_ON_ERROR));
+        Mail::assertNothingSent();
+    }
+
+    public function test_production_skips_delivery_for_malformed_base_url(): void
+    {
+        config(['guest_checkout.tracking_link' => ['enabled' => true, 'base_url' => 'meem.com/track', 'path' => '/track-order']]);
+        $log = $this->fakeLog();
+        Mail::fake();
+        $sms = Mockery::mock(SMSService::class);
+        $sms->shouldNotReceive('send');
+
+        try {
+            app()['env'] = 'production';
+            (new GuestTrackingLinkNotifier($sms))->notify($this->order(), 'trk_token', 'en');
+        } finally {
+            app()['env'] = 'testing';
+        }
+
+        $this->assertCount(1, $log->warnings);
+        $this->assertStringContainsString('not a valid https', $log->warnings[0]['message']);
+        $this->assertStringNotContainsString('trk_token', json_encode($log->warnings, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_non_production_keeps_delivering_with_http_base_url(): void
+    {
+        config(['guest_checkout.tracking_link' => ['enabled' => true, 'base_url' => 'http://localhost', 'path' => '/track-order']]);
+        $this->fakeLog();
+        $sms = Mockery::mock(SMSService::class);
+        $sms->shouldReceive('formatPhone')->andReturn('+201012345678');
+        $sms->shouldReceive('validatePhone')->andReturn(true);
+        $sms->shouldReceive('send')->once()->withArgs(function ($to, $message) {
+            return $to === '+201012345678'
+                && str_contains($message, 'http://localhost/track-order?token=trk_token');
+        })->andReturn(['success' => true]);
+
+        (new GuestTrackingLinkNotifier($sms))->notify($this->order(), 'trk_token', 'en');
     }
 }
