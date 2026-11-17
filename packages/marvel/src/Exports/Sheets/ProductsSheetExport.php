@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Marvel\Database\Models\Product;
+use Marvel\Exports\ExportFilterApplier;
 use Marvel\Workbook\ProductWorkbookSchema;
 
 class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
@@ -29,25 +30,12 @@ class ProductsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMap
         $query = Product::query()
             ->with(['variations', 'categories', 'brands', 'flash_sales', 'sliders']);
 
-        if (isset($this->filters['status'])) {
-            $query->where('status', $this->filters['status']);
-        }
-
-        if (isset($this->filters['product_type'])) {
-            $query->where('product_type', $this->filters['product_type']);
-        }
-
-        if (isset($this->filters['item_type']) && in_array($this->filters['item_type'], \Marvel\Enums\ItemType::getValues(), true)) {
-            $query->where('item_type', $this->filters['item_type']);
-        }
-
-        if (isset($this->filters['category_id'])) {
-            $query->whereHas('categories', fn($q) => $q->where('category_id', $this->filters['category_id']));
-        }
-
-        if (isset($this->filters['brand_id'])) {
-            $query->whereHas('brands', fn($q) => $q->where('brand_id', $this->filters['brand_id']));
-        }
+        ExportFilterApplier::apply(
+            $query,
+            $this->filters,
+            ProductWorkbookSchema::exportFilters(ProductWorkbookSchema::PRODUCTS),
+            ExportFilterApplier::MODE_PRODUCT_COLUMNS
+        );
 
         return $query->orderBy('id');
     }
