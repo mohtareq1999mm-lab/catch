@@ -478,4 +478,51 @@ class GuestCancellationOtpConfirmTest extends GuestCheckoutTestCase
             'The canonical status writer must own the whole event stream — no duplicate emission.'
         );
     }
+
+    /**
+     * ADR-0003's misconfiguration scenario, end to end: production with the
+     * LOCAL gateway selected and the flag left on. The app-side bypass gate
+     * refuses the static code; the provider path must not become the
+     * loophole — the real LocalGateway is inert in production.
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function the_static_code_cannot_cancel_through_the_local_gateway_in_production(): void
+    {
+        $this->app->instance(OtpInterface::class, new \Marvel\Otp\Gateways\LocalGateway());
+        config(['auth.active_otp_gateway' => 'local']);
+        $this->app['env'] = 'production';
+
+        $data = $this->createGuestOrder('cod');
+
+        $this->confirm($data['cancellation_token'], self::STATIC_CODE)
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_invalid'));
+
+        $order = $data['order']->fresh();
+        $this->assertNotSame(Order::ORDER_STATUS_CANCELLED, $order->status);
+        $this->assertNull($order->guest_cancellation_token_used_at);
+    }
+
+    /**
+     * The same misconfiguration at the request step: the inert LocalGateway
+     * surfaces as a failed dispatch (502, the provider-failure key), not a
+     * fake success the client would wait on forever.
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function requesting_otp_through_the_local_gateway_in_production_fails_closed(): void
+    {
+        $this->app->instance(OtpInterface::class, new \Marvel\Otp\Gateways\LocalGateway());
+        config(['auth.active_otp_gateway' => 'local']);
+        $this->app['env'] = 'production';
+
+        $data = $this->createGuestOrder('cod');
+
+        $this->postJson(self::PREFIX . '/orders/cancel/request-otp', [
+            'token' => $data['cancellation_token'],
+        ])->assertStatus(502)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_send_failed'));
+
+        // Nothing was consumed and nothing was cancelled.
+        $this->assertNull($data['order']->fresh()->guest_cancellation_token_used_at);
+    }
 }
