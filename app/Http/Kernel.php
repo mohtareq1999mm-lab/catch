@@ -67,6 +67,11 @@ class Kernel extends HttpKernel
         'signed' => \Illuminate\Routing\Middleware\ValidateSignature::class,
         'throttle' => \App\Http\Middleware\BypassThrottle::class,
         'guest.throttle' => \App\Http\Middleware\GuestRateLimit::class,
+        // The SAME fail-closed policy + JSON envelope as `guest.throttle`,
+        // named for identity-less public surfaces OUTSIDE the guest prefix
+        // (public tracking fallback, OTP endpoints): enforced even when the
+        // global disable switch is on; limiter-backend failures fail closed.
+        'throttle.failclosed' => \App\Http\Middleware\GuestRateLimit::class,
         'guest.csrf' => \App\Http\Middleware\GuestCsrf::class,
         'guest.origin' => \App\Http\Middleware\GuestOrigin::class,
         'guest.session' => \App\Http\Middleware\GuestSession::class,
