@@ -65,7 +65,7 @@ class GuestOrderTokenService
         }
 
         $raw = $this->generateToken();
-        $expiresAt = now()->addHours(max(1, (int) config('guest_checkout.cancellation_link_ttl_hours', 72)));
+        $expiresAt = now()->addHours(max(1, (int) config('guest_checkout.cancellation_link_ttl_hours', 24)));
 
         Order::query()->whereKey($order->id)->update([
             'guest_cancellation_token_hash' => $this->hash($raw),
