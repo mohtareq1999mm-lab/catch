@@ -721,6 +721,11 @@ class BrandImportService
         return $this->outcome->successCount();
     }
 
+    public function outcome(): RunOutcome
+    {
+        return $this->outcome;
+    }
+
     protected function heartbeat(): OperationHeartbeat
     {
         return OperationHeartbeat::for($this->importId ?? 0);
