@@ -185,5 +185,9 @@ class ExportFilterApplierTest extends TestCase
         $inactive = new ProductVariantsSheetExport(['status' => 0]);
 
         $this->assertSame(0, $inactive->query()->whereIn('sku', [$variant->sku])->count());
+
+        $invalidItemType = new ProductVariantsSheetExport(['item_type' => 'SERVICE']);
+
+        $this->assertSame(0, $invalidItemType->query()->whereIn('sku', [$variant->sku])->count());
     }
 }
