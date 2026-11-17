@@ -36,6 +36,23 @@ class RateLimitServiceProvider extends ServiceProvider
             $max = max(1, (int) ($settings['max'] ?? 60));
             $decay = max(1, (int) ($settings['decay'] ?? 1));
 
+            // Cancellation OTP request (ticket #69, design D7): SMS-budget
+            // sensitive, so it keys per cancellation token AND per client IP.
+            // The raw credential never lands in the cache key — only a plain
+            // SHA-256 digest of what the client presented.
+            if ($name === 'guest_cancel_otp') {
+                RateLimiter::for($name, function (Request $request) use ($max, $decay) {
+                    return [
+                        Limit::perMinutes($decay, $max)->by(
+                            'cancel-otp:token:' . hash('sha256', (string) $request->input('token', ''))
+                        ),
+                        Limit::perMinutes($decay, $max)->by('cancel-otp:ip:' . (string) $request->ip()),
+                    ];
+                });
+
+                continue;
+            }
+
             RateLimiter::for($name, function (Request $request) use ($max, $decay, $name) {
                 $limits = [
                     Limit::perMinutes($decay, $max)->by($this->guestKey($request)),

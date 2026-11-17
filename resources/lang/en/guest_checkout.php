@@ -45,6 +45,10 @@ return [
     'cancel_link_expired' => 'This cancellation link has expired.',
     'cancel_failed' => 'The order could not be cancelled.',
 
+    'cancel_no_phone' => 'This order has no phone number on file, so a cancellation code cannot be sent.',
+    'cancel_otp_sent' => 'A cancellation code was sent to the phone number on this order.',
+    'cancel_otp_send_failed' => 'The cancellation code could not be sent right now. Please try again shortly.',
+
     'merge_product_deleted' => 'This product is no longer available and was kept in your cart for review.',
     'merge_product_unavailable' => 'This product is currently unavailable and was kept in your cart for review.',
     'merge_digital_not_supported' => 'This product type is not available for this cart and was kept for review.',

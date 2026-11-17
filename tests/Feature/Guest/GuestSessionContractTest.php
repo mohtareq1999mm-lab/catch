@@ -37,6 +37,7 @@ class GuestSessionContractTest extends TestCase
         'DELETE api/v1/general/guest/mobile/session',
         'POST api/v1/general/guest/orders/track',
         'POST api/v1/general/guest/orders/cancel',
+        'POST api/v1/general/guest/orders/cancel/request-otp',
     ];
 
     /** Mutating cart surfaces: a successful response re-queues the cookie transport at the seam. */
@@ -56,6 +57,7 @@ class GuestSessionContractTest extends TestCase
         'POST api/v1/general/guest/mobile/session',
         'POST api/v1/general/guest/orders/track',
         'POST api/v1/general/guest/orders/cancel',
+        'POST api/v1/general/guest/orders/cancel/request-otp',
     ];
 
     /** @return array<string, \Illuminate\Routing\Route> */
