@@ -67,7 +67,7 @@ class ProductImportService
             $this->outcome
         );
         $this->taxonomyLinker = new ImportTaxonomyLinker($this->report);
-        $this->progress = new ImportProgressReporter($this->report, $this->outcome, $importId);
+        $this->progress = new ImportProgressReporter($this->outcome, $importId);
         $this->importId = $importId;
     }
 

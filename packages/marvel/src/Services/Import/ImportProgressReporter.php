@@ -31,7 +31,6 @@ final class ImportProgressReporter
     private float $currentProgress = 0.0;
 
     public function __construct(
-        private readonly ImportReport $report,
         private readonly RunOutcome $outcome,
         private readonly ?int $importId,
     ) {

@@ -11,7 +11,7 @@ class RunOutcomeTest extends TestCase
     public function test_invariant_is_clamped_to_the_known_total(): void
     {
         $report = new ImportReport();
-        $outcome = new RunOutcome($report);
+        $outcome = new RunOutcome(fn () => $report->failedRowCount());
         $outcome->setTotalRows(3);
 
         for ($i = 0; $i < 5; $i++) {
@@ -26,13 +26,11 @@ class RunOutcomeTest extends TestCase
 
     public function test_status_derivation_matches_product_rows(): void
     {
-        $outcome = new RunOutcome(new ImportReport());
+        $report = new ImportReport();
+        $outcome = new RunOutcome(fn () => $report->failedRowCount());
 
         $this->assertSame('completed', $outcome->status());
 
-        $outcome->recordSuccess();
-        $report = new ImportReport();
-        $outcome = new RunOutcome($report);
         $outcome->recordSuccess();
         $report->addProductRowError(3, 'SKU-1', 'row failed');
         $this->assertSame('completed_with_errors', $outcome->status());
@@ -42,7 +40,7 @@ class RunOutcomeTest extends TestCase
     {
         $report = new ImportReport();
         $report->addProductRowError(2, 'SKU-1', 'row failed');
-        $outcome = new RunOutcome($report);
+        $outcome = new RunOutcome(fn () => $report->failedRowCount());
 
         $this->assertSame(0, $outcome->successCount());
         $this->assertSame(1, $outcome->failedCount());
@@ -57,7 +55,10 @@ class RunOutcomeTest extends TestCase
         $report->noteInStockInconsistency();
         $report->addProductRowError(2, 'SKU-1', 'row failed');
 
-        $outcome = new RunOutcome($report);
+        $outcome = new RunOutcome(
+            fn () => $report->failedRowCount(),
+            fn () => $report->all()
+        );
         $outcome->recordSuccess();
 
         $errors = $outcome->errors();
@@ -70,12 +71,30 @@ class RunOutcomeTest extends TestCase
 
     public function test_terminal_total_falls_back_to_known_total_for_empty_files(): void
     {
-        $outcome = new RunOutcome(new ImportReport());
+        $outcome = new RunOutcome(fn () => 0);
         $outcome->setTotalRows(7);
 
         $this->assertSame(7, $outcome->terminalTotalRows());
 
         $outcome->recordSuccess();
         $this->assertSame(1, $outcome->terminalTotalRows());
+    }
+
+    public function test_family_without_error_provider_reports_no_row_errors(): void
+    {
+        $failedRows = [['sheet' => 'brands', 'row' => 2, 'error_message' => 'duplicate']];
+        $outcome = new RunOutcome(fn () => count($failedRows));
+
+        $outcome->recordSuccess();
+        $failedRows[] = ['sheet' => 'brands', 'row' => 3, 'error_message' => 'bad name'];
+
+        $this->assertSame('completed_with_errors', $outcome->status());
+        $this->assertSame([], $outcome->errors());
+        $this->assertFalse($outcome->downloadAvailable());
+
+        $attributes = $outcome->rowAttributes();
+        $this->assertArrayNotHasKey('errors', $attributes);
+        $this->assertSame(1, $attributes['success_rows']);
+        $this->assertSame(1, $attributes['failed_rows']);
     }
 }
