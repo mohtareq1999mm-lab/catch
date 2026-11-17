@@ -37,6 +37,25 @@ final class RunOutcome
         $this->totalRows = max(0, $total);
     }
 
+    /**
+     * Rebuild the outcome from the counters persisted by the core phase, so a
+     * deferred terminal write derives status, clamped counters and the error
+     * shape through this module instead of re-implementing the rules.
+     *
+     * @param  array<int, array<string, mixed>>  $errors  Final persisted error set
+     */
+    public static function fromCounts(int $successCount, int $failedCount, int $totalRows, array $errors = []): self
+    {
+        $outcome = new self(
+            static fn (): int => max(0, $failedCount),
+            static fn (): array => $errors,
+        );
+        $outcome->successCount = max(0, $successCount);
+        $outcome->setTotalRows($totalRows);
+
+        return $outcome;
+    }
+
     public function totalRows(): int
     {
         return $this->totalRows;

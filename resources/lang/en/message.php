@@ -319,6 +319,7 @@ return [
     'IMPORT.PRODUCT.PRODUCT_TYPE_COLUMN_MISSING' => 'products.product_type column is missing.',
     'IMPORT.PRODUCT.PRODUCT_TYPE_ENUM_MISSING_VALUES' => 'products.product_type ENUM is missing value(s): :missing_values. Run pending migrations.',
     'IMPORT.PRODUCT.PRODUCT_TYPE_COLUMN_INCOMPATIBLE' => 'products.product_type has incompatible type ":column_type". Expected :canonical_type. Alter the column before importing.',
+    'IMPORT.PRODUCT.IMAGE_CHUNKS_FAILED' => 'Some image rows could not be processed; image failures may be missing from this report.',
     'IMPORT.PRODUCT.TAXONOMY.CATEGORY' => 'category',
     'IMPORT.PRODUCT.TAXONOMY.BRAND' => 'brand',
     'IMPORT.PRODUCT.TAXONOMY.FLASH_SALE' => 'flash sale',
