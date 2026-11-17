@@ -14,6 +14,7 @@ use Marvel\Database\Models\ProductVariant;
 use Marvel\Enums\ProductType;
 use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Services\Import\ImageHandlers\UrlImageHandler;
+use Marvel\Services\Import\ProductRowWriter;
 use Marvel\Services\Pricing\ProductPricingService;
 use Marvel\Workbook\ProductWorkbookSchema;
 use Throwable;
@@ -28,8 +29,6 @@ use Throwable;
  */
 class ProductImportService
 {
-    protected ?UrlImageHandler $urlHandler = null;
-
     protected ProductPricingService $pricingService;
 
     protected ImportReport $report;
@@ -41,6 +40,8 @@ class ProductImportService
     protected ImportTaxonomyLinker $taxonomyLinker;
 
     protected ImportProgressReporter $progress;
+
+    protected ImageImporter $imageImporter;
 
     // Product is the canonical work unit (products sheet data rows).
     // Variants, barcodes, images and taxonomy are auxiliary: their failures
@@ -55,7 +56,6 @@ class ProductImportService
 
     public function __construct(?int $importId = null, ?ProductPricingService $pricingService = null)
     {
-        $this->urlHandler = new UrlImageHandler();
         $this->report = new ImportReport();
         $this->outcome = new RunOutcome(
             fn () => $this->report->failedRowCount(),
@@ -462,80 +462,18 @@ class ProductImportService
 
     public function processProductImage(string $productSku, string $imageUrl, ?int $rowIndex = null): void
     {
-        $imageUrl = trim($imageUrl);
-        if (empty($imageUrl)) {
-            return;
-        }
+        $this->imageImporter()->import($productSku, $imageUrl, $rowIndex);
 
-        $product = Product::where('sku', $productSku)->first();
-        if (!$product) {
-            $this->report->addImageError(
-                $rowIndex ?? 0,
-                $productSku,
-                __('message.IMPORT.PRODUCT.PRODUCT_NOT_FOUND', ['sku' => $productSku])
-            );
-            $this->flushAuxProgress();
-            return;
-        }
-
-        try {
-            $handled = false;
-            if ($this->urlHandler && $this->urlHandler->isValidUrl($imageUrl)) {
-                $downloaded = $this->urlHandler->download($imageUrl);
-                if ($downloaded) {
-                    // Idempotency: skip if identical file already attached (hash comparison)
-                    if ($this->isDuplicateMedia($product, $downloaded)) {
-                        $this->urlHandler->cleanup($downloaded);
-                        $handled = true;
-                    } else {
-                        $this->urlHandler->attachToModel($product, $downloaded, 'products');
-                        $this->urlHandler->cleanup($downloaded);
-                        $handled = true;
-                    }
-                } else {
-                    $this->report->addImageError(
-                        $rowIndex ?? 0,
-                        $productSku,
-                        __('message.IMPORT.PRODUCT.IMAGE_DOWNLOAD_FAILED', ['image_url' => $imageUrl])
-                    );
-                }
-            } elseif (file_exists($imageUrl)) {
-                if ($this->isDuplicateMedia($product, $imageUrl)) {
-                    $handled = true;
-                } else {
-                    $product->addMedia($imageUrl)->toMediaCollection('products');
-                    $handled = true;
-                }
-            } else {
-                $this->report->addImageError(
-                    $rowIndex ?? 0,
-                    $productSku,
-                    __('message.IMPORT.PRODUCT.IMAGE_INVALID_URL', ['image_url' => $imageUrl])
-                );
-            }
-            // Images are auxiliary: success silent, failure non-fatal (see BrandImportService)
-            // Must NOT inflate product-row counters (4104→4913)
-            $this->flushAuxProgress();
-        } catch (Exception $e) {
-            $this->report->addImageError(
-                $rowIndex ?? 0,
-                $productSku,
-                __('message.IMPORT.PRODUCT.IMAGE_PROCESSING_FAILED', [
-                    'image_url' => $imageUrl,
-                    'error_message' => $this->sanitizeErrorMessage($e),
-                ])
-            );
-            $this->flushAuxProgress();
-        }
+        $this->flushAuxProgress();
     }
 
-    protected function sanitizeErrorMessage(Throwable $e): string
+    protected function imageImporter(): ImageImporter
     {
-        $msg = $e->getMessage();
-        $msg = preg_replace('#/[^ ]*storage[^ ]*#i', '[storage path]', $msg) ?? $msg;
-        $msg = preg_replace('#SQLSTATE\[[^\]]+\].*#i', 'Internal processing error', $msg) ?? $msg;
-        if (strlen($msg) > 300) $msg = substr($msg, 0, 300) . '...';
-        return trim($msg) !== '' ? trim($msg) : 'Unexpected error';
+        if (!isset($this->imageImporter)) {
+            $this->imageImporter = new ImageImporter($this->report);
+        }
+
+        return $this->imageImporter;
     }
 
     public function syncCategories(string $productSku, array $categorySlugs): void
@@ -607,36 +545,5 @@ class ProductImportService
     protected function isCancelled(): bool
     {
         return $this->progress->isCancelled();
-    }
-
-    /**
-     * Check if the given file is already attached to the product (by content hash) to ensure re-import idempotency.
-     */
-    protected function isDuplicateMedia(Product $product, string $filePath): bool
-    {
-        try {
-            if (!file_exists($filePath)) {
-                return false;
-            }
-            $newHash = @md5_file($filePath);
-            if ($newHash === false) {
-                return false;
-            }
-            $product->loadMissing('media');
-            foreach ($product->getMedia('products') as $media) {
-                $existingPath = $media->getPath();
-                if (!file_exists($existingPath)) {
-                    continue;
-                }
-                $existingHash = @md5_file($existingPath);
-                if ($existingHash !== false && hash_equals($existingHash, $newHash)) {
-                    return true;
-                }
-                // Fallback: same file size + same mime exact length comparison already covered by hash
-            }
-        } catch (\Throwable $e) {
-            report($e);
-        }
-        return false;
     }
 }
