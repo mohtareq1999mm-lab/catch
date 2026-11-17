@@ -45,6 +45,27 @@ class AppServiceProvider extends ServiceProvider
             \App\Services\Guest\NullGuestPhoneVerification::class
         );
 
+        // ADR 0003: one app-level OTP gateway binding. The configured provider
+        // wins; when it cannot be constructed (a dev machine with
+        // ACTIVE_OTP_GATEWAY=twilio and no credentials) the committed
+        // LocalGateway is the dev path. Production stays fail-closed: the
+        // LocalGateway only accepts codes while the Local OTP switch is on,
+        // and the static bypass is hard-gated to non-production.
+        $this->app->bind(\Marvel\Otp\OtpInterface::class, function () {
+            $name = (string) config('auth.active_otp_gateway', 'twilio');
+            $class = 'Marvel\\Otp\\Gateways\\' . ucfirst($name) . 'Gateway';
+
+            if (class_exists($class)) {
+                try {
+                    return new $class();
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+
+            return new \Marvel\Otp\Gateways\LocalGateway();
+        });
+
         $this->app->bind(WebhookSignature::class, function ($app) {
             return new WebhookSignature(
                 secret: config('frontend.secret', ''),

@@ -46,6 +46,13 @@ return [
     'cancel_link_expired' => 'This cancellation link has expired.',
     'cancel_failed' => 'The order could not be cancelled.',
 
+    'cancel_otp_sent' => 'A verification code has been sent to the phone number on this order.',
+    'cancel_otp_invalid' => 'The verification code is incorrect.',
+    'cancel_otp_expired' => 'The verification code has expired. Request a new code.',
+    'cancel_otp_locked' => 'Too many incorrect verification codes. Try again later.',
+    'cancel_otp_unavailable' => 'A verification code cannot be sent for this order.',
+    'cancel_otp_failed' => 'The verification code could not be sent. Try again later.',
+
     'merge_product_deleted' => 'This product is no longer available and was kept in your cart for review.',
     'merge_product_unavailable' => 'This product is currently unavailable and was kept in your cart for review.',
     'merge_digital_not_supported' => 'This product type is not available for this cart and was kept for review.',
