@@ -432,8 +432,8 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
     /**
      * The same misconfiguration at the request step: the inert LocalGateway
-     * surfaces as a failed dispatch, not a fake success the client would
-     * wait on forever.
+     * surfaces as a failed dispatch (502), not a fake success the client
+     * would wait on forever.
      */
     /** @test */
     public function requesting_otp_through_the_local_gateway_in_production_fails_closed(): void
@@ -444,7 +444,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel/request-otp', [
             'token' => $data['cancellation_token'],
-        ])->assertStatus(422)
+        ])->assertStatus(502)
             ->assertJsonPath('message', __('guest_checkout.otp_send_failed'));
 
         $this->assertNull($data['order']->fresh()->guest_cancellation_token_used_at);

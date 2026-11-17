@@ -94,7 +94,9 @@ class GuestCancellationService
             $sendResult = $gateway->startVerification($order->user_phone);
 
             if (!$sendResult->isValid()) {
-                throw new \RuntimeException(__('guest_checkout.otp_send_failed'));
+                // A provider-originated failure is a failed dispatch, not a
+                // client mistake: 502, and nothing was consumed.
+                throw new GuestCheckoutConflictException(__('guest_checkout.otp_send_failed'), 502);
             }
 
             return [
@@ -110,7 +112,10 @@ class GuestCancellationService
                 'order_id' => $order->id,
                 'error' => $e->getMessage(),
             ]);
-            throw new \RuntimeException(__('guest_checkout.otp_send_failed'), 0, $e);
+            // Provider/transport failures are failed dispatches (502), not
+            // client errors (422): the client did nothing wrong. The cause
+            // is already logged above.
+            throw new GuestCheckoutConflictException(__('guest_checkout.otp_send_failed'), 502);
         }
     }
 
@@ -175,6 +180,14 @@ class GuestCancellationService
                 $verifyResult = $gateway->checkVerification($otpId, $code, (string) $order->user_phone);
 
                 if (!$verifyResult->isValid()) {
+                    if ($verifyResult->isProviderError()) {
+                        // A provider outage is a failed dispatch, not a wrong
+                        // code: 502 and the attempt budget is NOT consumed —
+                        // a legitimate user must not be locked out for an
+                        // outage they cannot control.
+                        throw new GuestCheckoutConflictException(__('guest_checkout.otp_send_failed'), 502);
+                    }
+
                     $this->recordFailure($lockoutKey);
                     throw new GuestCheckoutConflictException(__('guest_checkout.invalid_otp'), 422);
                 }
