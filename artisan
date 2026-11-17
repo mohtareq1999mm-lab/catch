@@ -17,12 +17,6 @@ define('LARAVEL_START', microtime(true));
 
 require __DIR__.'/vendor/autoload.php';
 
-// Worktree correctness: the shared vendor junction resolves to the main
-// working tree, so composer's map loads App\, Tests\ and Marvel\ from there.
-// This no-op-in-the-main-tree remap lets console commands execute THIS
-// tree's code. See the file header for the full explanation.
-require __DIR__.'/autoload.worktree.php';
-
 $app = require_once __DIR__.'/bootstrap/app.php';
 
 /*
