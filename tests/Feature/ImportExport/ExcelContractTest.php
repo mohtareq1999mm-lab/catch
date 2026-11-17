@@ -10,8 +10,7 @@ use Marvel\Database\Models\ProductVariant;
 use Marvel\Exports\BrandsExport;
 use Marvel\Exports\CategoriesExport;
 use Marvel\Exports\ProductsExport;
-use Marvel\Exports\Sheets\BrandsSheetExport;
-use Marvel\Exports\Sheets\CategoriesSheetExport;
+use Marvel\Exports\Sheets\BrandsSheetExport;use Marvel\Exports\Sheets\CategoriesSheetExport;
 use Marvel\Exports\Sheets\FlashSalesSheetExport;
 use Marvel\Exports\Sheets\ImagesSheetExport;
 use Marvel\Exports\Sheets\ProductBarcodesSheetExport;
@@ -95,6 +94,35 @@ class ExcelContractTest extends TestCase
 
         $this->assertSame($expected, $export->headings());
         $this->assertCount(11, $export->headings());
+    }
+
+    /**
+     * Every export sheet declares its supported product filters in the
+     * workbook schema; the applier applies exactly those.
+     */
+    public function test_every_export_sheet_declares_the_product_filter_contract(): void
+    {
+        foreach (ProductWorkbookSchema::keys() as $sheet) {
+            $filters = ProductWorkbookSchema::exportFilters($sheet);
+
+            $this->assertContains('status', $filters, "Sheet {$sheet} must declare the status filter");
+            $this->assertContains('product_type', $filters, "Sheet {$sheet} must declare the product_type filter");
+            $this->assertContains('item_type', $filters, "Sheet {$sheet} must declare the item_type filter");
+            $this->assertContains('category_id', $filters, "Sheet {$sheet} must declare the category_id filter");
+            $this->assertContains('brand_id', $filters, "Sheet {$sheet} must declare the brand_id filter");
+        }
+    }
+
+    /**
+     * Every export sheet excludes soft-deleted products: the images sheet is a
+     * raw DB::table join, so the exclusion must be explicit there.
+     */
+    public function test_images_export_excludes_soft_deleted_products(): void
+    {
+        $sheet = new \ReflectionClass(ImagesSheetExport::class);
+        $source = file_get_contents($sheet->getFileName());
+
+        $this->assertStringContainsString("whereNull('products.deleted_at')", $source);
     }
 
     public function test_export_maps_align_with_the_schema_headings(): void

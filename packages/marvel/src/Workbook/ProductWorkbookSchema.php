@@ -57,7 +57,8 @@ final class ProductWorkbookSchema
      *     key_column: string,
      *     chunk_size: int,
      *     dispatch_chunk_size?: int,
-     *     headings: array<int, string>
+     *     headings: array<int, string>,
+     *     export_filters: array<int, string>
      * }>
      */
     private const SHEETS = [
@@ -93,6 +94,7 @@ final class ProductWorkbookSchema
                 'pieces',
                 'has_flash_sale',
             ],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::PRODUCT_BARCODES => [
             'title' => 'product_barcodes',
@@ -101,6 +103,7 @@ final class ProductWorkbookSchema
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'piece_barcode', 'carton_barcode', 'pieces_per_carton'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::PRODUCT_VARIANTS => [
             'title' => 'product_variants',
@@ -121,6 +124,7 @@ final class ProductWorkbookSchema
                 'weight',
                 'attributes',
             ],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::CATEGORIES => [
             'title' => 'categories',
@@ -129,6 +133,7 @@ final class ProductWorkbookSchema
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'category_slug'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::BRANDS => [
             'title' => 'brands',
@@ -137,6 +142,7 @@ final class ProductWorkbookSchema
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'brand_slug'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::FLASH_SALES => [
             'title' => 'flash_sales',
@@ -145,6 +151,7 @@ final class ProductWorkbookSchema
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'flash_sale_slug'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::SLIDERS => [
             'title' => 'sliders',
@@ -153,6 +160,7 @@ final class ProductWorkbookSchema
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'slider_slug'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         self::TAGS => [
             'title' => 'tags',
@@ -161,6 +169,7 @@ final class ProductWorkbookSchema
             'key_column' => 'product_sku',
             'chunk_size' => 500,
             'headings' => ['product_sku', 'tag_slug'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
         // Images last: ProductsImport historically appends this sheet last.
         self::IMAGES => [
@@ -171,6 +180,7 @@ final class ProductWorkbookSchema
             'chunk_size' => 200,
             'dispatch_chunk_size' => 500,
             'headings' => ['product_sku', 'image'],
+            'export_filters' => ['status', 'product_type', 'item_type', 'category_id', 'brand_id'],
         ],
     ];
 
@@ -254,6 +264,17 @@ final class ProductWorkbookSchema
     }
 
     /**
+     * The export filter contract for a sheet: which product filters the
+     * sheet's exporter applies.
+     *
+     * @return array<int, string>
+     */
+    public static function exportFilters(string $sheet): array
+    {
+        return self::definition($sheet)['export_filters'];
+    }
+
+    /**
      * Image cells are either a single `image` value or a pipe-separated
      * `images` value. The single column wins when both are filled.
      *
@@ -287,7 +308,7 @@ final class ProductWorkbookSchema
     }
 
     /**
-     * @return array{title: string, importer: class-string, exporter: class-string, key_column: string, chunk_size: int, dispatch_chunk_size?: int, headings: array<int, string>}
+     * @return array{title: string, importer: class-string, exporter: class-string, key_column: string, chunk_size: int, dispatch_chunk_size?: int, headings: array<int, string>, export_filters: array<int, string>}
      */
     private static function definition(string $sheet): array
     {
