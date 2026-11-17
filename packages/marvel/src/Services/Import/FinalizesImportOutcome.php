@@ -2,6 +2,7 @@
 
 namespace Marvel\Services\Import;
 
+use Closure;
 use Marvel\Database\Models\Import;
 
 /**
@@ -23,7 +24,7 @@ trait FinalizesImportOutcome
      * @return bool true when the import was already terminal (a worker
      *              race) and the caller must bail out entirely.
      */
-    protected function finalizeSuccessTerminal(Import $import, RunOutcome $outcome, \Closure $broadcast): bool
+    protected function finalizeSuccessTerminal(Import $import, RunOutcome $outcome, Closure $broadcast): bool
     {
         $affected = Import::where('id', $import->id)
             ->whereIn('status', ['pending', 'processing', 'cancelling'])
@@ -65,7 +66,7 @@ trait FinalizesImportOutcome
      *
      * @param  array<int, array<string, mixed>>  $failedRows
      */
-    protected function writeCancelledTerminal(Import $import, RunOutcome $outcome, array $failedRows, \Closure $broadcast): void
+    protected function writeCancelledTerminal(Import $import, RunOutcome $outcome, array $failedRows, Closure $broadcast): void
     {
         $import->update([
             'status' => 'cancelled',

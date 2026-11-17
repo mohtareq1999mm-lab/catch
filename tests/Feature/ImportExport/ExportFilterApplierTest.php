@@ -282,6 +282,13 @@ class ExportFilterApplierTest extends TestCase
 
         $this->assertSame(0, $invalid->query()->count());
 
+        // Before the domain row exists the filtered query must return
+        // nothing on an empty database — a sheet that ignored its pivot
+        // (or dropped a constraint) would fail here.
+        $unseeded = new $sheetClass(['status' => 1, 'product_type' => 'simple']);
+
+        $this->assertSame(0, $unseeded->query()->count());
+
         $seedDomainRow($product);
 
         $sheet = new $sheetClass(['status' => 1, 'product_type' => 'simple']);

@@ -72,6 +72,33 @@ class MasterOtpTest extends TestCase
     }
 
     /** @test */
+    public function it_never_accepts_the_static_code_in_production()
+    {
+        // Simulate a production environment on the bare container: app()
+        // must expose environment('production') === true.
+        $app = new class extends \Illuminate\Container\Container {
+            public function environment(...$environments)
+            {
+                return 'production';
+            }
+        };
+        $app->instance('config', new \Illuminate\Config\Repository());
+        \Illuminate\Support\Facades\Facade::setFacadeApplication($app);
+        \Illuminate\Container\Container::setInstance($app);
+
+        // Even a misconfigured environment (master OTP set, local bypass
+        // enabled) must never accept the static code in production.
+        config([
+            'auth.master_otp' => '123456',
+            'auth.local_otp_enabled' => true,
+            'auth.local_otp_code' => '123456',
+        ]);
+
+        $this->assertFalse($this->checkCode('123456'));
+        $this->assertFalse($this->checkCode('999888'));
+    }
+
+    /** @test */
     public function verify_otp_succeeds_with_master_otp_without_otp_id()
     {
         config([

@@ -148,6 +148,10 @@ return [
 
     'local_otp_code' => env('LOCAL_OTP_CODE', '123456'),
 
-    'master_otp' => env('MASTER_OTP', '123456'),
+    // ADR 0003: master_otp is a value-only override and must default to
+    // null — an unset value must stay distinguishable from an explicitly
+    // configured one. Production never consults it (hard-gated in the
+    // controller).
+    'master_otp' => env('MASTER_OTP'),
 
 ];

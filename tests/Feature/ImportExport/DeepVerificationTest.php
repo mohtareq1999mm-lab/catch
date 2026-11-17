@@ -39,7 +39,7 @@ class DeepVerificationTest extends TestCase
     private const PREFIX = '/api/v1';
     private const GUARD = 'api';
 
-    private function makeUser(array $perms, bool $super = false): User
+    private function makeUser(array $perms): User
     {
         foreach ($perms as $p) Permission::findOrCreate($p, self::GUARD);
         Permission::findOrCreate(self::GUARD);
@@ -80,7 +80,7 @@ class DeepVerificationTest extends TestCase
     {
         $owner = $this->makeUser([Perm::IMPORT_PRODUCT]);
         $other = $this->makeUser([Perm::IMPORT_PRODUCT]);
-        $super = $this->makeUser([], true);
+        $super = $this->makeUser([]);
         // Create with correct type product-import
         $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>'imports/a.xlsx','file_name'=>'a.xlsx','status'=>'completed','total_rows'=>1,'created_by'=>$owner->id]);
         Sanctum::actingAs($owner);

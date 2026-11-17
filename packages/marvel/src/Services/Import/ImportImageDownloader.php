@@ -13,11 +13,14 @@ use RuntimeException;
  *
  * The two families previously carried byte-identical copies that had
  * drifted apart on the security side: the category copy rejected
- * pipe-separated URL cells and blocked IPv6 private ranges, the brand
- * copy did neither. The unified guard is the strong one — a pipe in a
- * brand image cell now fails validation like category, and private IPv6
- * hosts are blocked for both. Brand rows keep their non-fatal image
- * posture (a failed download never fails the row).
+ * pipe-separated URL cells and blocked private/reserved IPv6 ranges, the
+ * brand copy rejected pipe-separated cells but blocked ALL IPv6 hosts
+ * outright (including public ones). The unified guard keeps the pipe
+ * rejection for both and replaces brand's blanket IPv6 ban with the
+ * category-shaped screening — private/reserved IPv6 is blocked for both,
+ * public IPv6 hosts (previously unusable for brand images) now download.
+ * Brand rows keep their non-fatal image posture (a failed download never
+ * fails the row).
  */
 final class ImportImageDownloader
 {

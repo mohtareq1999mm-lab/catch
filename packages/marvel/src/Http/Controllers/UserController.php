@@ -1147,10 +1147,21 @@ $userCreated->providers()->updateOrCreate(
     /**
      * Timing-safe check whether the given code matches the configured master OTP
      * or the local development test code.
+     *
+     * ADR 0003: production can never bypass, even when the environment is
+     * misconfigured — the static bypass is hard-gated here, before any
+     * config value is consulted.
      */
     protected function isMasterOtpAccepted($code): bool
     {
         if (empty($code)) {
+            return false;
+        }
+
+        // Hard production block: the static bypass never applies in
+        // production regardless of MASTER_OTP / LOCAL_OTP_ENABLED values.
+        $isProduction = function_exists('app') && method_exists(app(), 'environment') ? app()->environment('production') : false;
+        if ($isProduction) {
             return false;
         }
 
@@ -1163,7 +1174,6 @@ $userCreated->providers()->updateOrCreate(
         }
 
         // 2. Local OTP fallback (honors local_otp_enabled)
-        $isProduction = function_exists('app') && method_exists(app(), 'environment') ? app()->environment('production') : false;
         $localEnabled = (bool) config('auth.local_otp_enabled', env('LOCAL_OTP_ENABLED', !$isProduction));
         if ($localEnabled) {
             $localCode = (string) config('auth.local_otp_code', env('LOCAL_OTP_CODE', '123456'));

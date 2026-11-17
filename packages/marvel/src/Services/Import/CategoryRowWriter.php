@@ -502,15 +502,12 @@ final class CategoryRowWriter
 
     /**
      * Remove one row's staged temp files. Public seam: the hierarchy linker
-     * cleans up after orphan-removal decisions.
+     * cleans up after orphan-removal decisions. Delegates to the shared
+     * pipeline's cleanup (one owner for the temp-file lifecycle).
      */
     public function cleanupTempImages(array $row): void
     {
-        foreach (['temp_desktop', 'temp_mobile'] as $key) {
-            if (!empty($row[$key]) && file_exists($row[$key])) {
-                @unlink($row[$key]);
-            }
-        }
+        $this->images->cleanupTempFiles([$row]);
     }
 
     /**
