@@ -10,7 +10,8 @@ use Marvel\Database\Models\ProductVariant;
 use Marvel\Exports\BrandsExport;
 use Marvel\Exports\CategoriesExport;
 use Marvel\Exports\ProductsExport;
-use Marvel\Exports\Sheets\BrandsSheetExport;use Marvel\Exports\Sheets\CategoriesSheetExport;
+use Marvel\Exports\Sheets\BrandsSheetExport;
+use Marvel\Exports\Sheets\CategoriesSheetExport;
 use Marvel\Exports\Sheets\FlashSalesSheetExport;
 use Marvel\Exports\Sheets\ImagesSheetExport;
 use Marvel\Exports\Sheets\ProductBarcodesSheetExport;
@@ -24,6 +25,8 @@ use Tests\TestCase;
 class ExcelContractTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const PREFIX = '/api/v1';
 
     // Brand sheet - 7 headers exact order
     public function test_brand_export_has_exact_sheet_name_and_headers(): void
