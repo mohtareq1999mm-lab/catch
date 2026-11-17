@@ -20,6 +20,27 @@ use Mockery;
 
 class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // #81: cancellation now requires a possession proof. Pin the LOCAL OTP
+        // path (ADR 0003) so the suite never contacts an SMS provider.
+        config([
+            'auth.active_otp_gateway' => 'local',
+            'auth.local_otp_enabled' => true,
+            'auth.local_otp_code' => '123456',
+            'auth.master_otp' => null,
+        ]);
+    }
+
+    private function requestCancellationCode(string $token)
+    {
+        return $this->postJson(self::PREFIX . '/orders/cancellation-otp', [
+            'token' => $token,
+        ]);
+    }
+
     private function createOrder(string $paymentMethod = 'online', int $quantity = 1): array
     {
         $this->startGuestSession();
@@ -231,7 +252,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
         $this->postJson(self::PREFIX . '/orders/track', ['token' => str_repeat('a', 43)])
             ->assertStatus(404);
 
-        $this->postJson(self::PREFIX . '/orders/cancel', ['token' => 'short'])
+        $this->postJson(self::PREFIX . '/orders/cancel', ['token' => 'short', 'code' => '123456'])
             ->assertStatus(404);
     }
 
@@ -262,8 +283,11 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
     {
         $data = $this->createOrder('cod');
 
+        $this->requestCancellationCode($data['cancellation_token'])->assertOk();
+
         $first = $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ]);
         $first->assertOk()->assertJsonPath('data.order.status', Order::ORDER_STATUS_CANCELLED);
 
@@ -272,6 +296,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(422);
     }
 
@@ -283,8 +308,12 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->initiateOnline($data['order']->id, 'cancel-race-key')->assertOk();
 
+        // No possession proof is issued while money may still be collected.
+        $this->requestCancellationCode($data['cancellation_token'])->assertStatus(409);
+
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(409);
 
         $this->assertSame(Order::ORDER_STATUS_PENDING, $data['order']->fresh()->status);
@@ -314,6 +343,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(422);
 
         $this->assertSame(Order::ORDER_STATUS_COMPLETED, $order->fresh()->status);

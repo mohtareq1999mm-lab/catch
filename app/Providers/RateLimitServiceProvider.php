@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\Guest\GuestIdentityService;
+use App\Services\Guest\GuestOrderTokenService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\ServiceProvider;
@@ -50,6 +51,20 @@ class RateLimitServiceProvider extends ServiceProvider
                 // limits hit ONE counter, silently halving the budget.
                 if (in_array($name, ['guest_checkout', 'guest_payment', 'guest_session'], true)) {
                     $limits[] = Limit::perMinutes($decay, $max * 3)->by('ceiling:ip:' . (string) $request->ip());
+                }
+
+                // #81: the cancellation OTP budget is ALSO counted per token
+                // hash, so rotating client IPs cannot multiply the send
+                // budget of one cancellation link. The raw token never
+                // becomes part of a cache key.
+                if ($name === 'guest_cancel_otp') {
+                    $token = $request->input('token');
+
+                    if (is_string($token) && $token !== '') {
+                        $limits[] = Limit::perMinutes($decay, $max)->by(
+                            'token:' . app(GuestOrderTokenService::class)->hash($token)
+                        );
+                    }
                 }
 
                 return $limits;

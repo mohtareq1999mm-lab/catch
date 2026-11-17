@@ -49,6 +49,9 @@ enum GuestSurface: string
     /** Public one-way token path: order cancellation. */
     case ORDER_CANCEL = 'order_cancel';
 
+    /** Public one-way token path: cancellation possession proof (#81). */
+    case ORDER_CANCEL_OTP = 'order_cancel_otp';
+
     /** Payment-bound order state changes. */
     case ORDER_PAYMENT = 'order_payment';
 
@@ -66,6 +69,7 @@ enum GuestSurface: string
             self::CART_WRITE => 'guest_cart_write',
             self::ORDER_TRACK => 'guest_tracking',
             self::ORDER_CANCEL => 'guest_cancel',
+            self::ORDER_CANCEL_OTP => 'guest_cancel_otp',
             self::ORDER_PAYMENT => 'guest_payment',
             self::ORDER_RESEND => 'guest_resend',
             self::CHECKOUT => 'guest_checkout',
@@ -80,7 +84,8 @@ enum GuestSurface: string
             self::MOBILE_SESSION,
             self::CART_READ,
             self::ORDER_TRACK,
-            self::ORDER_CANCEL => false,
+            self::ORDER_CANCEL,
+            self::ORDER_CANCEL_OTP => false,
             default => true,
         };
     }

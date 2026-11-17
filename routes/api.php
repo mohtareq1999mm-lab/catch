@@ -212,6 +212,11 @@ Route::prefix('v1/general')->group(function () {
                 ->name('api.guest.cart.destroy');
 
             // Static token paths first (no {orderId} capture).
+            // Possession proof for the cancellation link (#81): the link
+            // alone never cancels; a code goes to the phone on the order.
+            Route::post('orders/cancellation-otp', [GuestPublicOrderController::class, 'requestCancellationOtp'])
+                ->middleware(GuestSurface::ORDER_CANCEL_OTP->middleware())
+                ->name('api.guest.orders.cancellation-otp');
             Route::post('orders/track', [GuestPublicOrderController::class, 'track'])
                 ->middleware(GuestSurface::ORDER_TRACK->middleware())
                 ->name('api.guest.orders.track');
