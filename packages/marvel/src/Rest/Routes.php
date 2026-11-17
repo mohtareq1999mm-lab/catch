@@ -96,11 +96,12 @@ Route::middleware(['throttle:sensitive', 'lang'])->group(function () {
 });
 
 /**
- * OTP Routes - ACTIVE (phone-based authentication via `throttle:otp`, 3/min per IP).
- * Previously mislabeled DISABLED while the routes were registered; the comment
- * now matches the executable code. To disable, remove the group below.
+ * OTP Routes - ACTIVE (phone-based authentication via `throttle.failclosed:otp`,
+ * 3/min per IP). FAIL-CLOSED: enforced even when global throttling is disabled,
+ * like the guest surfaces (spec #73 F3, ticket #77). To disable, remove the
+ * group below.
  */
-Route::middleware(['throttle:otp', 'lang'])->group(function () {
+Route::middleware(['throttle.failclosed:otp', 'lang'])->group(function () {
     Route::post('/send-otp-code', [UserController::class, 'sendUserOtp']);
     Route::post('/otp-login', [UserController::class, 'otpLogin']);
 });

@@ -188,25 +188,22 @@ class AppServiceProvider extends ServiceProvider
         //         });
         // });
 
-        // RateLimiter::for('public-tracking', function (Request $request) {
-        //     return Limit::perMinute(10)
-        //         ->by($request->ip())
-        //         ->response(function (Request $request, array $headers) {
-        //             return response()->json([
-        //                 'success' => false,
-        //                 'message' => __('message.too_many_requests'),
-        //                 'data' => null,
-        //             ], 429, $headers);
-        //         });
-        // });
+        // Identity-less public surfaces, FAIL-CLOSED (spec #73 F3, ticket #77).
+        // Both routes resolve these limiters through the `throttle.failclosed`
+        // alias (the GuestRateLimit policy): enforced even while the global
+        // disable switch is on, and a limiter-backend failure answers 429
+        // instead of bypassing. Keys stay IP-based. The 429 body is built by
+        // that middleware envelope, so no per-limiter response callback.
+        RateLimiter::for('otp', function (Request $request) {
+            return Limit::perMinute(3)->by((string) $request->ip());
+        });
+
+        RateLimiter::for('public-tracking', function (Request $request) {
+            return Limit::perMinute(10)->by((string) $request->ip());
+        });
 
         // RateLimiter::for('sensitive', function (Request $request) {
         //     return Limit::perMinute(5)->by($request->ip())->response(function (Request $request, array $headers) {
-        //         return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
-        //     });
-        // });
-        // RateLimiter::for('otp', function (Request $request) {
-        //     return Limit::perMinute(3)->by($request->ip())->response(function (Request $request, array $headers) {
         //         return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
         //     });
         // });

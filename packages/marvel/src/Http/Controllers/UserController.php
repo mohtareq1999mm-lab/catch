@@ -37,6 +37,7 @@ use Marvel\Http\Resources\UserResource;
 use Marvel\Mail\ContactAdmin;
 use Marvel\Otp\Gateways\OtpGateway;
 use Marvel\Otp\Gateways\LocalGateway;
+use Marvel\Otp\StaticBypass;
 use Marvel\Traits\ApiResponse;
 use Marvel\Traits\UsersTrait;
 use Marvel\Traits\WalletsTrait;
@@ -1148,41 +1149,24 @@ $userCreated->providers()->updateOrCreate(
      * Timing-safe check whether the given code matches the configured master OTP
      * or the local development test code.
      *
-     * ADR 0003: production can never bypass, even when the environment is
-     * misconfigured — the static bypass is hard-gated here, before any
-     * config value is consulted.
+     * ADR 0003: the static-bypass decision lives in ONE universal check
+     * beside the OTP gateway stack ({@see StaticBypass}); this thin wrapper
+     * only supplies the actor identifier for the audit line — the identity
+     * the bypass was exercised against (email flow: the attempted email;
+     * phone/contact flows: the attempted phone number).
      */
     protected function isMasterOtpAccepted($code): bool
     {
-        if (empty($code)) {
-            return false;
+        // The actor identifier comes from the current request; the
+        // bare-container unit tests resolve this method without a bound
+        // request, so the actor is simply unidentifiable there.
+        $actor = '';
+        if (app()->bound('request')) {
+            $request = app()->make('request');
+            $actor = (string) ($request->input('email') ?? $request->input('phone_number') ?? '');
         }
 
-        // Hard production block: the static bypass never applies in
-        // production regardless of MASTER_OTP / LOCAL_OTP_ENABLED values.
-        $isProduction = function_exists('app') && method_exists(app(), 'environment') ? app()->environment('production') : false;
-        if ($isProduction) {
-            return false;
-        }
-
-        $code = (string) $code;
-
-        // 1. Explicit master OTP from config / env
-        $masterOtp = (string) config('auth.master_otp', env('MASTER_OTP', ''));
-        if ($masterOtp !== '' && hash_equals($masterOtp, $code)) {
-            return true;
-        }
-
-        // 2. Local OTP fallback (honors local_otp_enabled)
-        $localEnabled = (bool) config('auth.local_otp_enabled', env('LOCAL_OTP_ENABLED', !$isProduction));
-        if ($localEnabled) {
-            $localCode = (string) config('auth.local_otp_code', env('LOCAL_OTP_CODE', '123456'));
-            if ($localCode !== '' && hash_equals($localCode, $code)) {
-                return true;
-            }
-        }
-
-        return false;
+        return app(StaticBypass::class)->accepts($code, $actor);
     }
 
     protected function verifyOtp(Request $request)
