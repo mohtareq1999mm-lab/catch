@@ -97,6 +97,7 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
 
         $response = $this->requestCode($token);
         $response->assertOk()->assertJsonPath('success', true);
+        $this->assertSame(__('guest_checkout.cancel_otp_sent'), $response->json('message'));
 
         $payload = $response->json('data') ?? [];
         $this->assertArrayNotHasKey('token', $payload);
@@ -301,5 +302,102 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
     {
         $this->requestCode(str_repeat('a', 43))->assertStatus(404);
         $this->requestCode('short')->assertStatus(404);
+    }
+
+    /** @test */
+    public function the_cancellation_link_ttl_defaults_to_twenty_four_hours(): void
+    {
+        $data = $this->createGuestOrder('cod');
+
+        $expiresAt = $data['order']->fresh()->guest_cancellation_token_expires_at;
+
+        $this->assertNotNull($expiresAt);
+        $this->assertEqualsWithDelta(
+            24 * 3600,
+            now()->diffInSeconds($expiresAt, false),
+            60,
+            'The approved cancellation link lifetime is 24 hours.'
+        );
+    }
+
+    /** @test */
+    public function the_code_request_surface_is_throttled_per_token(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $token = $data['cancellation_token'];
+
+        // Five sends are allowed, each from a DIFFERENT IP: only the
+        // token-scoped counter can explain the sixth response.
+        for ($i = 1; $i <= 5; $i++) {
+            $this->withServerVariables(['REMOTE_ADDR' => '10.10.0.' . $i]);
+            $this->requestCode($token)->assertOk();
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '10.10.0.99']);
+        $this->requestCode($token)->assertStatus(429);
+    }
+
+    /** @test */
+    public function the_code_request_surface_is_throttled_per_ip(): void
+    {
+        // Five unknown links from one IP exhaust the IP budget; distinct
+        // token strings keep every per-token counter separate.
+        for ($i = 0; $i < 5; $i++) {
+            $this->requestCode(str_repeat(chr(97 + $i), 43))->assertStatus(404);
+        }
+
+        $this->requestCode(str_repeat('z', 43))->assertStatus(429);
+    }
+
+    /** @test */
+    public function production_rejects_the_static_bypass_but_accepts_a_provider_code(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $token = $data['cancellation_token'];
+
+        // Simulate production on the app container (ADR 0003 env variant).
+        $this->app['env'] = 'production';
+        $this->assertTrue(app()->environment('production'));
+
+        // Even with the Local OTP switch on and a master value configured,
+        // production must never accept the static bypass.
+        config(['auth.local_otp_enabled' => true, 'auth.master_otp' => '999999']);
+        $this->cancelWithCode($token, '999999')->assertStatus(422);
+        $this->assertNotSame(
+            Order::ORDER_STATUS_CANCELLED,
+            $data['order']->fresh()->status,
+            'A production static-bypass attempt must not cancel.'
+        );
+
+        // A provider-verified code still works in production.
+        $this->requestCode($token)->assertOk();
+        $this->cancelWithCode($token, '654321')->assertOk();
+    }
+
+    /** @test */
+    public function the_cancellation_otp_strings_exist_in_english_and_arabic(): void
+    {
+        $keys = [
+            'cancel_otp_sent',
+            'cancel_otp_invalid',
+            'cancel_otp_expired',
+            'cancel_otp_locked',
+            'cancel_otp_unavailable',
+            'cancel_otp_failed',
+        ];
+
+        foreach (['en', 'ar'] as $locale) {
+            foreach ($keys as $key) {
+                $value = trans('guest_checkout.' . $key, [], $locale);
+
+                $this->assertIsString($value);
+                $this->assertNotSame(
+                    'guest_checkout.' . $key,
+                    $value,
+                    "Missing {$locale} translation: {$key}"
+                );
+                $this->assertNotSame('', trim($value), "Empty {$locale} translation: {$key}");
+            }
+        }
     }
 }
