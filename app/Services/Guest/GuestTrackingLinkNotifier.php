@@ -44,6 +44,10 @@ class GuestTrackingLinkNotifier
 
     public function notify(Order $order, string $trackingToken, ?string $locale = null): void
     {
+        if (!$this->hasDeliverableBaseUrl($order)) {
+            return;
+        }
+
         $url = $this->trackingUrl($trackingToken);
         $replace = ['order_number' => $order->order_number, 'url' => $url];
         $locale = $locale ?: app()->getLocale();
@@ -58,6 +62,34 @@ class GuestTrackingLinkNotifier
         $path = '/' . ltrim((string) config('guest_checkout.tracking_link.path', '/track-order'), '/');
 
         return $base . $path . '?' . http_build_query(['token' => $trackingToken]);
+    }
+
+    /**
+     * A malformed or non-https base URL would deliver the credential link to
+     * an unintended host. Production skips the send entirely and logs a
+     * token-free warning; other environments keep the legacy behavior so
+     * local (http://localhost) setups keep working.
+     */
+    private function hasDeliverableBaseUrl(Order $order): bool
+    {
+        if (!app()->isProduction()) {
+            return true;
+        }
+
+        $base = rtrim((string) config('guest_checkout.tracking_link.base_url'), '/');
+        $host = parse_url($base, PHP_URL_HOST);
+
+        if (is_string($host) && $host !== '' && strtolower((string) parse_url($base, PHP_URL_SCHEME)) === 'https') {
+            return true;
+        }
+
+        // Context deliberately excludes the token and the full link.
+        Log::warning('Guest tracking link skipped: configured base URL is not a valid https frontend URL', [
+            'order_id' => $order->id,
+            'base_url_host' => is_string($host) && $host !== '' ? $host : null,
+        ]);
+
+        return false;
     }
 
     private function shouldNotify(Order $order, ?string $trackingToken): bool
@@ -84,7 +116,13 @@ class GuestTrackingLinkNotifier
             // Metadata deliberately excludes the message body/link.
             $this->sms->send($phone, $message, ['order_id' => $order->id, 'type' => 'guest_tracking_link']);
         } catch (\Throwable $e) {
-            Log::warning('Guest tracking link SMS failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            // Provider error text echoes the recipient; log the exception
+            // identity only, never the message body, token, or number.
+            Log::warning('Guest tracking link SMS failed', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
+            ]);
         }
     }
 
@@ -98,9 +136,18 @@ class GuestTrackingLinkNotifier
             $subject = __('guest_checkout.tracking_email_subject', ['order_number' => $order->order_number], $locale);
             $body = __('guest_checkout.tracking_email_body', $replace, $locale);
 
+            // Caution: with the "log" mail driver the raw message body — which
+            // carries the tracking link — is written to storage/logs. Keep the
+            // log driver out of production; delivery itself is unchanged.
             Mail::raw($body, fn ($mail) => $mail->to($order->user_email)->subject($subject));
         } catch (\Throwable $e) {
-            Log::warning('Guest tracking link email failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            // Transport error text can echo the recipient address; log the
+            // exception identity only.
+            Log::warning('Guest tracking link email failed', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
+            ]);
         }
     }
 }

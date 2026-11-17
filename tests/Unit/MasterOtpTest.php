@@ -9,9 +9,21 @@ class MasterOtpTest extends TestCase
 {
     private UserController $controller;
 
+    /** The process-wide container present before this test class swapped it. */
+    private ?\Illuminate\Container\Container $originalContainer = null;
+
+    /** The facade application present before this test class swapped it (may be a plain container). */
+    private $originalFacadeApplication;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Remember the process-wide container and facade application so
+        // tearDown can restore them: no global swap is ever left behind
+        // for the tests that run after this class in the same process.
+        $this->originalContainer = \Illuminate\Container\Container::getInstance();
+        $this->originalFacadeApplication = \Illuminate\Support\Facades\Facade::getFacadeApplication();
 
         $app = new \Illuminate\Container\Container();
         \Illuminate\Support\Facades\Facade::setFacadeApplication($app);
@@ -21,6 +33,18 @@ class MasterOtpTest extends TestCase
 
         // Instantiate UserController without triggering database
         $this->controller = (new \ReflectionClass(UserController::class))->newInstanceWithoutConstructor();
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->originalContainer !== null) {
+            \Illuminate\Container\Container::setInstance($this->originalContainer);
+        }
+        if ($this->originalFacadeApplication !== null) {
+            \Illuminate\Support\Facades\Facade::setFacadeApplication($this->originalFacadeApplication);
+        }
+
+        parent::tearDown();
     }
 
     private function checkCode($code): bool
