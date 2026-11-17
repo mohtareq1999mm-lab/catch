@@ -516,7 +516,7 @@ class CategoryImportTest extends TestCase
 
         $service->rollbackCreatedData();
 
-        $this->assertSoftDeleted(Category::where('slug', 'created-one')->first());
+        $this->assertSoftDeleted(Category::where('slug', 'created-one')->withTrashed()->first());
         $this->assertDatabaseHas('categories', ['id' => $existing->id, 'deleted_at' => null]);
     }
 
