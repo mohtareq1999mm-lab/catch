@@ -124,3 +124,72 @@ so "unset" stays distinguishable from "configured"; the accepted value already r
 - My session wrote only: `docs/adr/0003-*.md`, `GLOSSARY.md` (new cluster), this record. No code touched.
 - Outstanding from earlier rounds (user's call, unrelated to this task): orphaned `26d3f22`
   (`withTrashed` CategoryImportTest fix) still not in `origin/main`.
+
+## 8. Evidence of record (ticket #71)
+
+Executed on the integration branch tip `e17dc3a` in an isolated worktree against the isolated
+database `catch_verify_t71` (the repo's phpunit guard refuses a database named exactly `catch`).
+
+Environment: PHP 8.2.30 (ZTS), PHPUnit 10.0.13, Laravel Framework 10.30.1.
+
+### 8.1 Suites (fresh isolated DB)
+
+All commands ran with `$env:DB_DATABASE='catch_verify_t71'`:
+
+| Command | Result |
+|---|---|
+| `php vendor/bin/phpunit tests/Feature/Guest` | **OK (164 tests, 1527 assertions)** |
+| `php vendor/bin/phpunit tests/Feature/Rest/OtpLocalLoginTest.php` | OK (7 tests, 17 assertions) |
+| `php vendor/bin/phpunit tests/Feature/Rest/OtpEmailCustomerOnlyTest.php` | OK (4 tests, 12 assertions) |
+| `php vendor/bin/phpunit tests/Feature/AuthenticationTest.php` | OK (23 tests, 63 assertions) |
+| `php vendor/bin/phpunit tests/Feature/Localization/TranslationCatalogueTest.php` | OK (24 tests, 8327 assertions) |
+| `php vendor/bin/phpunit tests/Unit/GuestStaticOtpBypassGateTest.php` | OK (21 tests, 25 assertions) |
+| `php vendor/bin/phpunit tests/Unit/GuestCancellationOtpLockoutTest.php` | OK (2 tests, 4 assertions) |
+
+The guest battery includes the route-surface contract (fails loud on unmapped routes) and the
+session/cookie posture contracts.
+
+### 8.2 Development end-to-end demonstration (static code, no real SMS)
+
+Method: `php artisan serve` on the isolated verify DB with `APP_ENV=local` and
+`ACTIVE_OTP_GATEWAY=local` (environment overrides the `.env`'s `twilio` selection), then real HTTP
+calls through the public API: guest session -> cart item -> COD checkout -> request cancellation
+OTP -> confirm with the static code `123456` (`LOCAL_OTP_CODE`). Transcript (token redacted):
+
+```text
+STEP 1  session opened ................. success=True
+STEP 2  cart item added ................ success=True
+STEP 3  checkout placed ................ order=<id 1> cancellable_token=56Vvat...3bktc4U
+STEP 4  request-otp dispatched ......... harness=local otp_id=local-verification-id provider=local
+STEP 5  confirm with static code ....... message='Order cancelled successfully.' order.status=cancelled
+STEP 6  replay rejected ................ HTTP 422 {"status":422,"message":"This cancellation link has already been used.","success":false}
+STEP 7  token-only rejected ............ HTTP 422 {"message":"The given data was invalid.","status":false,"success":false,"errors":{"otp_id":["The OTP ID field is required."],"code":["The code field is required."]}}
+```
+
+Persisted state after the flow (`orders` row 1): `status=cancelled`, `cancelled_at` set,
+`guest_cancellation_token_used_at` set, `payment_status=payment-pending`,
+`user_phone=+201000000001`.
+
+No real SMS: the request step ran on the `local` gateway (`LocalGateway` performs no network I/O —
+`startVerification` returns a static `Result`), and the confirm step accepted the static code
+through the bypass gate, which never touches the gateway. Both properties are also pinned by
+tests: `the_static_code_is_accepted_with_any_gateway_selected_and_skips_the_provider` (HTTP seam)
+and the full gating matrix (unit seam).
+
+### 8.3 Old token-only contract — remaining references
+
+`git grep` for `orders/cancel` across the repository finds call sites only in `routes/api.php`,
+the guest test suites, and documentation. Two frontend-facing documents still describe the old
+token-only payload — `docs/guest-checkout-frontend-contract.md` (cancel action) and
+`docs/guest-api-frontend-reference.md` (endpoint 9). They are stale and were deliberately NOT
+edited here: documentation mode is off (API docs change only on an explicit documentation
+command). They must be updated in the release that ships this breaking change. No runtime consumer
+(mobile app, SDK, JS, Postman collection) exists in this repository.
+
+### 8.4 Note on demo data and test isolation
+
+The E2E demonstration leaves rows in the verify database. Tests that assert absolute row counts
+fail against that pre-existing data (7 such assertions were observed). The suite evidence in 8.1
+was taken after `php artisan migrate:fresh --force` on the same isolated database — this was demo
+data pollution, not a code regression, and it is not reachable through the normal test flow
+(`DatabaseTransactions` rolls each test back).
