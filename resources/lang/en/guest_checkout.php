@@ -48,6 +48,7 @@ return [
     'cancel_no_phone' => 'This order has no phone number on file, so a cancellation code cannot be sent.',
     'cancel_otp_sent' => 'A cancellation code was sent to the phone number on this order.',
     'cancel_otp_send_failed' => 'The cancellation code could not be sent right now. Please try again shortly.',
+    'cancel_otp_invalid' => 'The cancellation code is invalid or has expired.',
 
     'merge_product_deleted' => 'This product is no longer available and was kept in your cart for review.',
     'merge_product_unavailable' => 'This product is currently unavailable and was kept in your cart for review.',

@@ -17,9 +17,39 @@ use Marvel\Database\Models\User;
 use App\Models\Invoice;
 use Illuminate\Cache\RateLimiting\Limit;
 use Mockery;
+use Marvel\Otp\OtpInterface;
 
 class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 {
+    /**
+     * The confirm step verifies through the OtpInterface binding; the
+     * recording fake keeps provider I/O out of these tests.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->app->instance(OtpInterface::class, new RecordingCancellationOtpGateway());
+    }
+
+    /**
+     * Full two-step cancellation credentials (design D6): the request-otp
+     * step dispatches through the fake (which accepts any code), then the
+     * confirm endpoint is called with token + otp_id + code.
+     */
+    private function cancellationCredentials(array $data, string $code = 'gateway-verified-code'): array
+    {
+        $otpId = $this->postJson(self::PREFIX . '/orders/cancel/request-otp', [
+            'token' => $data['cancellation_token'],
+        ])->assertOk()->json('data.otp_id');
+
+        return [
+            'token' => $data['cancellation_token'],
+            'otp_id' => $otpId,
+            'code' => $code,
+        ];
+    }
+
     private function createOrder(string $paymentMethod = 'online', int $quantity = 1): array
     {
         $this->startGuestSession();
@@ -231,8 +261,13 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
         $this->postJson(self::PREFIX . '/orders/track', ['token' => str_repeat('a', 43)])
             ->assertStatus(404);
 
-        $this->postJson(self::PREFIX . '/orders/cancel', ['token' => 'short'])
-            ->assertStatus(404);
+        // The confirm endpoint requires all three credentials (D6); a
+        // malformed token still refuses indistinguishably once present.
+        $this->postJson(self::PREFIX . '/orders/cancel', [
+            'token' => 'short',
+            'otp_id' => 'otp-verification-id-1',
+            'code' => 'gateway-verified-code',
+        ])->assertStatus(404);
     }
 
     /** @test */
@@ -262,17 +297,17 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
     {
         $data = $this->createOrder('cod');
 
-        $first = $this->postJson(self::PREFIX . '/orders/cancel', [
-            'token' => $data['cancellation_token'],
-        ]);
+        $credentials = $this->cancellationCredentials($data);
+
+        $first = $this->postJson(self::PREFIX . '/orders/cancel', $credentials);
         $first->assertOk()->assertJsonPath('data.order.status', Order::ORDER_STATUS_CANCELLED);
 
         $this->assertSame(Order::ORDER_STATUS_CANCELLED, $data['order']->fresh()->status);
         $this->assertNotNull($data['order']->fresh()->cancelled_at);
 
-        $this->postJson(self::PREFIX . '/orders/cancel', [
-            'token' => $data['cancellation_token'],
-        ])->assertStatus(422);
+        $this->postJson(self::PREFIX . '/orders/cancel', $credentials)
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_link_used'));
     }
 
     /** @test */
@@ -283,8 +318,12 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->initiateOnline($data['order']->id, 'cancel-race-key')->assertOk();
 
+        // The request-otp step also refuses here (409 before any SMS), so
+        // the confirm call carries well-formed credentials directly.
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'otp_id' => 'otp-verification-id-1',
+            'code' => 'gateway-verified-code',
         ])->assertStatus(409);
 
         $this->assertSame(Order::ORDER_STATUS_PENDING, $data['order']->fresh()->status);
@@ -314,7 +353,10 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
-        ])->assertStatus(422);
+            'otp_id' => 'otp-verification-id-1',
+            'code' => 'gateway-verified-code',
+        ])->assertStatus(422)
+            ->assertJsonPath('message', __('checkout.order_cancel_not_allowed'));
 
         $this->assertSame(Order::ORDER_STATUS_COMPLETED, $order->fresh()->status);
     }

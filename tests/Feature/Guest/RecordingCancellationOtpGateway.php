@@ -8,9 +8,9 @@ use Marvel\Otp\Result;
 /**
  * Recording OTP gateway fake, bound at the OtpInterface seam.
  *
- * Records startVerification() dispatches so tests can assert that an SMS
- * was (or was not) sent, without a network provider. Verification and raw
- * SMS are out of scope for the request step.
+ * Records startVerification() dispatches and checkVerification() outcomes
+ * so tests can assert what reached the provider without a network
+ * provider. Raw SMS is out of scope for the cancellation flow.
  */
 final class RecordingCancellationOtpGateway implements OtpInterface
 {
@@ -22,6 +22,12 @@ final class RecordingCancellationOtpGateway implements OtpInterface
 
     /** The verification id handed to the client on a successful start. */
     public string $verificationId = 'otp-verification-id-1';
+
+    /** Verification checks recorded as [id, code, phone] tuples, in order. */
+    public array $checked = [];
+
+    /** When true, checkVerification() reports a provider rejection. */
+    public bool $verificationFails = false;
 
     public function startVerification($phone_number)
     {
@@ -36,11 +42,17 @@ final class RecordingCancellationOtpGateway implements OtpInterface
 
     public function checkVerification($id, $code, $phone_number)
     {
-        return new Result(['checkVerification is out of scope for the request step']);
+        $this->checked[] = [$id, $code, $phone_number];
+
+        if ($this->verificationFails) {
+            return new Result(['Verification check failed (fake)']);
+        }
+
+        return new Result($this->verificationId);
     }
 
     public function sendSms($phone_number, $messageBody)
     {
-        return new Result(['sendSms is out of scope for the request step']);
+        return new Result(['sendSms is out of scope for the cancellation flow']);
     }
 }
