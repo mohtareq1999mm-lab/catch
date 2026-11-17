@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Import;
 use Marvel\Services\Import\ImageImporter;
 use Marvel\Services\Import\ImportReport;
-use Marvel\Services\Import\RunOutcome;
 use Throwable;
 
 class ImportProductImagesJob implements ShouldQueue
@@ -56,17 +55,13 @@ class ImportProductImagesJob implements ShouldQueue
         $importer = new ImageImporter(new ImportReport());
         $importer->ingest($this->imageRows);
 
-        // Merge image errors into import errors (append, keep product counters intact)
+        // Merge image errors into import errors (append, keep product counters
+        // intact). The merge rule lives on the report, not the job.
         try {
             $import->refresh();
-            $existing = $import->errors ?? [];
-            if (is_string($existing)) {
-                $existing = json_decode($existing, true) ?? [];
-            }
             $newErrors = $importer->report()->imageErrors();
             if (!empty($newErrors)) {
-                $merged = array_merge($existing, $newErrors);
-                $import->update(['errors' => array_slice($merged, 0, RunOutcome::ERROR_CAP)]);
+                $import->update(['errors' => ImportReport::mergePersisted($import->errors ?? [], $newErrors)]);
             }
         } catch (Throwable $e) {
             report($e);
