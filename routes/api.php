@@ -157,7 +157,10 @@ Route::prefix('v1/general')->group(function () {
         // both query string and Authorization header).
         Route::post('checkout/webhooks/tamara', [PaymentWebhookController::class, 'tamara'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tamara');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
-        Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle:public-tracking')->name('api.tracking.public');
+        // FAIL-CLOSED throttle (`throttle.failclosed`): enforced even while the
+        // global disable switch is on — identity-less public surface, IP-keyed
+        // `public-tracking` limiter (spec #73 F3, ticket #77).
+        Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle.failclosed:public-tracking')->name('api.tracking.public');
         //======================== GUEST CHECKOUT (no account required) ========================//
         // Ownership comes from the HttpOnly server-managed guest cookie, never
         // from a cart/order id. Tokens for public tracking/cancellation are
