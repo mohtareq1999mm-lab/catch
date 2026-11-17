@@ -319,10 +319,13 @@ class ProductImportService
                 'stock_quantity' => $this->rowWriter->validateNumeric($row['quantity'] ?? null, 'quantity', false, true),
                 'quantity' => $this->rowWriter->validateNumeric($row['quantity'] ?? null, 'quantity', false, true),
                 'in_stock' => $this->rowWriter->parseBoolean($row['in_stock'] ?? true),
-                'height' => $row['height'] ?? null,
-                'width' => $row['width'] ?? null,
-                'length' => $row['length'] ?? null,
-                'weight' => $row['weight'] ?? null,
+                // Measured fields validate like the product path: a
+                // non-numeric or negative cell fails the variant row instead
+                // of persisting the raw string.
+                'height' => isset($row['height']) && $row['height'] !== '' ? (string) $this->rowWriter->validateNumeric($row['height'], 'height') : null,
+                'width' => isset($row['width']) && $row['width'] !== '' ? (string) $this->rowWriter->validateNumeric($row['width'], 'width') : null,
+                'length' => isset($row['length']) && $row['length'] !== '' ? (string) $this->rowWriter->validateNumeric($row['length'], 'length') : null,
+                'weight' => isset($row['weight']) && $row['weight'] !== '' ? (string) $this->rowWriter->validateNumeric($row['weight'], 'weight') : null,
             ];
 
             if ($variant) {

@@ -187,27 +187,28 @@ class DeepVerificationTest extends TestCase
     {
         Storage::fake('public');
         $owner = $this->makeUser([Perm::IMPORT_PRODUCT]);
+        // products chunk_size is 1000 (ProductWorkbookSchema): 1004 rows
+        // deliver two chunks, so the second chunk starts at Excel row 1002.
         $rows=[];
-        for ($i=1;$i<=150;$i++) {
+        for ($i=1;$i<=1004;$i++) {
             $rows[] = ['sku'=>"CHUNK-{$i}",'name_en'=>"C{$i}",'price'=>10,'quantity'=>5,'product_type'=>'simple','status'=>1,'in_stock'=>1];
         }
-        // Make two invalid in chunk 2 and 3
-        $rows[120] = ['sku'=>'CHUNK-121','name_en'=>'Bad','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD','status'=>1,'in_stock'=>1]; // row 122
-        $rows[140] = ['sku'=>'CHUNK-141','name_en'=>'Bad2','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD2','status'=>1,'in_stock'=>1]; // row 142
+        // One failing row per chunk, so both sides of the boundary are pinned.
+        $rows[499] = ['sku'=>'CHUNK-500','name_en'=>'Bad','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD','status'=>1,'in_stock'=>1];   // Excel row 501 (chunk 1)
+        $rows[1000] = ['sku'=>'CHUNK-1001','name_en'=>'Bad2','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD2','status'=>1,'in_stock'=>1]; // Excel row 1002 (chunk 2 first row)
         $tmp = $this->writeProductWorkbook($rows);
         $path='imports/test_'.uniqid().'.xlsx';
         Storage::disk('public')->put($path, file_get_contents($tmp));
-        $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>$path,'file_name'=>'p.xlsx','status'=>'pending','total_rows'=>150,'created_by'=>$owner->id]);
+        $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>$path,'file_name'=>'p.xlsx','status'=>'pending','total_rows'=>1004,'created_by'=>$owner->id]);
         (new ImportProductsJob($import->id))->handle();
         $import->refresh();
         $this->assertEquals(2, count($import->errors));
         $rowsReported = array_column($import->errors, 'row');
         sort($rowsReported);
-        // Physical Excel rows: chunk 2 starts after 100 data rows + the
-        // header, so data index 120 is Excel row 100 + 20 + 2 = 122 and
-        // index 140 is 142. Rows must never restart at 2 per chunk.
-        $this->assertContains(122, $rowsReported, 'Data index 120 must be reported as Excel row 122 in chunk 2');
-        $this->assertContains(142, $rowsReported, 'Data index 140 must be reported as Excel row 142 in chunk 2');
+        // Physical Excel rows: header + 1-based data position. Chunk 2 must
+        // continue at 1002, never restart at 2.
+        $this->assertContains(501, $rowsReported, 'Data index 499 must be reported as Excel row 501 (chunk 1)');
+        $this->assertContains(1002, $rowsReported, 'Data index 1000 is chunk 2 first row: Excel row 1002, not 2');
         $this->assertNotContains(3, $rowsReported, 'Row numbers must not restart at 2 for chunk2');
         @unlink($tmp);
     }
@@ -228,6 +229,7 @@ class DeepVerificationTest extends TestCase
             ['field'=>'quantity','value'=>'abc','shouldFail'=>true],
             ['field'=>'discount_amount','value'=>'abc','shouldFail'=>true],
             ['field'=>'height','value'=>'abc','shouldFail'=>true],
+            ['field'=>'height','value'=>'-5','shouldFail'=>true],
         ];
         foreach ($cases as $c) {
             $service = new ProductImportService($import->id); // fresh
@@ -244,6 +246,19 @@ class DeepVerificationTest extends TestCase
                 $this->assertTrue(true);
             }
         }
+
+        // Variants validate their measured fields through the same rule: a
+        // raw non-numeric cell must fail the variant row, not persist.
+        $variantService = new ProductImportService($import->id);
+        $variantService->processProductRow(['sku'=>'NUMVAR-1','name_en'=>'N','price'=>10,'quantity'=>5,'product_type'=>'variable','item_type'=>'PHYSICAL','status'=>1,'in_stock'=>1], 2);
+        $variantService->processVariantRow([
+            'product_sku' => 'NUMVAR-1',
+            'variant_sku' => 'NUMVAR-1-V1',
+            'price' => 5,
+            'quantity' => 2,
+            'height' => 'abc',
+        ], 3);
+        $this->assertGreaterThan(0, count($variantService->getVariantErrors()), 'A non-numeric variant height must fail the variant row');
     }
 
     public function test_update_safety_numeric_not_overwritten(): void
