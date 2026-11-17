@@ -64,7 +64,8 @@ class CategoryImportService
     {
         $this->importId = $importId;
         $this->outcome = new RunOutcome(
-            fn () => count($this->failedRows)
+            fn () => count($this->failedRows),
+            fn () => $this->failedRows
         );
         $this->startedAt = microtime(true);
         $this->lastTickTime = $this->startedAt;
