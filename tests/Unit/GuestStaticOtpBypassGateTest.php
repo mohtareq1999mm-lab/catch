@@ -3,6 +3,8 @@
 namespace Tests\Unit;
 
 use App\Services\Guest\StaticOtpBypassGate;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
@@ -54,7 +56,8 @@ class GuestStaticOtpBypassGateTest extends TestCase
         ];
     }
 
-    /** @dataProvider gatingMatrix */
+    #[Test]
+    #[DataProvider('gatingMatrix')]
     public function the_gate_resolves_the_gating_matrix(bool $enabled, string $environment, string $resolved, bool $shouldAccept): void
     {
         $this->assertMatrix([$enabled, $environment, $resolved, $shouldAccept]);
@@ -191,8 +194,13 @@ class GuestStaticOtpBypassGateTest extends TestCase
     {
         [$enabled, $environment, $resolved] = $row;
 
+        // The production hard-block reads the container 'env' snapshot
+        // (app()->isProduction()), which detectEnvironment resolves ONCE
+        // at bootstrap — mutating config('app.env') cannot flip it, so the
+        // environment is simulated the same way the app itself detects it.
+        $this->app['env'] = $environment;
+
         config([
-            'app.env' => $environment,
             'auth.local_otp_enabled' => $enabled,
             'auth.local_otp_code' => $resolved === 'empty' ? '' : self::LOCAL_CODE,
             'auth.master_otp' => $resolved === 'master' ? self::MASTER_CODE : null,
