@@ -55,8 +55,13 @@ class GuestTrackingService
      * interpolation (amount, refund balance, cancellation code) are not
      * rendered at all, so a token-only caller can never read financial or
      * internal details.
+     *
+     * This is the single renderer for the customer-visible public timeline
+     * contract; the unauthenticated order-number fallback
+     * (OrderTrackingController::trackByOrderNumber) reuses it so every
+     * public surface returns the same shape.
      */
-    private function publicTimeline(Order $order): array
+    public function publicTimeline(Order $order): array
     {
         return OrderTrackingEvent::query()
             ->forOrder($order->id)

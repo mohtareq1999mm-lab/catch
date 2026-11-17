@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OrderStatusHistory;
+use App\Models\OrderTrackingEvent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
@@ -170,6 +171,128 @@ class OrderTrackingTest extends TestCase
         ]);
 
         $response->assertStatus(200)->assertJsonPath('success', true);
+    }
+
+    /** @test */
+    public function public_timeline_reuses_the_token_bound_contract_with_blanked_placeholders()
+    {
+        $user = $this->createUser(['email' => 'customer@example.com']);
+
+        $order = $this->createOrder($user, ['user_email' => 'customer@example.com']);
+        $order->refresh();
+
+        OrderTrackingEvent::create([
+            'order_id' => $order->id,
+            'event_type' => 'order.created',
+            'event_timestamp' => $order->created_at,
+            'actor_type' => 'customer',
+            'metadata' => ['total_amount' => 999.99],
+            'customer_visible' => true,
+            'customer_label_key' => 'tracking.order.created',
+            'customer_description_key' => 'tracking.order.created_description',
+            'source' => 'system',
+        ]);
+        $this->seedProcessedRefundTrackingEvent($order);
+
+        $response = $this->postJson('/api/v1/general/track-order', [
+            'order_number' => $order->order_number,
+            'user_email' => 'customer@example.com',
+        ]);
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        $timeline = $response->json('data.timeline');
+        $this->assertNotEmpty($timeline, 'Customer-visible timeline must be exposed');
+
+        foreach ($timeline as $item) {
+            $this->assertSame(
+                ['timestamp', 'title', 'description'],
+                array_keys($item),
+                'Public timeline items must match the token-bound contract exactly'
+            );
+        }
+
+        $refundItem = collect($timeline)->first(fn ($item) => $item['title'] === 'Refund Recorded');
+        $this->assertNotNull($refundItem, 'Customer-visible refund event must still appear');
+        $this->assertSame('', $refundItem['description'], 'Interpolated refund description must be blanked, never rendered');
+
+        $createdItem = collect($timeline)->first(fn ($item) => $item['title'] === 'Order Placed');
+        $this->assertNotNull($createdItem, 'Customer-visible order event must still appear');
+        $this->assertSame('Your order has been successfully placed and is being processed.', $createdItem['description']);
+    }
+
+    /** @test */
+    public function public_tracker_never_leaks_refund_amounts_or_internal_ids()
+    {
+        $user = $this->createUser(['email' => 'customer@example.com']);
+
+        $order = $this->createOrder($user, ['user_email' => 'customer@example.com']);
+        $order->refresh();
+        $this->seedProcessedRefundTrackingEvent($order);
+
+        $response = $this->postJson('/api/v1/general/track-order', [
+            'order_number' => $order->order_number,
+            'user_email' => 'customer@example.com',
+        ]);
+
+        $response->assertStatus(200);
+
+        $json = strtolower((string) json_encode($response->json()));
+
+        foreach ([
+            'refund_amount', 'refund_id', 'total_paid', 'total_refunded',
+            'remaining_balance', '277.77', '1000.5', '4242', '"metadata"',
+        ] as $needle) {
+            $this->assertStringNotContainsString($needle, $json, 'Public fallback leaked: ' . $needle);
+        }
+    }
+
+    /** @test */
+    public function authenticated_timeline_keeps_the_full_contract()
+    {
+        $user = $this->createUser(['email' => 'customer@example.com']);
+
+        $order = $this->createOrder($user, ['user_email' => 'customer@example.com']);
+        $order->refresh();
+        $this->seedProcessedRefundTrackingEvent($order);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson("/api/v1/general/orders/{$order->id}/track");
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        $timeline = $response->json('data.timeline');
+        $this->assertNotEmpty($timeline);
+
+        $refundItem = collect($timeline)->first(fn ($item) => ($item['metadata']['refund_id'] ?? null) === 4242);
+        $this->assertNotNull($refundItem, 'Authenticated timeline keeps full event metadata');
+    }
+
+    private function seedProcessedRefundTrackingEvent(Order $order): void
+    {
+        OrderTrackingEvent::create([
+            'order_id' => $order->id,
+            'event_type' => 'refund.processed',
+            'event_timestamp' => now(),
+            'actor_type' => 'admin',
+            'actor_id' => null,
+            'actor_name' => 'Admin User',
+            'metadata' => [
+                'refund_id' => 4242,
+                'refund_amount' => 277.77,
+                'refund_type' => 'full',
+                'order_number' => $order->order_number,
+                'total_paid' => 1000.5,
+                'total_refunded' => 277.77,
+                'remaining_balance' => 722.73,
+                'processed_at' => '2026-01-01T00:00:00+00:00',
+            ],
+            'customer_visible' => true,
+            'customer_label_key' => 'tracking.refund.processed',
+            'customer_description_key' => 'tracking.refund.processed_description',
+            'source' => 'system',
+        ]);
     }
 
     /** @test */
