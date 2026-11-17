@@ -45,6 +45,28 @@ class AppServiceProvider extends ServiceProvider
             \App\Services\Guest\NullGuestPhoneVerification::class
         );
 
+        // OTP gateway abstraction (marvel package): resolve the config-selected
+        // OtpInterface implementation so app-side consumers (guest cancellation
+        // OTP) dispatch through the same stack as login OTP. Resolution mirrors
+        // the established getOtpGateway() helpers (SmsTrait/UserController):
+        // an unknown or unconstructable gateway class falls back to the
+        // committed, hard-gated LocalGateway with a warning (LocalGateway
+        // refuses static-code verification outside the local_otp_enabled gate).
+        $this->app->bind(\Marvel\Otp\OtpInterface::class, function () {
+            $gateway = (string) config('auth.active_otp_gateway');
+            $class = 'Marvel\\Otp\\Gateways\\' . ucfirst($gateway) . 'Gateway';
+
+            try {
+                return new $class();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('OTP gateway unavailable, falling back to LocalGateway: ' . $e->getMessage(), [
+                    'gateway' => $gateway,
+                ]);
+
+                return new \Marvel\Otp\Gateways\LocalGateway();
+            }
+        });
+
         $this->app->bind(WebhookSignature::class, function ($app) {
             return new WebhookSignature(
                 secret: config('frontend.secret', ''),

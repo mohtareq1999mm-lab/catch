@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Http\Controllers\Controller;
+use App\Services\Guest\GuestCancellationOtpService;
 use App\Services\Guest\GuestCancellationService;
 use App\Services\Guest\GuestTrackingService;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ class GuestPublicOrderController extends Controller
     public function __construct(
         private GuestTrackingService $tracking,
         private GuestCancellationService $cancellation,
+        private GuestCancellationOtpService $cancellationOtp,
     ) {
     }
 
@@ -62,6 +64,26 @@ class GuestPublicOrderController extends Controller
             report($e);
 
             return $this->apiResponse(__('guest_checkout.cancel_failed'), 422, false);
+        }
+    }
+
+    /**
+     * Cancellation step 1 (design D1/D2/D5): dispatch the Cancellation OTP
+     * to the phone recorded on the token-resolved order. The token is the
+     * sole credential and is NOT consumed by this step.
+     */
+    public function requestCancellationOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'token' => ['required', 'string', 'max:200'],
+        ]);
+
+        try {
+            $payload = $this->cancellationOtp->request($validated['token']);
+
+            return $this->apiResponse(__('guest_checkout.cancel_otp_sent'), 200, true, $payload);
+        } catch (GuestCheckoutConflictException $e) {
+            return $this->apiResponse($e->getMessage(), $e->httpStatus(), false);
         }
     }
 }

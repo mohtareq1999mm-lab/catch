@@ -215,6 +215,11 @@ Route::prefix('v1/general')->group(function () {
             Route::post('orders/cancel', [GuestPublicOrderController::class, 'cancel'])
                 ->middleware(GuestSurface::ORDER_CANCEL->middleware())
                 ->name('api.guest.orders.cancel');
+            // Two-step cancellation, step 1 (D1/D2): the token is the sole
+            // credential; it requests the OTP dispatch and is NOT consumed.
+            Route::post('orders/cancel/request-otp', [GuestPublicOrderController::class, 'requestCancellationOtp'])
+                ->middleware(GuestSurface::ORDER_CANCEL_OTP->middleware())
+                ->name('api.guest.orders.cancel.request-otp');
 
             Route::get('orders/{orderId}', [GuestOrderController::class, 'show'])
                 ->whereNumber('orderId')

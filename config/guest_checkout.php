@@ -115,5 +115,12 @@ return [
             'max' => (int) env('GUEST_THROTTLE_CANCEL', 5),
             'decay' => 1,
         ],
+        // Cancellation OTP request: SMS-budget sensitive, so the budget is
+        // split per cancellation token AND per client IP (see
+        // RateLimitServiceProvider — the raw token never becomes a cache key).
+        'guest_cancel_otp' => [
+            'max' => (int) env('GUEST_THROTTLE_CANCEL_OTP', 3),
+            'decay' => 1,
+        ],
     ],
 ];
