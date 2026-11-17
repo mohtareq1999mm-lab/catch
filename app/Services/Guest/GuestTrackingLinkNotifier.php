@@ -84,7 +84,13 @@ class GuestTrackingLinkNotifier
             // Metadata deliberately excludes the message body/link.
             $this->sms->send($phone, $message, ['order_id' => $order->id, 'type' => 'guest_tracking_link']);
         } catch (\Throwable $e) {
-            Log::warning('Guest tracking link SMS failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            // Provider error text echoes the recipient; log the exception
+            // identity only, never the message body, token, or number.
+            Log::warning('Guest tracking link SMS failed', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
+            ]);
         }
     }
 
@@ -98,9 +104,18 @@ class GuestTrackingLinkNotifier
             $subject = __('guest_checkout.tracking_email_subject', ['order_number' => $order->order_number], $locale);
             $body = __('guest_checkout.tracking_email_body', $replace, $locale);
 
+            // Caution: with the "log" mail driver the raw message body — which
+            // carries the tracking link — is written to storage/logs. Keep the
+            // log driver out of production; delivery itself is unchanged.
             Mail::raw($body, fn ($mail) => $mail->to($order->user_email)->subject($subject));
         } catch (\Throwable $e) {
-            Log::warning('Guest tracking link email failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            // Transport error text can echo the recipient address; log the
+            // exception identity only.
+            Log::warning('Guest tracking link email failed', [
+                'order_id' => $order->id,
+                'exception' => get_class($e),
+                'code' => $e->getCode(),
+            ]);
         }
     }
 }
