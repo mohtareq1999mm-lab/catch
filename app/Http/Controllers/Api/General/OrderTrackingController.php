@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\General;
 use App\Http\Controllers\Controller;
 use App\Models\OrderStatusHistory;
 use App\Models\OrderTrackingEvent;
+use App\Services\Guest\GuestTrackingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Order;
@@ -13,6 +14,10 @@ use Marvel\Traits\ApiResponse;
 class OrderTrackingController extends Controller
 {
     use ApiResponse;
+
+    public function __construct(private GuestTrackingService $guestTracking)
+    {
+    }
 
     /**
      * Track order by order number (public - requires email or phone verification).
@@ -123,11 +128,15 @@ class OrderTrackingController extends Controller
     // Helper methods
 
     /**
-     * Public timeline - only customer-visible events from OrderTrackingEvent
+     * Public timeline — reuses the token-bound path's customer-visible
+     * contract (GuestTrackingService): blanked placeholders, no event
+     * metadata, no actor/icon internals. Ticket #76: the unauthenticated
+     * caller knows only an order number + email/phone and must never
+     * receive financial or internal event details.
      */
     private function publicTimeline(Order $order): array
     {
-        return $this->buildTimelineResponse($order, true);
+        return $this->guestTracking->publicTimeline($order);
     }
 
     /**

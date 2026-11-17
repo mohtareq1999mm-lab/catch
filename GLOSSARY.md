@@ -6,6 +6,10 @@ Guest and customer commerce over a shared catalog: carts, eligibility, orders, p
 
 ### Guests & credentials
 
+**Guest**:
+A customer without a user account who buys through the guest flow, known only by a Guest Identity and the contact details captured at checkout.
+_Avoid_: guest account, logged-out customer, unregistered user
+
 **Guest Identity**:
 A server-managed anonymous identity for one browser or device. It owns guest carts and guest orders and exists until revoked or expired.
 _Avoid_: guest account, anonymous user, device id
@@ -42,6 +46,10 @@ _Avoid_: logout, invalidate
 The fixed inactivity window after which an unused Guest Identity and its Guest Cart expire. Renewed only by genuine cart mutations, never by reads.
 _Avoid_: TTL, session length
 
+**Guest Surface**:
+A family of guest-facing endpoints (session, cart, checkout, tracking, cancellation, claiming) protected as one unit: its own usage limit, its own credential expectations, and a fail-closed rule when a limit cannot be evaluated.
+_Avoid_: public endpoint, guest API, open route
+
 ### Cart & eligibility
 
 **Guest Cart**:
@@ -63,6 +71,16 @@ _Avoid_: stock lock, cart hold
 **Login Merge**:
 Moving Guest Cart lines into the customer's cart after successful authentication. Unavailable lines are preserved and reported, not silently dropped.
 _Avoid_: cart transfer, migration
+
+### Orders & tracking
+
+**Guest Order**:
+An order created by the guest flow and owned by a Guest Identity. It carries the guest's contact details and is reachable only through the Guest Credential or its tokens.
+_Avoid_: anonymous order, guest account order
+
+**Tracking Token**:
+The capability secret behind the private tracking link: whoever holds it can view one specific guest order. Delivered to the guest's contact points after checkout, valid through the order lifecycle plus a fixed grace window, and never a proof for cancellation or account access.
+_Avoid_: tracking id, order link, public token
 
 ### Cancellation & OTP
 
