@@ -57,7 +57,10 @@ class ProductImportService
     {
         $this->urlHandler = new UrlImageHandler();
         $this->report = new ImportReport();
-        $this->outcome = new RunOutcome($this->report);
+        $this->outcome = new RunOutcome(
+            fn () => $this->report->failedRowCount(),
+            fn () => $this->report->all()
+        );
         $this->rowWriter = new ProductRowWriter(
             $pricingService ?? app(ProductPricingService::class),
             $this->report,
@@ -378,6 +381,8 @@ class ProductImportService
                 ->whereNotIn('id', $variantIds)
                 ->delete();
         }
+
+        $this->rowWriter->normalizeProductTypes();
     }
 
     protected function attachVariantAttributes(ProductVariant $variant, array $row): void

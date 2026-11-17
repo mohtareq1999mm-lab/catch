@@ -207,6 +207,62 @@ class ProductTypeIntegrityTest extends TestCase
         $this->assertStringContainsString('in_stock=0 while quantity>0', collect($import->errors)->pluck('error_message')->implode(' '));
     }
 
+    public function test_upserted_pre_existing_variant_product_keeps_the_variant_derived_type(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+
+        // A pre-existing product that owns variant rows is variable by domain
+        // definition (ProductTypeSchema::rewriteProductsWithVariants); the
+        // sheet row must not clobber that on upsert.
+        $pre = Product::create([
+            'name' => ['en' => 'Pre-existing Variable'],
+            'slug' => 'pre-existing-variable-' . uniqid(),
+            'sku' => 'PT-PRE-VAR',
+            'price' => 100,
+            'product_type' => 'variable',
+            'status' => 1,
+            'in_stock' => true,
+            'stock_quantity' => 10,
+        ]);
+        ProductVariant::create([
+            'product_id' => $pre->id,
+            'sku' => 'PT-PRE-VAR-V1',
+            'price' => 100,
+            'stock_quantity' => 2,
+            'in_stock' => true,
+        ]);
+
+        // The sheet declares `simple` and the variants sheet has no rows for
+        // this SKU; the upsert must still end `variable`.
+        $tmp = $this->createWorkbook([
+            ['sku' => 'PT-PRE-VAR', 'name_en' => 'Upserted', 'price' => 20, 'quantity' => 5, 'product_type' => 'simple', 'status' => 1, 'in_stock' => 1],
+        ]);
+
+        $import = $this->runImport($user, $tmp, 1);
+
+        $this->assertSame('completed', $import->status);
+        $this->assertSame(1, $import->success_rows);
+        $this->assertSame('variable', Product::where('sku', 'PT-PRE-VAR')->value('product_type'));
+        $this->assertTrue(Product::where('sku', 'PT-PRE-VAR')->firstOrFail()->variations()->exists());
+    }
+
+    public function test_variable_declaration_without_variants_ends_simple(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin();
+
+        $tmp = $this->createWorkbook([
+            ['sku' => 'PT-VAR-NO-V', 'name_en' => 'Declared variable', 'price' => 10, 'quantity' => 5, 'product_type' => 'variable', 'status' => 1, 'in_stock' => 1],
+        ]);
+
+        $import = $this->runImport($user, $tmp, 1);
+
+        $this->assertSame('completed', $import->status);
+        $this->assertSame(1, $import->success_rows);
+        $this->assertSame('simple', Product::where('sku', 'PT-VAR-NO-V')->value('product_type'));
+    }
+
     public function test_failed_rows_report_real_excel_rows_across_chunks(): void
     {
         Storage::fake('public');

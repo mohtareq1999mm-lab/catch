@@ -31,6 +31,9 @@ final class ProductRowWriter
     /** @var array<int, int> */
     private array $createdProductIds = [];
 
+    /** @var array<int, int> */
+    private array $touchedProductIds = [];
+
     public function __construct(
         private readonly ProductPricingService $pricingService,
         private readonly ImportReport $report,
@@ -44,6 +47,17 @@ final class ProductRowWriter
     public function createdProductIds(): array
     {
         return $this->createdProductIds;
+    }
+
+    /**
+     * Every product row this run wrote (created or upserted) — the set the
+     * final type normalisation is allowed to touch.
+     *
+     * @return array<int, int>
+     */
+    public function touchedProductIds(): array
+    {
+        return $this->touchedProductIds;
     }
 
     /**
@@ -95,6 +109,14 @@ final class ProductRowWriter
         } else {
             $productData['slug'] = $product->slug;
 
+            // A product that owns variant rows is variable by domain
+            // definition (ProductTypeSchema); the sheet's product_type cell
+            // must not clobber that on upsert. Variants the sheet adds later
+            // in the same run re-assert it in processVariantRow.
+            if ($this->productOwnsVariants($product->getKey())) {
+                $productData['product_type'] = ProductType::VARIABLE;
+            }
+
             if ($this->itemTypeIsImmutable($product, $productData)) {
                 throw new \InvalidArgumentException(__('message.ERROR.ITEM_TYPE_IMMUTABLE_ORDERED'));
             }
@@ -102,7 +124,48 @@ final class ProductRowWriter
             $product->fill($productData)->saveQuietly();
         }
 
+        $this->touchedProductIds[] = $product->id;
+
         return $product;
+    }
+
+    private function productOwnsVariants(int $productId): bool
+    {
+        return DB::table('product_variants')->where('product_id', $productId)->exists();
+    }
+
+    /**
+     * Final type normalisation for this run's touched products only:
+     * owns variant rows ⇒ variable, otherwise simple. Runs once after the
+     * variants sheet is settled (finalizeVariants), so a `variable` cell on
+     * a product that never gains variants cannot survive as broken data, and
+     * a variant-gaining row cannot end as simple.
+     */
+    public function normalizeProductTypes(): void
+    {
+        $touched = array_values(array_unique(array_map('intval', $this->touchedProductIds)));
+
+        if ($touched === []) {
+            return;
+        }
+
+        DB::table('products')
+            ->whereIn('id', $touched)
+            ->whereExists(static function ($query): void {
+                $query->select(DB::raw(1))
+                    ->from('product_variants')
+                    ->whereColumn('product_variants.product_id', 'products.id');
+            })
+            ->update(['product_type' => ProductType::VARIABLE]);
+
+        DB::table('products')
+            ->whereIn('id', $touched)
+            ->whereNotExists(static function ($query): void {
+                $query->select(DB::raw(1))
+                    ->from('product_variants')
+                    ->whereColumn('product_variants.product_id', 'products.id');
+            })
+            ->update(['product_type' => ProductType::SIMPLE]);
     }
 
     /**
