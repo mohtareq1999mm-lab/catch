@@ -5,7 +5,7 @@ namespace Tests\Feature\Phase0;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Mockery;
-use Marvel\Otp\Gateways\OtpGateway;
+use Marvel\Otp\OtpInterface;
 use Marvel\Traits\SmsTrait;
 use Tests\TestCase;
 
@@ -34,7 +34,7 @@ class SmsFailureLoggingTest extends TestCase
     {
         Log::spy();
 
-        $gateway = Mockery::mock(OtpGateway::class);
+        $gateway = Mockery::mock(OtpInterface::class);
         $gateway->shouldReceive('sendSms')
             ->andThrow(new \RuntimeException('gateway down'));
 
@@ -102,7 +102,7 @@ class SmsFailureLoggingTest extends TestCase
     {
         Log::spy();
 
-        $gateway = Mockery::mock(OtpGateway::class);
+        $gateway = Mockery::mock(OtpInterface::class);
         $gateway->shouldReceive('sendSms')->andThrow(new \RuntimeException('timeout'));
 
         $harness = new class($gateway)

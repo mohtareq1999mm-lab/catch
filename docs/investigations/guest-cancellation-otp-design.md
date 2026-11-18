@@ -124,3 +124,41 @@ so "unset" stays distinguishable from "configured"; the accepted value already r
 - My session wrote only: `docs/adr/0003-*.md`, `GLOSSARY.md` (new cluster), this record. No code touched.
 - Outstanding from earlier rounds (user's call, unrelated to this task): orphaned `26d3f22`
   (`withTrashed` CategoryImportTest fix) still not in `origin/main`.
+
+
+## 10. Shipped divergences (post-acceptance reconciliation, Nov 18 2026)
+
+The decisions above were accepted for the first implementation. The merged
+hardening lane (PR #89, t81/t82) and its reconciliation with PR #88's fixes
+shipped an evolved contract. What changed, verified against main @ e908336+:
+
+- **Route names.** D1's `request-otp` endpoint shipped as
+  `POST /guest/orders/cancellation-otp`; confirm remains `POST /guest/orders/cancel`.
+- **D6 partial.** Confirm = `{ token, code }` — `otp_id` was dropped (the
+  verification state is provider-managed server-side, keyed to the token hash;
+  nothing for the client to carry).
+- **D2 stronger than accepted.** The optional `phone_number` match param never
+  shipped; the token is the sole credential at both steps.
+- **Request success payload.** `{ expires_in }` only — no `otp_id`, no `provider`,
+  no phone echo (no credential material leaves the server).
+- **Error keys.** Shipped: `cancel_otp_invalid` (wrong code, 422 + one attempt),
+  `cancel_otp_expired` (422), `cancel_otp_failed` (provider outage, **502, no
+  attempt consumed**), `cancel_otp_unavailable` (422, no phone),
+  `cancel_otp_locked` (**429; 5 attempts per token hash → 24h lockout**, surviving
+  fresh code requests). The matrix's `message.too_many_requests` and 15-minute
+  window did not ship.
+- **Request-step dead links.** Unknown, used AND expired links answer identically
+  `404 cancel_link_invalid` (anti-enumeration; the finder nulls used/expired).
+- **Structure.** The verification moved into `GuestCancellationOtpService` with
+  the universal `StaticBypass` (the ADR-0003 bypass check) and
+  `GuestCancellationGate` (the one policy gate); `GuestCancellationService::cancel`
+  delegates with a possession-proof audit trail.
+- **The D5 phone guard.** Resolves BEFORE the provider try/catch (a swallowed
+  422 was fixed in PR #94); regression
+  `an_order_without_a_phone_answers_422_not_a_provider_outage`.
+- **Provider outages.** Classified via `Result::providerError` (Twilio) and the
+  container's `FailingGateway` — both steps answer 502 without consuming attempts.
+  Messagebird classification: PR #94.
+- **Gateway resolution.** ONE seam: the container binding (login's silent
+  LocalGateway fallback in production and the SMS trait's uncaught
+  misconfiguration fatal were unified in the architecture remediations).

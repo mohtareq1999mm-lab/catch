@@ -419,13 +419,12 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
         // leak rule where an outage actually occurs: a startVerification that
         // throws. Gateway errors must answer the translated failure and must
         // never place the recipient number in any log line.
-        $gateway = Mockery::mock(\Marvel\Otp\Gateways\OtpGateway::class.'[startVerification]', [
-            new \Marvel\Otp\Gateways\LocalGateway(),
-        ]);
+        $gateway = Mockery::mock(\Marvel\Otp\OtpInterface::class);
+
         $gateway->shouldReceive('startVerification')
             ->andThrow(new \RuntimeException('Twilio: unable to create record for +201000000001'));
 
-        $this->app->instance(\Marvel\Otp\Gateways\OtpGateway::class, $gateway);
+        $this->app->instance(\Marvel\Otp\OtpInterface::class, $gateway);
 
         $this->requestCode($token)
             ->assertStatus(502)

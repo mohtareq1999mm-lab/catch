@@ -39,6 +39,7 @@ final class ImportImageDownloader
     public function __construct(
         private readonly string $translationPrefix,
         private readonly string $tempFilePrefix,
+        private readonly SsrfGuard $ssrfGuard = new SsrfGuard(),
     ) {
     }
 
@@ -157,24 +158,19 @@ final class ImportImageDownloader
             throw new RuntimeException(__($this->translationPrefix . '.UNSAFE_IMAGE_URL'));
         }
 
-        $host = $parts['host'] ?? '';
+        $host = trim((string) ($parts['host'] ?? ''), '[]');
 
         if ($host === '') {
             throw new RuntimeException(__($this->translationPrefix . '.INVALID_IMAGE_URL'));
         }
 
-        $host = trim($host, '[]');
-
-        $ips = $this->resolveHost($host);
-
-        if (empty($ips)) {
+        // The ONE SSRF policy (SsrfGuard): resolution + the strictest block
+        // rules live there; this path translates the internal failure into
+        // its own user-facing message.
+        try {
+            $this->ssrfGuard->assertResolvablePublicHost($host);
+        } catch (UnsafeImageUrlException) {
             throw new RuntimeException(__($this->translationPrefix . '.UNSAFE_IMAGE_URL'));
-        }
-
-        foreach ($ips as $ip) {
-            if ($this->isBlockedIp($ip)) {
-                throw new RuntimeException(__($this->translationPrefix . '.UNSAFE_IMAGE_URL'));
-            }
         }
     }
 
@@ -194,93 +190,6 @@ final class ImportImageDownloader
         }
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function resolveHost(string $host): array
-    {
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            return [$host];
-        }
-
-        $ips = gethostbynamel($host);
-
-        return is_array($ips) ? $ips : [];
-    }
-
-    private function isBlockedIp(string $ip): bool
-    {
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            $long = ip2long($ip);
-
-            if ($long === false) {
-                return true;
-            }
-
-            $unsigned = sprintf('%u', $long);
-
-            $blocks = [
-                ['0.0.0.0', '0.255.255.255'],
-                ['10.0.0.0', '10.255.255.255'],
-                ['100.64.0.0', '100.127.255.255'],
-                ['127.0.0.0', '127.255.255.255'],
-                ['169.254.0.0', '169.254.255.255'],
-                ['172.16.0.0', '172.31.255.255'],
-                ['192.0.0.0', '192.0.0.255'],
-                ['192.0.2.0', '192.0.2.255'],
-                ['192.168.0.0', '192.168.255.255'],
-                ['198.18.0.0', '198.19.255.255'],
-                ['198.51.100.0', '198.51.100.255'],
-                ['203.0.113.0', '203.0.113.255'],
-                ['224.0.0.0', '239.255.255.255'],
-                ['240.0.0.0', '255.255.255.255'],
-            ];
-
-            foreach ($blocks as [$start, $end]) {
-                if ($unsigned >= sprintf('%u', ip2long($start)) && $unsigned <= sprintf('%u', ip2long($end))) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-            $bin = inet_pton($ip);
-
-            if ($bin === false) {
-                return true;
-            }
-
-            if ($bin === str_repeat("\x00", 16)) {
-                return true;
-            }
-
-            if ($bin === str_repeat("\x00", 15) . "\x01") {
-                return true;
-            }
-
-            if (substr($bin, 0, 10) === str_repeat("\x00", 10) && substr($bin, 10, 2) === "\xff\xff") {
-                return $this->isBlockedIp(inet_ntop(substr($bin, 12, 4)));
-            }
-
-            if ((ord($bin[0]) & 0xfe) === 0xfc) {
-                return true;
-            }
-
-            if ((ord($bin[0]) & 0xc0) === 0x80) {
-                return true;
-            }
-
-            if (substr($bin, 0, 4) === "\x20\x01\x0d\xb8") {
-                return true;
-            }
-
-            return false;
-        }
-
-        return true;
-    }
 
     private function resolveRedirectUrl(string $baseUrl, string $location): string
     {

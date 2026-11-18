@@ -23,6 +23,7 @@ use Marvel\Database\Repositories\UserRepository;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use App\Events\AdminLoggedIn;
+use App\Exceptions\GuestCheckoutConflictException;
 use App\Events\UserRolesUpdated;
 use Marvel\Exceptions\MarvelException;
 use Marvel\Exceptions\MarvelNotFoundException;
@@ -35,8 +36,7 @@ use Marvel\Http\Requests\UserCreateRequest;
 use Marvel\Http\Requests\UserUpdateRequest;
 use Marvel\Http\Resources\UserResource;
 use Marvel\Mail\ContactAdmin;
-use Marvel\Otp\Gateways\OtpGateway;
-use Marvel\Otp\Gateways\LocalGateway;
+use Marvel\Otp\OtpInterface;
 use Marvel\Otp\StaticBypass;
 use Marvel\Traits\ApiResponse;
 use Marvel\Traits\UsersTrait;
@@ -1088,15 +1088,10 @@ $userCreated->providers()->updateOrCreate(
 
     protected function getOtpGateway()
     {
-        $gateway = config('auth.active_otp_gateway');
-        $gateWayClass = "Marvel\\Otp\\Gateways\\" . ucfirst($gateway) . 'Gateway';
-        try {
-            return new OtpGateway(new $gateWayClass());
-        } catch (\Throwable $e) {
-            // Log the issue and fallback to a local/testing gateway that requires no credentials
-            Log::warning('OTP gateway unavailable, falling back to LocalGateway: ' . $e->getMessage());
-            return new OtpGateway(new LocalGateway());
-        }
+        // ONE resolution for every OTP consumer: the container binding owns
+        // the ADR-0003 policy (configured provider, FailingGateway in
+        // production on misconfiguration, LocalGateway as the dev path).
+        return app(OtpInterface::class);
     }
 
     /**
@@ -1220,8 +1215,15 @@ $userCreated->providers()->updateOrCreate(
                 'phone_number' => $phoneNumber,
                 'is_contact_exist' => $user ? true : false
             ];
-        } catch (MarvelException $e) {
+        } catch (GuestCheckoutConflictException | MarvelException $e) {
             throw new MarvelException(INVALID_GATEWAY);
+        } catch (\Throwable $e) {
+            // A misconfigured gateway resolves to the FailingGateway, which
+            // throws at call time (ADR-0003): answer the translated failure
+            // instead of an uncaught 500.
+            report($e);
+
+            return ['message' => __('message.'.OTP_SEND_FAIL), 'success' => false];
         }
     }
 

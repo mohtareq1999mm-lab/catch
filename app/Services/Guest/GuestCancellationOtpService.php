@@ -8,7 +8,7 @@ use Illuminate\Cache\RateLimiter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
-use Marvel\Otp\Gateways\OtpGateway;
+use Marvel\Otp\OtpInterface;
 use Marvel\Otp\StaticBypass;
 
 /**
@@ -41,7 +41,7 @@ class GuestCancellationOtpService
         private GuestCancellationGate $gate,
         private SMSService $sms,
         private StaticBypass $staticBypass,
-        private OtpGateway $gateway,
+        private OtpInterface $gateway,
         private RateLimiter $limiter,
     ) {
     }
