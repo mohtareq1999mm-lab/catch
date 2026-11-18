@@ -217,10 +217,17 @@ class Order extends Model
         });
 
         static::created(function (self $order) {
-            if (empty($order->order_number)) {
-                $order->order_number = 'ORD-' . str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
-                $order->saveQuietly();
+            // Check the RAW attribute, not the accessor: getOrderNumberAttribute
+            // derives ORD-{id} on a NULL column, so an accessor read can never be
+            // empty and this backstop would never write. Persists through a query
+            // update (no model events), and mirrors the value into the model.
+            if (array_key_exists('order_number', $order->getAttributes()) && $order->getAttributes()['order_number'] !== null) {
+                return;
             }
+
+            $orderNumber = 'ORD-' . str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
+            $order->setAttribute('order_number', $orderNumber);
+            self::query()->whereKey($order->id)->update(['order_number' => $orderNumber]);
         });
     }
 
