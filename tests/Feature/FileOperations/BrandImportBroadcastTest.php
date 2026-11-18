@@ -62,10 +62,16 @@ class BrandImportBroadcastTest extends FileOperationBroadcastTestCase
             'The false "dispatched" observability log must not come back.'
         );
 
+        // The service delegates its progress channel to ImportProgressReporter
+        // (issue #72); the real dispatch lives there now.
+        $reporterPath = realpath(__DIR__ . '/../../../packages/marvel/src/Services/Import/ImportProgressReporter.php');
+
+        $this->assertFileExists($reporterPath);
+
         $this->assertStringContainsString(
             'broadcastFileOperationProgress',
-            $source,
-            'publishProgress must dispatch the real event.'
+            file_get_contents($reporterPath),
+            'The one progress module must dispatch the real event.'
         );
     }
 

@@ -394,7 +394,10 @@ final class ProductRowWriter
         $dimensionFields = ['height', 'width', 'length', 'weight'];
         foreach ($dimensionFields as $field) {
             if (isset($row[$field]) && $row[$field] !== '') {
-                $data[$field] = (string) $row[$field];
+                // Dimensions are measured fields: non-numeric and negative
+                // cells fail the row through the shared numeric validator,
+                // like price/quantity, instead of persisting the raw string.
+                $data[$field] = (string) $this->validateNumeric($row[$field], $field);
             }
         }
 
@@ -414,7 +417,7 @@ final class ProductRowWriter
         return $data;
     }
 
-    public function validateNumeric($value, string $field, bool $allowFloat = false, bool $isInteger = false)
+    public function validateNumeric($value, string $field, bool $isInteger = false)
     {
         if ($value === null || $value === '') {
             return $isInteger ? 0 : 0.0;
