@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Bus;
 use Marvel\Imports\ImagesSheetReader;
 use Marvel\Imports\ProductsImport;
 use Marvel\Workbook\ProductWorkbookSchema;
-use Marvel\Services\Import\DeletesImportFile;
+use Marvel\Services\Import\ImportRunLifecycle;
 use Marvel\Services\Import\ProductImportService;
 use Throwable;
 use Illuminate\Bus\Queueable;
@@ -33,7 +33,7 @@ class ImportProductsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use BroadcastsFileOperationProgress;
-    use DeletesImportFile;
+    use ImportRunLifecycle;
 
     public int $tries = 3;
 
@@ -47,60 +47,6 @@ class ImportProductsJob implements ShouldQueue
     {
         $this->importId = $importId;
         $this->onQueue(config('queue.queues.medium'));
-    }
-
-    protected function heartbeat(): OperationHeartbeat
-    {
-        return OperationHeartbeat::for($this->importId);
-    }
-
-    protected function removeSignalFile(string $type): void
-    {
-        $this->heartbeat()->remove($type);
-    }
-
-    protected function cancelSignalFileExists(): bool
-    {
-        return $this->heartbeat()->cancelRequested();
-    }
-
-    protected function cleanSignals(): void
-    {
-        $this->removeSignalFile('cancel');
-        $this->removeSignalFile('progress');
-    }
-
-    protected function resolveImportFilePath(Import $import): ?string
-    {
-        if (empty($import->file_path)) {
-            return null;
-        }
-        if (Storage::disk('imports')->exists($import->file_path)) {
-            return Storage::disk('imports')->path($import->file_path);
-        }
-        if (Storage::disk('public')->exists($import->file_path)) {
-            return Storage::disk('public')->path($import->file_path);
-        }
-        if (Storage::disk('local')->exists($import->file_path)) {
-            return Storage::disk('local')->path($import->file_path);
-        }
-        try {
-            return Storage::disk('imports')->path($import->file_path);
-        } catch (Throwable $e) {
-            return null;
-        }
-    }
-
-    protected function sanitizeExceptionMessage(Throwable $e): string
-    {
-        $message = $e->getMessage();
-        $message = preg_replace('#/[^ ]*storage[^ ]*#i', '[storage path]', $message) ?? $message;
-        $message = preg_replace('#SQLSTATE\[[^\]]+\].*#i', 'Internal processing error', $message) ?? $message;
-        if (strlen($message) > 500) {
-            $message = substr($message, 0, 500) . '...';
-        }
-        $message = trim($message);
-        return $message !== '' ? $message : 'Import failed due to an unexpected error';
     }
 
     public function handle(): void
