@@ -468,4 +468,24 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
             }
         }
     }
+
+    /**
+     * D5 (design record §4): an order with no phone cannot receive a code —
+     * a CLIENT-FACING 422 (cancel_otp_unavailable), not a provider outage.
+     * Regression for the review finding: the phone resolution ran inside
+     * the provider try/catch, so this 422 was swallowed and misreported as
+     * 502 cancel_otp_failed.
+     *
+     * @test */
+    public function an_order_without_a_phone_answers_422_not_a_provider_outage(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $data['order']->forceFill(['user_phone' => null])->save();
+
+        $this->requestCode($data['cancellation_token'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_unavailable'));
+
+        $this->assertNull($data['order']->fresh()->guest_cancellation_token_used_at);
+    }
 }
