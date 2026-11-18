@@ -2,6 +2,12 @@
 
 ## Status
 - RESOLVED by `git restore -- packages/marvel` at ~2026-11-17 (this session).
+- **RECURRED ~2026-11-17 19:00 local**: 939 tracked deletions under
+  `packages/marvel/` again (config + src), plus `vendor/` gutted
+  (`vendor/autoload.php` missing). Restored again by
+  `git restore -- packages/marvel` + `composer install`. The parallel
+  session's own modifications (2 app files + lang files) were untouched
+  by the restore. The user decision below remains pending.
 
 ## What happened
 - During the image-seam implementation (ticket #61), `packages/marvel/src/Services/Import/ProductImportService.php` disappeared from disk mid-edit and `composer dump-autoload` failed.

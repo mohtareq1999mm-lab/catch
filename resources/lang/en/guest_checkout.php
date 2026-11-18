@@ -43,6 +43,8 @@ return [
     'cancel_link_invalid' => 'This cancellation link is invalid.',
     'cancel_link_used' => 'This cancellation link has already been used.',
     'cancel_link_expired' => 'This cancellation link has expired.',
+    'order_already_cancelled' => 'This order has already been cancelled.',
+    'cancel_otp_required' => 'Please provide the verification code to cancel the order.',
     'cancel_failed' => 'The order could not be cancelled.',
     'cancel_otp_sent' => 'Verification code has been sent to your phone.',
     'cancel_no_phone' => 'This order has no phone number on file for verification.',

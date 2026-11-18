@@ -50,6 +50,10 @@ class GuestCancellationService
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
         }
 
+        if ($order->status === Order::ORDER_STATUS_CANCELLED) {
+            throw new GuestCheckoutConflictException(__('guest_checkout.order_already_cancelled'), 422);
+        }
+
         if ($order->guest_cancellation_token_used_at !== null) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
         }
@@ -142,6 +146,10 @@ class GuestCancellationService
 
             if (!$order) {
                 throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
+            }
+
+            if ($order->status === Order::ORDER_STATUS_CANCELLED) {
+                throw new GuestCheckoutConflictException(__('guest_checkout.order_already_cancelled'), 422);
             }
 
             if ($order->guest_cancellation_token_used_at !== null) {

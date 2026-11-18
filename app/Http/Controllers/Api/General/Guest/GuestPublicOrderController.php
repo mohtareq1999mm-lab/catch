@@ -70,6 +70,8 @@ class GuestPublicOrderController extends Controller
             'token' => ['required', 'string', 'max:200'],
             'code' => ['required', 'string', 'min:4', 'max:10'],
             'otp_id' => ['sometimes', 'nullable', 'string', 'max:200'],
+        ], [
+            'code.required' => __('guest_checkout.cancel_otp_required'),
         ]);
 
         try {
