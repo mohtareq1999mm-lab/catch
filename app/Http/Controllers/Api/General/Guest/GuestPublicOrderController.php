@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Http\Controllers\Controller;
+use App\Services\Guest\GuestCancellationOtpService;
 use App\Services\Guest\GuestCancellationService;
 use App\Services\Guest\GuestTrackingService;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ class GuestPublicOrderController extends Controller
     public function __construct(
         private GuestTrackingService $tracking,
         private GuestCancellationService $cancellation,
+        private GuestCancellationOtpService $cancellationOtp,
     ) {
     }
 
@@ -41,26 +43,26 @@ class GuestPublicOrderController extends Controller
         }
     }
 
-    public function requestCancelOtp(Request $request): JsonResponse
+    /**
+     * Send the possession-proof code for the cancellation link (#81).
+     * The response never carries the token, the code or the provider id.
+     */
+    public function requestCancellationOtp(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'token' => ['required', 'string', 'max:200'],
-            'phone_number' => ['sometimes', 'nullable', 'string', 'max:30'],
         ]);
 
         try {
-            $payload = $this->cancellation->requestOtp(
-                $validated['token'],
-                $validated['phone_number'] ?? null
-            );
+            $payload = $this->cancellationOtp->request($validated['token']);
 
             return $this->apiResponse(__('guest_checkout.cancel_otp_sent'), 200, true, $payload);
         } catch (GuestCheckoutConflictException $e) {
             return $this->apiResponse($e->getMessage(), $e->httpStatus(), false);
-        } catch (\RuntimeException $e) {
+        } catch (\Throwable $e) {
             report($e);
 
-            return $this->apiResponse(__('guest_checkout.otp_send_failed'), 422, false);
+            return $this->apiResponse(__('guest_checkout.cancel_otp_failed'), 422, false);
         }
     }
 
@@ -68,16 +70,14 @@ class GuestPublicOrderController extends Controller
     {
         $validated = $request->validate([
             'token' => ['required', 'string', 'max:200'],
-            'code' => ['required', 'string', 'min:4', 'max:10'],
-            'otp_id' => ['sometimes', 'nullable', 'string', 'max:200'],
+            // max:64: a configured bypass value outside 4-10 chars must still
+            // be able to reach the universal StaticBypass check (ADR 0003
+            // resolves the accepted value as Master OTP when explicitly set).
+            'code' => ['required', 'string', 'min:4', 'max:64'],
         ]);
 
         try {
-            $order = $this->cancellation->cancel(
-                $validated['token'],
-                $validated['code'],
-                $validated['otp_id'] ?? null
-            );
+            $order = $this->cancellation->cancel($validated['token'], $validated['code']);
 
             return $this->apiResponse(__('checkout.order_cancelled_successfully'), 200, true, [
                 'order' => [

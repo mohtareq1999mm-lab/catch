@@ -69,13 +69,14 @@ class SMSService
             ];
         } catch (\Throwable $e) {
             // The provider error text can echo the recipient number; log the
-            // exception identity instead, and mask the recipient.
+            // exception identity instead, and mask the recipient. The rethrow
+            // carries NO provider text (spec #73: no clear phone in any log).
             Log::error('SMS sending failed', [
                 'to' => $this->maskRecipient($to),
                 'exception' => get_class($e),
                 'code' => $e->getCode(),
             ]);
-            throw new \RuntimeException("SMS sending failed: " . $e->getMessage(), 0, $e);
+            throw new \RuntimeException('SMS sending failed');
         }
     }
 

@@ -80,7 +80,16 @@ class DeepVerificationTest extends TestCase
     {
         $owner = $this->makeUser([Perm::IMPORT_PRODUCT]);
         $other = $this->makeUser([Perm::IMPORT_PRODUCT]);
+        // The super-admin bypass is role-based (ImportPolicy), and the
+        // permission middleware runs first — production seeds super_admin
+        // with every system permission (AdminSeeder), so mirror that here.
+        $superRole = \Spatie\Permission\Models\Role::firstOrCreate([
+            'name' => \Marvel\Enums\Role::SUPER_ADMIN,
+            'guard_name' => self::GUARD,
+        ]);
+        $superRole->givePermissionTo(Perm::IMPORT_PRODUCT);
         $super = $this->makeUser([]);
+        $super->assignRole($superRole);
         // Create with correct type product-import
         $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>'imports/a.xlsx','file_name'=>'a.xlsx','status'=>'completed','total_rows'=>1,'created_by'=>$owner->id]);
         Sanctum::actingAs($owner);
@@ -90,8 +99,11 @@ class DeepVerificationTest extends TestCase
         Sanctum::actingAs($other);
         $resp = $this->getJson(self::PREFIX."/products/import/{$import->id}");
         $this->assertEquals(404, $resp->getStatusCode(), 'Other user must get 404, not 403 or 500. Got: '.$resp->getContent());
-        // wrong type
-        Sanctum::actingAs($owner);
+        // wrong type: a product import id must not leak through the category
+        // endpoint. The prober holds both permissions so the type scoping
+        // itself is what answers (the permission middleware runs first).
+        $crossProber = $this->makeUser([Perm::IMPORT_PRODUCT, Perm::IMPORT_CATEGORY]);
+        Sanctum::actingAs($crossProber);
         $resp2 = $this->getJson(self::PREFIX."/categories/import/{$import->id}");
         $this->assertEquals(404, $resp2->getStatusCode(), 'Wrong type must be 404. Got: '.$resp2->getContent());
     }
@@ -175,25 +187,28 @@ class DeepVerificationTest extends TestCase
     {
         Storage::fake('public');
         $owner = $this->makeUser([Perm::IMPORT_PRODUCT]);
+        // products chunk_size is 1000 (ProductWorkbookSchema): 1004 rows
+        // deliver two chunks, so the second chunk starts at Excel row 1002.
         $rows=[];
-        for ($i=1;$i<=150;$i++) {
+        for ($i=1;$i<=1004;$i++) {
             $rows[] = ['sku'=>"CHUNK-{$i}",'name_en'=>"C{$i}",'price'=>10,'quantity'=>5,'product_type'=>'simple','status'=>1,'in_stock'=>1];
         }
-        // Make two invalid in chunk 2 and 3
-        $rows[120] = ['sku'=>'CHUNK-121','name_en'=>'Bad','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD','status'=>1,'in_stock'=>1]; // row 122
-        $rows[140] = ['sku'=>'CHUNK-141','name_en'=>'Bad2','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD2','status'=>1,'in_stock'=>1]; // row 142
+        // One failing row per chunk, so both sides of the boundary are pinned.
+        $rows[499] = ['sku'=>'CHUNK-500','name_en'=>'Bad','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD','status'=>1,'in_stock'=>1];   // Excel row 501 (chunk 1)
+        $rows[1000] = ['sku'=>'CHUNK-1001','name_en'=>'Bad2','price'=>10,'quantity'=>5,'product_type'=>'simple','item_type'=>'BAD2','status'=>1,'in_stock'=>1]; // Excel row 1002 (chunk 2 first row)
         $tmp = $this->writeProductWorkbook($rows);
         $path='imports/test_'.uniqid().'.xlsx';
         Storage::disk('public')->put($path, file_get_contents($tmp));
-        $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>$path,'file_name'=>'p.xlsx','status'=>'pending','total_rows'=>150,'created_by'=>$owner->id]);
+        $import = Import::create(['type'=>ImportType::PRODUCT_IMPORT,'file_path'=>$path,'file_name'=>'p.xlsx','status'=>'pending','total_rows'=>1004,'created_by'=>$owner->id]);
         (new ImportProductsJob($import->id))->handle();
         $import->refresh();
         $this->assertEquals(2, count($import->errors));
         $rowsReported = array_column($import->errors, 'row');
         sort($rowsReported);
-        // With chunkSize 100, rowOffset should make second chunk start at 102, so row 122 and 142
-        $this->assertContains(123, $rowsReported, 'Row 123 should be reported for chunk2 failure (header offset 2)');
-        // Actually our write: index 120 corresponds to excel row 122 (header + index+2) — verify not restarting at 2
+        // Physical Excel rows: header + 1-based data position. Chunk 2 must
+        // continue at 1002, never restart at 2.
+        $this->assertContains(501, $rowsReported, 'Data index 499 must be reported as Excel row 501 (chunk 1)');
+        $this->assertContains(1002, $rowsReported, 'Data index 1000 is chunk 2 first row: Excel row 1002, not 2');
         $this->assertNotContains(3, $rowsReported, 'Row numbers must not restart at 2 for chunk2');
         @unlink($tmp);
     }
@@ -214,6 +229,7 @@ class DeepVerificationTest extends TestCase
             ['field'=>'quantity','value'=>'abc','shouldFail'=>true],
             ['field'=>'discount_amount','value'=>'abc','shouldFail'=>true],
             ['field'=>'height','value'=>'abc','shouldFail'=>true],
+            ['field'=>'height','value'=>'-5','shouldFail'=>true],
         ];
         foreach ($cases as $c) {
             $service = new ProductImportService($import->id); // fresh
@@ -230,6 +246,19 @@ class DeepVerificationTest extends TestCase
                 $this->assertTrue(true);
             }
         }
+
+        // Variants validate their measured fields through the same rule: a
+        // raw non-numeric cell must fail the variant row, not persist.
+        $variantService = new ProductImportService($import->id);
+        $variantService->processProductRow(['sku'=>'NUMVAR-1','name_en'=>'N','price'=>10,'quantity'=>5,'product_type'=>'variable','item_type'=>'PHYSICAL','status'=>1,'in_stock'=>1], 2);
+        $variantService->processVariantRow([
+            'product_sku' => 'NUMVAR-1',
+            'variant_sku' => 'NUMVAR-1-V1',
+            'price' => 5,
+            'quantity' => 2,
+            'height' => 'abc',
+        ], 3);
+        $this->assertGreaterThan(0, count($variantService->getVariantErrors()), 'A non-numeric variant height must fail the variant row');
     }
 
     public function test_update_safety_numeric_not_overwritten(): void
@@ -276,9 +305,15 @@ class DeepVerificationTest extends TestCase
 
     public function test_brand_multi_sheet_only_first_processed_deep(): void
     {
-        $content = file_get_contents(base_path('packages/marvel/src/Imports/Sheets/BrandsSheetImport.php'));
-        $this->assertStringContainsString('BrandImportService', $content);
-        $this->assertStringNotContainsString('ProductImportService', $content);
+        // The standalone brand importer owns the brands sheet: it must use
+        // BrandImportService (mirror of the category check above). The
+        // product workbook's `brands` pivot sheet intentionally stays on the
+        // product import (ProductBrandsSheetImport).
+        $content = file_get_contents(base_path('packages/marvel/src/Imports/Sheets/BrandSheetImport.php'));
+        $this->assertStringContainsString('BrandImportService', $content, 'BrandSheetImport must use BrandImportService');
+        $this->assertStringNotContainsString('ProductImportService', $content, 'BrandSheetImport must not use ProductImportService');
+        $content2 = file_get_contents(base_path('packages/marvel/src/Imports/BrandsImport.php'));
+        $this->assertStringContainsString('WithMultipleSheets', $content2, 'BrandsImport must implement WithMultipleSheets');
     }
 
     // 4.16 Status resource deep

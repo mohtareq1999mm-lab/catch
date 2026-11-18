@@ -212,12 +212,14 @@ Route::prefix('v1/general')->group(function () {
                 ->name('api.guest.cart.destroy');
 
             // Static token paths first (no {orderId} capture).
+            // Possession proof for the cancellation link (#81): the link
+            // alone never cancels; a code goes to the phone on the order.
+            Route::post('orders/cancellation-otp', [GuestPublicOrderController::class, 'requestCancellationOtp'])
+                ->middleware(GuestSurface::ORDER_CANCEL_OTP->middleware())
+                ->name('api.guest.orders.cancellation-otp');
             Route::post('orders/track', [GuestPublicOrderController::class, 'track'])
                 ->middleware(GuestSurface::ORDER_TRACK->middleware())
                 ->name('api.guest.orders.track');
-            Route::post('orders/cancel/request-otp', [GuestPublicOrderController::class, 'requestCancelOtp'])
-                ->middleware(GuestSurface::ORDER_CANCEL_OTP->middleware())
-                ->name('api.guest.orders.cancel.otp');
             Route::post('orders/cancel', [GuestPublicOrderController::class, 'cancel'])
                 ->middleware(GuestSurface::ORDER_CANCEL->middleware())
                 ->name('api.guest.orders.cancel');
@@ -234,6 +236,13 @@ Route::prefix('v1/general')->group(function () {
                 ->whereNumber('orderId')
                 ->middleware(GuestSurface::ORDER_PAYMENT->middleware())
                 ->name('api.guest.orders.access-tokens');
+
+            // Session-bound re-delivery of the tracking link (#80): the owning
+            // device only, fresh credential rotated, notifier re-used verbatim.
+            Route::post('orders/{orderId}/resend-tracking-link', [GuestOrderController::class, 'resendTrackingLink'])
+                ->whereNumber('orderId')
+                ->middleware(GuestSurface::ORDER_RESEND->middleware())
+                ->name('api.guest.orders.resend-tracking-link');
 
             Route::post('checkout', [GuestCheckoutController::class, 'checkout'])
                 ->middleware(GuestSurface::CHECKOUT->middleware())

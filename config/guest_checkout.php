@@ -65,8 +65,26 @@ return [
         'path' => env('GUEST_TRACKING_LINK_PATH', '/track-order'),
     ],
 
-    // Single-use cancellation link lifetime.
-    'cancellation_link_ttl_hours' => (int) env('GUEST_CANCEL_TTL_HOURS', 72),
+    // Single-use cancellation link lifetime (approved: 24 hours).
+    'cancellation_link_ttl_hours' => (int) env('GUEST_CANCEL_TTL_HOURS', 24),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cancellation OTP (possession proof for the single-use link)
+    |--------------------------------------------------------------------------
+    |
+    | The link alone never cancels: the caller must also prove possession of
+    | the phone on the order. Codes are issued and verified by the configured
+    | OTP gateway (ADR 0003 governs the static dev bypass) and are never
+    | stored — the token HASH is the only cache key. Five failed attempts lock
+    | that token hash for 24 hours; a fresh code request never clears the lock.
+    |
+    */
+    'cancellation_otp' => [
+        'code_ttl_minutes' => (int) env('GUEST_CANCEL_OTP_TTL_MINUTES', 10),
+        'max_attempts' => (int) env('GUEST_CANCEL_OTP_MAX_ATTEMPTS', 5),
+        'lockout_hours' => (int) env('GUEST_CANCEL_OTP_LOCKOUT_HOURS', 24),
+    ],
 
     // Guest checkout supports physical products only (locked decision).
     // Kept non-env-configurable on purpose: enabling it requires a product
@@ -98,11 +116,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Rate limiting (7 public guest surfaces)
+    | Rate limiting (9 public guest surfaces)
     |--------------------------------------------------------------------------
     |
     | Values are per-minute attempts. Key = resolved guest identity when the
-    | credential is present, otherwise the client IP. Protected surfaces fail
+    | credential is present, otherwise the client IP. guest_cancel_otp adds a
+    | per-token-hash key alongside the per-IP key. Protected surfaces fail
     | closed if the limiter backend is unavailable.
     |
     */
@@ -131,12 +150,21 @@ return [
             'max' => (int) env('GUEST_THROTTLE_TRACKING', 20),
             'decay' => 1,
         ],
+        // Code requests trigger channel sends; in addition to the per-IP key
+        // the cancellation-OTP limiter counts a per-token-hash key so rotating
+        // IPs cannot multiply one link's send budget (#81).
         'guest_cancel_otp' => [
             'max' => (int) env('GUEST_THROTTLE_CANCEL_OTP', 5),
             'decay' => 1,
         ],
         'guest_cancel' => [
             'max' => (int) env('GUEST_THROTTLE_CANCEL', 5),
+            'decay' => 1,
+        ],
+        // Each attempt re-issues a credential and triggers channel sends, so
+        // the budget stays tight and identity-keyed (#80).
+        'guest_resend' => [
+            'max' => (int) env('GUEST_THROTTLE_RESEND', 2),
             'decay' => 1,
         ],
     ],

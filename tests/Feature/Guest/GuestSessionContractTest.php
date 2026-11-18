@@ -25,6 +25,7 @@ class GuestSessionContractTest extends TestCase
         'GET api/v1/general/guest/orders/{orderId}',
         'POST api/v1/general/guest/orders/{orderId}/payment',
         'POST api/v1/general/guest/orders/{orderId}/access-tokens',
+        'POST api/v1/general/guest/orders/{orderId}/resend-tracking-link',
     ];
 
     /** Routes that must resolve the credential themselves (lazy create, idempotent revoke, safe empty read, one-way tokens). */
@@ -37,6 +38,7 @@ class GuestSessionContractTest extends TestCase
         'DELETE api/v1/general/guest/mobile/session',
         'POST api/v1/general/guest/orders/track',
         'POST api/v1/general/guest/orders/cancel',
+        'POST api/v1/general/guest/orders/cancellation-otp',
     ];
 
     /** Mutating cart surfaces: a successful response re-queues the cookie transport at the seam. */
@@ -52,10 +54,14 @@ class GuestSessionContractTest extends TestCase
         'GET api/v1/general/guest/cart',
         'POST api/v1/general/guest/checkout',
         'GET api/v1/general/guest/orders/{orderId}',
+        'POST api/v1/general/guest/orders/{orderId}/payment',
+        'POST api/v1/general/guest/orders/{orderId}/access-tokens',
+        'POST api/v1/general/guest/orders/{orderId}/resend-tracking-link',
         'POST api/v1/general/guest/session',
         'POST api/v1/general/guest/mobile/session',
         'POST api/v1/general/guest/orders/track',
         'POST api/v1/general/guest/orders/cancel',
+        'POST api/v1/general/guest/orders/cancellation-otp',
     ];
 
     /** @return array<string, \Illuminate\Routing\Route> */

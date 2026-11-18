@@ -3,78 +3,220 @@
 namespace Tests\Unit\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
-use App\Services\General\OrderService;
-use App\Services\Guest\GuestCancellationService;
+use App\Services\Guest\GuestCancellationGate;
+use App\Services\Guest\GuestCancellationOtpService;
 use App\Services\Guest\GuestOrderTokenService;
+use App\Services\Notifications\SMSService;
 use App\Services\Payment\PaymentAttemptLifecycleService;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Support\Facades\Cache;
+use Marvel\Database\Models\Order;
+use Marvel\Otp\Gateways\OtpGateway;
+use Marvel\Otp\OtpInterface;
+use Marvel\Otp\Result;
+use Marvel\Otp\StaticBypass;
 use Mockery;
 use Tests\TestCase;
 
+/**
+ * Provider-outage classification (#88) re-homed onto the possession-proof
+ * service (#81): an upstream outage is a failed dispatch (502) that must
+ * never consume the attempt budget or the single-use link; a rejected code
+ * keeps 422 and burns exactly one attempt; a verified code clears the
+ * budget.
+ */
 class GuestCancellationOtpTest extends TestCase
 {
-    private GuestCancellationService $service;
+    use \Illuminate\Foundation\Testing\DatabaseTransactions;
 
-    protected function setUp(): void
+    private const ATTEMPTS_PREFIX = 'guest_cancel_otp:attempts:';
+
+    private const STATE_PREFIX = 'guest_cancel_otp:state:';
+
+    protected function tearDown(): void
     {
-        parent::setUp();
+        Mockery::close();
 
-        $tokenService = Mockery::mock(GuestOrderTokenService::class);
-        $orderService = Mockery::mock(OrderService::class);
-        $attemptLifecycle = Mockery::mock(PaymentAttemptLifecycleService::class);
-
-        $this->service = new GuestCancellationService($tokenService, $orderService, $attemptLifecycle);
+        parent::tearDown();
     }
 
-    /** @test */
-    public function it_accepts_configured_master_otp_in_bypass_mode(): void
+    /**
+     * The issuance state is deliberately NOT fillable (one-way credential);
+     * production binds it through a query update, and so does this fixture.
+     */
+    private function order(string $hash): Order
     {
-        config([
-            'auth.local_otp_enabled' => true,
-            'auth.master_otp' => '999888',
+        $order = Order::create([
+            'name' => 'Outage Test',
+            'user_phone' => '+201000000088',
+            'address' => ['street' => '1 Test Street', 'city' => 'Test City'],
+            'price' => 100,
+            'total_price' => 100,
+            'status' => 'pending',
         ]);
 
-        $this->assertTrue($this->service->isBypassActive());
-        $this->assertTrue($this->service->isBypassCodeAccepted('999888'));
-        $this->assertFalse($this->service->isBypassCodeAccepted('123456'));
-        $this->assertFalse($this->service->isBypassCodeAccepted('000000'));
+        Order::query()->whereKey($order->id)->update(['guest_cancellation_token_hash' => $hash]);
+
+        return $order->refresh();
     }
 
-    /** @test */
-    public function it_accepts_local_otp_code_when_enabled_and_master_otp_is_empty(): void
+    private function service(Order $order, \Closure $outcome): GuestCancellationOtpService
     {
-        config([
-            'auth.local_otp_enabled' => true,
-            'auth.master_otp' => '',
-            'auth.local_otp_code' => '123456',
-        ]);
+        $tokens = Mockery::mock(GuestOrderTokenService::class);
+        $tokens->shouldReceive('findByCancellationToken')->andReturn($order);
+        $tokens->shouldReceive('hash')->andReturnUsing(fn (string $raw) => 'hash-' . $raw);
 
-        $this->assertTrue($this->service->isBypassActive());
-        $this->assertTrue($this->service->isBypassCodeAccepted('123456'));
-        $this->assertFalse($this->service->isBypassCodeAccepted('654321'));
+        $gate = Mockery::mock(GuestCancellationGate::class);
+        $gate->shouldReceive('assertCancellable');
+
+        $sms = Mockery::mock(SMSService::class);
+        $sms->shouldReceive('formatPhone')->andReturnUsing(fn (string $phone) => $phone);
+
+        // The universal bypass stays closed: these tests exercise the
+        // provider path only (StaticBypassTest owns the bypass semantics).
+        $bypass = Mockery::mock(StaticBypass::class);
+        $bypass->shouldReceive('accepts')->andReturn(false);
+
+        return new GuestCancellationOtpService(
+            $tokens,
+            $gate,
+            $sms,
+            $bypass,
+            $this->fakeGateway($outcome),
+            app(RateLimiter::class),
+        );
     }
 
-    /** @test */
-    public function it_rejects_bypass_when_local_otp_is_disabled(): void
+    /** A stubbed gateway returning a canned Result for both OTP calls. */
+    private function fakeGateway(\Closure $outcomes): OtpGateway
     {
-        config([
-            'auth.local_otp_enabled' => false,
-            'auth.master_otp' => '123456',
-            'auth.local_otp_code' => '123456',
-        ]);
+        return new OtpGateway(new class($outcomes) implements OtpInterface {
+            public function __construct(private \Closure $outcomes)
+            {
+            }
 
-        $this->assertFalse($this->service->isBypassActive());
-        $this->assertFalse($this->service->isBypassCodeAccepted('123456'));
+            public function startVerification($phone_number)
+            {
+                return ($this->outcomes)();
+            }
+
+            public function checkVerification($id, $code, $phone_number)
+            {
+                return ($this->outcomes)();
+            }
+
+            public function sendSms($phone_number, $messageBody)
+            {
+                return new Result(['not used by this fake']);
+            }
+        });
     }
 
-    /** @test */
-    public function it_rejects_empty_or_null_codes(): void
+    /**
+     * The same classification at the REQUEST step: a provider outage is a
+     * failed dispatch (502), not a client error, and consumes nothing.
+     */
+    public function test_a_provider_outage_at_request_is_a_502_and_consumes_nothing(): void
     {
-        config([
-            'auth.local_otp_enabled' => true,
-            'auth.local_otp_code' => '123456',
-        ]);
+        $order = $this->order('hash-outage-request');
 
-        $this->assertFalse($this->service->isBypassCodeAccepted(''));
-        $this->assertFalse($this->service->isBypassCodeAccepted(null));
+        $service = $this->service($order, fn () => Result::providerError(['Upstream outage.']));
+
+        try {
+            $service->request('outage-request');
+            $this->fail('Expected a 502 for the provider outage.');
+        } catch (GuestCheckoutConflictException $e) {
+            $this->assertSame(502, $e->httpStatus());
+            $this->assertSame(__('guest_checkout.cancel_otp_failed'), $e->getMessage());
+        }
+
+        $this->assertNull($order->guest_cancellation_token_used_at, 'The outage must not consume the link.');
+        $this->assertNull(Cache::get(self::STATE_PREFIX . 'hash-outage-request'), 'The outage must not write a verification state.');
+        $this->assertSame(0, app(RateLimiter::class)->attempts(self::ATTEMPTS_PREFIX . 'hash-outage-request'), 'The outage must not consume an attempt.');
+    }
+
+    /**
+     * Provider-outage classification at the CONFIRM step: 502, and the
+     * attempt budget stays untouched — a legitimate user must not be locked
+     * out for an outage they cannot control.
+     */
+    public function test_a_provider_outage_at_confirm_is_a_502_and_consumes_no_attempt(): void
+    {
+        $order = $this->order('hash-outage-confirm');
+        Cache::put(self::STATE_PREFIX . 'hash-outage-confirm', ['verification_id' => 'vid-1'], 300);
+
+        $service = $this->service($order, fn () => Result::providerError(['Upstream outage.']));
+
+        try {
+            $service->verify('outage-confirm', '445566', $order);
+            $this->fail('Expected a 502 for the provider outage.');
+        } catch (GuestCheckoutConflictException $e) {
+            $this->assertSame(502, $e->httpStatus());
+            $this->assertSame(__('guest_checkout.cancel_otp_failed'), $e->getMessage());
+        }
+
+        $this->assertNull($order->fresh()->guest_cancellation_token_used_at, 'The outage must not consume the link.');
+        $this->assertSame(0, app(RateLimiter::class)->attempts(self::ATTEMPTS_PREFIX . 'hash-outage-confirm'), 'The outage must not consume an attempt.');
+    }
+
+    /**
+     * A REJECTED code (the gateway answering "wrong code") keeps the
+     * failure semantics: 422 and exactly one consumed attempt.
+     */
+    public function test_a_rejected_code_still_consumes_an_attempt(): void
+    {
+        $order = $this->order('hash-reject');
+        Cache::put(self::STATE_PREFIX . 'hash-reject', ['verification_id' => 'vid-2'], 300);
+
+        $service = $this->service($order, fn () => new Result(['Verification check failed: Invalid code.']));
+
+        try {
+            $service->verify('reject', '000000', $order);
+            $this->fail('Expected a 422 for the rejected code.');
+        } catch (GuestCheckoutConflictException $e) {
+            $this->assertSame(422, $e->httpStatus());
+            $this->assertSame(__('guest_checkout.cancel_otp_invalid'), $e->getMessage());
+        }
+
+        $this->assertSame(1, app(RateLimiter::class)->attempts(self::ATTEMPTS_PREFIX . 'hash-reject'), 'A wrong code consumes an attempt.');
+        $this->assertNull($order->fresh()->guest_cancellation_token_used_at);
+    }
+
+    /**
+     * A verified code clears the attempt budget, so an earlier mistake
+     * cannot compound into a lockout for a legitimate user.
+     */
+    public function test_a_verified_code_clears_the_attempt_budget(): void
+    {
+        $order = $this->order('hash-valid');
+        Cache::put(self::STATE_PREFIX . 'hash-valid', ['verification_id' => 'vid-3'], 300);
+        app(RateLimiter::class)->hit(self::ATTEMPTS_PREFIX . 'hash-valid', 300);
+
+        $service = $this->service($order, fn () => new Result('vid-3'));
+
+        $this->assertSame('otp', $service->verify('valid', '445566', $order));
+        $this->assertSame(0, app(RateLimiter::class)->attempts(self::ATTEMPTS_PREFIX . 'hash-valid'), 'A verified code clears the attempt budget.');
+    }
+
+    /**
+     * A gateway that THROWS (transport down) is the same failed dispatch:
+     * 502, nothing consumed.
+     */
+    public function test_a_gateway_exception_at_request_is_a_502(): void
+    {
+        $order = $this->order('hash-exception');
+
+        $service = $this->service($order, function (): void {
+            throw new \RuntimeException('Twilio 500');
+        });
+
+        try {
+            $service->request('exception');
+            $this->fail('Expected a 502 for the gateway exception.');
+        } catch (GuestCheckoutConflictException $e) {
+            $this->assertSame(502, $e->httpStatus());
+        }
+
+        $this->assertNull(Cache::get(self::STATE_PREFIX . 'hash-exception'));
     }
 }
