@@ -38,7 +38,7 @@ class SsrfGuardTest extends TestCase
     /** @test */
     public function ipv6_special_forms_are_blocked()
     {
-        foreach (['::1', '::', '::ffff:10.0.0.5', '::ffff:192.168.1.1', 'fc00::1', 'fd12:3456::1', 'ff02::1'] as $ip) {
+        foreach (['::1', '::', '::ffff:10.0.0.5', '::ffff:192.168.1.1', 'fc00::1', 'fd12:3456::1', 'ff02::1', 'fe80::1', 'FC00::1', 'FE80::A1', '2001:db8::1'] as $ip) {
             $this->assertTrue($this->guard->isBlockedIp($ip), "$ip must be blocked");
         }
     }

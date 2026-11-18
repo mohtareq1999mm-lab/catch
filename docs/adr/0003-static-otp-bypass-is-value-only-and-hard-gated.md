@@ -8,7 +8,7 @@ Why: `.env.example` ships `MASTER_OTP=123456` unconditionally. Under the spec's 
 
 - **Spec-literal OR-gating** (`LOCAL_OTP_ENABLED=true` OR `MASTER_OTP` set) — rejected: turns a leftover example value into a production bypass switch.
 - **App-side cache-stored codes** instead of provider-managed verification — rejected: a second OTP mechanism divergent from login, with self-owned storage, expiry, replay and attempt surfaces.
-- **Chosen**: reuse the provider-managed `OtpGateway` stack (`startVerification` / `checkVerification`), with the committed, unit-tested `LocalGateway` as the dev path, and one universal static-bypass check owned by the cancellation OTP service (so the bypass works on any selected gateway, since dev machines may have `ACTIVE_OTP_GATEWAY=twilio` with no credentials).
+- **Chosen**: reuse the provider-managed `OtpInterface` gateway stack (`startVerification` / `checkVerification`), with the committed, unit-tested `LocalGateway` as the dev path, and one universal static-bypass check owned by the cancellation OTP service (so the bypass works on any selected gateway, since dev machines may have `ACTIVE_OTP_GATEWAY=twilio` with no credentials).
 
 ## Consequences
 

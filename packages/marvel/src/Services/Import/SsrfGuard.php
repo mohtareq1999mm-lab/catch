@@ -171,8 +171,24 @@ class SsrfGuard
             return $this->isBlockedIp(inet_ntop(substr($bin, 12, 4)));
         }
 
-        // Unique-local (fc00::/7) and multicast (ff00::/8).
-        if (str_starts_with($ip, 'fc') || str_starts_with($ip, 'fd') || str_starts_with($ip, 'ff')) {
+        // Unique-local (fc00::/7) — BINARY check: case-insensitive by
+        // construction (textual fc/fd prefixes miss uppercase literals).
+        if ((ord($bin[0]) & 0xfe) === 0xfc) {
+            return true;
+        }
+
+        // Multicast (ff00::/8).
+        if (ord($bin[0]) === 0xff) {
+            return true;
+        }
+
+        // Link-local (fe80::/10).
+        if (ord($bin[0]) === 0xfe && (ord($bin[1]) & 0xc0) === 0x80) {
+            return true;
+        }
+
+        // Documentation (2001:db8::/32) — never routable.
+        if (substr($bin, 0, 4) === "\x20\x01\x0d\xb8") {
             return true;
         }
 

@@ -23,6 +23,7 @@ use Marvel\Database\Repositories\UserRepository;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use App\Events\AdminLoggedIn;
+use App\Exceptions\GuestCheckoutConflictException;
 use App\Events\UserRolesUpdated;
 use Marvel\Exceptions\MarvelException;
 use Marvel\Exceptions\MarvelNotFoundException;
@@ -1214,8 +1215,15 @@ $userCreated->providers()->updateOrCreate(
                 'phone_number' => $phoneNumber,
                 'is_contact_exist' => $user ? true : false
             ];
-        } catch (MarvelException $e) {
+        } catch (GuestCheckoutConflictException | MarvelException $e) {
             throw new MarvelException(INVALID_GATEWAY);
+        } catch (\Throwable $e) {
+            // A misconfigured gateway resolves to the FailingGateway, which
+            // throws at call time (ADR-0003): answer the translated failure
+            // instead of an uncaught 500.
+            report($e);
+
+            return ['message' => __('message.'.OTP_SEND_FAIL), 'success' => false];
         }
     }
 
