@@ -14,6 +14,15 @@ class LocalGateway implements OtpInterface
 
     public function startVerification($phone_number)
     {
+        // ADR-0003: the Local gateway is a credential-free dev/test fake. In
+        // production it must be inert — no static ids, nothing a client could
+        // treat as a delivered code — so a misconfigured environment surfaces
+        // as a failed dispatch instead of arming a static bypass through the
+        // provider path.
+        if (app()->isProduction()) {
+            return new Result(['Local OTP gateway is disabled in production']);
+        }
+
         // Return a static id for local/testing
         return new Result('local-verification-id');
     }
@@ -40,6 +49,16 @@ class LocalGateway implements OtpInterface
      */
     private function isLocalCodeAccepted($code): bool
     {
+        // ADR-0003 hard block: production can never accept the static code,
+        // even when the environment is misconfigured (enabled flag left on,
+        // example code left in place). The app-side StaticBypass applies the
+        // same rule to the bypass path; this closes the provider path so
+        // selecting the local gateway in production cannot become the
+        // bypass loophole.
+        if (app()->isProduction()) {
+            return false;
+        }
+
         if (!config('auth.local_otp_enabled', false)) {
             return false;
         }

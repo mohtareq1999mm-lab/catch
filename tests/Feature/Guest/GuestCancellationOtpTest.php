@@ -351,9 +351,49 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
         $this->requestCode(str_repeat('z', 43))->assertStatus(429);
     }
 
+    /**
+     * Production must never accept the static bypass — and a
+     * "provider code" through a STATIC-CODE gateway is that same bypass
+     * with extra steps: the possession proof would rest on a publicly
+     * documented value. The provider path stays available in production
+     * through a real provider seam (per-test code, real verification
+     * round-trip), while the static-code gateway is inert.
+     *
+     * NOTE: the provider fake is bound BEFORE any cancel-route usage —
+     * Route::getController() caches the controller (and its whole service
+     * graph) on the route object for the process lifetime, so bindings
+     * made after a route's first request never reach it.
+     */
     /** @test */
     public function production_rejects_the_static_bypass_but_accepts_a_provider_code(): void
     {
+        // A REAL provider seam whose code is per-test and was never a
+        // static configuration value. Bound before ANY cancel-route request
+        // so the route-cached controller graph is built with it.
+        $providerCode = '515243';
+        $this->app->bind(\Marvel\Otp\OtpInterface::class, fn () => new class($providerCode) implements \Marvel\Otp\OtpInterface {
+            public function __construct(private string $acceptedCode)
+            {
+            }
+
+            public function startVerification($phone_number)
+            {
+                return new \Marvel\Otp\Result('provider-verification-id');
+            }
+
+            public function checkVerification($id, $code, $phone_number)
+            {
+                return $id === 'provider-verification-id' && hash_equals($this->acceptedCode, (string) $code)
+                    ? new \Marvel\Otp\Result('provider-verification-id')
+                    : new \Marvel\Otp\Result(['Invalid code.']);
+            }
+
+            public function sendSms($phone_number, $messageBody)
+            {
+                return new \Marvel\Otp\Result('provider-message-id');
+            }
+        });
+
         $data = $this->createGuestOrder('cod');
         $token = $data['cancellation_token'];
 
@@ -373,7 +413,7 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
 
         // A provider-verified code still works in production.
         $this->requestCode($token)->assertOk();
-        $this->cancelWithCode($token, '654321')->assertOk();
+        $this->cancelWithCode($token, $providerCode)->assertOk();
     }
 
     /** @test */
@@ -460,5 +500,60 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
                 $this->assertNotSame('', trim($value), "Empty {$locale} translation: {$key}");
             }
         }
+    }
+
+    /**
+     * ADR-0003's misconfiguration scenario end to end: production with the
+     * LOCAL gateway selected and the flag left on. The StaticBypass refuses
+     * the static code, and the provider path must not become the loophole —
+     * the real LocalGateway is inert in production. The attempt is consumed
+     * (the failure came from the code check, not a dead link), the lock
+     * counter proves the provider path was taken, and nothing cancels.
+     */
+    /** @test */
+    public function the_local_gateway_cannot_confirm_a_cancellation_in_production(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $token = $data['cancellation_token'];
+
+        // A real verification state exists (requested outside production).
+        $this->requestCode($token)->assertOk();
+
+        $this->app['env'] = 'production';
+
+        $this->cancelWithCode($token, '654321')
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_invalid'));
+
+        $order = $data['order']->fresh();
+        $this->assertNotSame(Order::ORDER_STATUS_CANCELLED, $order->status);
+        $this->assertNull($order->guest_cancellation_token_used_at);
+        $this->assertSame(
+            1,
+            RateLimiter::attempts('guest_cancel_otp:attempts:' . $this->tokenHash($token)),
+            'The provider path must have been taken and consumed one attempt.'
+        );
+    }
+
+    /**
+     * The same misconfiguration at the request step: the inert LocalGateway
+     * surfaces as a failed dispatch — no state is stored, so no fake success
+     * the client would wait on forever.
+     */
+    /** @test */
+    public function requesting_a_code_through_the_local_gateway_in_production_fails_closed(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $this->app['env'] = 'production';
+
+        $this->requestCode($data['cancellation_token'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_failed'));
+
+        $this->assertNull(
+            Cache::get($this->stateKey($data['cancellation_token'])),
+            'No verification state may exist after a failed dispatch.'
+        );
+        $this->assertNull($data['order']->fresh()->guest_cancellation_token_used_at);
     }
 }
