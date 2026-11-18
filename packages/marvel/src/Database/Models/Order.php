@@ -217,10 +217,17 @@ class Order extends Model
         });
 
         static::created(function (self $order) {
-            if (empty($order->order_number)) {
-                $order->order_number = 'ORD-' . str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
-                $order->saveQuietly();
+            // Check the RAW attribute, not the accessor: getOrderNumberAttribute
+            // derives ORD-{id} on a NULL column, so an accessor read can never be
+            // empty and this backstop would never write. Persists through a query
+            // update (no model events), and mirrors the value into the model.
+            $rawNumber = $order->getAttributes()['order_number'] ?? null;
+            if (!empty($rawNumber)) {
+                return;
             }
+
+            $order->setAttribute('order_number', self::formatOrderNumber((int) $order->id));
+            self::query()->whereKey($order->id)->update(['order_number' => $order->order_number]);
         });
     }
 
@@ -388,7 +395,17 @@ class Order extends Model
             return $this->attributes['order_number'];
         }
 
-        return 'ORD-' . str_pad((string) $this->id, 8, '0', STR_PAD_LEFT);
+        return self::formatOrderNumber((int) $this->id);
+    }
+
+    /**
+     * The ONE order-number format (ORD- + zero-padded row id, matching the
+     * historical backfill): the created backstop and this accessor derive
+     * from here — the format string is never duplicated.
+     */
+    public static function formatOrderNumber(int $id): string
+    {
+        return 'ORD-' . str_pad((string) $id, 8, '0', STR_PAD_LEFT);
     }
 
     public function getPaymentStatusAttribute(): ?string

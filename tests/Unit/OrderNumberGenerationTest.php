@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use Database\Seeders\OrderFlowSeeder;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Tests\TestCase;
@@ -18,9 +19,16 @@ use Tests\TestCase;
  * creation backstop): it covers every creation path — checkout service,
  * Marvel repository, seeder, fixture, future code — and never overwrites
  * an explicitly set number.
+ *
+ * The discriminating assertion is the RAW column read: the
+ * getOrderNumberAttribute accessor derives the same string for a NULL
+ * column, so accessor-level assertions pass even when the backstop is
+ * dead — only the database itself proves persistence.
  */
 class OrderNumberGenerationTest extends TestCase
 {
+    use DatabaseTransactions;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -31,14 +39,22 @@ class OrderNumberGenerationTest extends TestCase
     }
 
     /** @test */
-    public function a_newly_created_order_carries_its_order_number(): void
+    public function a_newly_created_order_persists_its_order_number_in_the_database(): void
     {
         $order = $this->createOrder();
 
-        $this->assertMatchesRegularExpression('/^ORD-\d{8}$/', $order->order_number);
-        $this->assertSame($order->id, (int) substr($order->order_number, 4), 'The number derives from the row id, matching the historical backfill format.');
+        // Ids above 99,999,999 are legal (string(20) column): the backstop
+        // pads to a MINIMUM of 8 digits and never truncates.
+        $this->assertMatchesRegularExpression('/^ORD-\d{8,}$/', $order->order_number);
+        $prefixLength = strlen('ORD-');
+        $this->assertSame($order->id, (int) substr($order->order_number, $prefixLength), 'The number derives from the row id, matching the historical backfill format.');
 
-        $this->assertSame($order->order_number, $order->fresh()->order_number, 'The number is persisted, not just assigned in memory.');
+        // Persistence, not the accessor: the column itself must carry the
+        // value. Raw consumers — the order metrics VIEW, SQL joins,
+        // where('order_number') searches — read this column directly; an
+        // accessor-only derivation would leave it NULL for them.
+        $raw = DB::table('orders')->where('id', $order->id)->value('order_number');
+        $this->assertSame($order->order_number, $raw, 'The order number must be persisted in the column, not derived by the accessor.');
     }
 
     /** @test */
@@ -47,6 +63,17 @@ class OrderNumberGenerationTest extends TestCase
         $order = Order::create($this->orderAttributes() + ['order_number' => 'ORD-CUSTOM-1']);
 
         $this->assertSame('ORD-CUSTOM-1', $order->fresh()->order_number);
+    }
+
+    /** @test */
+    public function an_empty_explicit_order_number_is_still_backstopped(): void
+    {
+        // empty() semantics on the RAW attribute: an explicitly EMPTY string
+        // is not a real number — the backstop fills it instead of persisting
+        // an empty column value that the accessor would then return as ''.
+        $order = Order::create($this->orderAttributes() + ['order_number' => '']);
+
+        $this->assertMatchesRegularExpression('/^ORD-\d{8,}$/', DB::table('orders')->where('id', $order->id)->value('order_number'));
     }
 
     /** @test */

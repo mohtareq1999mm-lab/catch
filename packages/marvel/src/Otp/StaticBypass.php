@@ -52,8 +52,9 @@ class StaticBypass
 
         $code = (string) $code;
 
-        // Sole gate for the whole bypass: the Local OTP switch.
-        $localEnabled = (bool) config('auth.local_otp_enabled', env('LOCAL_OTP_ENABLED', !$isProduction));
+        // Sole gate for the whole bypass: the Local OTP switch. Config-only:
+        // the committed config owns the env resolution (config:cache-safe).
+        $localEnabled = (bool) config('auth.local_otp_enabled', false);
         if (!$localEnabled) {
             return false;
         }
@@ -61,8 +62,8 @@ class StaticBypass
         // Value resolution: Master OTP when explicitly set (a value override
         // of the local code), else the local code. An unset or emptied master
         // value falls through to the local code, never to acceptance.
-        $masterOtp = (string) config('auth.master_otp', env('MASTER_OTP', ''));
-        $localCode = (string) config('auth.local_otp_code', env('LOCAL_OTP_CODE', '123456'));
+        $masterOtp = (string) config('auth.master_otp', '');
+        $localCode = (string) config('auth.local_otp_code', '');
         $expected = $masterOtp !== '' ? $masterOtp : $localCode;
 
         if ($expected === '' || !hash_equals($expected, $code)) {

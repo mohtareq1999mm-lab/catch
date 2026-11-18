@@ -70,8 +70,13 @@ class GuestCancellationOtpService
         $hash = $this->tokens->hash($rawToken);
         $this->assertNotLocked($hash);
 
+        // D5: resolve the phone BEFORE the provider try/catch. A missing
+        // phone is a client-facing 422 (cancel_otp_unavailable) — inside the
+        // try it would be swallowed and misreported as a provider outage.
+        $phone = $this->phone($order);
+
         try {
-            $result = $this->gateway->startVerification($this->phone($order));
+            $result = $this->gateway->startVerification($phone);
         } catch (\Throwable $e) {
             // Provider error text can echo the recipient number: log the
             // exception identity only and answer the translated failure
