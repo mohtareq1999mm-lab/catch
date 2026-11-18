@@ -7,10 +7,16 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Marvel\Services\Import\SsrfGuard;
+use Marvel\Services\Import\UnsafeImageUrlException;
 use Spatie\MediaLibrary\HasMedia;
 
 class UrlImageHandler
 {
+    public function __construct(private SsrfGuard $ssrfGuard)
+    {
+    }
+
     protected array $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
 
     protected int $maxFileSize = 5 * 1024 * 1024;
@@ -205,44 +211,13 @@ class UrlImageHandler
         if (!$host || !in_array(strtolower($scheme), ['http', 'https'], true)) {
             throw new Exception('URL must be http/https with host');
         }
-        $ips = $this->resolveHost($host);
-        foreach ($ips as $ip) {
-            if ($this->isBlockedIp($ip)) {
-                throw new Exception('URL resolves to private/reserved IP');
-            }
+        try {
+            $this->ssrfGuard->assertResolvablePublicHost($host);
+        } catch (UnsafeImageUrlException $e) {
+            // Preserve this path's failure mode; the POLICY lives in the
+            // shared guard (the strictest of the two former per-path rules).
+            throw new Exception('URL resolves to private/reserved IP');
         }
-    }
-
-    protected function resolveHost(string $host): array
-    {
-        $ips = [];
-        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
-        if (is_array($records)) {
-            foreach ($records as $rec) {
-                if (!empty($rec['ip'])) $ips[] = $rec['ip'];
-                if (!empty($rec['ipv6'])) $ips[] = $rec['ipv6'];
-            }
-        }
-        if (empty($ips)) {
-            $ip = gethostbyname($host);
-            if ($ip !== $host) $ips[] = $ip;
-        }
-        return array_unique(array_filter($ips));
-    }
-
-    protected function isBlockedIp(string $ip): bool
-    {
-        if (!filter_var($ip, FILTER_VALIDATE_IP)) return true;
-        // Block private, reserved, loopback, link-local, multicast, unspecified
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-            return true;
-        }
-        // Additional explicit blocks
-        $blockedPrefixes = ['0.', '169.254.', '192.0.2.', '198.51.100.', '203.0.113.', '::1', 'fe80:', 'fc00:', 'ff00:'];
-        foreach ($blockedPrefixes as $prefix) {
-            if (str_starts_with($ip, $prefix)) return true;
-        }
-        return false;
     }
 
     protected function resolveRedirectUrl(string $baseUrl, string $location): string

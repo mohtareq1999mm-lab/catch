@@ -106,7 +106,7 @@ final class ImageImporter
     private function handler(): UrlImageHandler
     {
         if ($this->urlHandler === null) {
-            $this->urlHandler = new UrlImageHandler();
+            $this->urlHandler = new UrlImageHandler(new SsrfGuard());
         }
 
         return $this->urlHandler;
