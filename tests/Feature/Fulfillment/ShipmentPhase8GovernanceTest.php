@@ -12,6 +12,7 @@ use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
@@ -300,7 +301,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         // Unauthenticated force: refused (permission message is localized,
         // so only the loud refusal itself is asserted).
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id, true, 'recovery', null, true, [], false, false, true);
+            app(OrderTransitionService::class)->forceDeliver($order, 'recovery');
             $this->fail('unauthenticated force must be refused');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -313,7 +314,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $plain = User::factory()->create(['type' => 'customer']);
         Sanctum::actingAs($plain);
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id, true, 'recovery', null, true, [], false, false, true);
+            app(OrderTransitionService::class)->forceDeliver($order, 'recovery');
             $this->fail('unpermitted force must be refused');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -326,7 +327,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $admin = $this->makeAdminWith('update-order-status');
         Sanctum::actingAs($admin);
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id, true, null, null, true, [], false, false, true);
+            app(OrderTransitionService::class)->forceDeliver($order, '');
             $this->fail('reasonless force must be refused');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -343,9 +344,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $admin = $this->makeAdminWith('update-order-status');
         Sanctum::actingAs($admin);
 
-        $result = app(OrderService::class)->changeOrderStatus(
-            null, 'delivered', $order->id, true, 'service recovery #42', null, true, [], false, false, true
-        );
+        $result = app(OrderTransitionService::class)->forceDeliver($order, 'service recovery #42');
 
         $this->assertNotFalse($result);
         $this->assertEquals('delivered', $order->refresh()->status);

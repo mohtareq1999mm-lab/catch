@@ -388,16 +388,13 @@ trait PaymentTrait
                     app(\App\Services\Inventory\OrderReservationService::class)->commit($lockedOrder);
                     
                     // Finalize promotion (idempotent via promotion_consumed check)
-                    app(\App\Services\General\OrderService::class)->finalizePromotionUsageAfterPayment($lockedOrder);
+                    app(\App\Services\Order\OrderTransitionService::class)->finalizePromotionUsageAfterPayment($lockedOrder);
                     
                     // Complete order (triggers coupon redemption, events)
                     // emitPaymentSuccess=false: webhook owns the PaymentSucceeded event
-                    app(\App\Services\General\OrderService::class)->changeOrderStatus(
-                        null,
-                        'completed',
-                        $lockedOrder->id,
-                        false  // emitPaymentSuccess
-                    );
+                    // assertPaymentAuthority=true: parity with the pre-intent default —
+                    // an authenticated actor without payments.mark_paid stays refused.
+                    app(\App\Services\Order\OrderTransitionService::class)->completeFromGateway($lockedOrder, true);
                 });
                 
                 // Fire event after transaction commits

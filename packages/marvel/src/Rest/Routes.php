@@ -529,7 +529,7 @@ Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admi
     Route::get('{orderId}/shipment', [AdminShipmentController::class, 'show'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDERS_SHIPMENT_SHOW)->name('api.admin.orders.shipment.show');
     Route::post('{orderId}/shipment/update-status', [AdminShipmentController::class, 'updateStatus'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDERS_SHIPMENT_UPDATE_STATUS)->name('api.admin.orders.shipment.update-status');
     // P9-7: during-fulfillment order cancellation. The sole writer is
-    // OrderService::changeOrderStatus (Order Flow authority); warehouse scope
+    // OrderTransitionService (Order Flow authority); warehouse scope
     // is enforced in-controller (fail-closed when the order spans warehouses).
     Route::post('{orderId}/cancel', [\App\Http\Controllers\Api\Admin\Wms\OrderCancellationController::class, 'cancel'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_CANCEL_DURING_FULFILLMENT)->name('api.admin.orders.cancel');
 });

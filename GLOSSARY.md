@@ -78,6 +78,10 @@ _Avoid_: cart transfer, migration
 An order created by the guest flow and owned by a Guest Identity. It carries the guest's contact details and is reachable only through the Guest Credential or its tokens.
 _Avoid_: anonymous order, guest account order
 
+**Order Transition**:
+A single authorized change of an Order's lifecycle status, carrying its flow gate, payment authority, inventory reservation/restore, coupon and promotion consequences, status history, and lifecycle events. Named by intent at the call site; executed by one executor.
+_Avoid_: status update, status change, status set
+
 **Tracking Token**:
 The capability secret behind the private tracking link: whoever holds it can view one specific guest order. Delivered to the guest's contact points after checkout, valid through the order lifecycle plus a fixed grace window, and never a proof for cancellation or account access.
 _Avoid_: tracking id, order link, public token

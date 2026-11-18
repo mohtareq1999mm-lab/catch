@@ -12,6 +12,7 @@ use App\Services\Inventory\OrderReservationService;
 use App\Services\Coupon\CouponCalculator;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\General\PromotionService;
 use App\Services\Invoice\InvoiceNumberService;
 use App\Services\Invoice\InvoiceSnapshotService;
@@ -698,17 +699,17 @@ class ProductionReadinessAuditTest extends TestCase
         $cart->update(['coupon' => $coupon->code]);
         $order = $this->simulateCheckout($cart);
 
-        // Call recordCouponUsage (via OrderService)
-        $orderService = app(OrderService::class);
-        $ref = new \ReflectionMethod($orderService, 'recordCouponUsage');
+        // Call recordCouponUsage (via the transition module)
+        $transitions = app(OrderTransitionService::class);
+        $ref = new \ReflectionMethod($transitions, 'recordCouponUsage');
         $ref->setAccessible(true);
-        $ref->invoke($orderService, $order);
+        $ref->invoke($transitions, $order);
 
         // First call: usage should be 1
         $this->assertEquals(1, $coupon->fresh()->used);
 
         // Second call: should not increment
-        $ref->invoke($orderService, $order);
+        $ref->invoke($transitions, $order);
         $this->assertEquals(1, $coupon->fresh()->used);
     }
 
@@ -739,10 +740,10 @@ class ProductionReadinessAuditTest extends TestCase
         $cart->update(['coupon' => $coupon->code]);
         $order = $this->simulateCheckout($cart);
 
-        $orderService = app(OrderService::class);
-        $ref = new \ReflectionMethod($orderService, 'recordCouponUsage');
+        $transitions = app(OrderTransitionService::class);
+        $ref = new \ReflectionMethod($transitions, 'recordCouponUsage');
         $ref->setAccessible(true);
-        $ref->invoke($orderService, $order);
+        $ref->invoke($transitions, $order);
 
         $this->assertEquals(1, $coupon->fresh()->used);
         $this->assertEquals(1, $assignment->fresh()->used);
@@ -754,7 +755,7 @@ class ProductionReadinessAuditTest extends TestCase
         $cart2 = $this->makeCart(2);
         $cart2->update(['coupon' => $coupon->code]);
         $order2 = $this->simulateCheckout($cart2);
-        $ref->invoke($orderService, $order2);
+        $ref->invoke($transitions, $order2);
 
         $this->assertEquals(2, $coupon->fresh()->used);
         $this->assertEquals(2, $assignment->fresh()->used);

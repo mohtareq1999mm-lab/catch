@@ -48,7 +48,7 @@ class OrderResource extends JsonResource
             'payment_method' => $this->payment_method,
             // Own lifecycle state (customer-meaningful, safe to expose):
             // payment + fulfillment mirrors owned by the canonical status
-            // pipeline (changeOrderStatus) and payment callbacks.
+            // pipeline (OrderTransitionService) and payment callbacks.
             'payment_status' => $this->payment_status ?? null,
             'fulfillment_status' => $this->fulfillment_status ?? null,
             // Order Status Flow assignment (additive; null on legacy rows).

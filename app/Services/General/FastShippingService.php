@@ -5,6 +5,7 @@ namespace App\Services\General;
 use App\DTOs\CheckoutTotals;
 use App\Services\Checkout\OrderCreationService;
 use App\Services\Coupon\CouponOrchestrator;
+use App\Services\Order\OrderTransitionService;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -23,6 +24,7 @@ class FastShippingService
     public function __construct(
         private FastShippingRepository $fastShippingRepo,
         private OrderService $orderService,
+        private OrderTransitionService $orderTransitionService,
         private PromotionService $promotionService,
         private CartInventoryService $cartInventoryService,
         private OrderCreationService $orderCreationService,
@@ -151,16 +153,9 @@ class FastShippingService
                 // committed at creation) cannot be re-reserved — supersede it
                 // through the canonical cancel and create fresh below.
                 if ($pendingOrder->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
-                    $this->orderService->changeOrderStatus(
-                        null,
-                        'cancelled',
-                        $pendingOrder->id,
-                        auditReason: 'Superseded by fast re-checkout: committed pending order replaced by a fresh order',
-                        auditContext: [
-                            'trigger' => 'checkout-retry-supersede',
-                            'superseded_order_id' => $pendingOrder->id,
-                        ],
-                        skipPromotionDecrement: true,
+                    $this->orderTransitionService->cancelAsSuperseded(
+                        $pendingOrder,
+                        'Superseded by fast re-checkout: committed pending order replaced by a fresh order',
                     );
                     $pendingOrder = null;
                 }

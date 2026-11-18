@@ -12,6 +12,7 @@ use App\Http\Resources\Order\OrderResource;
 use App\Models\Invoice;
 use App\Services\General\CartInventoryService;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Inventory\OrderReservationService;
 use App\Services\Payment\PaymentCheckoutHandler;
 use App\Services\Payment\PaymentCompletionOutcome;
@@ -38,6 +39,7 @@ class OrderController extends Controller
 
     public function __construct(
         OrderService $orderService,
+        private OrderTransitionService $orderTransitionService,
         CartInventoryService $cartInventoryService,
         private OrderReservationService $orderReservationService,
         private PaymentGatewayFactory $paymentGatewayFactory,
@@ -85,7 +87,7 @@ class OrderController extends Controller
      * Narrower than staff status mutation: allowed only while the order is
      * pending/processing AND unpaid (same rule as tracking `can_cancel`).
      * Delegates to the canonical pipeline
-     * (OrderService::changeOrderStatus) so inventory release, coupon
+     * (the order-transition cancel intent) so inventory release, coupon
      * release, history, and notifications behave exactly like any other
      * cancellation — no parallel logic. Paid/completed/delivered orders
      * use support/refund paths instead (422 here, nothing mutated).
@@ -113,7 +115,7 @@ class OrderController extends Controller
         }
 
         try {
-            $cancelled = $this->orderService->changeOrderStatus(null, 'cancelled', $order->id);
+            $cancelled = $this->orderTransitionService->cancelByCustomer($order);
         } catch (\Throwable $e) {
             report($e);
 
@@ -275,7 +277,7 @@ class OrderController extends Controller
      * gateway-bypass exemption — no invoice, no redirect, no provider call).
      * The order currency must still be one the gateway claims to support, so
      * a zero-value order cannot complete in a currency no provider would
-     * settle. Canonical completion runs through changeOrderStatus — the same
+     * settle. Canonical completion runs through OrderTransitionService — the same
      * path as manual mark-paid — so inventory, coupons, promotions, invoice,
      * and the PaymentSucceeded lifecycle behave identically.
      */

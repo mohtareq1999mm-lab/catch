@@ -3,6 +3,7 @@
 namespace App\Services\General;
 
 use App\Exceptions\FlowInputValidationException;
+use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -16,10 +17,10 @@ use Marvel\Exceptions\MarvelBadRequestException;
  * same authority as the single-order PATCH:
  *
  *   granular target permission (OrderFlowService::assertUserCanTransitionTo)
- *     → OrderService::changeOrderStatus()  [permission, flow, inputs,
+ *     → OrderTransitionService::transitionTo()  [flow, inputs,
  *        payment guards, locking, mutation, mirror, history, side effects]
  *
- * Each order runs in ITS OWN transaction (owned by changeOrderStatus):
+ * Each order runs in ITS OWN transaction (owned by the transition executor):
  * one failure never rolls back the batch. Results are collected per order
  * with machine-readable error codes; request shape failures (422) still
  * reject the whole call at the FormRequest layer.
@@ -35,7 +36,7 @@ class OrderStatusBatchService
     public const MAX_BATCH = 50;
 
     public function __construct(
-        private OrderService $orderService,
+        private OrderTransitionService $orderTransitions,
         private OrderFlowService $flowService,
     ) {}
 
@@ -112,16 +113,7 @@ class OrderStatusBatchService
 
             // SAME authority, SAME args as the single-order PATCH
             // (payment authority asserted, common flow_values applied).
-            $mutated = $this->orderService->changeOrderStatus(
-                null,
-                $status,
-                $order->id,
-                true,
-                null,
-                null,
-                true,
-                $flowValues
-            );
+            $mutated = $this->orderTransitions->transitionTo($order, $status, $flowValues);
 
             if (!$mutated) {
                 return $this->failure($orderId, 'internal_error', __('message.ERROR.SOMETHING_WENT_WRONG'));

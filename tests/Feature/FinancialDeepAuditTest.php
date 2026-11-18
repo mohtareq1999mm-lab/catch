@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\General\PromotionService;
 use App\Services\Coupon\CouponCalculator;
 use App\Services\Coupon\CouponOrchestrator;
@@ -325,9 +326,10 @@ class FinancialDeepAuditTest extends TestCase
         $this->assertNotNull($order);
 
         $order->update(['status' => 'completed']);
-        $ref = new \ReflectionMethod($os, 'recordCouponUsage');
+        $transitions = app(OrderTransitionService::class);
+        $ref = new \ReflectionMethod($transitions, 'recordCouponUsage');
         $ref->setAccessible(true);
-        $ref->invoke($os, $order);
+        $ref->invoke($transitions, $order);
 
         $coupon->refresh();
         $assignment->refresh();
