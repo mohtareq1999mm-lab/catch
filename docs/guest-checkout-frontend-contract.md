@@ -379,46 +379,53 @@ Invalid, expired, revoked, and foreign tokens are indistinguishable (`404`).
 
 ## 8. Guest cancellation (no cookie required, two steps)
 
-Cancellation is a **two-step OTP flow**:
+Cancellation is a **two-step OTP flow**. The verification state is provider-managed
+server-side: the client never receives credential material.
 
 ### Step 1 — request the cancellation code
 
-`POST /api/v1/general/guest/orders/cancel/request-otp`
+`POST /api/v1/general/guest/orders/cancellation-otp`
 
 ```json
-{ "token": "<cancellation_token>", "phone_number": "<optional: digits to match>" }
+{ "token": "<cancellation_token>" }
 ```
 
-- the single-use token is the only credential; `phone_number` is optional — when
-  present, its digits must match the phone recorded on the order (`422` `phone_mismatch` otherwise);
-- validates the same policy as step 2 **without consuming the token**:
-  invalid token → `404` (`cancel_link_invalid`), already used → `422` (`cancel_link_used`),
-  expired → `422` (`cancel_link_expired`), not cancellable → `422`
+- the single-use token is the only credential (no phone echo, no OTP id in the
+  response);
+- validates the same policy as step 2 **without consuming the token**: unknown,
+  already-used and expired links answer identically with `404`
+  (`cancel_link_invalid` — anti-enumeration), not cancellable → `422`
   (`checkout.order_cancel_not_allowed`), unresolved payment attempt → `409`
-  (`checkout.order_payment_in_progress`), no phone on the order → `422` (`cancel_no_phone`);
-- dispatch failure → `502` (`otp_send_failed`) — nothing was consumed.
+  (`checkout.order_payment_in_progress`), no phone on the order → `422`
+  (`cancel_otp_unavailable`);
+- provider dispatch failure → `502` (`cancel_otp_failed`) — nothing was consumed
+  and no state is stored.
 
-Response `200`: `{ data: { otp_id, provider, phone: "<masked>" } }`.
+Response `200`: `{ data: { expires_in } }` — the code's TTL in seconds
+(default 600).
 
 ### Step 2 — confirm the cancellation
 
 `POST /api/v1/general/guest/orders/cancel`
 
 ```json
-{ "token": "<cancellation_token>", "code": "<otp code>", "otp_id": "<from step 1, optional>" }
+{ "token": "<cancellation_token>", "code": "<otp code>" }
 ```
 
-- `code` is required (4–10 chars); `otp_id` is optional but recommended for
-  provider-managed verifications;
-- a wrong code → `422` (`invalid_otp`) and consumes **one** of 5 attempts per token;
-  after 5 failed code attempts the token is locked out → `429`
-  (`message.too_many_requests`, 15-minute window, cleared by a success);
-- a provider outage → `502` (`otp_send_failed`) and consumes **no** attempt;
+- `code` is required (4–64 chars);
+- a wrong code → `422` (`cancel_otp_invalid`) and consumes **one** of 5 attempts
+  per token hash; **5 failed attempts lock that token hash for 24 hours** → `429`
+  (`cancel_otp_locked`) — the lock survives fresh code requests and is not
+  lifted by a later correct code request, only by a successful verification;
+- a code request whose state is missing or expired → `422`
+  (`cancel_otp_expired`);
+- a provider outage → `502` (`cancel_otp_failed`) and consumes **no** attempt;
 - single-use: reuse returns `422` (`cancel_link_used`);
-- expired/invalid returns `404`/`422`;
+- unknown/used/expired links → `404` (`cancel_link_invalid`);
 - existing cancellation policy applies (pending/processing and unpaid);
 - an unresolved payment attempt blocks cancellation (`409`);
-- cancellation runs through the canonical status writer (inventory/coupon release included).
+- cancellation runs through the canonical status writer (inventory/coupon
+  release included).
 
 Response `200`: `{ data: { order: { order_number, status: "cancelled" } } }`.
 
@@ -426,7 +433,8 @@ Response `200`: `{ data: { order: { order_number, status: "cancelled" } } }`.
 
 With `LOCAL_OTP_ENABLED=true` outside production, the static code (`LOCAL_OTP_CODE`,
 or `MASTER_OTP` when set) cancels without a provider call. In production the static
-code is refused regardless of configuration, and the local gateway refuses entirely.
+code is refused regardless of configuration, and the local gateway refuses
+entirely (no ids, no codes, no receipts).
 
 ---
 
@@ -460,8 +468,8 @@ code is refused regardless of configuration, and the local gateway refuses entir
 | Checkout | `guest_checkout` | 6 / guest-or-IP |
 | Payment initiation | `guest_payment` | 6 / guest-or-IP |
 | Public tracking | `guest_tracking` | 20 / IP |
-| Cancellation OTP request | `guest_cancel_otp` | 5 / IP |
-| Cancellation confirm | `guest_cancel` | 5 / IP |
+| Cancellation OTP request | `guest_cancel_otp` | 5 / IP + token hash |
+| Cancellation confirm | `guest_cancel` | 5 / credential-or-IP |
 
 Protected public guest endpoints **fail closed** (429) if the limiter backend is unavailable.
 Multi-server deployments must use a shared cache store (Redis) for limits to be global.
@@ -480,7 +488,7 @@ Multi-server deployments must use a shared cache store (Redis) for limits to be 
 7. redirect to data.url (online) or show COD confirmation
 8. confirmation page: GET /guest/orders/{id}; keep tracking/cancellation tokens
 9. tracking page: POST /guest/orders/track {token}
-10. cancel action: POST /guest/orders/cancel/request-otp {token} → show the code entry → POST /guest/orders/cancel {token, code, otp_id}
+10. cancel action: POST /guest/orders/cancellation-otp {token} → show the code entry → POST /guest/orders/cancel {token, code}
 ```
 
 Axios example:
