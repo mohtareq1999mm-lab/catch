@@ -35,8 +35,7 @@ use Marvel\Http\Requests\UserCreateRequest;
 use Marvel\Http\Requests\UserUpdateRequest;
 use Marvel\Http\Resources\UserResource;
 use Marvel\Mail\ContactAdmin;
-use Marvel\Otp\Gateways\OtpGateway;
-use Marvel\Otp\Gateways\LocalGateway;
+use Marvel\Otp\OtpInterface;
 use Marvel\Otp\StaticBypass;
 use Marvel\Traits\ApiResponse;
 use Marvel\Traits\UsersTrait;
@@ -1088,15 +1087,10 @@ $userCreated->providers()->updateOrCreate(
 
     protected function getOtpGateway()
     {
-        $gateway = config('auth.active_otp_gateway');
-        $gateWayClass = "Marvel\\Otp\\Gateways\\" . ucfirst($gateway) . 'Gateway';
-        try {
-            return new OtpGateway(new $gateWayClass());
-        } catch (\Throwable $e) {
-            // Log the issue and fallback to a local/testing gateway that requires no credentials
-            Log::warning('OTP gateway unavailable, falling back to LocalGateway: ' . $e->getMessage());
-            return new OtpGateway(new LocalGateway());
-        }
+        // ONE resolution for every OTP consumer: the container binding owns
+        // the ADR-0003 policy (configured provider, FailingGateway in
+        // production on misconfiguration, LocalGateway as the dev path).
+        return app(OtpInterface::class);
     }
 
     /**
