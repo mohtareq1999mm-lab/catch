@@ -13,6 +13,7 @@ Why: `.env.example` ships `MASTER_OTP=123456` unconditionally. Under the spec's 
 ## Consequences
 
 - Production can never bypass, even when the environment is misconfigured.
+- Production inertness extends to the whole Local gateway — the dev-path provider: no verification ids, no accepted static codes, no fake message receipts — so a misconfigured `ACTIVE_OTP_GATEWAY=local` cannot arm the static bypass through the provider path instead.
 - Development/testing always can, when `local_otp_enabled=true`.
 - A leaked master code is harmless in production.
 - Config hygiene: `master_otp` should default to `null` (not `'123456'`) so an unset value is distinguishable from an explicitly configured one; the accepted value resolves `MASTER_OTP` if non-empty, else `local_otp_code`.

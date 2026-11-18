@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use Database\Seeders\OrderFlowSeeder;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Tests\TestCase;
@@ -21,6 +22,7 @@ use Tests\TestCase;
  */
 class OrderNumberGenerationTest extends TestCase
 {
+    use DatabaseTransactions;
     protected function setUp(): void
     {
         parent::setUp();
@@ -36,7 +38,8 @@ class OrderNumberGenerationTest extends TestCase
         $order = $this->createOrder();
 
         $this->assertMatchesRegularExpression('/^ORD-\d{8,}$/', $order->order_number);
-        $this->assertSame($order->id, (int) substr($order->order_number, 4), 'The number derives from the row id, matching the historical backfill format.');
+        $prefixLength = strlen('ORD-');
+        $this->assertSame($order->id, (int) substr($order->order_number, $prefixLength), 'The number derives from the row id, matching the historical backfill format.');
 
         // Persistence, not the accessor: the column itself must carry the
         // value (raw DB read bypasses getOrderNumberAttribute's fallback,

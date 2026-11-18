@@ -361,8 +361,9 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
      *
      * NOTE: the provider fake is bound BEFORE any cancel-route usage —
      * Route::getController() caches the controller (and its whole service
-     * graph) on the route object for the process lifetime, so bindings
-     * made after a route's first request never reach it.
+     * graph) on the route object for the application's lifetime (the app is
+     * fresh per test), so bindings made after a route's first request never
+     * reach it.
      */
     /** @test */
     public function production_rejects_the_static_bypass_but_accepts_a_provider_code(): void

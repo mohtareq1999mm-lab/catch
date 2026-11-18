@@ -2,6 +2,7 @@
 
 namespace Marvel\Otp\Gateways;
 
+use Illuminate\Support\Facades\Log;
 use Marvel\Otp\OtpInterface;
 use Marvel\Otp\Result;
 
@@ -14,12 +15,7 @@ class LocalGateway implements OtpInterface
 
     public function startVerification($phone_number)
     {
-        // ADR-0003: the Local gateway is a credential-free dev/test fake. In
-        // production it must be inert — no static ids, nothing a client could
-        // treat as a delivered code — so a misconfigured environment surfaces
-        // as a failed dispatch instead of arming a static bypass through the
-        // provider path.
-        if (app()->isProduction()) {
+        if ($this->inertInProduction()) {
             return new Result(['Local OTP gateway is disabled in production']);
         }
 
@@ -38,7 +34,31 @@ class LocalGateway implements OtpInterface
 
     public function sendSms($phone_number, $messageBody)
     {
+        if ($this->inertInProduction()) {
+            return new Result(['Local OTP gateway is disabled in production']);
+        }
+
         return new Result('local-message-sent');
+    }
+
+    /**
+     * ADR-0003: the Local gateway is a credential-free dev/test fake whose
+     * every answer is a static value. In production it must be INERT — no
+     * static ids, no accepted codes, no fake message receipts — so a
+     * misconfigured environment surfaces as a failed dispatch instead of
+     * arming a static bypass through the provider path. The refusal is
+     * logged once per call: deterministic, but ops must be able to see
+     * why production cancellations are failing.
+     */
+    private function inertInProduction(): bool
+    {
+        if (!app()->isProduction()) {
+            return false;
+        }
+
+        Log::warning('The Local OTP gateway is inert in production (ADR-0003): a misconfigured environment is surfacing as failed dispatches.');
+
+        return true;
     }
 
     /**
@@ -55,7 +75,7 @@ class LocalGateway implements OtpInterface
         // same rule to the bypass path; this closes the provider path so
         // selecting the local gateway in production cannot become the
         // bypass loophole.
-        if (app()->isProduction()) {
+        if ($this->inertInProduction()) {
             return false;
         }
 

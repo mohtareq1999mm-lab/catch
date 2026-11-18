@@ -84,4 +84,19 @@ class OtpLocalGatewayTest extends TestCase
 
         $this->assertFalse($result->isValid(), 'The local gateway must not hand out verification ids in production.');
     }
+
+    /**
+     * Total inertness (ADR-0003): a fake message receipt in production
+     * would let a caller believe a delivery happened when nothing left the
+     * machine. Every LocalGateway answer is refused in production.
+     *
+     * @test */
+    public function it_never_reports_a_sent_sms_in_production()
+    {
+        $this->app['env'] = 'production';
+
+        $result = (new LocalGateway())->sendSms('+2011185151', 'anything');
+
+        $this->assertFalse($result->isValid(), 'The local gateway must not hand out fake message receipts in production.');
+    }
 }
