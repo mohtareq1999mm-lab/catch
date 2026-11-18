@@ -11,7 +11,6 @@ use App\Services\Payment\PaymentAttemptLifecycleService;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Order;
-use Marvel\Otp\Gateways\OtpGateway;
 use Marvel\Otp\OtpInterface;
 use Marvel\Otp\Result;
 use Marvel\Otp\StaticBypass;
@@ -88,9 +87,9 @@ class GuestCancellationOtpTest extends TestCase
     }
 
     /** A stubbed gateway returning a canned Result for both OTP calls. */
-    private function fakeGateway(\Closure $outcomes): OtpGateway
+    private function fakeGateway(\Closure $outcomes): OtpInterface
     {
-        return new OtpGateway(new class($outcomes) implements OtpInterface {
+        return new class($outcomes) implements OtpInterface {
             public function __construct(private \Closure $outcomes)
             {
             }
@@ -109,7 +108,7 @@ class GuestCancellationOtpTest extends TestCase
             {
                 return new Result(['not used by this fake']);
             }
-        });
+        };
     }
 
     /**
