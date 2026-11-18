@@ -8,11 +8,11 @@ use Marvel\Database\Models\Import;
 use Throwable;
 
 /**
- * The ONE run-lifecycle chassis for the import jobs (architecture review,
- * candidate 3): heartbeat + signal-file hygiene, workbook resolution
- * across the legacy disks, workbook cleanup, and exception-message
- * sanitization — previously byte-identical private copies in every job
- * (with one comment drift), now a single definition.
+ * The ONE run-lifecycle chassis for the import jobs: heartbeat +
+ * signal-file hygiene, workbook resolution across the legacy disks,
+ * workbook cleanup, and exception-message sanitization — previously
+ * byte-identical private copies in every job (with one comment drift),
+ * now a single definition.
  *
  * Contract: the consuming job exposes the row id as `$this->importId`
  * (int). Workbook cleanup delegates to DeletesImportFile, the existing
