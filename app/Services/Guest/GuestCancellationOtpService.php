@@ -82,11 +82,14 @@ class GuestCancellationOtpService
                 'code' => $e->getCode(),
             ]);
 
-            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 422);
+            // A provider outage is a failed dispatch (502), not a client
+            // mistake — and it consumes nothing (#88 classification).
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 502);
         }
 
         if (!$result?->isValid()) {
-            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 422);
+            // A provider-refused dispatch is a failed dispatch too: 502.
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 502);
         }
 
         Cache::put($this->stateKey($hash), [
@@ -141,7 +144,7 @@ class GuestCancellationOtpService
                 'code' => $e->getCode(),
             ]);
 
-            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 422);
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 502);
         }
 
         if ($result->isValid()) {
@@ -149,6 +152,12 @@ class GuestCancellationOtpService
             Cache::forget($this->stateKey($hash));
 
             return 'otp';
+        }
+
+        if ($result->isProviderError()) {
+            // A provider outage is not a guess: 502 without burning one of
+            // the five attempts (#88 classification).
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_otp_failed'), 502);
         }
 
         $this->recordFailure($hash);

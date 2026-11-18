@@ -352,7 +352,7 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
     }
 
     /** @test */
-    public function production_rejects_the_static_bypass_but_accepts_a_provider_code(): void
+    public function production_rejects_the_static_bypass_and_the_inert_local_gateway_fails_closed(): void
     {
         $data = $this->createGuestOrder('cod');
         $token = $data['cancellation_token'];
@@ -371,9 +371,15 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
             'A production static-bypass attempt must not cancel.'
         );
 
-        // A provider-verified code still works in production.
-        $this->requestCode($token)->assertOk();
-        $this->cancelWithCode($token, '654321')->assertOk();
+        // The Local gateway is inert in production (#88): a code request
+        // through it is a failed dispatch (502), never a fake success.
+        $this->requestCode($token)->assertStatus(502);
+        $this->cancelWithCode($token, '654321')->assertStatus(422);
+        $this->assertNotSame(
+            Order::ORDER_STATUS_CANCELLED,
+            $data['order']->fresh()->status,
+            'A production code that was never delivered must not cancel.'
+        );
     }
 
     /** @test */
@@ -381,14 +387,15 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
     {
         $data = $this->createGuestOrder('cod');
 
-        // A misconfigured provider in production must surface as a LOUD 422:
-        // the pre-#89-review binding silently substituted the LocalGateway,
-        // whose answer looks like a successful send while nothing was sent.
+        // A misconfigured provider in production must surface as a LOUD 502
+        // failed dispatch (#88 classification): the pre-#89-review binding
+        // silently substituted the LocalGateway, whose answer looks like a
+        // successful send while nothing was sent.
         $this->app['env'] = 'production';
         config(['auth.active_otp_gateway' => 'nonexistent']);
 
         $this->requestCode($data['cancellation_token'])
-            ->assertStatus(422)
+            ->assertStatus(502)
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', __('guest_checkout.cancel_otp_failed'));
 
@@ -421,7 +428,7 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
         $this->app->instance(\Marvel\Otp\Gateways\OtpGateway::class, $gateway);
 
         $this->requestCode($token)
-            ->assertStatus(422)
+            ->assertStatus(502)
             ->assertJsonPath('message', __('guest_checkout.cancel_otp_failed'));
 
         $outageLogs = array_filter($logEvents, fn ($e) => str_contains($e['message'], 'OTP dispatch failed'));

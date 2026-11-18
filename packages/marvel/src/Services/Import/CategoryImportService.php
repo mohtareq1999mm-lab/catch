@@ -4,11 +4,9 @@ namespace Marvel\Services\Import;
 
 use App\Events\FileOperationEvent;
 use App\Services\General\CategoryHierarchyService;
-use App\Support\OperationHeartbeat;
-use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Support\Collection;
 use Marvel\Database\Models\Category;
-use Marvel\Database\Models\Import;
+use Marvel\Enums\FileOperationType;
 use Marvel\Exceptions\ImportCancelledException;
 
 /**
@@ -19,9 +17,6 @@ use Marvel\Exceptions\ImportCancelledException;
  */
 class CategoryImportService
 {
-    use BroadcastsFileOperationProgress;
-    protected const FLUSH_THRESHOLD = 20;
-
     protected ?int $importId = null;
 
     protected ?int $broadcastUserId = null;
@@ -32,15 +27,12 @@ class CategoryImportService
 
     protected CategoryHierarchyLinker $hierarchyLinker;
 
-    protected int $processedCount = 0;
-
-    protected float $currentProgress = 0.0;
-
-    protected float $startedAt;
-
-    protected int $lastTickProcessedCount = 0;
-
-    protected float $lastTickTime;
+    /**
+     * The one progress module: the category family runs the threshold
+     * protocol (explicit milestones, %-20 ticks, uncapped finalize + 100)
+     * through it.
+     */
+    protected ImportProgressReporter $progress;
 
     public function __construct(?int $importId = null)
     {
@@ -49,6 +41,13 @@ class CategoryImportService
             fn () => $this->rowWriter->failedRowCount(),
             fn () => $this->rowWriter->failedRows()
         );
+        $this->progress = new ImportProgressReporter(
+            $this->outcome,
+            $importId,
+            FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
+            FileOperationType::CATEGORY_IMPORT,
+            ImportProgressReporter::PROTOCOL_THRESHOLD,
+        );
         $onRowProcessed = fn () => $this->flushProgressTick();
         $this->rowWriter = new CategoryRowWriter($this->outcome, $onRowProcessed);
         $this->hierarchyLinker = new CategoryHierarchyLinker(
@@ -56,8 +55,6 @@ class CategoryImportService
             app(CategoryHierarchyService::class),
             $onRowProcessed
         );
-        $this->startedAt = microtime(true);
-        $this->lastTickTime = $this->startedAt;
     }
 
     public function processRows(Collection $rows): void
@@ -132,97 +129,27 @@ class CategoryImportService
         $this->rowWriter->assertSafeUrl($url);
     }
 
-    protected function heartbeat(): OperationHeartbeat
-    {
-        return OperationHeartbeat::for($this->importId ?? 0);
-    }
-
-    protected function writeSignal(string $type, array $data): void
-    {
-        if ($this->importId === null) {
-            return;
-        }
-
-        $this->heartbeat()->write($type, $data);
-    }
-
-    protected function isCancelled(): bool
-    {
-        if ($this->importId === null) {
-            return false;
-        }
-
-        return $this->heartbeat()->cancelRequested();
-    }
-
     public function writeExplicitProgress(float $progress): void
     {
-        $this->currentProgress = $progress;
-        $this->lastTickProcessedCount = $this->outcome->successCount() + $this->outcome->failedCount();
-        $this->lastTickTime = microtime(true);
-
-        $this->publishProgress($progress);
-    }
-
-    protected function flushProgressTick(): void
-    {
-        $this->processedCount = $this->outcome->successCount() + $this->outcome->failedCount();
-
-        if ($this->processedCount % self::FLUSH_THRESHOLD !== 0) {
-            return;
-        }
-
-        $this->publishProgress($this->currentProgress);
+        $this->progress->explicit($progress);
     }
 
     public function finalizeProgress(): void
     {
-        if ($this->importId === null) {
-            return;
-        }
-
-        $this->processedCount = $this->outcome->successCount() + $this->outcome->failedCount();
-
-        if ($this->isCancelled()) {
-            throw new ImportCancelledException();
-        }
-
-        Import::where('id', $this->importId)->update([
-            'processed_rows' => $this->processedCount,
-            'success_rows' => $this->outcome->successCount(),
-            'failed_rows' => $this->outcome->failedCount(),
-        ]);
-
-        $this->publishProgress(100.0);
+        $this->progress->finalize();
     }
 
     /**
-     * Persist the progress snapshot to the signal file and broadcast it to the
-     * importing user's private channel in real time — canonical payload.
+     * Row-writer callback: the threshold protocol publishes on its own
+     * cadence.
      */
-    protected function publishProgress(float $progress): void
+    protected function flushProgressTick(): void
     {
-        $data = [
-            'processed_rows' => $this->outcome->successCount() + $this->outcome->failedCount(),
-            'success_rows' => $this->outcome->successCount(),
-            'failed_rows' => $this->outcome->failedCount(),
-            'progress' => $progress,
-        ];
+        $this->progress->flush();
+    }
 
-        $this->writeSignal('progress', $data);
-
-        if ($this->importId === null) {
-            return;
-        }
-
-        $this->broadcastFileOperationProgress(
-            FileOperationEvent::CATEGORY_IMPORT_PROGRESS,
-            'category-import',
-            (int) $this->importId,
-            $progress,
-            $this->outcome->successCount() + $this->outcome->failedCount(),
-            $this->outcome->successCount(),
-            $this->outcome->failedCount()
-        );
+    public function isCancelled(): bool
+    {
+        return $this->progress->isCancelled();
     }
 }

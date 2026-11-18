@@ -56,7 +56,10 @@ class TwilioGateway implements OtpInterface
 				->create($phone_number, 'sms');
 			return new Result($verification->sid);
 		} catch (TwilioException $exception) {
-			return new Result(["Verification failed to start: {$exception->getMessage()}"]);
+			// Provider-originated failure (outage/transport), not a rejected
+			// code: marked so callers can classify it as a failed dispatch
+			// instead of a wrong code.
+			return Result::providerError(["Verification failed to start: {$exception->getMessage()}"]);
 		}
 	}
 
@@ -78,7 +81,10 @@ class TwilioGateway implements OtpInterface
 			}
 			return new Result(['Verification check failed: Invalid code.']);
 		} catch (TwilioException $exception) {
-			return new Result(["Verification check failed: {$exception->getMessage()}"]);
+			// Provider-originated failure (outage/transport), not a rejected
+			// code: marked so callers can classify it as a failed dispatch
+			// instead of a wrong code.
+			return Result::providerError(["Verification check failed: {$exception->getMessage()}"]);
 		}
 	}
 
@@ -105,7 +111,9 @@ class TwilioGateway implements OtpInterface
 			);
 			return new Result($message->sid);
 		} catch (TwilioException $exception) {
-			return new Result(["Message failed to send: {$exception->getMessage()}"]);
+			// Provider-originated failure (outage/transport), not a rejected
+			// message: marked so callers can classify it as a failed dispatch.
+			return Result::providerError(["Message failed to send: {$exception->getMessage()}"]);
 		}
 	}
 }
