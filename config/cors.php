@@ -74,7 +74,7 @@ return [
     */
     'allowed_headers' => array_values(array_filter(array_map('trim', explode(',', env(
         'CORS_ALLOWED_HEADERS',
-        'Content-Type,Accept,Authorization,lang,x-channel,X-Channel,X-Requested-With,Origin,X-Currency,X-CSRF-Token,Idempotency-Key,X-Idempotency-Key,x-idempotency-key'
+        'Content-Type,Accept,Authorization,lang,x-channel,X-Channel,X-Requested-With,Origin,X-Currency,X-CSRF-Token,Idempotency-Key,X-Idempotency-Key,x-idempotency-key,X-Guest-Token,x-guest-token'
     ))))),
 
     'exposed_headers' => array_values(array_filter(array_map(

@@ -12,6 +12,7 @@ enum GuestCartRejectionReason: string
 {
     case PRODUCT_UNAVAILABLE = 'product_unavailable';
     case DIGITAL_NOT_SUPPORTED = 'digital_not_supported';
+    case FAST_SHIPPING_NOT_ELIGIBLE = 'fast_shipping_not_eligible';
     case FAST_SHIPPING_NOT_SUPPORTED = 'fast_shipping_not_supported';
     case VARIANT_REQUIRED = 'variant_required';
     case VARIANT_UNAVAILABLE = 'variant_unavailable';

@@ -794,4 +794,93 @@ class GuestCartMergeTest extends GuestCheckoutTestCase
         $this->assertSame(100.0, (float) $line->price);
         $this->assertSame(200.0, (float) $line->total_price);
     }
+
+    /** @test */
+    public function mixed_normal_and_fast_items_merge_cleanly_even_when_login_runs_under_fast_shipping_channel(): void
+    {
+        $fast = $this->makeProduct([
+            'name' => 'Fast Merge Item ' . uniqid(),
+            'slug' => 'fast-merge-item-' . uniqid(),
+            'is_fast_shipping_available' => true,
+        ]);
+
+        $this->startGuestSession();
+
+        // Add normal item (scheduled) and fast item (fast)
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        $this->addToGuestCart([
+            'product_id' => $fast->id,
+            'quantity' => 2,
+            'shipping_method' => 'fast',
+        ])->assertCreated();
+
+        $user = $this->makeUser();
+
+        // Login while X-Channel: fast-shipping is active
+        $response = $this->asGuest()
+            ->withHeaders(['X-Channel' => 'fast-shipping'])
+            ->postJson('/api/v1/token', [
+                'email' => $user->email,
+                'password' => 'password',
+            ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.guest_cart_merge.status', 'merged')
+            ->assertJsonPath('data.guest_cart_merge.added_items', 2)
+            ->assertJsonPath('data.guest_cart_merge.unavailable_items', []);
+
+        $accountCart = $this->accountCart($user);
+        $this->assertSame(2, $accountCart->items()->count());
+        $this->assertNull($this->guestCart());
+    }
+
+    /** @test */
+    public function mobile_bearer_and_x_guest_token_header_merge_the_guest_cart_on_login(): void
+    {
+        $session = $this->withUnencryptedCookies([
+            GuestIdentityService::COOKIE => '',
+            GuestIdentityService::CSRF_COOKIE => '',
+        ])->withHeaders(['Authorization' => ''])
+            ->postJson(self::PREFIX . '/mobile/session')
+            ->assertCreated();
+
+        $mobileToken = (string) $session->json('data.token');
+
+        $this->withUnencryptedCookies([
+            GuestIdentityService::COOKIE => '',
+            GuestIdentityService::CSRF_COOKIE => '',
+        ])->withHeaders(['Authorization' => 'Bearer ' . $mobileToken])
+            ->postJson(self::PREFIX . '/cart/items', [
+                'item' => [
+                    'product_id' => $this->product->id,
+                    'quantity' => 2,
+                    'shipping_method' => 'scheduled',
+                ],
+            ])->assertCreated();
+
+        $user = $this->makeUser();
+
+        // Login passing X-Guest-Token header
+        $response = $this->withUnencryptedCookies([
+            GuestIdentityService::COOKIE => '',
+            GuestIdentityService::CSRF_COOKIE => '',
+        ])->withHeaders([
+            'Authorization' => '',
+            'X-Guest-Token' => $mobileToken,
+        ])->postJson('/api/v1/token', [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.guest_cart_merge.status', 'merged')
+            ->assertJsonPath('data.guest_cart_merge.added_items', 1);
+
+        $this->assertSame(2, (int) $this->accountCart($user)->items()->first()->quantity);
+    }
 }

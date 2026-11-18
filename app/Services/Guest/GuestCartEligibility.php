@@ -53,7 +53,7 @@ class GuestCartEligibility
         int $quantity,
         string $shippingMethod
     ): GuestEligibilityVerdict {
-        if (!$this->isActive($product)) {
+        if (!$this->isActive($product, $shippingMethod)) {
             return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE);
         }
 
@@ -81,7 +81,9 @@ class GuestCartEligibility
             return [];
         }
 
-        $products = Product::query()->active()
+        $products = Product::query()
+            ->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
+            ->active()
             ->whereIn('id', $items->pluck('product_id')->filter()->unique())
             ->get()
             ->keyBy('id');
@@ -132,18 +134,21 @@ class GuestCartEligibility
             return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED);
         }
 
-        if (
-            config('channel.enabled', true)
-            && app(ChannelContext::class)->isHome()
-            && (bool) $product->is_fast_shipping_available
-        ) {
-            return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE);
-        }
+        $normalizedMethod = strtoupper($shippingMethod ?: ShippingMethod::SCHEDULED);
 
-        // Guest checkout currently has no fast-shipping checkout path (the
-        // canonical order builder consumes SCHEDULED lines only). Reject
-        // instead of silently dropping the line later.
-        if (strtoupper($shippingMethod) !== ShippingMethod::SCHEDULED) {
+        if ($normalizedMethod === ShippingMethod::FAST) {
+            if (!(bool) $product->is_fast_shipping_available) {
+                return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::FAST_SHIPPING_NOT_ELIGIBLE);
+            }
+        } elseif ($normalizedMethod === ShippingMethod::SCHEDULED) {
+            if (
+                config('channel.enabled', true)
+                && app(ChannelContext::class)->isHome()
+                && (bool) $product->is_fast_shipping_available
+            ) {
+                return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::PRODUCT_UNAVAILABLE);
+            }
+        } else {
             return GuestEligibilityVerdict::rejected(GuestCartRejectionReason::FAST_SHIPPING_NOT_SUPPORTED);
         }
 
@@ -195,9 +200,13 @@ class GuestCartEligibility
         return GuestEligibilityVerdict::allowed($ceiling);
     }
 
-    private function isActive(Product $product): bool
+    private function isActive(Product $product, string $shippingMethod = ShippingMethod::SCHEDULED): bool
     {
-        return Product::query()->active()->whereKey($product->id)->exists();
+        return Product::query()
+            ->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
+            ->active()
+            ->whereKey($product->id)
+            ->exists();
     }
 
     /** Known product ceiling, or null for unlimited/unknown. */

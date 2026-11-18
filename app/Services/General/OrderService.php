@@ -226,10 +226,25 @@ class OrderService
 
         try {
             $order = DB::transaction(function () use ($request, &$checkoutTotals, $ownedCart, $guestId) {
+                $requestedMethod = strtoupper((string) ($request->input('shipping_method') ?? ''));
+                $shippingMethod = null;
+
+                if ($requestedMethod === ShippingMethod::FAST) {
+                    $shippingMethod = ShippingMethod::FAST;
+                } elseif ($requestedMethod === ShippingMethod::SCHEDULED) {
+                    $shippingMethod = ShippingMethod::SCHEDULED;
+                } elseif ($ownedCart) {
+                    $hasScheduled = $ownedCart->items()->where('shipping_method', ShippingMethod::SCHEDULED)->exists();
+                    $hasFast = $ownedCart->items()->where('shipping_method', ShippingMethod::FAST)->exists();
+                    $shippingMethod = (!$hasScheduled && $hasFast) ? ShippingMethod::FAST : ShippingMethod::SCHEDULED;
+                } else {
+                    $shippingMethod = ShippingMethod::SCHEDULED;
+                }
+
                 $cartQuery = Cart::query()
                     ->where('status', 'active')
                     ->lockForUpdate()
-                    ->with(['items' => fn($q) => $q->where('shipping_method', ShippingMethod::SCHEDULED), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant']);
+                    ->with(['items' => fn($q) => $q->where('shipping_method', $shippingMethod), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant']);
 
                 if ($ownedCart) {
                     $cartQuery->whereKey($ownedCart->id);
@@ -245,7 +260,7 @@ class OrderService
                     throw new \App\Exceptions\CartEmptyException(CART_NOT_FOUND);
                 }
 
-            $this->refreshCartItemPrices($cart);
+            $this->refreshCartItemPrices($cart, $shippingMethod);
             $this->assertCartProductsActive($cart);
 
             $freeShippingCoupon = false;
@@ -289,7 +304,7 @@ class OrderService
                 $cart,
                 $selectedPromotionId ? (int) $selectedPromotionId : null,
                 $selectedGiftProductId ? (int) $selectedGiftProductId : null,
-                ShippingMethod::SCHEDULED,
+                $shippingMethod,
             );
 
             $minimumOrderAmount = (float) (Settings::first()?->minimum_order_amount ?? 0);
@@ -383,7 +398,7 @@ class OrderService
                 // committed pending order was superseded above.)
                 if ($pendingOrder) {
                     $order = $this->orderCreationService->updateOrder(
-                        $pendingOrder, $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
+                        $pendingOrder, $orderData, $cart, $checkoutTotals, $shippingMethod, null, null, $shippingPrice, $governorateId,
                     );
 
                     // Release old reservation before creating new one
@@ -435,7 +450,7 @@ class OrderService
                     $checkoutFlowCode = null;
                 }
                 $order = $this->orderCreationService->createOrder(
-                    $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
+                    $orderData, $cart, $checkoutTotals, $shippingMethod, null, null, $shippingPrice, $governorateId,
                     $request->input('shipping_type'),
                     $checkoutFlowId,
                     $checkoutFlowCode,
@@ -486,7 +501,7 @@ class OrderService
 
             // Reservation succeeded — the ordered slice leaves the cart.
             // The cart row itself always survives as a reusable container.
-            $this->cartInventoryService->clearCheckedOutSlice($cart, ShippingMethod::SCHEDULED);
+            $this->cartInventoryService->clearCheckedOutSlice($cart, $shippingMethod);
 
             return $order->load(['orderItems.product', 'orderItems.productVariant']);
             });
@@ -667,10 +682,10 @@ class OrderService
         return CouponCalculator::calculate($coupon, (float) $totalPrice);
     }
 
-    private function refreshCartItemPrices(Cart $cart): void
+    private function refreshCartItemPrices(Cart $cart, string $shippingMethod = ShippingMethod::SCHEDULED): void
     {
         $pricingService = app(ProductPricingService::class);
-        $cart->load(['items.product', 'items.productVariant']);
+        $cart->load(['items' => fn($q) => $q->where('shipping_method', $shippingMethod), 'items.product', 'items.productVariant']);
 
         foreach ($cart->items as $item) {
             if ($item->is_gift) {
@@ -695,7 +710,7 @@ class OrderService
         }
 
         $cart->refresh();
-        $cart->load(['items' => fn($q) => $q->where('shipping_method', ShippingMethod::SCHEDULED), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant']);
+        $cart->load(['items' => fn($q) => $q->where('shipping_method', $shippingMethod), 'items.product.flash_sales' => fn($q) => $q->valid(), 'items.productVariant']);
     }
 
     /**
@@ -784,6 +799,7 @@ class OrderService
 
         // Load products for direct tax rate
         $products = Product::query()
+            ->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
             ->whereIn('id', $lines->pluck('product_id')->filter()->unique()->values())
             ->get()
             ->keyBy('id');
@@ -1890,7 +1906,11 @@ class OrderService
         if ($productIds->isEmpty()) {
             return;
         }
-        $activeCount = Product::query()->active()->whereIn('id', $productIds)->count();
+        $activeCount = Product::query()
+            ->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
+            ->active()
+            ->whereIn('id', $productIds)
+            ->count();
         if ($activeCount !== $productIds->count()) {
             // NOTE: __('product.not_available') has no product.php catalogue
             // and would leak as a raw key — the cart-level sentence is used.

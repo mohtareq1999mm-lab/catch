@@ -67,7 +67,13 @@ class CartItemResource extends Resource
             return ['available' => false, 'reason' => 'product_unavailable'];
         }
 
-        if (
+        $normalizedMethod = strtoupper((string) ($this->shipping_method ?? \Marvel\Enums\ShippingMethod::SCHEDULED));
+
+        if ($normalizedMethod === \Marvel\Enums\ShippingMethod::FAST) {
+            if (!(bool) $product->is_fast_shipping_available) {
+                return ['available' => false, 'reason' => 'fast_shipping_not_eligible'];
+            }
+        } elseif (
             config('channel.enabled', true)
             && app(ChannelContext::class)->isHome()
             && (bool) $product->is_fast_shipping_available

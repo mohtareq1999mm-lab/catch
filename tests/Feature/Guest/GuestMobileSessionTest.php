@@ -125,10 +125,10 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         $this->assertIsString($new);
         $this->assertNotSame($old, $new);
 
-        // Old token: no longer resolves to the identity (cart invisible).
+        // Old token: no longer resolves to the identity (rejected with 401).
         $this->asBearer($old)->getJson(self::PREFIX . '/cart')
-            ->assertOk()
-            ->assertJsonPath('data.cart', null);
+            ->assertStatus(401)
+            ->assertJsonPath('success', false);
 
         // New token: same identity, same cart.
         $this->asBearer($new)->getJson(self::PREFIX . '/cart')
@@ -154,8 +154,8 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         $this->assertNotNull($row->revoked_at);
 
         $this->asBearer($token)->getJson(self::PREFIX . '/cart')
-            ->assertOk()
-            ->assertJsonPath('data.cart', null);
+            ->assertStatus(401)
+            ->assertJsonPath('success', false);
     }
 
     public function test_revocation_clears_cookies_when_the_request_carried_them(): void
@@ -192,10 +192,10 @@ class GuestMobileSessionTest extends GuestCheckoutTestCase
         GuestIdentity::query()->findOrFail($this->currentGuestId())
             ->forceFill(['expires_at' => now()->subMinute()])->save();
 
-        // Expired token is no longer usable.
+        // Expired token is no longer usable (returns 401 on cart read).
         $this->asBearer($expired)->getJson(self::PREFIX . '/cart')
-            ->assertOk()
-            ->assertJsonPath('data.cart', null);
+            ->assertStatus(401)
+            ->assertJsonPath('success', false);
 
         $fresh = $this->asBearer($expired)->postJson(self::PREFIX . '/mobile/session');
         $fresh->assertCreated();

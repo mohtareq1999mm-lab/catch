@@ -28,6 +28,11 @@ class GuestCancellationService
     ) {
     }
 
+    public function isValidTokenFormat(?string $token): bool
+    {
+        return $this->tokenService->isValidTokenFormat($token);
+    }
+
     /**
      * Initiate cancellation by validating the token and dispatching an OTP.
      * Does NOT consume the token and does NOT cancel the order.

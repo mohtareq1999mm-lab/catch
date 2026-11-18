@@ -224,7 +224,7 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
             'quantity' => 1,
             'shipping_method' => 'fast',
         ])->assertStatus(422)
-            ->assertJsonPath('data.reason', 'fast_shipping_not_supported');
+            ->assertJsonPath('data.reason', 'fast_shipping_not_eligible');
 
         // Bearer leg.
         $token = $this->mobileToken();
@@ -241,7 +241,7 @@ class GuestEligibilityParityTest extends GuestCheckoutTestCase
             'quantity' => 1,
             'shipping_method' => 'fast',
         ]])->assertStatus(422)
-            ->assertJsonPath('data.reason', 'fast_shipping_not_supported');
+            ->assertJsonPath('data.reason', 'fast_shipping_not_eligible');
     }
 
     public function test_cart_writes_are_limited_per_guest(): void

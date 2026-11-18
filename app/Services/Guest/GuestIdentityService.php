@@ -288,6 +288,25 @@ class GuestIdentityService
             && (bool) preg_match(self::TOKEN_PATTERN, $token);
     }
 
+    /**
+     * True when the request presents a non-empty guest credential on either
+     * transport (cookie or non-Sanctum Bearer header).
+     */
+    public function hasPresentedCredential(Request $request): bool
+    {
+        $cookie = $request->cookie(self::cookieName());
+        if (is_string($cookie) && trim($cookie) !== '') {
+            return true;
+        }
+
+        $bearer = $request->bearerToken() ?: $request->header('X-Guest-Token');
+        if (is_string($bearer) && trim($bearer) !== '' && !str_contains($bearer, '|')) {
+            return true;
+        }
+
+        return false;
+    }
+
     /** Request-scoped raw token (cookie transport only). */
     public function rawToken(Request $request): ?string
     {
@@ -337,6 +356,9 @@ class GuestIdentityService
     private function fromBearer(Request $request): ?GuestIdentity
     {
         $token = $request->bearerToken();
+        if (!$this->isValidTokenFormat($token)) {
+            $token = $request->header('X-Guest-Token');
+        }
 
         if (!$this->isValidTokenFormat($token)) {
             return null;

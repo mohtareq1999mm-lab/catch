@@ -117,15 +117,15 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
     }
 
     /** @test */
-    public function invalid_or_revoked_token_resolves_to_a_safe_empty_state(): void
+    public function invalid_or_revoked_token_is_rejected_with_401(): void
     {
-        $this->withUnencryptedCookies([
+        $this->withCredentials()->withUnencryptedCookies([
             GuestIdentityService::COOKIE => 'not-a-valid-token',
         ]);
 
         $this->getJson(self::PREFIX . '/cart')
-            ->assertOk()
-            ->assertJsonPath('data.cart', null);
+            ->assertStatus(401)
+            ->assertJsonPath('success', false);
 
         // Revoked token is rejected as well.
         $cookies = $this->startGuestSession();
@@ -133,8 +133,8 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
         $identity->forceFill(['revoked_at' => now()])->save();
 
         $this->asGuest()->getJson(self::PREFIX . '/cart')
-            ->assertOk()
-            ->assertJsonPath('data.cart', null);
+            ->assertStatus(401)
+            ->assertJsonPath('success', false);
     }
 
     /** @test */
@@ -433,5 +433,57 @@ class GuestSessionAndCartTest extends GuestCheckoutTestCase
             ->assertJsonPath('data.cart', null);
 
         $this->assertSame(1, DB::table('cart_items')->where('cart_id', $cart->id)->count());
+    }
+
+    /** @test */
+    public function mixed_normal_and_fast_cart_items_stay_available_across_channels(): void
+    {
+        $fastProduct = $this->makeProduct([
+            'name' => 'Fast Dewy Spray ' . uniqid(),
+            'slug' => 'fast-dewy-spray-' . uniqid(),
+            'is_fast_shipping_available' => true,
+        ]);
+
+        $this->startGuestSession();
+
+        // Add normal product as scheduled
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'scheduled',
+        ])->assertCreated();
+
+        // Add fast product as fast (regardless of X-Channel)
+        $this->asGuest()->postJson(
+            self::PREFIX . '/cart/items',
+            ['item' => [
+                'product_id' => $fastProduct->id,
+                'quantity' => 1,
+                'shipping_method' => 'fast',
+            ]],
+            array_merge($this->csrfHeaders(), ['X-Channel' => 'home'])
+        )->assertCreated()
+            ->assertJsonPath('data.cart.normal_items_count', 1)
+            ->assertJsonPath('data.cart.fast_items_count', 1);
+
+        // GET /guest/cart with X-Channel: home
+        $homeRes = $this->asGuest()
+            ->withHeaders(['X-Channel' => 'home'])
+            ->getJson(self::PREFIX . '/cart');
+        $homeRes->assertOk()
+            ->assertJsonPath('data.cart.normal_items.0.is_available', true)
+            ->assertJsonPath('data.cart.normal_items.0.unavailable_reason', null)
+            ->assertJsonPath('data.cart.fast_items.0.is_available', true)
+            ->assertJsonPath('data.cart.fast_items.0.unavailable_reason', null);
+
+        // GET /guest/cart with X-Channel: fast-shipping
+        $fastRes = $this->asGuest()
+            ->withHeaders(['X-Channel' => 'fast-shipping'])
+            ->getJson(self::PREFIX . '/cart');
+        $fastRes->assertOk()
+            ->assertJsonPath('data.cart.normal_items.0.is_available', true)
+            ->assertJsonPath('data.cart.normal_items.0.unavailable_reason', null)
+            ->assertJsonPath('data.cart.fast_items.0.is_available', true)
+            ->assertJsonPath('data.cart.fast_items.0.unavailable_reason', null);
     }
 }

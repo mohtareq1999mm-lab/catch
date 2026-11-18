@@ -62,7 +62,7 @@ class GuestSecurityContractTest extends GuestCheckoutTestCase
     }
 
     /** @test */
-    public function guest_fast_shipping_lines_are_rejected_instead_of_silently_dropped(): void
+    public function guest_fast_shipping_lines_are_accepted_for_eligible_products_and_rejected_for_ineligible_products(): void
     {
         $fast = $this->makeProduct(['is_fast_shipping_available' => true]);
         $this->startGuestSession();
@@ -71,9 +71,19 @@ class GuestSecurityContractTest extends GuestCheckoutTestCase
             'product_id' => $fast->id,
             'quantity' => 1,
             'shipping_method' => 'fast',
-        ])->assertStatus(422);
+        ])->assertCreated()
+            ->assertJsonPath('data.cart.fast_items.0.product_id', $fast->id)
+            ->assertJsonPath('data.cart.fast_items_count', 1);
 
-        $this->assertSame(0, $this->guestItemCount());
+        $this->assertSame(1, $this->guestItemCount());
+
+        // Non-eligible product is rejected for fast shipping
+        $this->addToGuestCart([
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'shipping_method' => 'fast',
+        ])->assertStatus(422)
+            ->assertJsonPath('data.reason', 'fast_shipping_not_eligible');
     }
 
     /** @test */
@@ -124,8 +134,8 @@ class GuestSecurityContractTest extends GuestCheckoutTestCase
         ]);
 
         $this->asGuest()->getJson(self::PREFIX . '/cart')
-            ->assertOk()
-            ->assertJsonPath('data.cart', null);
+            ->assertStatus(401)
+            ->assertJsonPath('success', false);
     }
 
     /** @test */

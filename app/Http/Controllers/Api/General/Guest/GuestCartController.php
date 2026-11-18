@@ -35,6 +35,14 @@ class GuestCartController extends Controller
         $identity = $this->identities->current($request);
 
         if (!$identity) {
+            if ($this->identities->hasPresentedCredential($request)) {
+                return response()->json([
+                    'status' => 401,
+                    'message' => __('guest_checkout.session_required'),
+                    'success' => false,
+                ], 401);
+            }
+
             return $this->apiResponse(FETCH_DATA_SUCCESSFULLY, 200, true, ['cart' => null]);
         }
 

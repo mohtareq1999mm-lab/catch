@@ -199,7 +199,10 @@ $affected = $cart->items()
             return false;
         }
 
-        $product = Product::query()->active()->find($productId);
+        $product = Product::query()
+            ->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
+            ->active()
+            ->find($productId);
 
         if (!$product) {
             throw new ProductNotPurchasableException((int) $productId);

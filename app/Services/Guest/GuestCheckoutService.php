@@ -31,17 +31,8 @@ class GuestCheckoutService
     {
         $this->assertGuestPaymentMethod($request);
 
-        $cart = $this->cartService->findCart($guest);
-
-        if (!$cart) {
-            throw new CartEmptyException(__('guest_checkout.cart_not_found'));
-        }
-
-        $this->assertCartIsGuestEligible($cart);
-
         $idempotencyKey = $this->idempotencyKey($request);
         $claim = null;
-        $replay = null;
 
         if ($idempotencyKey !== null) {
             $claimResult = $this->idempotency->claim(
@@ -59,6 +50,14 @@ class GuestCheckoutService
         }
 
         try {
+            $cart = $this->cartService->findCart($guest);
+
+            if (!$cart || $cart->items->isEmpty()) {
+                throw new CartEmptyException(__('guest_checkout.cart_not_found'));
+            }
+
+            $this->assertCartIsGuestEligible($cart);
+
             $order = $this->orderService->addItemsInOrder($request, $cart, $guest->id);
 
             if (!$order) {
@@ -170,6 +169,7 @@ class GuestCheckoutService
     private function idempotencyKey(Request $request): ?string
     {
         $key = $request->header('Idempotency-Key')
+            ?? $request->header('X-Idempotency-Key')
             ?? $request->input('idempotency_key');
 
         if (!is_string($key) || trim($key) === '') {

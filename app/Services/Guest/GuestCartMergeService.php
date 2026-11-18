@@ -110,7 +110,9 @@ class GuestCartMergeService
                 }
 
                 $product = $guestItem->product_id
-                    ? Product::withTrashed()->find($guestItem->product_id)
+                    ? Product::withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
+                        ->withTrashed()
+                        ->find($guestItem->product_id)
                     : null;
 
                 if (!$product || (method_exists($product, 'trashed') && $product->trashed())) {

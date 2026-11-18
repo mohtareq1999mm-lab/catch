@@ -46,7 +46,9 @@ class   CartItem extends Model
 
     public function product()
     {
-        return $this->belongsTo(Product::class)->withTrashed();
+        return $this->belongsTo(Product::class)
+            ->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class)
+            ->withTrashed();
     }
     public function productVariant()
     {

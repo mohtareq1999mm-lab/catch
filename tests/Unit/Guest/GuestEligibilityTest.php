@@ -94,12 +94,29 @@ class GuestEligibilityTest extends GuestCheckoutTestCase
         $this->assertRejected(GuestCartRejectionReason::DIGITAL_NOT_SUPPORTED, [], $digital);
     }
 
-    public function test_fast_shipping_method_is_rejected(): void
+    public function test_fast_shipping_method_is_rejected_when_product_is_not_eligible(): void
     {
         $this->assertRejected(
-            GuestCartRejectionReason::FAST_SHIPPING_NOT_SUPPORTED,
+            GuestCartRejectionReason::FAST_SHIPPING_NOT_ELIGIBLE,
             ['shipping_method' => 'fast']
         );
+    }
+
+    public function test_fast_shipping_method_is_accepted_when_product_is_eligible(): void
+    {
+        $fastProduct = $this->makeProduct(['is_fast_shipping_available' => true]);
+
+        $cart = $this->cartService->addItem(
+            $this->guest(),
+            [
+                'product_id' => $fastProduct->id,
+                'quantity' => 2,
+                'shipping_method' => 'fast',
+            ]
+        );
+
+        $this->assertSame(2, (int) $cart->items()->first()->quantity);
+        $this->assertSame('FAST', $cart->items()->first()->shipping_method);
     }
 
     public function test_variable_product_requires_a_variant(): void

@@ -66,6 +66,14 @@ class GuestPublicOrderController extends Controller
 
     public function cancel(Request $request): JsonResponse
     {
+        $request->validate([
+            'token' => ['required', 'string', 'max:200'],
+        ]);
+
+        if (!$this->cancellation->isValidTokenFormat((string) $request->input('token'))) {
+            return $this->apiResponse(__('guest_checkout.cancel_link_invalid'), 404, false);
+        }
+
         $validated = $request->validate([
             'token' => ['required', 'string', 'max:200'],
             'code' => ['required', 'string', 'min:4', 'max:10'],

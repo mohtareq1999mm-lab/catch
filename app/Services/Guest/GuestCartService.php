@@ -246,7 +246,14 @@ class GuestCartService
      */
     private function assertEligibleItem(array $item): void
     {
-        $product = Product::query()->active()->find((int) ($item['product_id'] ?? 0));
+        $shippingMethod = (string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED);
+        $productQuery = Product::query();
+
+        if (strtoupper($shippingMethod) === ShippingMethod::FAST) {
+            $productQuery->withoutGlobalScope(\App\Models\Scopes\FastShippingScope::class);
+        }
+
+        $product = $productQuery->active()->find((int) ($item['product_id'] ?? 0));
 
         if (!$product) {
             throw new GuestCartRejectionException(
@@ -257,7 +264,6 @@ class GuestCartService
 
         $quantity = max(1, (int) ($item['quantity'] ?? 0));
         $variantId = empty($item['product_variant_id']) ? null : (int) $item['product_variant_id'];
-        $shippingMethod = (string) ($item['shipping_method'] ?? ShippingMethod::SCHEDULED);
 
         // Line policy lives in GuestCartEligibility (one home for the rule,
         // including the quantity-vs-ceiling comparison for simple and variant

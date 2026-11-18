@@ -121,6 +121,17 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
         $this->assertTrue($second->json('data.idempotent_replay'));
         $this->assertNull($second->json('data.tracking_token'));
 
+        // Also works with X-Idempotency-Key header even if cart row was deleted
+        Cart::query()->where('guest_id', $guestId)->delete();
+        $third = $this->asGuest()->postJson(
+            self::PREFIX . '/checkout',
+            $this->checkoutPayload([]),
+            array_merge($this->csrfHeaders(), ['X-Idempotency-Key' => 'idem-abc'])
+        );
+        $third->assertCreated();
+        $this->assertSame($orderId, $third->json('data.order.id'));
+        $this->assertTrue($third->json('data.idempotent_replay'));
+
         $this->assertSame(1, $this->currentGuestOrders()->count());
         $this->assertSame(
             1,

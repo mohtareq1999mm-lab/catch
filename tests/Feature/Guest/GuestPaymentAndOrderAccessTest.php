@@ -330,7 +330,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $response = $this->postJson(self::PREFIX . '/orders/cancel/request-otp', [
             'token' => $data['cancellation_token'],
-            'phone_number' => '+2011185151',
+            'phone_number' => '+201000000001',
         ]);
 
         $response->assertOk();
@@ -353,7 +353,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
     /** @test */
     public function cancel_fails_with_invalid_otp_code(): void
     {
-        $data = $this->createOrder('cod');
+        $data = $this->createOrder('online');
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
