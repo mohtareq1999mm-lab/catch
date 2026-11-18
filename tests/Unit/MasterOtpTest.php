@@ -65,7 +65,9 @@ class MasterOtpTest extends TestCase
     /** @test */
     public function it_accepts_configured_master_otp()
     {
-        config(['auth.master_otp' => '999888']);
+        // The Local OTP switch must be EXPLICIT: #94 removed the implicit
+        // non-production default, so an unset switch disables acceptance.
+        config(['auth.master_otp' => '999888', 'auth.local_otp_enabled' => true]);
         $this->assertTrue($this->checkCode('999888'));
         $this->assertFalse($this->checkCode('000000'));
     }
@@ -127,6 +129,7 @@ class MasterOtpTest extends TestCase
     {
         config([
             'auth.master_otp' => '123456',
+            'auth.local_otp_enabled' => true,
         ]);
 
         $request = new \Illuminate\Http\Request();
