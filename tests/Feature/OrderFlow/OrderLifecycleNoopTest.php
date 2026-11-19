@@ -9,6 +9,7 @@ use App\Events\OrderDelivered;
 use App\Events\OrderStatusChanged;
 use App\Events\PaymentSucceeded;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -284,7 +285,10 @@ class OrderLifecycleNoopTest extends TestCase
 
         $this->mock(OrderService::class, function ($mock) use ($order) {
             $mock->shouldReceive('getOrderForUser')->andReturn($order);
-            $mock->shouldReceive('changeOrderStatus')->once()->andReturn(false);
+        });
+
+        $this->mock(OrderTransitionService::class, function ($mock) {
+            $mock->shouldReceive('cancelByCustomer')->once()->andReturn(false);
         });
 
         Sanctum::actingAs($this->user);

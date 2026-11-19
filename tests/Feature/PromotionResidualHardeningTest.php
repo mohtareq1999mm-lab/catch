@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Exceptions\InsufficientStockException;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\General\PromotionService;
 use App\Services\Inventory\OrderReservationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -265,9 +266,9 @@ class PromotionResidualHardeningTest extends TestCase
         $order = $this->makeOrderFor($user, $promotion->id);
         $this->assertFalse((bool) $order->promotion_consumed);
 
-        $orderService = app(OrderService::class);
-        $orderService->finalizePromotionUsageAfterPayment($order->fresh());
-        $orderService->finalizePromotionUsageAfterPayment($order->fresh());
+        $transitions = app(OrderTransitionService::class);
+        $transitions->finalizePromotionUsageAfterPayment($order->fresh());
+        $transitions->finalizePromotionUsageAfterPayment($order->fresh());
 
         $this->assertEquals(1, (int) $promotion->fresh()->usage);
         $this->assertTrue((bool) $order->fresh()->promotion_consumed);
@@ -385,7 +386,7 @@ class PromotionResidualHardeningTest extends TestCase
                     && (int) $context['limiter'] === 1)
             );
 
-        app(OrderService::class)->finalizePromotionUsageAfterPayment($order->fresh());
+        app(OrderTransitionService::class)->finalizePromotionUsageAfterPayment($order->fresh());
 
         // Approved contract holds: discount kept, counter untouched, flag set.
         $this->assertEquals(1, (int) $promotion->fresh()->usage);
@@ -413,7 +414,7 @@ class PromotionResidualHardeningTest extends TestCase
 
         Log::shouldReceive('warning')->never();
 
-        app(OrderService::class)->finalizePromotionUsageAfterPayment($order->fresh());
+        app(OrderTransitionService::class)->finalizePromotionUsageAfterPayment($order->fresh());
 
         $this->assertEquals(1, (int) $promotion->fresh()->usage);
         $this->assertTrue((bool) $order->fresh()->promotion_consumed);

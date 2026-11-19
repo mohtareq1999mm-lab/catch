@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Schema;
  * Order Received, Q-01 QC excluded).
  *
  * - No competing order state machine: all order writes stay in
- *   OrderService::changeOrderStatus via allowsFlowTransition.
+ *   OrderTransitionService via allowsFlowTransition.
  * - All fulfillment writes stay in FulfillmentTransition.
  * - Shipment creation gate only blocks new shipments; existing shipments
  *   keep their lifecycle; completion still requires shipment + delivery

@@ -459,7 +459,7 @@ class OrderRepository extends BaseRepository
 
         // P3-2 (D4/D5): thin adapter over the canonical writer. The legacy
         // prefixed code is mapped to the catalog code and delegated to
-        // OrderService::changeOrderStatus — the flow authority (transition
+        // OrderTransitionService — the flow authority (transition
         // validation, granular permission, inputs, payment guards,
         // history, side effects) — which also re-syncs the legacy
         // order_status column. No independent guard logic lives here.
@@ -481,14 +481,9 @@ class OrderRepository extends BaseRepository
 
         $this->assertTargetStatusPermission($user, $legacyCode);
 
-        return app(\App\Services\General\OrderService::class)->changeOrderStatus(
-            null,
+        return app(\App\Services\Order\OrderTransitionService::class)->transitionTo(
+            $order,
             $mapped,
-            $order->id,
-            true,
-            null,
-            null,
-            true,
             (array) ($request->input('flow_values') ?? [])
         );
     }

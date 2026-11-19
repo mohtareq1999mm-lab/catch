@@ -5,7 +5,7 @@ namespace App\Services\Fulfillment;
 use App\Events\Fulfillment\FulfillmentProgressed;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Shipment;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +32,7 @@ use Marvel\Database\Models\Order;
  * - assignment, picking-started, packing-started, label creation:
  *   operational detail, no distinct order step.
  * - fulfillment cancellation: must NEVER cancel the order (partial work may
- *   remain; order cancel cascades DOWN only, via changeOrderStatus).
+ *   remain; order cancel cascades DOWN only, via the transition executor).
  * - completed: payment milestone, owned exclusively by payment paths
  *   (PaymentCompletionService, markCodAsPaid/markCashierPaid). This service
  *   never targets it, so the F-1 payment guard can never be bypassed here.
@@ -55,15 +55,15 @@ use Marvel\Database\Models\Order;
  * delivered step keeps the existing strict rule (maybeCompleteOrder).
  *
  * Safety properties:
- * - Every order write goes through OrderService::changeOrderStatus (sole
+ * - Every order write goes through an OrderTransitionService intent (sole
  *   authority: flow validation, guards, history, mirrors, events) or
- *   ShipmentService::maybeCompleteOrder (which itself uses changeOrderStatus).
+ *   ShipmentService::maybeCompleteOrder (which uses markDelivered).
  *   No direct orders.status/flow_id/current_status_id writes anywhere here.
  * - Illegal transitions are caught, logged (visible skip), and stop the walk;
  *   earlier legal steps stay committed (each is a valid standalone state).
- * - Same-state repeats are no-ops (changeOrderStatus idempotency); concurrent
+ * - Same-state repeats are no-ops (transition idempotency); concurrent
  *   or duplicate runs converge via the order row lock.
- * - No event loop: changeOrderStatus emits OrderStatusChanged/PaymentSucceeded
+ * - No event loop: the transition executor emits OrderStatusChanged/PaymentSucceeded
  *   only for completed targets (never targeted here); the cancelled cascade
  *   only runs for cancelled targets (never targeted here).
  */
@@ -76,7 +76,7 @@ class FulfillmentOrderSyncService
     private const MAX_STEPS = 12;
 
     public function __construct(
-        private OrderService $orders,
+        private OrderTransitionService $orderTransitions,
         private OrderFlowService $flows,
         private ShipmentService $shipments,
     ) {}
@@ -136,14 +136,7 @@ class FulfillmentOrderSyncService
             }
 
             try {
-                $mutated = $this->orders->changeOrderStatus(
-                    null,
-                    $target,
-                    $order->getKey(),
-                    true,
-                    'Fulfillment progress: ' . $reason,
-                    ['trigger' => 'fulfillment-sync', 'milestone' => $reason],
-                );
+                $mutated = $this->orderTransitions->advanceFulfillment($order, $target, $reason);
             } catch (\RuntimeException | \InvalidArgumentException $e) {
                 // Illegal transition under current flow/payment rules (e.g.
                 // L-01 paid-order intermediates, L-02 customs steps) or

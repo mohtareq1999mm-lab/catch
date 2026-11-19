@@ -450,7 +450,7 @@ class FulfillmentService
      * mid-pick). Cancels the fulfillment via the single owner, skips open
      * picking tasks (picked progress stays on items for audit), cancels open
      * packing tasks. Inventory/coupon release is owned by the order cancel
-     * path (changeOrderStatus) — never duplicated here.
+     * path (OrderTransitionService) — never duplicated here.
      */
     /**
      * Cancel a fulfillment operationally.

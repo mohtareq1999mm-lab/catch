@@ -8,7 +8,7 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Phase 0: emitted inside changeOrderStatus/reaper transactions. Event-level
+ * Phase 0: emitted inside OrderTransitionService transitions/reaper transactions. Event-level
  * deferral guarantees inventory-restore + notifications only fire on commit.
  */
 class OrderCancelled implements ShouldDispatchAfterCommit

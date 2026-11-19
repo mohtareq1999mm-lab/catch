@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Transaction;
 use App\Events\PaymentFailed;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Payment\PaymentGatewayFactory;
 
 /**
@@ -110,18 +110,7 @@ class CancelUnpaidOrders extends Command
                 // invoice and lifecycle events. Payment-domain finalization
                 // (pending transactions, PaymentFailed) stays here.
                 try {
-                    $mutated = app(OrderService::class)->changeOrderStatus(
-                        null,
-                        'cancelled',
-                        $lockedOrder->id,
-                        auditReason: 'Order cancelled due to reservation expiry',
-                        auditContext: [
-                            'reservation_expires_at' => $lockedOrder->reservation_expires_at?->toIso8601String(),
-                            'trigger' => 'orders:cancel-unpaid',
-                        ],
-                        skipPromotionDecrement: true,
-                        markPaymentFailed: true,
-                    );
+                    $mutated = app(OrderTransitionService::class)->expireUnpaid($lockedOrder);
                 } catch (\Throwable $e) {
                     // A poison order must never abort the whole reaper run.
                     report($e);
