@@ -11,7 +11,7 @@ use Marvel\Database\Models\User;
 use Marvel\Enums\EventType;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
-use Marvel\Otp\Gateways\OtpGateway;
+use Marvel\Otp\OtpInterface;
 
 trait SmsTrait
 {
@@ -117,13 +117,14 @@ trait SmsTrait
     /**
      * Get OTP gateway
      *
-     * @return OtpGateway
+     * @return OtpInterface
      */
     protected function getOtpGateway()
     {
-        $gateway = config('auth.active_otp_gateway');
-        $gateWayClass = "Marvel\\Otp\\Gateways\\" . ucfirst($gateway) . 'Gateway';
-        return new OtpGateway(new $gateWayClass());
+        // ONE resolution for every OTP consumer: the container binding owns
+        // the ADR-0003 policy (configured provider, FailingGateway in
+        // production on misconfiguration, LocalGateway as the dev path).
+        return app(OtpInterface::class);
     }
 
     /**

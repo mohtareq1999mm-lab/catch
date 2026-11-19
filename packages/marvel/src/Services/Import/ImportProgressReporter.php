@@ -7,18 +7,38 @@ use App\Support\OperationHeartbeat;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Import;
+use Marvel\Enums\FileOperationType;
 use Marvel\Exceptions\ImportCancelledException;
 
 /**
- * Owns the run progress channel: smooth progress, the processing signal,
- * heartbeat reads/writes, cancellation detection and the import-row progress
- * persistence (single write shape owned by RunOutcome).
+ * The single progress module for the import family: smooth progress, the
+ * processing signal, heartbeat reads/writes, cancellation detection and the
+ * import-row progress persistence.
+ *
+ * One module, two protocol profiles, parameterized per family:
+ *  - PROTOCOL_SMOOTH (product): window-based ticks, row-write persistence on
+ *    the flush threshold, silent finalize (the deferred terminal write owns
+ *    the final state).
+ *  - PROTOCOL_THRESHOLD (category/brand): explicit milestones, broadcasts on
+ *    TICK_THRESHOLD ticks between milestones keeping the milestone progress,
+ *    finalize writes the three counter keys uncapped and publishes 100.
+ *
+ * The families differ only in the progress event and channel; the
+ * BroadcastsFileOperationProgress trait owns the payload contract.
  */
 final class ImportProgressReporter
 {
     use BroadcastsFileOperationProgress;
 
+    public const PROTOCOL_SMOOTH = 'smooth';
+
+    public const PROTOCOL_THRESHOLD = 'threshold';
+
+    /** Product protocol: row-write persistence cadence. */
     private const FLUSH_THRESHOLD = 10;
+
+    /** Family protocol: broadcast cadence between milestones. */
+    private const TICK_THRESHOLD = 20;
 
     private int $processedCount = 0;
 
@@ -33,6 +53,9 @@ final class ImportProgressReporter
     public function __construct(
         private readonly RunOutcome $outcome,
         private readonly ?int $importId,
+        private readonly string $progressEvent = FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
+        private readonly string $kind = FileOperationType::PRODUCT_IMPORT,
+        private readonly string $protocol = self::PROTOCOL_SMOOTH,
     ) {
         $now = microtime(true);
         $this->startedAt = $now;
@@ -47,6 +70,16 @@ final class ImportProgressReporter
 
         $this->processedCount = $this->outcome->processed();
 
+        if ($this->protocol === self::PROTOCOL_THRESHOLD) {
+            if ($this->processedCount % self::TICK_THRESHOLD !== 0) {
+                return;
+            }
+
+            $this->publish($this->currentProgress);
+
+            return;
+        }
+
         $rowsSinceLastTick = $this->processedCount - $this->lastTickProcessedCount;
         $timeSinceLastTick = microtime(true) - $this->lastTickTime;
 
@@ -56,8 +89,8 @@ final class ImportProgressReporter
             $this->lastTickTime = microtime(true);
 
             $this->broadcastFileOperationProgress(
-                FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
-                'product-import',
+                $this->progressEvent,
+                $this->kind,
                 (int) $this->importId,
                 $this->currentProgress,
                 $this->processedCount,
@@ -108,22 +141,8 @@ final class ImportProgressReporter
         $this->currentProgress = $progress;
         $this->lastTickProcessedCount = $this->outcome->processed();
         $this->lastTickTime = microtime(true);
-        $this->writeSignal('progress', [
-            'processed_rows' => $this->outcome->processed(),
-            'success_rows' => $this->outcome->successCount(),
-            'failed_rows' => $this->outcome->failedCount(),
-            'progress' => $progress,
-        ]);
 
-        $this->broadcastFileOperationProgress(
-            FileOperationEvent::PRODUCT_IMPORT_PROGRESS,
-            'product-import',
-            (int) $this->importId,
-            $progress,
-            $this->outcome->processed(),
-            $this->outcome->successCount(),
-            $this->outcome->failedCount()
-        );
+        $this->publish($progress);
     }
 
     public function finalize(): void
@@ -138,6 +157,20 @@ final class ImportProgressReporter
             throw new ImportCancelledException();
         }
 
+        if ($this->protocol === self::PROTOCOL_THRESHOLD) {
+            // Family finalize: the three counter keys, uncapped — the
+            // rowAttributes clamp and error cap are product-report semantics.
+            Import::where('id', $this->importId)->update([
+                'processed_rows' => $this->processedCount,
+                'success_rows' => $this->outcome->successCount(),
+                'failed_rows' => $this->outcome->failedCount(),
+            ]);
+
+            $this->publish(100.0);
+
+            return;
+        }
+
         Import::where('id', $this->importId)
             ->update($this->outcome->rowAttributes());
     }
@@ -149,6 +182,35 @@ final class ImportProgressReporter
         }
 
         return $this->heartbeat()->cancelRequested();
+    }
+
+    /**
+     * Persist the progress snapshot to the signal file and broadcast it to
+     * the importing user's private channel — the canonical payload owned by
+     * BroadcastsFileOperationProgress.
+     */
+    protected function publish(float $progress): void
+    {
+        $this->writeSignal('progress', [
+            'processed_rows' => $this->outcome->processed(),
+            'success_rows' => $this->outcome->successCount(),
+            'failed_rows' => $this->outcome->failedCount(),
+            'progress' => $progress,
+        ]);
+
+        if ($this->importId === null) {
+            return;
+        }
+
+        $this->broadcastFileOperationProgress(
+            $this->progressEvent,
+            $this->kind,
+            (int) $this->importId,
+            $progress,
+            $this->outcome->processed(),
+            $this->outcome->successCount(),
+            $this->outcome->failedCount()
+        );
     }
 
     protected function writeProgress(bool $ignoreStatus = false): void

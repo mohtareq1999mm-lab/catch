@@ -40,7 +40,7 @@ class MessagebirdGateway implements OtpInterface
             $result = $this->client->verify->create($verify);
             return new Result($result->getId());
         } catch (Exception $exception) {
-            return new Result(["Verification failed to start: {$exception->getMessage()}"]);
+            return Result::providerError(["Verification failed to start: {$exception->getMessage()}"]);
         }
     }
 
@@ -58,7 +58,7 @@ class MessagebirdGateway implements OtpInterface
             $this->client->verify->verify($id, $code);
             return new Result('success');
         } catch (Exception $exception) {
-            return new Result(["Verification check failed: {$exception->getMessage()}"]);
+            return Result::providerError(["Verification check failed: {$exception->getMessage()}"]);
         }
     }
 
@@ -72,7 +72,7 @@ class MessagebirdGateway implements OtpInterface
             $this->client->messages->create($messageBody);
             return new Result('success');
         } catch (Exception $exception) {
-            return new Result(["Verification check failed: {$exception->getMessage()}"]);
+            return Result::providerError(["Verification check failed: {$exception->getMessage()}"]);
         }
     }
 }

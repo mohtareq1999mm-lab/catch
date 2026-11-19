@@ -29,7 +29,7 @@
 | 6 | `DELETE` | `/guest/cart/items/{itemId}` | Removes a specific item from the guest cart and automatically recalculates the cart total. |
 | 7 | `DELETE` | `/guest/cart` | Clears all items from the guest cart in a single atomic operation. |
 | 8 | `POST` | `/guest/orders/track` | Publicly tracks order status and delivery timeline using a secure tracking token without requiring authentication. |
-| 9 | `POST` | `/guest/orders/cancel` | Cancels an eligible pending guest order and releases reserved stock and coupons using a one-time cancellation token. |
+| 9 | `POST` | `/guest/orders/cancel` | Confirms cancellation of an eligible pending guest order with the one-time cancellation token and the OTP code requested via `/guest/orders/cancellation-otp` (two-step flow; releases reserved stock and coupons). |
 | 10 | `GET` | `/guest/orders/{orderId}` | Displays full order and invoice details on the confirmation page for the authenticated session owner. |
 | 11 | `POST` | `/guest/orders/{orderId}/payment` | Initiates online gateway payment by generating a provider checkout URL, or locks the order as Cash on Delivery. |
 | 12 | `POST` | `/guest/orders/{orderId}/access-tokens` | Re-issues public tracking and cancellation tokens for the session owner if the confirmation page was refreshed. |
@@ -332,19 +332,53 @@
 
 ---
 
-### 9. Public Order Cancellation (No Session Required)
+### 9. Public Order Cancellation (No Session Required, Two Steps)
 
-* **Business Purpose:** Cancels an eligible pending guest order and releases reserved stock and coupons using a one-time cancellation token.
-* **Method & URL:** `POST /api/v1/general/guest/orders/cancel`
+* **Business Purpose:** Cancels an eligible pending guest order and releases reserved stock and coupons. The flow is two steps: request a cancellation OTP for the order's recorded phone, then confirm the cancellation with the code. The verification state is provider-managed server-side — the client never receives credential material.
 * **Headers:**  
   `Content-Type: application/json`
 
-#### Request Body
+#### Step 1 — Request the OTP
+
+* **Method & URL:** `POST /api/v1/general/guest/orders/cancellation-otp`
+
 ```json
 {
   "token": "cnc_1f2e3d4c5b6a7b8c9d0e..."
 }
 ```
+
+The single-use token is the only credential. No phone echo, no OTP id in the response.
+
+Success `200 OK`:
+
+```json
+{
+  "status": 200,
+  "message": "A verification code has been sent to the phone number on this order.",
+  "success": true,
+  "data": {
+    "expires_in": 600
+  }
+}
+```
+
+Errors: `404` for unknown, already-used **and** expired links — they answer identically (`cancel_link_invalid`, anti-enumeration), `422` not cancellable (`checkout.order_cancel_not_allowed`) or no phone on the order (`cancel_otp_unavailable`), `409` unresolved payment attempt (`checkout.order_payment_in_progress`), `502` provider dispatch failure (`cancel_otp_failed` — nothing consumed, no state stored), `429` rate limited (5/min per IP and per token hash, `Retry-After`).
+
+The request step validates the same policy as step 2 but **never consumes the token**.
+
+#### Step 2 — Confirm the cancellation
+
+* **Method & URL:** `POST /api/v1/general/guest/orders/cancel`
+
+```json
+{
+  "token": "cnc_1f2e3d4c5b6a7b8c9d0e...",
+  "code": "515243"
+}
+```
+
+`code` is required (4–64 chars). There is no OTP id — the verification state lives server-side, keyed to the token.
 
 #### Success Response `200 OK`
 ```json
@@ -361,14 +395,37 @@
 }
 ```
 
-#### Common Error `422 Unprocessable Entity`
+#### Common Errors
+
+`422` — wrong code (`cancel_otp_invalid`; consumes one of 5 attempts per token hash), no code requested or the code expired (`cancel_otp_expired`), link already used (`cancel_link_used`), not cancellable (`checkout.order_cancel_not_allowed`):
+
 ```json
 {
   "status": 422,
-  "message": "This cancellation link has already been used.",
+  "message": "The verification code is incorrect.",
   "success": false
 }
 ```
+
+`429` — five failed code attempts locked that token hash (`cancel_otp_locked`; 24-hour lockout, survives fresh code requests, lifted only by a successful verification):
+
+```json
+{
+  "status": 429,
+  "message": "Too many incorrect verification codes. Try again later.",
+  "success": false
+}
+```
+
+`502` — provider outage; no attempt is consumed (`cancel_otp_failed`).
+
+`409` — an unresolved payment attempt blocks cancellation (`checkout.order_payment_in_progress`).
+
+`404` — unknown, used or expired link (`cancel_link_invalid`, indistinguishable).
+
+#### Development bypass
+
+With `LOCAL_OTP_ENABLED=true` outside production, the static code (`LOCAL_OTP_CODE`, or `MASTER_OTP` when set) confirms the cancellation without a provider call. In production the static code is refused regardless of configuration, and the local gateway refuses entirely (no ids, no codes, no receipts).
 
 ---
 

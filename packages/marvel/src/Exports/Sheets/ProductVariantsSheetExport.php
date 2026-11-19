@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Marvel\Workbook\ProductWorkbookSchema;
 use Marvel\Database\Models\ProductVariant;
+use Marvel\Exports\ExportFilterApplier;
 
 class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, WithMapping
 {
@@ -28,25 +29,12 @@ class ProductVariantsSheetExport implements FromQuery, WithTitle, WithHeadings, 
         $query = ProductVariant::query()
             ->with(['product', 'attributeProducts.attributeValue.attribute']);
 
-        if (isset($this->filters['status'])) {
-            $query->whereHas('product', fn($q) => $q->where('status', $this->filters['status']));
-        }
-
-        if (isset($this->filters['product_type'])) {
-            $query->whereHas('product', fn($q) => $q->where('product_type', $this->filters['product_type']));
-        }
-
-        if (isset($this->filters['item_type']) && in_array($this->filters['item_type'], \Marvel\Enums\ItemType::getValues(), true)) {
-            $query->whereHas('product', fn($q) => $q->where('item_type', $this->filters['item_type']));
-        }
-
-        if (isset($this->filters['category_id'])) {
-            $query->whereHas('product.categories', fn($q) => $q->where('category_id', $this->filters['category_id']));
-        }
-
-        if (isset($this->filters['brand_id'])) {
-            $query->whereHas('product.brands', fn($q) => $q->where('brand_id', $this->filters['brand_id']));
-        }
+        ExportFilterApplier::apply(
+            $query,
+            $this->filters,
+            ProductWorkbookSchema::exportFilters(ProductWorkbookSchema::PRODUCT_VARIANTS),
+            ExportFilterApplier::MODE_VIA_PRODUCT_RELATION
+        );
 
         return $query->orderBy('id');
     }

@@ -20,12 +20,14 @@ use Marvel\Enums\FileOperationType;
 use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Imports\BrandsImport;
 use Marvel\Services\Import\BrandImportService;
+use Marvel\Services\Import\FinalizesImportOutcome;
 use Throwable;
 
 class ImportBrandsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use BroadcastsFileOperationProgress;
+    use FinalizesImportOutcome;
 
     public int $tries = 3;
 
@@ -249,48 +251,19 @@ class ImportBrandsJob implements ShouldQueue
 
             $service->finalizeProgress();
 
-            $failedRows = $service->getFailedRows();
-            $successCount = $service->getSuccessCount();
+            $outcome = $service->outcome();
 
-            $status = 'completed';
-
-            if (!empty($failedRows) && $successCount > 0) {
-                $status = 'completed_with_errors';
-            } elseif ($successCount === 0) {
-                $status = 'failed';
-            }
-
-            $affected = Import::where('id', $import->id)
-                ->whereIn('status', ['pending', 'processing', 'cancelling'])
-                ->update([
-                    'status' => $status,
-                    'total_rows' => $successCount + count($failedRows),
-                    'processed_rows' => $successCount + count($failedRows),
-                    'success_rows' => $successCount,
-                    'failed_rows' => count($failedRows),
-                    'errors' => $failedRows,
-                ]);
-            if ($affected === 0) {
-                $import->refresh();
-                if ($import->isTerminal()) {
-                    return;
-                }
-            } else {
-                $import->refresh();
-            }
-
-            if ($successCount > 0) {
-                $this->invalidateFrontendCaches();
-            }
-
-            $this->broadcastBrandImportTerminal($status, !empty($failedRows), [
-                    'progress' => 100.0,
-                    'total_rows' => $successCount + count($failedRows),
-                    'processed_rows' => $successCount + count($failedRows),
-                    'success_rows' => $successCount,
-                    'failed_rows' => count($failedRows),
-                ]
+            // Terminal write owned by RunOutcome; the shared orchestration
+            // (guarded write, terminal check, caches, broadcast) lives on
+            // FinalizesImportOutcome.
+            $alreadyTerminal = $this->finalizeSuccessTerminal(
+                $import,
+                $outcome,
+                $this->broadcastBrandImportTerminal(...)
             );
+            if ($alreadyTerminal) {
+                return;
+            }
 
             $this->deleteImportFile($import);
             $this->removeSignalFile('progress');
@@ -299,26 +272,11 @@ class ImportBrandsJob implements ShouldQueue
             $this->deleteImportFile($import);
             $this->cleanSignals();
 
-            $import->update([
-                'status' => 'cancelled',
-                'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                'processed_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                'success_rows' => $service->getSuccessCount(),
-                'failed_rows' => count($service->getFailedRows()),
-                'errors' => $service->getFailedRows(),
-            ]);
-
-            if ($service->getSuccessCount() > 0) {
-                $this->invalidateFrontendCaches();
-            }
-
-            $this->broadcastBrandImportTerminal('cancelled', !empty($service->getFailedRows()), [
-                    'progress' => 100.0,
-                    'total_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                    'processed_rows' => $service->getSuccessCount() + count($service->getFailedRows()),
-                    'success_rows' => $service->getSuccessCount(),
-                    'failed_rows' => count($service->getFailedRows()),
-                ]
+            $this->writeCancelledTerminal(
+                $import,
+                $service->outcome(),
+                $service->getFailedRows(),
+                $this->broadcastBrandImportTerminal(...)
             );
         } catch (Throwable $e) {
             $sanitized = $this->sanitizeExceptionMessage($e);

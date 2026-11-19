@@ -45,6 +45,47 @@ class AppServiceProvider extends ServiceProvider
             \App\Services\Guest\NullGuestPhoneVerification::class
         );
 
+        // ADR 0003: one app-level OTP gateway binding. The configured provider
+        // wins; when it cannot be constructed (a dev machine with
+        // ACTIVE_OTP_GATEWAY=twilio and no credentials) the committed
+        // LocalGateway is the dev path. Production NEVER falls back silently:
+        // a broken provider there resolves to a LOUD gateway that throws at
+        // call time, surfacing as the translated 422 instead of a
+        // LocalGateway that "sends" nothing — #89 review finding. Throwing at
+        // call time (not at resolve time) keeps the failure inside the
+        // endpoint's exception handling. The static bypass stays hard-gated
+        // to non-production regardless.
+        $this->app->bind(\Marvel\Otp\OtpInterface::class, function () {
+            $name = (string) config('auth.active_otp_gateway', 'twilio');
+            $class = 'Marvel\\Otp\\Gateways\\' . ucfirst($name) . 'Gateway';
+
+            $notProduction = !app()->environment('production');
+
+            if (!class_exists($class)) {
+                $message = "OTP gateway [{$name}] is not implemented.";
+
+                if ($notProduction) {
+                    report(new \RuntimeException($message));
+
+                    return new \Marvel\Otp\Gateways\LocalGateway();
+                }
+
+                return new \Marvel\Otp\FailingGateway($message);
+            }
+
+            try {
+                return new $class();
+            } catch (\Throwable $e) {
+                report($e);
+
+                if ($notProduction) {
+                    return new \Marvel\Otp\Gateways\LocalGateway();
+                }
+
+                return new \Marvel\Otp\FailingGateway('OTP gateway unavailable: ' . $e->getMessage());
+            }
+        });
+
         $this->app->bind(WebhookSignature::class, function ($app) {
             return new WebhookSignature(
                 secret: config('frontend.secret', ''),
@@ -188,25 +229,22 @@ class AppServiceProvider extends ServiceProvider
         //         });
         // });
 
-        // RateLimiter::for('public-tracking', function (Request $request) {
-        //     return Limit::perMinute(10)
-        //         ->by($request->ip())
-        //         ->response(function (Request $request, array $headers) {
-        //             return response()->json([
-        //                 'success' => false,
-        //                 'message' => __('message.too_many_requests'),
-        //                 'data' => null,
-        //             ], 429, $headers);
-        //         });
-        // });
+        // Identity-less public surfaces, FAIL-CLOSED (spec #73 F3, ticket #77).
+        // Both routes resolve these limiters through the `throttle.failclosed`
+        // alias (the GuestRateLimit policy): enforced even while the global
+        // disable switch is on, and a limiter-backend failure answers 429
+        // instead of bypassing. Keys stay IP-based. The 429 body is built by
+        // that middleware envelope, so no per-limiter response callback.
+        RateLimiter::for('otp', function (Request $request) {
+            return Limit::perMinute(3)->by((string) $request->ip());
+        });
+
+        RateLimiter::for('public-tracking', function (Request $request) {
+            return Limit::perMinute(10)->by((string) $request->ip());
+        });
 
         // RateLimiter::for('sensitive', function (Request $request) {
         //     return Limit::perMinute(5)->by($request->ip())->response(function (Request $request, array $headers) {
-        //         return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
-        //     });
-        // });
-        // RateLimiter::for('otp', function (Request $request) {
-        //     return Limit::perMinute(3)->by($request->ip())->response(function (Request $request, array $headers) {
         //         return response()->json(['success'=>false,'message'=>__('message.too_many_requests'),'data'=>null],429,$headers);
         //     });
         // });

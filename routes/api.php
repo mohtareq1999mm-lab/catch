@@ -157,7 +157,10 @@ Route::prefix('v1/general')->group(function () {
         // both query string and Authorization header).
         Route::post('checkout/webhooks/tamara', [PaymentWebhookController::class, 'tamara'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tamara');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
-        Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle:public-tracking')->name('api.tracking.public');
+        // FAIL-CLOSED throttle (`throttle.failclosed`): enforced even while the
+        // global disable switch is on — identity-less public surface, IP-keyed
+        // `public-tracking` limiter (spec #73 F3, ticket #77).
+        Route::post('track-order', [OrderTrackingController::class, 'trackByOrderNumber'])->middleware('throttle.failclosed:public-tracking')->name('api.tracking.public');
         //======================== GUEST CHECKOUT (no account required) ========================//
         // Ownership comes from the HttpOnly server-managed guest cookie, never
         // from a cart/order id. Tokens for public tracking/cancellation are
@@ -209,6 +212,11 @@ Route::prefix('v1/general')->group(function () {
                 ->name('api.guest.cart.destroy');
 
             // Static token paths first (no {orderId} capture).
+            // Possession proof for the cancellation link (#81): the link
+            // alone never cancels; a code goes to the phone on the order.
+            Route::post('orders/cancellation-otp', [GuestPublicOrderController::class, 'requestCancellationOtp'])
+                ->middleware(GuestSurface::ORDER_CANCEL_OTP->middleware())
+                ->name('api.guest.orders.cancellation-otp');
             Route::post('orders/track', [GuestPublicOrderController::class, 'track'])
                 ->middleware(GuestSurface::ORDER_TRACK->middleware())
                 ->name('api.guest.orders.track');
@@ -228,6 +236,13 @@ Route::prefix('v1/general')->group(function () {
                 ->whereNumber('orderId')
                 ->middleware(GuestSurface::ORDER_PAYMENT->middleware())
                 ->name('api.guest.orders.access-tokens');
+
+            // Session-bound re-delivery of the tracking link (#80): the owning
+            // device only, fresh credential rotated, notifier re-used verbatim.
+            Route::post('orders/{orderId}/resend-tracking-link', [GuestOrderController::class, 'resendTrackingLink'])
+                ->whereNumber('orderId')
+                ->middleware(GuestSurface::ORDER_RESEND->middleware())
+                ->name('api.guest.orders.resend-tracking-link');
 
             Route::post('checkout', [GuestCheckoutController::class, 'checkout'])
                 ->middleware(GuestSurface::CHECKOUT->middleware())

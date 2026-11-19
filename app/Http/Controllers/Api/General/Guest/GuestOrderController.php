@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\General\Guest;
 
 use App\Http\Controllers\Controller;
+use App\Exceptions\GuestCheckoutConflictException;
 use App\Http\Resources\Order\OrderResource;
 use App\Models\GuestIdentity;
 use App\Services\Guest\GuestOrderTokenService;
 use App\Services\Guest\GuestPaymentService;
+use App\Services\Guest\GuestTrackingLinkResendService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Marvel\Database\Models\Order;
@@ -24,6 +26,7 @@ class GuestOrderController extends Controller
         private GuestPaymentService $payments,
         private GuestOrderTokenService $tokens,
         private \App\Services\Payment\PaymentAttemptLifecycleService $attempts,
+        private GuestTrackingLinkResendService $resends,
     ) {
     }
 
@@ -77,6 +80,24 @@ class GuestOrderController extends Controller
             'cancellation_token' => $cancellationToken,
             'tracking_expires_at' => $this->tokens->trackingExpiresAt($order)?->toIso8601String(),
         ]);
+    }
+
+    /**
+     * Session-bound re-delivery of the tracking link (#80): re-issues a fresh
+     * Tracking Token (hash rotation, admin revocation never resurrected) and
+     * re-delivers SMS/email through the existing notifier. Ownership uses the
+     * same scoping as the other order surfaces; the workflow lives in the
+     * service.
+     */
+    public function resendTrackingLink(GuestIdentity $identity, int $orderId): JsonResponse
+    {
+        try {
+            $outcome = $this->resends->resend($identity, $this->ownedOrder($identity->id, $orderId));
+        } catch (GuestCheckoutConflictException $e) {
+            return $this->apiResponse($e->getMessage(), $e->httpStatus(), false);
+        }
+
+        return $this->apiResponse(__('guest_checkout.tracking_link_resent'), 200, true, $outcome);
     }
 
     private function ownedOrder(int $guestId, int $orderId): ?Order

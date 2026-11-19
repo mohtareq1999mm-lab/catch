@@ -20,6 +20,27 @@ use Mockery;
 
 class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // #81: cancellation now requires a possession proof. Pin the LOCAL OTP
+        // path (ADR 0003) so the suite never contacts an SMS provider.
+        config([
+            'auth.active_otp_gateway' => 'local',
+            'auth.local_otp_enabled' => true,
+            'auth.local_otp_code' => '123456',
+            'auth.master_otp' => null,
+        ]);
+    }
+
+    private function requestCancellationCode(string $token)
+    {
+        return $this->postJson(self::PREFIX . '/orders/cancellation-otp', [
+            'token' => $token,
+        ]);
+    }
+
     private function createOrder(string $paymentMethod = 'online', int $quantity = 1): array
     {
         $this->startGuestSession();
@@ -231,7 +252,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
         $this->postJson(self::PREFIX . '/orders/track', ['token' => str_repeat('a', 43)])
             ->assertStatus(404);
 
-        $this->postJson(self::PREFIX . '/orders/cancel', ['token' => 'short'])
+        $this->postJson(self::PREFIX . '/orders/cancel', ['token' => 'short', 'code' => '123456'])
             ->assertStatus(404);
     }
 
@@ -262,8 +283,11 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
     {
         $data = $this->createOrder('cod');
 
+        $this->requestCancellationCode($data['cancellation_token'])->assertOk();
+
         $first = $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ]);
         $first->assertOk()->assertJsonPath('data.order.status', Order::ORDER_STATUS_CANCELLED);
 
@@ -272,6 +296,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(422);
     }
 
@@ -283,8 +308,12 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->initiateOnline($data['order']->id, 'cancel-race-key')->assertOk();
 
+        // No possession proof is issued while money may still be collected.
+        $this->requestCancellationCode($data['cancellation_token'])->assertStatus(409);
+
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(409);
 
         $this->assertSame(Order::ORDER_STATUS_PENDING, $data['order']->fresh()->status);
@@ -314,6 +343,7 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $this->postJson(self::PREFIX . '/orders/cancel', [
             'token' => $data['cancellation_token'],
+            'code' => '123456',
         ])->assertStatus(422);
 
         $this->assertSame(Order::ORDER_STATUS_COMPLETED, $order->fresh()->status);
@@ -361,5 +391,51 @@ class GuestPaymentAndOrderAccessTest extends GuestCheckoutTestCase
 
         $third->assertStatus(429);
         $third->assertHeader('Retry-After');
+    }
+
+    /**
+     * ADR-0003's misconfiguration scenario, end to end: production with the
+     * LOCAL gateway selected and the flag left on. The app-side bypass check
+     * refuses the static code; the provider path must not become the
+     * loophole — the real LocalGateway is inert in production.
+     */
+    /** @test */
+    public function the_static_code_cannot_cancel_through_the_local_gateway_in_production(): void
+    {
+        $data = $this->createOrder('cod');
+        config(['auth.active_otp_gateway' => 'local']);
+        $this->app['env'] = 'production';
+
+        // In the merged design the static code can never reach a provider:
+        // the bypass is hard-gated in production and no code was requested,
+        // so the missing-state gate answers before any gateway call.
+        $this->postJson(self::PREFIX . '/orders/cancel', [
+            'token' => $data['cancellation_token'],
+            'code' => '123456',
+        ])->assertStatus(422)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_expired'));
+
+        $this->assertNotSame(Order::ORDER_STATUS_CANCELLED, $data['order']->fresh()->status);
+        $this->assertNull($data['order']->fresh()->guest_cancellation_token_used_at);
+    }
+
+    /**
+     * The same misconfiguration at the request step: the inert LocalGateway
+     * surfaces as a failed dispatch (502), not a fake success the client
+     * would wait on forever. The live surface is the cancellation-otp
+     * request (the superseded request-otp route was removed by #89).
+     */
+    /** @test */
+    public function requesting_otp_through_the_local_gateway_in_production_fails_closed(): void
+    {
+        $data = $this->createOrder('cod');
+        config(['auth.active_otp_gateway' => 'local']);
+        $this->app['env'] = 'production';
+
+        $this->requestCancellationCode($data['cancellation_token'])
+            ->assertStatus(502)
+            ->assertJsonPath('message', __('guest_checkout.cancel_otp_failed'));
+
+        $this->assertNull($data['order']->fresh()->guest_cancellation_token_used_at);
     }
 }

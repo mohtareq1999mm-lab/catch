@@ -6,15 +6,21 @@ use App\Models\GuestIdentity;
 use App\Models\GuestIdempotencyKey;
 use App\Services\Guest\GuestOrderTokenService;
 use App\Services\General\OrderService;
-use Illuminate\Support\Facades\DB;
+use App\Services\Notifications\SMSService;
+use Illuminate\Mail\Transport\ArrayTransport;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Transaction;
 use Marvel\Enums\ItemType;
+use Mockery;
+use Mockery\MockInterface;
 
 class GuestCheckoutFlowTest extends GuestCheckoutTestCase
 {
+    /** Recorded send() attempts of the swapped SMSService fake. */
+    private array $smsSends = [];
+
     private function seedCart(int $quantity = 2): void
     {
         $this->startGuestSession();
@@ -291,5 +297,153 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
         $this->artisan('guest:prune-carts')->assertSuccessful();
 
         $this->assertNotNull(Cart::query()->find($cart->id));
+    }
+
+    /** @test */
+    public function checkout_schedules_the_tracking_link_delivery_for_the_terminating_phase(): void
+    {
+        $this->trackingLinkConfig(true);
+        $this->fakeGuestSmsDelivery();
+
+        $this->seedCart(1);
+
+        $response = $this->submitGuestCheckout([], 'delivery-key-' . uniqid());
+
+        $response->assertCreated()->assertJsonPath('success', true);
+
+        $trackingToken = $response->json('data.tracking_token');
+        $cancellationToken = $response->json('data.cancellation_token');
+        $orderNumber = $response->json('data.order.order_number');
+        $orderId = $response->json('data.order.id');
+
+        $this->assertIsString($trackingToken);
+        $this->assertIsString($cancellationToken, 'The checkout fixture must carry a real cancellation token');
+
+        // The test kernel runs Application::terminate() after the response
+        // (MakesHttpRequests::call), exactly like the production kernel, so
+        // the scheduled delivery has already executed once here. The
+        // "deferred, not inline" wiring is pinned at the unit seam:
+        // GuestTrackingLinkNotifierTest::test_notify_after_response_defers_
+        // delivery_to_the_terminating_phase.
+
+        // SMS channel: exactly one send, to the order phone, tracking link only.
+        $this->assertCount(1, $this->smsSends, 'The scheduled delivery must execute at terminate');
+        $this->assertSame('+201000000001', $this->smsSends[0]['to']);
+        $this->assertStringContainsString(
+            'https://front.example.test/track-order?token=' . $trackingToken,
+            $this->smsSends[0]['message']
+        );
+        $this->assertStringContainsString($orderNumber, $this->smsSends[0]['message']);
+        $this->assertSame($orderId, $this->smsSends[0]['metadata']['order_id']);
+        $this->assertSame('guest_tracking_link', $this->smsSends[0]['metadata']['type']);
+        $this->assertTrackingOnlyDelivery($cancellationToken, $this->smsSends[0]);
+
+        // Email channel: one raw message to the order address with the same link.
+        $transport = $this->mailTransport();
+        $this->assertCount(1, $transport->messages());
+        $email = $transport->messages()->last()->getOriginalMessage();
+        $this->assertSame('guest.buyer@example.test', $email->getTo()[0]->getAddress());
+        $this->assertStringContainsString($orderNumber, (string) $email->getSubject());
+        $this->assertStringContainsString(
+            'https://front.example.test/track-order?token=' . $trackingToken,
+            (string) $email->getTextBody()
+        );
+        $this->assertStringNotContainsString($cancellationToken, (string) $email->getTextBody());
+    }
+
+    /** @test */
+    public function checkout_with_the_tracking_link_disabled_completes_and_schedules_no_delivery(): void
+    {
+        $this->trackingLinkConfig(false);
+        $this->fakeGuestSmsDelivery(0);
+
+        $this->seedCart(1);
+
+        $response = $this->submitGuestCheckout([], 'disabled-delivery-key-' . uniqid());
+
+        // The toggle stops delivery only: checkout still completes and the
+        // order still receives its credentials.
+        $response->assertCreated()->assertJsonPath('success', true);
+        $this->assertIsString($response->json('data.tracking_token'));
+        $this->assertIsString($response->json('data.cancellation_token'));
+        $this->assertSame(1, $this->currentGuestOrders()->count());
+
+        $this->app->terminate();
+
+        $this->assertSame([], $this->smsSends, 'The disabled toggle must schedule no SMS delivery');
+        $this->assertSame(
+            0,
+            $this->mailTransport()->messages()->count(),
+            'The disabled toggle must schedule no email delivery'
+        );
+    }
+
+    /**
+     * Pin the tracking-link delivery configuration for the test.
+     */
+    private function trackingLinkConfig(bool $enabled): void
+    {
+        config(['guest_checkout.tracking_link' => [
+            'enabled' => $enabled,
+            'base_url' => 'https://front.example.test',
+            'path' => '/track-order',
+        ]]);
+    }
+
+    /**
+     * Swap the container SMSService binding for a Mockery fake that records
+     * send() attempts into $this->smsSends. The notifier captures the fake
+     * when it is resolved during the checkout request, so the swap must
+     * happen before checkout. $times === 0 makes any delivery attempt fail
+     * the test immediately.
+     */
+    private function fakeGuestSmsDelivery(int $times = 1): MockInterface
+    {
+        $this->smsSends = [];
+
+        $sms = Mockery::mock(SMSService::class);
+        $sms->shouldReceive('formatPhone')->andReturn('+201000000001');
+        $sms->shouldReceive('validatePhone')->andReturn(true);
+
+        $expectation = $sms->shouldReceive('send')->andReturnUsing(function (string $to, string $message, array $metadata = []) {
+            $this->smsSends[] = ['to' => $to, 'message' => $message, 'metadata' => $metadata];
+
+            return ['success' => true, 'message_id' => 'test_simulated', 'response' => ['status' => 'simulated']];
+        });
+
+        $times === 0 ? $expectation->never() : $expectation->times($times);
+
+        $this->app->instance(SMSService::class, $sms);
+
+        return $sms;
+    }
+
+    /**
+     * The real array mailer transport (MAIL_MAILER=array in the test config).
+     */
+    private function mailTransport(): ArrayTransport
+    {
+        $transport = app('mailer')->getSymfonyTransport();
+
+        $this->assertInstanceOf(ArrayTransport::class, $transport, 'MAIL_MAILER must be the array transport for these tests');
+
+        return $transport;
+    }
+
+    /**
+     * The security claim "tracking-token-only": the delivery record must
+     * never contain the cancellation token in any form (raw or hash) — and
+     * therefore never a cancellation link.
+     */
+    private function assertTrackingOnlyDelivery(string $cancellationToken, array $sendRecord, string $label = 'The tracking delivery'): void
+    {
+        $serialized = (string) json_encode($sendRecord);
+
+        $this->assertStringNotContainsString($cancellationToken, $serialized, "{$label} leaked the cancellation token");
+        $this->assertStringNotContainsString(
+            app(GuestOrderTokenService::class)->hash($cancellationToken),
+            $serialized,
+            "{$label} leaked the cancellation token hash"
+        );
     }
 }

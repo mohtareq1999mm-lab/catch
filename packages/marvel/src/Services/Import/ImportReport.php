@@ -126,6 +126,29 @@ final class ImportReport
         return $this->images;
     }
 
+    /**
+     * The single error-merge rule for the persisted import error list: decode
+     * a persisted (possibly JSON-encoded) value, append the incoming bucket
+     * and apply the single cap, so per-chunk jobs (e.g. image chunks) can
+     * append without duplicating the rule or growing the list past the cap.
+     *
+     * @param  mixed  $persisted  Raw import->errors value (array or JSON string)
+     * @param  array<int, array<string, mixed>>  $incoming
+     * @return array<int, array<string, mixed>>
+     */
+    public static function mergePersisted($persisted, array $incoming): array
+    {
+        if (is_string($persisted)) {
+            $persisted = json_decode($persisted, true);
+        }
+
+        if (!is_array($persisted)) {
+            $persisted = [];
+        }
+
+        return array_slice(array_merge($persisted, $incoming), 0, RunOutcome::ERROR_CAP);
+    }
+
     public function failedRowCount(): int
     {
         return count($this->productRows);

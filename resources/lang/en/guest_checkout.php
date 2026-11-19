@@ -39,11 +39,19 @@ return [
     'tracking_link_invalid' => 'This tracking link is invalid or has expired.',
     'tracking_retrieved' => 'Order status retrieved successfully.',
     'tracking_revoked' => 'Guest tracking access has been revoked.',
+    'tracking_link_resent' => 'A fresh tracking link has been sent to you.',
 
     'cancel_link_invalid' => 'This cancellation link is invalid.',
     'cancel_link_used' => 'This cancellation link has already been used.',
     'cancel_link_expired' => 'This cancellation link has expired.',
     'cancel_failed' => 'The order could not be cancelled.',
+
+    'cancel_otp_sent' => 'A verification code has been sent to the phone number on this order.',
+    'cancel_otp_invalid' => 'The verification code is incorrect.',
+    'cancel_otp_expired' => 'The verification code has expired. Request a new code.',
+    'cancel_otp_locked' => 'Too many incorrect verification codes. Try again later.',
+    'cancel_otp_unavailable' => 'A verification code cannot be sent for this order.',
+    'cancel_otp_failed' => 'The verification code could not be sent. Try again later.',
 
     'merge_product_deleted' => 'This product is no longer available and was kept in your cart for review.',
     'merge_product_unavailable' => 'This product is currently unavailable and was kept in your cart for review.',
@@ -56,4 +64,7 @@ return [
     'merge_quantity_capped' => 'The quantity was adjusted to the maximum currently allowed.',
     'merge_failed' => 'This item could not be merged automatically and was kept for review.',
     'merge_gift_line_preserved' => 'A promotional gift line was kept for review.',
+    'tracking_sms' => 'Thank you for your order :order_number. Track it here: :url',
+    'tracking_email_subject' => 'Your order :order_number - tracking link',
+    'tracking_email_body' => "Thank you for your order :order_number.\n\nYou can track it at any time, from any device, using this private link:\n:url\n\nPlease do not share this link.",
 ];

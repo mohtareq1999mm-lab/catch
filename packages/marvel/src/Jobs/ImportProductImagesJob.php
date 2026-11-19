@@ -4,6 +4,7 @@ namespace Marvel\Jobs;
 
 use App\Enums\FrontendResource;
 use App\Services\General\HomeService;
+use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -13,12 +14,12 @@ use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Import;
 use Marvel\Services\Import\ImageImporter;
 use Marvel\Services\Import\ImportReport;
-use Marvel\Services\Import\RunOutcome;
 use Throwable;
 
 class ImportProductImagesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Batchable;
 
     public int $tries = 3;
 
@@ -48,7 +49,7 @@ class ImportProductImagesJob implements ShouldQueue
     public function handle(): void
     {
         $import = Import::find($this->importId);
-        if (!$import || $import->status === 'cancelled') {
+        if (!$import || $import->isTerminal()) {
             return;
         }
 
@@ -56,20 +57,16 @@ class ImportProductImagesJob implements ShouldQueue
         $importer = new ImageImporter(new ImportReport());
         $importer->ingest($this->imageRows);
 
-        // Merge image errors into import errors (append, keep product counters intact)
-        try {
-            $import->refresh();
-            $existing = $import->errors ?? [];
-            if (is_string($existing)) {
-                $existing = json_decode($existing, true) ?? [];
-            }
-            $newErrors = $importer->report()->imageErrors();
-            if (!empty($newErrors)) {
-                $merged = array_merge($existing, $newErrors);
-                $import->update(['errors' => array_slice($merged, 0, RunOutcome::ERROR_CAP)]);
-            }
-        } catch (Throwable $e) {
-            report($e);
+        // Merge image errors into import errors (append, keep product counters
+        // intact). The merge rule lives on the report, not the job. The
+        // terminal write is deferred to FinalizeProductImportJob, which runs
+        // after every chunk has finished, so it sees this error set. A failed
+        // merge fails the chunk, so the retry re-merges instead of the
+        // terminal write silently claiming a complete report.
+        $import->refresh();
+        $newErrors = $importer->report()->imageErrors();
+        if (!empty($newErrors)) {
+            $import->update(['errors' => ImportReport::mergePersisted($import->errors ?? [], $newErrors)]);
         }
 
         // Media change affects product detail/listing caches

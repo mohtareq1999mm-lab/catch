@@ -165,6 +165,25 @@ class CategoryBrandImportTest extends TestCase
         @unlink($tmp);
     }
 
+    public function test_category_import_empty_sheet_completes(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin([Perm::IMPORT_CATEGORY]);
+        $headers = ['name_en','name_ar','details_en','details_ar','parent_name_en','status','is_featured','image_desktop_url','image_mobile_url'];
+        $tmp = $this->writeSheet($headers, [], 'categories');
+        $path = 'imports/cat_'.uniqid().'.xlsx';
+        Storage::disk('public')->put($path, file_get_contents($tmp));
+        $import = Import::create(['type'=>'category-import','file_path'=>$path,'file_name'=>'c.xlsx','status'=>'pending','total_rows'=>0,'created_by'=>$user->id]);
+        (new ImportCategoriesJob($import->id))->handle();
+        $import->refresh();
+        // The outcome owns status derivation: zero success + zero failed is
+        // 'completed' (nothing failed), not the legacy hand-rolled 'failed'.
+        $this->assertEquals('completed', $import->status);
+        $this->assertEquals(0, $import->success_rows);
+        $this->assertEquals(0, $import->failed_rows);
+        @unlink($tmp);
+    }
+
     public function test_brand_import_create_and_update(): void
     {
         Storage::fake('public');
@@ -211,6 +230,25 @@ class CategoryBrandImportTest extends TestCase
         (new ImportBrandsJob($import->id))->handle();
         $import->refresh();
         $this->assertEquals('completed_with_errors', $import->status);
+        @unlink($tmp);
+    }
+
+    public function test_brand_import_empty_sheet_completes(): void
+    {
+        Storage::fake('public');
+        $user = $this->makeAdmin([Perm::IMPORT_BRAND]);
+        $headers = ['name_en','name_ar','details_en','details_ar','status','image_desktop_url','image_mobile_url'];
+        $tmp = $this->writeSheet($headers, [], 'brands');
+        $path = 'imports/brand_'.uniqid().'.xlsx';
+        Storage::disk('public')->put($path, file_get_contents($tmp));
+        $import = Import::create(['type'=>'brand-import','file_path'=>$path,'file_name'=>'b.xlsx','status'=>'pending','total_rows'=>0,'created_by'=>$user->id]);
+        (new ImportBrandsJob($import->id))->handle();
+        $import->refresh();
+        // The outcome owns status derivation: zero success + zero failed is
+        // 'completed' (nothing failed), not the legacy hand-rolled 'failed'.
+        $this->assertEquals('completed', $import->status);
+        $this->assertEquals(0, $import->success_rows);
+        $this->assertEquals(0, $import->failed_rows);
         @unlink($tmp);
     }
 

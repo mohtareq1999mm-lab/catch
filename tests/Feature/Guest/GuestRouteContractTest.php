@@ -42,9 +42,11 @@ class GuestRouteContractTest extends TestCase
         'api.guest.cart.destroy' => GuestSurface::CART_WRITE,
         'api.guest.orders.track' => GuestSurface::ORDER_TRACK,
         'api.guest.orders.cancel' => GuestSurface::ORDER_CANCEL,
+        'api.guest.orders.cancellation-otp' => GuestSurface::ORDER_CANCEL_OTP,
         'api.guest.orders.show' => GuestSurface::ORDER_READ,
         'api.guest.orders.payment' => GuestSurface::ORDER_PAYMENT,
         'api.guest.orders.access-tokens' => GuestSurface::ORDER_PAYMENT,
+        'api.guest.orders.resend-tracking-link' => GuestSurface::ORDER_RESEND,
         'api.guest.checkout' => GuestSurface::CHECKOUT,
     ];
 
@@ -62,9 +64,11 @@ class GuestRouteContractTest extends TestCase
         'DELETE api/v1/general/guest/cart/items/{itemId}' => 'guest_cart_write',
         'POST api/v1/general/guest/orders/track' => 'guest_tracking',
         'POST api/v1/general/guest/orders/cancel' => 'guest_cancel',
+        'POST api/v1/general/guest/orders/cancellation-otp' => 'guest_cancel_otp',
         'GET api/v1/general/guest/orders/{orderId}' => 'guest_cart_read',
         'POST api/v1/general/guest/orders/{orderId}/payment' => 'guest_payment',
         'POST api/v1/general/guest/orders/{orderId}/access-tokens' => 'guest_payment',
+        'POST api/v1/general/guest/orders/{orderId}/resend-tracking-link' => 'guest_resend',
         'POST api/v1/general/guest/checkout' => 'guest_checkout',
     ];
 

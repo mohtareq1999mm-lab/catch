@@ -23,6 +23,7 @@ use Marvel\Database\Repositories\UserRepository;
 use Marvel\Enums\Permission;
 use Marvel\Enums\Role;
 use App\Events\AdminLoggedIn;
+use App\Exceptions\GuestCheckoutConflictException;
 use App\Events\UserRolesUpdated;
 use Marvel\Exceptions\MarvelException;
 use Marvel\Exceptions\MarvelNotFoundException;
@@ -35,8 +36,8 @@ use Marvel\Http\Requests\UserCreateRequest;
 use Marvel\Http\Requests\UserUpdateRequest;
 use Marvel\Http\Resources\UserResource;
 use Marvel\Mail\ContactAdmin;
-use Marvel\Otp\Gateways\OtpGateway;
-use Marvel\Otp\Gateways\LocalGateway;
+use Marvel\Otp\OtpInterface;
+use Marvel\Otp\StaticBypass;
 use Marvel\Traits\ApiResponse;
 use Marvel\Traits\UsersTrait;
 use Marvel\Traits\WalletsTrait;
@@ -608,7 +609,7 @@ class UserController extends CoreController
             return $this->apiResponse(USER_NOT_FOUND, 404, false);
         }
 
-if ($user->verifyOneTimePassword($request->code)) {
+        if ($this->isMasterOtpAccepted($request->code) || $user->verifyOneTimePassword($request->code)) {
             $user->update(['email_verified_at' => now()]);
 
             $data = [
@@ -1087,15 +1088,10 @@ $userCreated->providers()->updateOrCreate(
 
     protected function getOtpGateway()
     {
-        $gateway = config('auth.active_otp_gateway');
-        $gateWayClass = "Marvel\\Otp\\Gateways\\" . ucfirst($gateway) . 'Gateway';
-        try {
-            return new OtpGateway(new $gateWayClass());
-        } catch (\Throwable $e) {
-            // Log the issue and fallback to a local/testing gateway that requires no credentials
-            Log::warning('OTP gateway unavailable, falling back to LocalGateway: ' . $e->getMessage());
-            return new OtpGateway(new LocalGateway());
-        }
+        // ONE resolution for every OTP consumer: the container binding owns
+        // the ADR-0003 policy (configured provider, FailingGateway in
+        // production on misconfiguration, LocalGateway as the dev path).
+        return app(OtpInterface::class);
     }
 
     /**
@@ -1144,10 +1140,38 @@ $userCreated->providers()->updateOrCreate(
         ], 429);
     }
 
+    /**
+     * Timing-safe check whether the given code matches the configured master OTP
+     * or the local development test code.
+     *
+     * ADR 0003: the static-bypass decision lives in ONE universal check
+     * beside the OTP gateway stack ({@see StaticBypass}); this thin wrapper
+     * only supplies the actor identifier for the audit line — the identity
+     * the bypass was exercised against (email flow: the attempted email;
+     * phone/contact flows: the attempted phone number).
+     */
+    protected function isMasterOtpAccepted($code): bool
+    {
+        // The actor identifier comes from the current request; the
+        // bare-container unit tests resolve this method without a bound
+        // request, so the actor is simply unidentifiable there.
+        $actor = '';
+        if (app()->bound('request')) {
+            $request = app()->make('request');
+            $actor = (string) ($request->input('email') ?? $request->input('phone_number') ?? '');
+        }
+
+        return app(StaticBypass::class)->accepts($code, $actor);
+    }
+
     protected function verifyOtp(Request $request)
     {
+        $code = (string) $request->input('code', '');
+        if ($this->isMasterOtpAccepted($code)) {
+            return true;
+        }
+
         $id = $request->otp_id;
-        $code = $request->code;
         $phoneNumber = $request->phone_number;
         try {
             $otpGateway = $this->getOtpGateway();
@@ -1191,8 +1215,15 @@ $userCreated->providers()->updateOrCreate(
                 'phone_number' => $phoneNumber,
                 'is_contact_exist' => $user ? true : false
             ];
-        } catch (MarvelException $e) {
+        } catch (GuestCheckoutConflictException | MarvelException $e) {
             throw new MarvelException(INVALID_GATEWAY);
+        } catch (\Throwable $e) {
+            // A misconfigured gateway resolves to the FailingGateway, which
+            // throws at call time (ADR-0003): answer the translated failure
+            // instead of an uncaught 500.
+            report($e);
+
+            return ['message' => __('message.'.OTP_SEND_FAIL), 'success' => false];
         }
     }
 
