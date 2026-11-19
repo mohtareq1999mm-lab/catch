@@ -427,6 +427,12 @@ class Phase3InventoryCommitTest extends TestCase
 
     public function test_committed_pending_retry_is_superseded_by_fresh_order(): void
     {
+        // The COD release announces FulfillmentProgressed; its sync listener
+        // would advance the order to processing. This test exercises the
+        // pending-order supersede path, so keep the fixture pending while
+        // still creating the fulfillment row.
+        \Illuminate\Support\Facades\Event::fake([\App\Events\Fulfillment\FulfillmentProgressed::class]);
+
         $this->makeWarehouse();
         $user = User::factory()->create(['type' => 'customer']);
         $product = $this->makeProduct(10);

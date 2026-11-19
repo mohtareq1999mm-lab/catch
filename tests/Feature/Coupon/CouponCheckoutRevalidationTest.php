@@ -102,7 +102,7 @@ class CouponCheckoutRevalidationTest extends TestCase
             'price' => 90.00,
             'coupon' => $coupon->code,
             'coupon_discount' => 10,
-            'status' => 'completed',
+            'status' => 'pending',
         ]);
 
         Transaction::create([
@@ -399,7 +399,7 @@ class CouponCheckoutRevalidationTest extends TestCase
             'price' => 90.00,
             'coupon' => $coupon->code,
             'coupon_discount' => 10,
-            'status' => 'completed',
+            'status' => 'pending',
         ]);
 
         Transaction::create([
