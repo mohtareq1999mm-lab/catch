@@ -20,9 +20,9 @@ use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Fulfillment\OrderPickingService;
 use App\Services\Fulfillment\PackingService;
 use App\Services\Fulfillment\PickingExecutionService;
-use App\Services\General\OrderService;
 use App\Services\Inventory\InventoryRestoreService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
@@ -135,7 +135,10 @@ class CancellationPhase7Test extends TestCase
 
     private function cancelOrder(Order $order, ?string $reason = null): Order
     {
-        $result = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, $reason);
+        $transitions = app(OrderTransitionService::class);
+        $result = $reason === null
+            ? $transitions->transitionTo($order, 'cancelled')
+            : $transitions->cancelByStaff($order, $reason);
 
         $this->assertNotFalse($result);
 
@@ -375,7 +378,7 @@ class CancellationPhase7Test extends TestCase
         app(ShipmentService::class)->createForFulfillment($fulfillment->refresh(), [], 'p74-ship3');
 
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
             $this->fail('guard refusal must roll the order cancel back atomically');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('live shipment', $e->getMessage());
@@ -544,7 +547,7 @@ class CancellationPhase7Test extends TestCase
         // claim already won, the cancel path finds no COMMITTED inventory
         // (no restore) and no ACTIVE reservation (no release) — still once.
         app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order->refresh(), 'local');
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertEquals('cancelled', $order->refresh()->status);
         $this->assertEquals(50, $this->product->refresh()->stock_quantity);
@@ -621,7 +624,7 @@ class CancellationPhase7Test extends TestCase
 
         $this->cancelOrder($order->refresh());
         // Second cancel: previousStatus === cancelled → cancel branch skipped.
-        $again = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        $again = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
         $this->assertNotFalse($again);
 
         $this->assertEquals('cancelled', $order->refresh()->status);

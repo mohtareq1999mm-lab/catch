@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderStatus;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
@@ -20,7 +20,7 @@ use Tests\TestCase;
 /**
  * P3-1 (decision D3): the unpaid-order reaper (orders:cancel-unpaid) performs
  * its lifecycle mutation exclusively through the canonical writer
- * (OrderService::changeOrderStatus) — the intentional bypass is gone.
+ * (OrderTransitionService::expireUnpaid) — the intentional bypass is gone.
  *
  * Outcome parity pinned here:
  * - expired pending orders cancel (status/current-stage/cancelled_at,
@@ -144,7 +144,7 @@ class ReaperAuthorityTest extends TestCase
         $order = $this->expiredUnpaidOrder();
 
         // No flag: Rule 17 applies — unpaid canonical cancels decrement.
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertSame('cancelled', $order->fresh()->status);
         $this->assertSame(4, (int) $this->promotion->fresh()->usage);

@@ -12,7 +12,6 @@ use App\Services\Inventory\OrderReservationService;
 use App\Services\Coupon\CouponCalculator;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\General\OrderService;
-use App\Services\Order\OrderTransitionService;
 use App\Services\General\PromotionService;
 use App\Services\Invoice\InvoiceNumberService;
 use App\Services\Invoice\InvoiceSnapshotService;
@@ -24,6 +23,7 @@ use App\Services\Invoice\Validators\MetadataValidator;
 use App\Services\Invoice\Validators\MoneyValidator;
 use App\Services\Invoice\Validators\SnapshotVersionValidator;
 use App\Services\Invoice\Validators\StructureValidator;
+use App\Services\Order\OrderTransitionService;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -997,8 +997,6 @@ class ProductionReadinessAuditTest extends TestCase
 
         $this->assertEquals('pending', $order->status);
 
-        $orderService = app(OrderService::class);
-
         // F-1 world: completing an UNPAID order is a financial act requiring
         // payments.mark_paid. Grant it hermetically (mirrors a cashier/admin
         // with payment authority); the transition rule itself is unchanged.
@@ -1007,13 +1005,13 @@ class ProductionReadinessAuditTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         // pending → completed (allowed)
-        $result = $orderService->changeOrderStatus(null, 'completed', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $order->fresh()->status);
 
         // completed → cancelled (FORBIDDEN)
         $this->expectException(\RuntimeException::class);
-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
     }
 
     // =========================================================================

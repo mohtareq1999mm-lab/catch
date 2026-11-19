@@ -16,6 +16,7 @@ use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use App\Models\WarehouseWorkflowVersion;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -302,7 +303,7 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
 
         // Payment-owned completion converges via official authority.
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertSame('delivered', $order->fresh()->status);
 
         // Inventory invariants: committed goods never double-moved by WMS HTTP.

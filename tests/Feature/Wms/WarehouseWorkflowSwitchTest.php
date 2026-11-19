@@ -11,7 +11,7 @@ use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Shipment\ShipmentService;
 use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -337,7 +337,7 @@ class WarehouseWorkflowSwitchTest extends TestCase
         // Complete through the canonical order writer. PaymentSucceeded
         // fires here (emit default), falls on the disabled listener, and
         // must stay a silent policy skip.
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         // Continue delivery through the EXISTING delivery process.
         app(ShipmentService::class)->markDelivered($shipment->id);

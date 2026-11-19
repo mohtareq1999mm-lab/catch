@@ -16,7 +16,7 @@ use Tests\Feature\Currency\CurrencyTestCase;
 /**
  * SHOULD-FIX (d): Marvel PATCH /api/v1/orders/{id}/status reachability proof.
  *
- * RESULT: BLOCKED. The F-1 authority gate in OrderService::changeOrderStatus()
+ * RESULT: BLOCKED. The F-1 authority gate in OrderTransitionService::transitionTo()
  * now rejects completed-transitions on UNPAID orders when the authenticated
  * actor lacks `payments.mark_paid` (422, order untouched). An admin holding
  * ONLY `update-order-status` can no longer financially complete an order via

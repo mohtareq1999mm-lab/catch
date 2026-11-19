@@ -7,7 +7,7 @@ namespace Tests\Feature\OrderFlow;
 use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderFlowStatus;
 use App\Models\OrderFlow\OrderStatus;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -130,14 +130,13 @@ class ExportProcessingStageTest extends TestCase
     public function new_stage_walks_through_canonical_writer(): void
     {
         $order = $this->packedInternationalOrder();
-        $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'export_processing', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'export_processing');
         $fresh = $order->fresh();
         $this->assertSame('export_processing', $fresh->status);
         $this->assertSame($this->statusId('export_processing'), (int) $fresh->current_status_id);
 
-        $service->changeOrderStatus(null, 'shipped', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'shipped');
         $fresh = $order->fresh();
         $this->assertSame('shipped', $fresh->status);
         $this->assertSame($this->statusId('shipped'), (int) $fresh->current_status_id);

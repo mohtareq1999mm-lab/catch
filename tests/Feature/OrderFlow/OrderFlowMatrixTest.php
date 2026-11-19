@@ -6,6 +6,7 @@ namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderStatus;
+use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
 use Database\Seeders\OrderFlowSeeder;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -180,7 +181,7 @@ class OrderFlowMatrixTest extends TestCase
 
     private function change(Order $order, string $to): void
     {
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, $to, $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, $to);
     }
 
     private function assertInvariants(Order $order): void
@@ -264,19 +265,16 @@ class OrderFlowMatrixTest extends TestCase
     private function forceDeliver(Order $order): void
     {
         Sanctum::actingAs($this->admin);
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(
-            null, 'delivered', $order->id, true, 'flow walk tail', null, true, [], false, false, true
-        );
+        app(OrderTransitionService::class)->forceDeliver($order, 'flow walk tail');
     }
 
     public function test_invalid_skips_and_backward_moves_fail(): void
     {
         $order = $this->checkoutOrder();
-        $service = app(\App\Services\General\OrderService::class);
 
         foreach (['shipped', 'delivered', 'out_for_delivery'] as $skip) {
             try {
-                $service->changeOrderStatus(null, $skip, $order->id);
+                app(OrderTransitionService::class)->transitionTo($order, $skip);
                 $this->fail("Skip to {$skip} must be rejected.");
             } catch (\RuntimeException) {
             }
@@ -286,7 +284,7 @@ class OrderFlowMatrixTest extends TestCase
 
         foreach (['pending', 'delivered'] as $bad) {
             try {
-                $service->changeOrderStatus(null, $bad, $order->id);
+                app(OrderTransitionService::class)->transitionTo($order, $bad);
                 $this->fail("Move to {$bad} must be rejected.");
             } catch (\RuntimeException) {
             }
@@ -298,14 +296,13 @@ class OrderFlowMatrixTest extends TestCase
     public function test_terminal_states_reject_everything_but_noop(): void
     {
         $order = $this->checkoutOrder();
-        $service = app(\App\Services\General\OrderService::class);
         Sanctum::actingAs($this->admin);
         // completed is a milestone, not terminal. Phase 8 (D8-5): the
         // normal completed -> delivered tail requires the completion
         // invariant; the audited force path covers the remainder.
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         try {
-            $service->changeOrderStatus(null, 'delivered', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
             $this->fail('Normal delivered without the completion invariant must be refused.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
@@ -315,14 +312,14 @@ class OrderFlowMatrixTest extends TestCase
 
         foreach (['pending', 'processing', 'packed', 'completed', 'cancelled'] as $bad) {
             try {
-                $service->changeOrderStatus(null, $bad, $order->id);
+                app(OrderTransitionService::class)->transitionTo($order, $bad);
                 $this->fail("Move from delivered to {$bad} must be rejected.");
             } catch (\RuntimeException) {
             }
         }
 
         // Same-status no-op stays allowed (legacy idempotency).
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
         $this->assertSame('delivered', $order->fresh()->status);
     }
 
@@ -333,7 +330,6 @@ class OrderFlowMatrixTest extends TestCase
     public function test_stale_state_concurrent_update_fails_safely(): void
     {
         $order = $this->checkoutOrder();
-        $service = app(\App\Services\General\OrderService::class);
 
         // Two actors read `processing`.
         $this->change($order, 'processing');
@@ -346,7 +342,7 @@ class OrderFlowMatrixTest extends TestCase
         // under lock the row is now packed, and packed -> shipped IS valid,
         // so use a truly invalid target to prove the guard reads fresh state.
         try {
-            $service->changeOrderStatus(null, 'delivered', $stale->id);
+            app(OrderTransitionService::class)->transitionTo($stale, 'delivered');
             $this->fail('Stale concurrent skip must be rejected.');
         } catch (\RuntimeException) {
         }
@@ -354,7 +350,7 @@ class OrderFlowMatrixTest extends TestCase
         // And a repeat of the already-applied step is a harmless no-op
         // producing no duplicate history row.
         $historyCount = $stale->statusHistory()->count();
-        $service->changeOrderStatus(null, 'packed', $stale->id);
+        app(OrderTransitionService::class)->transitionTo($stale, 'packed');
         $this->assertSame($historyCount, $stale->statusHistory()->count());
         $this->assertSame('packed', $order->fresh()->status);
     }

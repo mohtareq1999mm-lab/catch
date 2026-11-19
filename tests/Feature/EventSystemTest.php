@@ -15,6 +15,7 @@ use App\Services\General\MyfatoraService;
 use App\Jobs\LogActivityJob;
 use App\Listeners\SendOrderCancelledNotification;
 use App\Listeners\SendOrderStatusChangedNotification;
+use App\Services\Order\OrderTransitionService;
 use Marvel\Listeners\SendOrderCancelledNotification as MarvelSendOrderCancelledNotification;
 use Marvel\Providers\EventServiceProvider as MarvelEventServiceProvider;
 use App\Listeners\SendPaymentFailedNotification;
@@ -964,31 +965,29 @@ class EventSystemTest extends TestCase
         $this->assertEquals(config('queue.queues.high'), $listener->viaQueue());
     }
 
-    // ========== Service: OrderService dispatches App Events ==========
+    // ========== Service: order transitions dispatch App Events ==========
 
     /** @test */
-    public function change_order_status_dispatches_order_status_changed()
+    public function transition_to_dispatches_order_status_changed()
     {
         Event::fake([OrderStatusChanged::class]);
 
         $order = $this->createOrderWithPendingTransaction('cod');
 
-        $orderService = app(OrderService::class);
-        $orderService->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         Event::assertDispatched(OrderStatusChanged::class, fn ($e) => $e->order->id === $order->id);
     }
 
     /** @test */
-    public function change_order_status_to_cancelled_from_pending_dispatches_order_cancelled()
+    public function transition_to_cancelled_from_pending_dispatches_order_cancelled()
     {
         Event::fake([OrderCancelled::class, OrderStatusChanged::class]);
 
         $order = $this->createOrderWithPendingTransaction('cod');
         $this->assertEquals('pending', $order->status);
 
-        $orderService = app(OrderService::class);
-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         Event::assertDispatched(OrderCancelled::class, fn ($e) => $e->order->id === $order->id);
         $this->assertEquals('cancelled', $order->fresh()->status);
@@ -1167,8 +1166,7 @@ class EventSystemTest extends TestCase
         // ACTIVE hold, else no-ops). Set the premise the test asserts about.
         $order->update(['inventory_state' => Order::INVENTORY_STATE_COMMITTED]);
 
-        $orderService = app(OrderService::class);
-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertEquals('cancelled', $order->fresh()->status);
         $this->assertDatabaseHas('products', [

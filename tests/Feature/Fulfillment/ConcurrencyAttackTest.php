@@ -9,7 +9,7 @@ use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\OrderPickingService;
 use App\Services\Fulfillment\PickingExecutionService;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
@@ -128,10 +128,9 @@ class ConcurrencyAttackTest extends TestCase
             'address' => ['city' => 'Cairo'],
         ]);
 
-        $service = app(OrderService::class);
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         // Second worker completes the same order again.
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $fresh = $order->refresh();
         $this->assertEquals('completed', $fresh->status);

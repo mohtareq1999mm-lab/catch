@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\CancelUnpaidOrders;
 use App\Services\General\OrderService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Payment\PaymentCheckoutHandler;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -707,16 +708,15 @@ Schema::create('users', function (Blueprint $table) {
         ]);
     }
 
-    // ========== OrderService: changeOrderStatus with orderId fallback ==========
+    // ========== OrderTransitionService: explicit status transitions ==========
 
     /** @test */
-    public function change_order_status_works_with_order_id_when_invoice_id_is_null()
+    public function transition_to_cancelled_marks_pending_transaction_failed()
     {
         Event::fake([OrderStatusChanged::class]);
         $order = $this->createOrderWithPendingTransaction('cod');
 
-        $orderService = app(OrderService::class);
-        $result = $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertNotFalse($result);
         $this->assertEquals('cancelled', $result->status);
@@ -735,13 +735,12 @@ Schema::create('users', function (Blueprint $table) {
     }
 
     /** @test */
-    public function change_order_status_still_works_with_invoice_id()
+    public function transition_to_completed_marks_pending_transaction_paid()
     {
         Event::fake([OrderStatusChanged::class]);
         $order = $this->createOrderWithPendingTransaction('myfatoorah', 'INV-123');
 
-        $orderService = app(OrderService::class);
-        $result = $orderService->changeOrderStatus('INV-123', 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $result->status);
@@ -755,10 +754,12 @@ Schema::create('users', function (Blueprint $table) {
     }
 
     /** @test */
-    public function change_order_status_returns_false_when_no_order_found()
+    public function transition_returns_false_when_order_no_longer_exists()
     {
-        $orderService = app(OrderService::class);
-        $result = $orderService->changeOrderStatus(null, 'cancelled', 99999);
+        $order = $this->createOrderWithPendingTransaction();
+        $order->delete();
+
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertFalse($result);
     }

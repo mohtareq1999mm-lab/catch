@@ -889,32 +889,6 @@ class OrderService
         return array_values(array_unique($targets));
     }
 
-    /**
-     * Compatibility adapter for the pre-intent interface.
-     *
-     * @deprecated New code must call an OrderTransitionService intent. This
-     *             method and its invoice/id locator are retained only until
-     *             the remaining test callers are migrated (PR2).
-     *
-     * @internal
-     */
-    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [], bool $skipPromotionDecrement = false, bool $markPaymentFailed = false, bool $forceDelivered = false): Order|false
-    {
-        return $this->orderTransition->legacyChangeOrderStatus(
-            $invoiceId,
-            $status,
-            $orderId,
-            $emitPaymentSuccess,
-            $auditReason,
-            $auditContext,
-            $assertPaymentAuthority,
-            $flowValues,
-            $skipPromotionDecrement,
-            $markPaymentFailed,
-            $forceDelivered,
-        );
-    }
-
     public function markCodAsPaid(Order $order, ?string $reason = null): void
     {
         DB::transaction(function () use ($order, $reason) {

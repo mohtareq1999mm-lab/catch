@@ -14,6 +14,7 @@ use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
@@ -206,8 +207,7 @@ class WmsEndToEndTest extends TestCase
         // Order Flow completion: paid + completed + all delivered → delivered.
         // The completion emits PaymentSucceeded, whose sync converges the
         // order straight to delivered (all fulfillments already delivered).
-        app(\App\Services\General\OrderService::class)
-            ->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertSame('delivered', $order->fresh()->status);
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
         $this->assertSame('delivered', $order->fresh()->status);

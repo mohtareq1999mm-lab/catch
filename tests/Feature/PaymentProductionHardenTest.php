@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\DTOs\GatewayResult;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
 use App\Services\Payment\PaymentGatewayFactory;
 use Carbon\Carbon;
@@ -26,7 +27,6 @@ use App\Events\OrderCancelled;
 use App\Events\PaymentFailed;
 use App\Events\PaymentSucceeded;
 use App\Events\OrderStatusChanged;
-use App\Services\General\OrderService;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\CouponAssignment;
 use Marvel\Database\Models\CouponAssignmentUsage;
@@ -1130,7 +1130,7 @@ public function mark_paid_response_has_correct_structure()
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cannot change order status from completed to cancelled');
 
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
     }
 
     /** @test */
@@ -1143,7 +1143,7 @@ public function mark_paid_response_has_correct_structure()
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cannot change order status from delivered to pending');
 
-        app(OrderService::class)->changeOrderStatus(null, 'pending', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'pending');
     }
 
     /** @test */
@@ -1156,7 +1156,7 @@ public function mark_paid_response_has_correct_structure()
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cannot change order status from cancelled to completed');
 
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
     }
 
     /** @test */
@@ -1165,7 +1165,7 @@ public function mark_paid_response_has_correct_structure()
         $order = $this->createOrderWithPendingTransaction('cod');
         $this->assertEquals('pending', $order->status);
 
-        $result = app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $order->fresh()->status);
@@ -1372,12 +1372,11 @@ public function mark_paid_response_has_correct_structure()
             'coupon' => $coupon->code,
         ]);
 
-        $service = app(OrderService::class);
 
         DB::beginTransaction();
         try {
-            $service->changeOrderStatus(null, 'completed', $order1->id);
-            $service->changeOrderStatus(null, 'completed', $order2->id);
+            app(OrderTransitionService::class)->transitionTo($order1, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order2, 'completed');
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();

@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\PaymentSucceeded;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -138,13 +138,11 @@ class WebhookPaymentCompletionTest extends TestCase
             ]);
         }
 
-        $orderService = app(OrderService::class);
-
         // Complete all orders
         foreach ($orders as $order) {
             try {
-                DB::transaction(function () use ($orderService, $order) {
-                    $orderService->changeOrderStatus(null, 'completed', $order->id, false);
+                DB::transaction(function () use ($order) {
+                    app(OrderTransitionService::class)->completeFromGateway($order, true);
                 });
             } catch (\Throwable $e) {
                 // Expected: some may fail due to limiter
@@ -184,12 +182,10 @@ class WebhookPaymentCompletionTest extends TestCase
             'expires_at' => now()->addMinutes(30),
         ]);
 
-        $orderService = app(OrderService::class);
-
         // Attempt to complete order (will fail validation if no assignment)
         try {
-            DB::transaction(function () use ($orderService, $order) {
-                $orderService->changeOrderStatus(null, 'completed', $order->id, false);
+            DB::transaction(function () use ($order) {
+                app(OrderTransitionService::class)->completeFromGateway($order, true);
             });
         } catch (\Throwable $e) {
             // Expected
