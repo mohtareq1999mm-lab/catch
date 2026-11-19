@@ -13,8 +13,8 @@ use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\FulfillmentService;
-use App\Services\General\OrderService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
 use App\Services\Warehouse\WarehouseWorkflowSwitchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -252,7 +252,7 @@ class Phase3ReleaseHardeningTest extends TestCase
         $user = User::factory()->create(['type' => 'customer']);
         $order = $this->assignFlow($this->makeOrder($user, $this->makeProduct()));
 
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         try {
             app(FulfillmentService::class)->releaseForOrder($order->refresh());
@@ -275,10 +275,7 @@ class Phase3ReleaseHardeningTest extends TestCase
         $fulfillment = Fulfillment::where('order_id', $order->id)->firstOrFail();
 
         // Reaper-style cancel with never-paid parity flags.
-        app(OrderService::class)->changeOrderStatus(
-            null, 'cancelled', $order->id, true, 'reservation expired', ['trigger' => 'test'],
-            true, [], true, true
-        );
+        app(OrderTransitionService::class)->expireUnpaid($order);
 
         $this->assertEquals('cancelled', $fulfillment->refresh()->status);
         $this->assertEquals(
@@ -333,7 +330,7 @@ class Phase3ReleaseHardeningTest extends TestCase
         ]);
         $digital = $this->makeOrder(User::factory()->create(['type' => 'customer']), $this->makeProduct(100, 'DIGITAL'), [], 'DIGITAL');
         $cancelled = $this->assignFlow($this->makeOrder(User::factory()->create(['type' => 'customer']), $this->makeProduct()));
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $cancelled->id);
+        app(OrderTransitionService::class)->transitionTo($cancelled, 'cancelled');
 
         $this->artisan('fulfillment:release-ready')->assertExitCode(0);
 

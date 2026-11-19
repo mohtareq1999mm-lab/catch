@@ -11,7 +11,6 @@ use App\Models\OrderStatusHistory;
 use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
-use App\Services\General\OrderService;
 use App\Services\Order\OrderTransitionService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -230,7 +229,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $this->makeReadyFulfillment($order, 'p87-b');
 
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
             $this->fail('open fulfillment must block manual delivered');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -263,7 +262,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
 
         // The manual path refuses while payment is voided.
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
             $this->fail('unpaid order must not transition to delivered');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -284,7 +283,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $order = $this->makeCompletedOrder();
 
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
             $this->fail('zero fulfillments must block manual delivered');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {

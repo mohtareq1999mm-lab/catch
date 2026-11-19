@@ -30,7 +30,7 @@ use Tests\TestCase;
  *   completed + paid orders whose every fulfillment is delivered — through
  *   the canonical writer (completed→delivered terminal absorption).
  * - Payment: covered by OrderStatusLifecycleTest (markCodAsPaid /
- *   markCashierPaid complete exclusively via changeOrderStatus).
+ *   markCashierPaid complete exclusively via OrderTransitionService intents).
  */
 class SubsystemBindingTest extends TestCase
 {

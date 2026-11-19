@@ -52,7 +52,7 @@ class AttemptLifecycleArchitectureTest extends TestCase
         config(['payment.gateways.tabby.webhook_header' => 'X-Test-Auth']);
         config(['payment.gateways.tabby.account' => 'default']);
 
-        // Completion (changeOrderStatus → currency resolution) needs the
+        // Completion (OrderTransitionService → currency resolution) needs the
         // currency catalog seeded; the attempt tests run USD end-to-end.
         DB::table('currencies')->updateOrInsert(['code' => 'USD'], [
             'name' => json_encode(['en' => 'US Dollar']),

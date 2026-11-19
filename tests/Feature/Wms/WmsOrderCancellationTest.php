@@ -19,7 +19,7 @@ use Tests\TestCase;
 /**
  * P9-7: during-fulfillment order cancellation adapter.
  *
- * Sole writer: OrderService::changeOrderStatus (Order Flow authority).
+ * Sole writer: OrderTransitionService (Order Flow authority).
  * The cascade into open fulfillments runs inside that service (P7-1);
  * shipped/terminal fulfillments are never force-cancelled (F8-5).
  * Scope is fail-closed: non-global actors need every non-cancelled

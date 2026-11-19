@@ -19,6 +19,7 @@ use App\Services\Fulfillment\PackingService;
 use App\Services\Fulfillment\PickingExecutionService;
 use App\Services\General\OrderService;
 use App\Services\Inventory\StockOperationService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -131,7 +132,7 @@ class WmsFulfillmentOrderSyncTest extends TestCase
             'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
             'payment_method' => 'online',
         ]);
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         return $order->fresh();
     }
@@ -460,7 +461,7 @@ class WmsFulfillmentOrderSyncTest extends TestCase
 
         $order = $this->codOrder();
         $this->release($order);
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, 'customer changed mind');
+        app(OrderTransitionService::class)->cancelByStaff($order, 'customer changed mind');
         $this->assertSame('cancelled', $order->fresh()->status);
         $this->assertSame('cancelled', Fulfillment::where('order_id', $order->id)->firstOrFail()->status);
         $history = $order->statusHistory()->count();
@@ -501,7 +502,7 @@ class WmsFulfillmentOrderSyncTest extends TestCase
 
         $order = $this->codOrder();
         $this->release($order);
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, 'customer changed mind');
+        app(OrderTransitionService::class)->cancelByStaff($order, 'customer changed mind');
         $stockBefore = (float) $this->product->fresh()->stock_quantity;
 
         // Cancelled commitments pin nothing: the hint is free again.

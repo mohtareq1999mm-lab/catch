@@ -21,7 +21,7 @@ use Tests\TestCase;
  *
  * - Mapped legacy codes (pending/processing/completed/cancelled/
  *   out_for_delivery/ready_for_pickup) flow through
- *   OrderService::changeOrderStatus (flow authority, granular permission,
+ *   OrderTransitionService::transitionTo (flow authority, granular permission,
  *   history, side effects) with the status mirror kept in sync.
  * - The canonical writer re-syncs the legacy `order_status` column (D4)
  *   so Marvel readers never drift.

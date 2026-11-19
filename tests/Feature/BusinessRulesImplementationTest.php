@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\CouponReservation;
 use App\Services\Coupon\CouponReservationService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -249,11 +250,10 @@ class BusinessRulesImplementationTest extends TestCase
         $this->user->givePermissionTo(
             \Spatie\Permission\Models\Permission::findOrCreate('payments.mark_paid', 'api')
         );
-        $orderService = app(\App\Services\General\OrderService::class);
-        DB::transaction(function () use ($order, $orderService) {
+        DB::transaction(function () use ($order) {
             $orderReservationService = app(\App\Services\Inventory\OrderReservationService::class);
             $orderReservationService->commit($order);
-            $orderService->changeOrderStatus(null, 'completed', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'completed');
         });
 
         // Reservation should be consumed (deleted)
@@ -323,9 +323,8 @@ class BusinessRulesImplementationTest extends TestCase
         // ("legacy forbids cancelling paid orders; refunds keep status
         // completed"). Paid exit is the refund path, not cancellation.
         // The rejected transition must change nothing (promotion stays 1).
-        $orderService = app(\App\Services\General\OrderService::class);
         try {
-            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
             $this->fail('Cancelling a paid (completed) order must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());
@@ -361,9 +360,8 @@ class BusinessRulesImplementationTest extends TestCase
         // Paid (completed) orders cannot transition to cancelled — same
         // enforced rule as the promotion test above (refund path owns paid
         // exit). The rejected transition must leave order AND stock untouched.
-        $orderService = app(\App\Services\General\OrderService::class);
         try {
-            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
             $this->fail('Cancelling a paid (completed) order must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());

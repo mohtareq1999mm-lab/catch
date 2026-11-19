@@ -9,6 +9,7 @@ use App\Services\Coupon\CouponClaimService;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Coupon\CouponReservationService;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -259,7 +260,7 @@ class CouponRemediationTest extends TestCase
 
         $order = $this->createPendingOrderWithCoupon($this->user, $coupon);
 
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         // INV-03: completed ⇒ usage committed.
         $this->assertDatabaseHas('coupon_usages', [
@@ -333,7 +334,7 @@ class CouponRemediationTest extends TestCase
         $order = $this->createPendingOrderWithCoupon($this->user, $coupon);
         app(CouponReservationService::class)->reserve($order, $coupon);
 
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order->id]);
         $this->assertEquals(0, (int) $coupon->fresh()->used);

@@ -19,7 +19,6 @@ use Marvel\Database\Models\CouponAssignmentUsage;
 use Marvel\Database\Models\CouponUsage;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Promotion;
-use Marvel\Database\Models\Transaction;
 use Marvel\Enums\OrderStatus as MarvelOrderStatus;
 
 /**
@@ -33,9 +32,9 @@ use Marvel\Enums\OrderStatus as MarvelOrderStatus;
  * This is the only writer of order lifecycle status (`orders.status`,
  * `current_status_id`, `order_status`, `payment_status` derived from
  * completion, `fulfillment_status` derived from order status). Controllers,
- * jobs, commands, and legacy adapters must call an intent here; none may
- * mutate those columns directly. `finalizePromotionUsageAfterPayment()` is the
- * one companion writer on the same row and only stamps `promotion_consumed`.
+ * jobs, commands, and listeners must call an intent here; none may mutate
+ * those columns directly. `finalizePromotionUsageAfterPayment()` is the one
+ * companion writer on the same row and only stamps `promotion_consumed`.
  */
 class OrderTransitionService
 {
@@ -221,66 +220,13 @@ class OrderTransitionService
     }
 
     /**
-     * Staff-directed transition to an explicit target (single PATCH, batch
-     * update, and the legacy status adapter). Authorization is asserted by
-     * the caller before this intent is reached.
+     * Staff-directed transition to an explicit target (single PATCH and batch
+     * update). Authorization is asserted by the caller before this intent is
+     * reached.
      */
     public function transitionTo(Order $order, string $status, array $flowValues = []): Order|false
     {
         return $this->execute($order, $status, flowValues: $flowValues);
-    }
-
-    /**
-     * Compatibility adapter for the pre-intent interface.
-     *
-     * @deprecated New code must call the named intents above. This method and
-     *             its invoice/id locator exist only until the remaining test
-     *             callers are migrated (PR2), then are deleted.
-     *
-     * @internal
-     */
-    public function legacyChangeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [], bool $skipPromotionDecrement = false, bool $markPaymentFailed = false, bool $forceDelivered = false): Order|false
-    {
-        $order = null;
-        $transaction = null;
-        $resolvedByInvoice = false;
-
-        if ($invoiceId) {
-            $transaction = Transaction::where('invoice_id', $invoiceId)->first();
-            if ($transaction) {
-                $order = $transaction->order()->first();
-                $resolvedByInvoice = $order !== null;
-            }
-        }
-
-        if (!$order && $orderId) {
-            $order = Order::whereKey($orderId)->first();
-            if ($order) {
-                // Parity with the pre-intent locator: the id path always resolves
-                // the order's own latest transaction, never the invoice's.
-                $transaction = $order->transactions()->latest()->first();
-                $resolvedByInvoice = false;
-            }
-        }
-
-        if (!$order) {
-            return false;
-        }
-
-        return $this->execute(
-            $order,
-            $status,
-            emitPaymentSuccess: $emitPaymentSuccess,
-            auditReason: $auditReason,
-            auditContext: $auditContext,
-            assertPaymentAuthority: $assertPaymentAuthority,
-            flowValues: $flowValues,
-            skipPromotionDecrement: $skipPromotionDecrement,
-            markPaymentFailed: $markPaymentFailed,
-            forceDelivered: $forceDelivered,
-            transaction: $resolvedByInvoice ? $transaction : null,
-            invoiceReference: $invoiceId ?: null,
-        );
     }
 
     public function finalizePromotionUsageAfterPayment(Order $order): void
@@ -325,16 +271,14 @@ class OrderTransitionService
         bool $skipPromotionDecrement = false,
         bool $markPaymentFailed = false,
         bool $forceDelivered = false,
-        ?Transaction $transaction = null,
-        ?string $invoiceReference = null,
     ): Order|false {
-        return DB::transaction(function () use ($order, $status, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered, $transaction, $invoiceReference) {
+        return DB::transaction(function () use ($order, $status, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered) {
             $locked = Order::whereKey($order->getKey())->lockForUpdate()->first();
             if (!$locked) {
                 return false;
             }
             $order = $locked;
-            $transaction = $transaction ?? $order->transactions()->latest()->first();
+            $transaction = $order->transactions()->latest()->first();
 
             $previousStatus = $order->status;
 
@@ -551,8 +495,6 @@ class OrderTransitionService
                         } catch (\Throwable $e) {
                             $actorType = 'user';
                         }
-                    } elseif ($invoiceReference !== null) {
-                        $actorType = 'payment_gateway';
                     }
 
                     // Only record if status actually changed or payment/fulfillment changed
@@ -562,7 +504,6 @@ class OrderTransitionService
 
                     if ($shouldRecord) {
                         $historyMetadata = [
-                            'invoice_id' => $invoiceReference,
                             'old_payment_status' => $oldPaymentStatus,
                             'new_payment_status' => $updateData['payment_status'] ?? $order->payment_status,
                             'old_fulfillment_status' => $oldFulfillmentStatus,

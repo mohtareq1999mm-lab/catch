@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -509,9 +510,8 @@ class CouponSystemTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $orderService = app(OrderService::class);
-        $orderService->changeOrderStatus(null, 'completed', $order->id);
-        $orderService->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $count = CouponUsage::where('coupon_id', $coupon->id)
             ->where('user_id', $this->user->id)

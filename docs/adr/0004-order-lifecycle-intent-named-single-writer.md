@@ -4,14 +4,14 @@ Every change to an Order's lifecycle status goes through `App\Services\Order\Ord
 
 Why: the positional signature made correctness depend on remembering flag order at fourteen call sites, and every new caller could silently invent a flag combination the lifecycle rules never sanctioned. Intent names make the caller's authority explicit and leave exactly one place where transition rules can change.
 
-`OrderService::changeOrderStatus` remains as a deprecated adapter that forwards to `OrderTransitionService::legacyChangeOrderStatus`. Production callers were migrated in this change; the adapter exists only for the remaining test callers and is deleted once they move to intents.
+`OrderService::changeOrderStatus` and its `legacyChangeOrderStatus` delegate were a temporary compatibility seam: production callers were migrated first, then the test callers, and the seam was deleted. No caller passes positional transition flags any more.
 
 ## Considered Options
 
 - **Keep the flag-based signature** — rejected: it is the defect. Flags encode internal mechanics, not intent, and drift between call sites is invisible in review.
 - **One class per transition** — rejected: twelve classes would share the same executor, lock, and consequence block; the split adds indirection without isolating any rule.
-- **Status value object with typed transitions** — deferred: it changes the public error contract (`Order|false`) and the legacy callers in one step. The intent surface can adopt it later without touching call sites again.
-- **Chosen**: one module, twelve intents, one private executor, temporary delegating adapter.
+- **Status value object with typed transitions** — deferred: it changes the public error contract (`Order|false`) in one step. The intent surface can adopt it later without touching call sites again.
+- **Chosen**: one module, twelve intents, one private executor. The temporary delegating adapter that bridged the migration has since been deleted.
 
 ## Consequences
 

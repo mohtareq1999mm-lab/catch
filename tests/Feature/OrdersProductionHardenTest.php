@@ -8,6 +8,7 @@ use App\Events\OrderStatusChanged;
 use App\Events\PaymentFailed;
 use App\Events\PaymentSucceeded;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
@@ -716,8 +717,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $result = $service->changeOrderStatus($tx->invoice_id, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
 
         $this->assertNotNull($result);
         $this->assertEquals('completed', $result->refresh()->status);
@@ -749,8 +749,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $result = $service->changeOrderStatus($tx->invoice_id, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
 
         $this->assertNotNull($result);
         $this->assertEquals('cancelled', $result->refresh()->status);
@@ -768,10 +767,9 @@ class OrdersProductionHardenTest extends TestCase
             'status' => 'completed',
         ]);
 
-        $service = app(OrderService::class);
 
         $this->expectException(\RuntimeException::class);
-        $service->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
     }
 
     /** @test */
@@ -785,10 +783,9 @@ class OrdersProductionHardenTest extends TestCase
             'status' => 'cancelled',
         ]);
 
-        $service = app(OrderService::class);
 
         $this->expectException(\RuntimeException::class);
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
     }
 
     /** @test */
@@ -802,10 +799,9 @@ class OrdersProductionHardenTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $service = app(OrderService::class);
 
         $this->expectException(\RuntimeException::class);
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
     }
 
     // ===================== PAYMENT CALLBACK =====================
@@ -1061,16 +1057,15 @@ class OrdersProductionHardenTest extends TestCase
 
         // Cancel the order via service (simulates admin or callback cancellation)
         Event::fake();
-        $service = app(OrderService::class);
 
         // Manually restore stock_quantity to what it was before checkout finalization
-        // Since checkout already finalized, we need to test cancel flow via changeOrderStatus
+        // Since checkout already finalized, we need to test cancel flow via OrderTransitionService
         // which fires OrderCancelled ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ RestoreProductInventory restores inventory
 
         // First, set inventory_restored_at to null to allow restoration
         $order->update(['inventory_restored_at' => null]);
 
-        $service->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         // After restore, stock should be back up
         $product = $this->product->fresh();
@@ -1126,8 +1121,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $service->changeOrderStatus($tx->invoice_id, 'completed');
+        app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
 
         Event::assertDispatched(OrderStatusChanged::class);
     }
@@ -1156,8 +1150,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $service->changeOrderStatus($tx->invoice_id, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
 
         Event::assertDispatched(OrderCancelled::class);
     }

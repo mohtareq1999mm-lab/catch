@@ -5,8 +5,8 @@ namespace Tests\Feature\Guest;
 use App\Models\GuestIdentity;
 use App\Models\GuestIdempotencyKey;
 use App\Services\Guest\GuestOrderTokenService;
-use App\Services\General\OrderService;
 use App\Services\Notifications\SMSService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Mail\Transport\ArrayTransport;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
@@ -249,12 +249,7 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
 
         // Cancel the order: the cart becomes eligible.
         $order = $this->currentGuestOrders()->firstOrFail();
-        app(OrderService::class)->changeOrderStatus(
-            null,
-            'cancelled',
-            $order->id,
-            auditReason: 'test',
-        );
+        app(OrderTransitionService::class)->cancelByStaff($order, 'test');
 
         $this->artisan('guest:prune-carts')->assertSuccessful();
 
