@@ -17,5 +17,6 @@ Why: the positional signature made correctness depend on remembering flag order 
 
 - New lifecycle behavior is added as an intent, never as a new flag or a direct `orders.status` write.
 - The executor is deliberately the only place that knows transition consequences; the intents stay one-screen parameter sets.
-- Known debt accepted by this decision and tracked separately: authorization checks live inside the executor rather than in policies; the executor body is long; lifecycle events are dispatched inside the transition transaction (pre-existing behavior, unchanged here); the delivery-completion rule is duplicated with `ShipmentService::maybeCompleteOrder` and the two must change together.
+- Known debt accepted by this decision and tracked separately: authorization checks live inside the executor rather than in policies; the executor body is long; lifecycle events are dispatched inside the transition transaction (pre-existing behavior, unchanged here).
+- The delivery-completion rule (`paid + at least one fulfillment + every fulfillment delivered`) is no longer duplicated: both this executor's `delivered` guard and `ShipmentService::maybeCompleteOrder` ask `App\Services\Order\DeliveryCompletionInvariant`. Each caller keeps its own failure shape (throw vs. stay-as-is); neither restates the conditions.
 - `docs/api/` and the API contract are untouched: routes, payloads, and response shapes are unchanged.

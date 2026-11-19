@@ -53,6 +53,7 @@ class OrderTransitionService
         private InventoryRestoreService $inventoryRestoreService,
         private CouponReservationService $couponReservationService,
         private InvoiceService $invoiceService,
+        private DeliveryCompletionInvariant $deliveryCompletion,
         private ?CustomerMetricsService $customerMetricsService = null,
     ) {}
 
@@ -336,7 +337,7 @@ class OrderTransitionService
             // verification or zero amount). Paid orders stay on the normal
             // fulfillment path regardless of actor.
             if ($status === Order::ORDER_STATUS_COMPLETED && $assertPaymentAuthority && auth()->check()
-                && !$this->orderHasSuccessfulPayment($order) && !$this->actorCanMarkPaid()
+                && !$this->deliveryCompletion->isPaid($order) && !$this->actorCanMarkPaid()
             ) {
                 \Illuminate\Support\Facades\Log::warning('Order completion blocked: missing payments.mark_paid', [
                     'order_id' => $order->id,
@@ -381,7 +382,7 @@ class OrderTransitionService
                         'previous_status' => $previousStatus,
                         'reason' => trim($auditReason),
                     ]);
-                } elseif (!$this->orderSatisfiesDeliveryCompletion($order)) {
+                } elseif (!$this->deliveryCompletion->mayComplete($order)) {
                     throw new \RuntimeException(
                         __('message.ERROR.DELIVER_TRANSITION_BLOCKED')
                     );
@@ -770,20 +771,6 @@ class OrderTransitionService
     }
 
     /**
-     * F-1 helper: has the order actually been paid (paid transaction or
-     * success payment status)? Used to keep paid orders on the normal
-     * fulfillment path while blocking financial completion of unpaid ones.
-     */
-    private function orderHasSuccessfulPayment(Order $order): bool
-    {
-        if (($order->payment_status ?? null) === Order::PAYMENT_STATUS_SUCCESS) {
-            return true;
-        }
-
-        return $order->transactions()->where('status', 'paid')->exists();
-    }
-
-    /**
      * F-1 helper: does the current authenticated actor hold the dedicated
      * manual-payment permission? The legacy update-order-status permission
      * is intentionally NOT sufficient here.
@@ -821,28 +808,6 @@ class OrderTransitionService
         } catch (\Throwable $e) {
             return false;
         }
-    }
-
-    /**
-     * Phase 8 (D8-5): the delivery completion invariant used by the manual
-     * `delivered` guard above. It mirrors ShipmentService::maybeCompleteOrder
-     * (payment successful, at least one fulfillment, every fulfillment
-     * delivered) — the two are kept in sync deliberately; change both
-     * together. Read-only; the caller holds the order lock.
-     */
-    private function orderSatisfiesDeliveryCompletion(Order $order): bool
-    {
-        if (!$this->orderHasSuccessfulPayment($order)) {
-            return false;
-        }
-
-        $fulfillmentQuery = \App\Models\Fulfillment\Fulfillment::where('order_id', $order->getKey());
-
-        if (!(clone $fulfillmentQuery)->exists()) {
-            return false;
-        }
-
-        return !(clone $fulfillmentQuery)->where('status', '!=', 'delivered')->exists();
     }
 
     private function canTransitionFulfillmentStatus(string $from, string $to): bool
