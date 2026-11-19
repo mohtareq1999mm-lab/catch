@@ -4,7 +4,6 @@ namespace Marvel\Jobs;
 
 use App\Enums\FrontendResource;
 use App\Events\FileOperationEvent;
-use App\Support\OperationHeartbeat;
 use App\Services\General\HomeService;
 use App\Traits\BroadcastsFileOperationProgress;
 use Illuminate\Bus\Queueable;
@@ -13,7 +12,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use Marvel\Database\Models\Import;
 use Marvel\Enums\FileOperationType;
@@ -21,6 +19,7 @@ use Marvel\Exceptions\ImportCancelledException;
 use Marvel\Imports\CategoriesImport;
 use Marvel\Services\Import\CategoryImportService;
 use Marvel\Services\Import\FinalizesImportOutcome;
+use Marvel\Services\Import\ImportRunLifecycle;
 use Throwable;
 
 class ImportCategoriesJob implements ShouldQueue
@@ -28,6 +27,7 @@ class ImportCategoriesJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use BroadcastsFileOperationProgress;
     use FinalizesImportOutcome;
+    use ImportRunLifecycle;
 
     public int $tries = 3;
 
@@ -43,97 +43,7 @@ class ImportCategoriesJob implements ShouldQueue
         $this->onQueue(config('queue.queues.medium'));
     }
 
-    protected function heartbeat(): OperationHeartbeat
-    {
-        return OperationHeartbeat::for($this->importId);
-    }
 
-    protected function removeSignalFile(string $type): void
-    {
-        $this->heartbeat()->remove($type);
-    }
-
-    protected function cancelSignalFileExists(): bool
-    {
-        return $this->heartbeat()->cancelRequested();
-    }
-
-    protected function cleanSignals(): void
-    {
-        $this->removeSignalFile('cancel');
-        $this->removeSignalFile('progress');
-    }
-
-    protected function resolveImportFilePath(Import $import): ?string
-    {
-        if (empty($import->file_path)) {
-            return null;
-        }
-
-        // Primary: private imports disk (canonical location via CategoryImportController)
-        if (Storage::disk('imports')->exists($import->file_path)) {
-            return Storage::disk('imports')->path($import->file_path);
-        }
-
-        // Legacy fallback: public disk
-        if (Storage::disk('public')->exists($import->file_path)) {
-            return Storage::disk('public')->path($import->file_path);
-        }
-
-        // Fallback: local disk
-        if (Storage::disk('local')->exists($import->file_path)) {
-            return Storage::disk('local')->path($import->file_path);
-        }
-
-        // Last resort: try direct path resolution via imports disk (may be stale)
-        try {
-            return Storage::disk('imports')->path($import->file_path);
-        } catch (Throwable $e) {
-            return null;
-        }
-    }
-
-    protected function deleteImportFile(Import $import): void
-    {
-        if (empty($import->file_path)) {
-            return;
-        }
-
-        // Delete from primary disk; also attempt legacy disks to avoid orphans
-        try {
-            Storage::disk('imports')->delete($import->file_path);
-        } catch (Throwable $e) {
-            report($e);
-        }
-
-        try {
-            Storage::disk('public')->delete($import->file_path);
-        } catch (Throwable $e) {
-        }
-
-        try {
-            Storage::disk('local')->delete($import->file_path);
-        } catch (Throwable $e) {
-        }
-    }
-
-    protected function sanitizeExceptionMessage(Throwable $e): string
-    {
-        $message = $e->getMessage();
-
-        // Prevent leaking absolute paths, SQL, or credentials
-        $message = preg_replace('#/[^ ]*storage[^ ]*#i', '[storage path]', $message) ?? $message;
-        $message = preg_replace('#SQLSTATE\[[^\]]+\].*#i', 'Internal processing error', $message) ?? $message;
-
-        // Truncate overly long messages
-        if (strlen($message) > 500) {
-            $message = substr($message, 0, 500) . '...';
-        }
-
-        $message = trim($message);
-
-        return $message !== '' ? $message : 'Import failed due to an unexpected error';
-    }
 
     public function handle(): void
     {
