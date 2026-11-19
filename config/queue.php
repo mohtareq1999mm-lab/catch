@@ -69,7 +69,7 @@ return [
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => 'localhost',
-            'queue' => 'default',
+            'queue' => env('BEANSTALKD_QUEUE', env('QUEUE_MEDIUM', 'medium')),
             'retry_after' => 90,
             'block_for' => 0,
         ],
@@ -87,7 +87,7 @@ return [
         'redis' => [
             'driver' => 'redis',
             'connection' => 'default',
-            'queue' => 'default',
+            'queue' => env('REDIS_QUEUE', env('QUEUE_MEDIUM', 'medium')),
             'retry_after' => 3600,
             'block_for' => null,
         ],
