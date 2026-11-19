@@ -48,13 +48,23 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         foreach ([
-            'view-warehouse', 'manage-warehouse', 'manage-warehouse-workflow',
-            'view-location', 'manage-location',
-            'view-fulfillment', 'manage-fulfillment', 'fulfillment.create', 'fulfillment.cancel',
-            'picking-execute', 'packing-execute', 'packing.complete',
-            'batch.manage', 'batch.operate', 'order.cancel-during-fulfillment',
-            'view-shipment', 'create-shipment', 'update-shipment',
+            // Route-level granular guards.
+            'warehouse-workflow.show', 'warehouse-workflow.history', 'warehouse-workflow.publish',
+            'warehouses.create', 'locations.create',
+            'fulfillment.create', 'fulfillments.create-packing-task',
+            'picking-tasks.claim', 'picking-tasks.confirm',
+            'batch.create', 'batch.assign', 'batch.start', 'batch.refresh-progress',
+            'packing-tasks.assign', 'packing-tasks.start', 'packing-tasks.pack', 'packing-tasks.verify',
+            'packages.create', 'packages.add-item', 'packages.seal',
+            'wms-shipments.create', 'wms-shipments.dispatch', 'wms-shipments.deliver',
+            'order.cancel-during-fulfillment',
             'payments.mark_paid',
+            // Controller-level warehouse-scope permissions (WarehouseAccess).
+            'view-warehouse', 'manage-warehouse', 'view-location', 'manage-location',
+            'view-fulfillment', 'manage-fulfillment', 'fulfillment.cancel',
+            'picking-execute', 'packing-execute', 'packing.complete',
+            'batch.manage', 'batch.operate',
+            'view-shipment', 'create-shipment', 'update-shipment',
         ] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
@@ -79,13 +89,21 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
     private function fullOperator(?int $home = null): User
     {
         return $this->user($home, [
-            'manage-warehouse-workflow',
-            'view-warehouse', 'manage-warehouse', 'view-location', 'manage-location',
-            'view-fulfillment', 'manage-fulfillment', 'fulfillment.create', 'fulfillment.cancel',
-            'picking-execute', 'packing-execute', 'packing.complete',
-            'batch.manage', 'batch.operate', 'order.cancel-during-fulfillment',
-            'view-shipment', 'create-shipment', 'update-shipment',
+            'warehouse-workflow.show', 'warehouse-workflow.history', 'warehouse-workflow.publish',
+            'warehouses.create', 'locations.create',
+            'fulfillment.create', 'fulfillments.create-packing-task',
+            'picking-tasks.claim', 'picking-tasks.confirm',
+            'batch.create', 'batch.assign', 'batch.start', 'batch.refresh-progress',
+            'packing-tasks.assign', 'packing-tasks.start', 'packing-tasks.pack', 'packing-tasks.verify',
+            'packages.create', 'packages.add-item', 'packages.seal',
+            'wms-shipments.create', 'wms-shipments.dispatch', 'wms-shipments.deliver',
+            'order.cancel-during-fulfillment',
             'payments.mark_paid',
+            'view-warehouse', 'manage-warehouse', 'view-location', 'manage-location',
+            'view-fulfillment', 'manage-fulfillment', 'fulfillment.cancel',
+            'picking-execute', 'packing-execute', 'packing.complete',
+            'batch.manage', 'batch.operate',
+            'view-shipment', 'create-shipment', 'update-shipment',
         ]);
     }
 
@@ -177,11 +195,11 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
         $auth()->postJson("/api/v1/admin/packages/{$packageId}/add-item", [
             'fulfillment_item_id' => $itemId, 'quantity' => 2,
         ])->assertStatus(200);
-        $auth()->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
+        $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/verify", [])->assertStatus(200);
         $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/pack", [
             'weight' => 2.5, 'dimensions' => ['length' => 30, 'width' => 20, 'height' => 10],
         ])->assertStatus(200);
-        $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/verify", [])->assertStatus(200);
+        $auth()->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
         $this->assertSame('ready_to_ship', Fulfillment::find($fulfillmentId)->status);
 
         return $fulfillmentId;
@@ -200,9 +218,9 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
         $this->assertNotNull($publish);
         $this->assertSame(['GET', 'HEAD'], array_values(array_intersect(['GET', 'HEAD'], $show->methods())));
         $this->assertContains('POST', $publish->methods());
-        foreach ([$show, $history, $publish] as $r) {
-            $this->assertContains('permission:manage-warehouse-workflow', $r->gatherMiddleware());
-        }
+        $this->assertContains('permission:warehouse-workflow.show', $show->gatherMiddleware());
+        $this->assertContains('permission:warehouse-workflow.history', $history->gatherMiddleware());
+        $this->assertContains('permission:warehouse-workflow.publish', $publish->gatherMiddleware());
     }
 
     public function test_workflow_api_auth_validation_actor_and_pagination(): void

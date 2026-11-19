@@ -128,7 +128,15 @@ class OrderStatusFlowTest extends TestCase
             $this->admin->assignRole($role);
         }
         if (Schema::hasTable('permissions')) {
-            foreach (['update-order-status', 'payments.mark_paid', 'view-orders', 'view-order'] as $name) {
+            // The routes under test are guarded by the granular catalog/flow
+            // permissions (Rest/Routes.php:538-547). Production grants them
+            // through PermissionSeeder's super_admin sync; this fixture
+            // creates a bare role, so it must grant them explicitly.
+            foreach ([
+                'update-order-status', 'payments.mark_paid', 'view-orders', 'view-order',
+                'order-statuses.index', 'order-statuses.update',
+                'order-flows.index', 'order-flows.create', 'order-flows.show', 'order-flows.update',
+            ] as $name) {
                 $perm = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
                 $this->admin->givePermissionTo($perm);
             }

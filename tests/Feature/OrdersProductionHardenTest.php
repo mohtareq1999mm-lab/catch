@@ -984,8 +984,13 @@ class OrdersProductionHardenTest extends TestCase
     // ===================== INVENTORY =====================
 
     /** @test */
-    public function checkout_does_not_finalize_inventory()
+    public function checkout_commits_cod_inventory_at_creation()
     {
+        // COD placement announces OrderCreated; its release listener needs a
+        // warehouse this fixture does not own. The contract under test is
+        // checkout inventory, not fulfillment wiring.
+        Event::fake([OrderCreated::class]);
+
         $this->actAsCustomer();
         $this->createCartWithItems(2);
 
@@ -1000,15 +1005,21 @@ class OrdersProductionHardenTest extends TestCase
             'fulfillment_type' => 'delivery',
             'payment_method' => 'cod',
             'governorate_id' => $this->governorate->id,
-        ]);
+        ])->assertStatus(200);
 
         $product = $this->product->fresh();
 
+        // The cart row survives as a reusable container.
         $cart = Cart::where('user_id', $this->customer->id)->first();
         $this->assertEquals('active', $cart->status);
 
-        $this->assertEquals($initialStock, $product->stock_quantity);
-        $this->assertEquals($initialSold, $product->sold_quantity);
+        // Phase 3 addendum: COD/cashier secure inventory AT CREATION — the
+        // ordered slice leaves stock and is booked as sold in the same
+        // transaction that writes the order.
+        $order = Order::where('user_id', $this->customer->id)->latest()->first();
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
+        $this->assertEquals($initialStock - 2, $product->stock_quantity);
+        $this->assertEquals($initialSold + 2, $product->sold_quantity);
     }
 
     /** @test */
@@ -1309,6 +1320,8 @@ class OrdersProductionHardenTest extends TestCase
      * @test */
     public function duplicate_checkout_request_creates_new_order()
     {
+        Event::fake([OrderCreated::class]);
+
         $this->actAsCustomer();
         $this->createCartWithItems(1);
 
@@ -1329,10 +1342,10 @@ class OrdersProductionHardenTest extends TestCase
         $response2 = $this->postJson(self::PREFIX . '/checkout', $payload);
         $response2->assertStatus(400);
 
-        // Exactly one order exists and it owns its reservation.
+        // Exactly one order exists and it owns the committed COD inventory.
         $orders = Order::where('user_id', $this->customer->id)->get();
         $this->assertCount(1, $orders);
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $orders->first()->inventory_state);
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $orders->first()->inventory_state);
     }
 
     // ===================== ORDER ITEMS PRICE SNAPSHOT =====================

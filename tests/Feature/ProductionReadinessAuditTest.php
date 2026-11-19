@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\DTOs\CheckoutTotals;
 use App\Events\OrderCancelled;
+use App\Events\PaymentSucceeded;
 use App\Services\Checkout\OrderCreationService;
 use App\Services\General\CartInventoryService;
 use App\Services\Inventory\OrderReservationService;
@@ -177,11 +178,16 @@ class ProductionReadinessAuditTest extends TestCase
     {
         $p = $product ?? $this->product;
         $unitPrice = $price ?? $p->price;
-        $cart = Cart::create([
-            'user_id' => $this->user->id,
-            'status' => 'active',
-            'total_price' => $unitPrice * $qty,
-        ]);
+
+        // carts.user_id is unique: a second checkout in the same test reuses
+        // the container and replaces its slice instead of inserting a second
+        // cart row.
+        $cart = Cart::updateOrCreate(
+            ['user_id' => $this->user->id],
+            ['status' => 'active', 'total_price' => $unitPrice * $qty],
+        );
+
+        CartItem::where('cart_id', $cart->id)->delete();
 
         CartItem::create([
             'cart_id' => $cart->id,
@@ -991,6 +997,12 @@ class ProductionReadinessAuditTest extends TestCase
     /** @test */
     public function order_status_transition_rules(): void
     {
+        // This fixture writes the order row directly (no reservation), so its
+        // inventory_state is `none`. Completion announces PaymentSucceeded;
+        // the COD release listener would reject that unsecured state. The
+        // contract under test is the transition rule, not fulfillment release.
+        Event::fake([PaymentSucceeded::class]);
+
         $this->authenticate();
         $cart = $this->makeCart(2);
         $order = $this->simulateCheckout($cart);
