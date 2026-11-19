@@ -42,6 +42,8 @@ class WmsShipmentTest extends TestCase
 
         foreach ([
             'view-shipment', 'view-all-shipments', 'create-shipment', 'update-shipment', 'manage-warehouse',
+            'wms-shipments.index', 'wms-shipments.show', 'wms-shipments.create',
+            'wms-shipments.dispatch', 'wms-shipments.deliver', 'wms-shipments.cancel',
         ] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
@@ -83,6 +85,9 @@ class WmsShipmentTest extends TestCase
     private function dispatcher(?int $home = null): User
     {
         return $this->user($home ?? $this->warehouseA->id, [
+            // Route guards (granular) + controller scope layer (legacy names).
+            'wms-shipments.index', 'wms-shipments.show', 'wms-shipments.create',
+            'wms-shipments.dispatch', 'wms-shipments.deliver', 'wms-shipments.cancel',
             'view-shipment', 'create-shipment', 'update-shipment',
         ]);
     }
@@ -210,8 +215,11 @@ class WmsShipmentTest extends TestCase
         $shipmentA = $this->createHttp($dispatcherA, $fulfillmentA->id)
             ->assertStatus(201)->json('data.id');
 
-        // Auditor user has NO home warehouse, NO manage-warehouse role, ONLY 'view-all-shipments'
-        $auditor = $this->user(null, ['view-all-shipments']);
+        // Auditor: NO home warehouse, NO manage-warehouse, NO legacy view-shipment;
+        // global read capability plus the read route guards only.
+        $auditor = $this->user(null, [
+            'view-all-shipments', 'wms-shipments.index', 'wms-shipments.show',
+        ]);
 
         // 1. Can view all shipments across all warehouses globally
         $response = $this->actingAs($auditor, 'sanctum')->getJson('/api/v1/admin/shipments');
