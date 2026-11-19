@@ -54,7 +54,8 @@ class SMSService
             );
 
             Log::info('SMS sent successfully', [
-                'to' => $to,
+                // Same PII rule as every other branch: no clear recipient.
+                'to' => $this->maskRecipient($to),
                 'message_sid' => $twilioMessage->sid ?? null,
                 'status' => $twilioMessage->status ?? null,
             ]);
