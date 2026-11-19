@@ -17,6 +17,14 @@ class UrlImageHandler
     {
     }
 
+    /**
+     * TLS verification is never disabled for imported images: the URL comes
+     * from an uploaded workbook cell, so certificate validation is the only
+     * thing that makes the response trustworthy. Redirects stay manual so
+     * every hop passes the SSRF guard (see download()).
+     */
+    public const HTTP_OPTIONS = ['verify' => true, 'allow_redirects' => false];
+
     protected array $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
 
     protected int $maxFileSize = 5 * 1024 * 1024;
@@ -102,7 +110,7 @@ class UrlImageHandler
 
             while ($redirects <= $this->maxRedirects) {
                 $response = Http::timeout($this->timeout)
-                    ->withOptions(['verify' => false, 'allow_redirects' => false])
+                    ->withOptions(self::HTTP_OPTIONS)
                     ->get($currentUrl);
 
                 if ($response->status() >= 300 && $response->status() < 400) {
