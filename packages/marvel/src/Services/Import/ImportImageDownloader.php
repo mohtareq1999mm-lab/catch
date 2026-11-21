@@ -86,8 +86,6 @@ final class ImportImageDownloader
             throw new RuntimeException(__($this->translationPrefix . '.INVALID_IMAGE_URL'));
         }
 
-        $this->assertSafeUrl($url);
-
         $currentUrl = $url;
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
@@ -112,7 +110,7 @@ final class ImportImageDownloader
             }
 
             if ($status < 200 || $status >= 300) {
-                throw new RuntimeException(__($this->translationPrefix . '.IMAGE_DOWNLOAD_FAILED') . " (HTTP {$status})");
+                throw new RuntimeException(__($this->translationPrefix . '.IMAGE_DOWNLOAD_FAILED', ['image_url' => $currentUrl]) . " (HTTP {$status})");
             }
 
             $contentLength = $response->header('Content-Length');
@@ -242,6 +240,16 @@ final class ImportImageDownloader
         if (str_starts_with($location, 'http://') || str_starts_with($location, 'https://')) {
             return $location;
         }
+
+        if (str_starts_with($location, '//')) {
+            // Protocol-relative redirect (brand/category behavior): inherit
+            // the base scheme — the next hop's assertSafeUrl screens the
+            // resulting host, so a redirect to a private host still blocks.
+            $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
+
+            return $scheme . ':' . $location;
+        }
+
         $base = parse_url($baseUrl);
         $scheme = $base['scheme'] ?? 'https';
         $host = $base['host'] ?? '';
@@ -344,7 +352,7 @@ final class ImportImageDownloader
             $path = implode('/', $segments);
         }
         if ($query !== null && str_contains($query, ' ')) {
-            $query = str_replace(' ', '%20', str_replace('%20', ' ', $query));
+            $query = str_replace('%20', ' ', $query);
             $query = str_replace(' ', '%20', $query);
         }
 
