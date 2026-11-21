@@ -535,6 +535,25 @@ class OrderFlowService
     }
 
     /**
+     * Flow-less migration-window advisory targets (ADR 0004): where may this
+     * order go when it has no assigned flow? The transition GUARD is
+     * flow-only — allowsFlowTransition() returns false for flow-less rows —
+     * so this advisory surface is the legacy static map moved behind the
+     * flow module, one owner. The map disappears when the migration window
+     * closes; record the trigger on #106 at that point.
+     */
+    public static function flowlessAdvisoryTargets(?string $from): array
+    {
+        return [
+            'pending' => ['pending', 'processing', 'completed', 'cancelled'],
+            'processing' => ['processing', 'completed', 'cancelled'],
+            'completed' => ['completed', 'delivered'],
+            'delivered' => ['delivered'],
+            'cancelled' => ['cancelled'],
+        ][$from] ?? [];
+    }
+
+    /**
      * Validate an admin-supplied ordered status id list for a flow.
      *
      * @param  array<int, int>  $statusIds

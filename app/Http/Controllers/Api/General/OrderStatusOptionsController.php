@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\General;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\OrderStatusOptionsResource;
 use App\Models\OrderFlow\OrderFlow;
-use App\Services\General\OrderService;
 use App\Services\OrderFlow\OrderFlowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -125,8 +124,8 @@ class OrderStatusOptionsController extends Controller
                 }
             }
         } else {
-            // Flow-less legacy order: legacy map targets only.
-            foreach (OrderService::getAllowedOrderStatusTargets($from) as $code) {
+            // Flow-less legacy order: flow module advisory targets (migration window).
+            foreach (OrderFlowService::flowlessAdvisoryTargets($from) as $code) {
                 if ($code !== $from) {
                     $rows[$code] = ['model' => null, 'sort_order' => null];
                 }
@@ -146,10 +145,10 @@ class OrderStatusOptionsController extends Controller
                 $reason = 'inactive_status';
             } else {
                 // Advisory mirror of the flow-only guard. Flow-less rows
-                // (migration window) fall back to the legacy map for display.
+                // (migration window) use the flow module's advisory targets.
                 $transitionAllowed = $flow
                     ? $this->flows->allowsFlowTransition($order, $from, $code)
-                    : in_array($code, OrderService::getAllowedOrderStatusTargets($from), true);
+                    : in_array($code, OrderFlowService::flowlessAdvisoryTargets($from), true);
 
                 if (!$transitionAllowed) {
                     $reason = 'forbidden_transition';

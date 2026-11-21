@@ -815,36 +815,14 @@ class OrderService
 
 
     /**
-     * @deprecated Legacy transition map. The assigned Order Flow is the SOLE
-     * runtime lifecycle authority (see OrderFlowService::allowsFlowTransition).
-     * Retained for migration reference/audit only — MUST NOT be consulted to
-     * authorize a transition. Will be removed after the flow-less migration
-     * window closes.
-     */
-    private static array $allowedOrderTransitions = [
-        'pending' => ['pending', 'processing', 'completed', 'cancelled'],
-        'processing' => ['processing', 'completed', 'cancelled'],
-        'completed' => ['completed', 'delivered'],
-        'delivered' => ['delivered'],
-        'cancelled' => ['cancelled'],
-    ];
-
-
-    /**
-     * @deprecated See $allowedOrderTransitions. Not consulted by the guard.
-     */
-    private function canTransitionOrderStatus(string $from, string $to): bool
-    {
-        return in_array($to, self::$allowedOrderTransitions[$from] ?? [], true);
-    }
-
-    /**
-     * @deprecated Legacy advisory only (flow-less migration window). New code
-     * must use getFlowAwareStatusTargets(), which is flow-only for flowed orders.
+     * Legacy advisory only (flow-less migration window). New code must use
+     * getFlowAwareStatusTargets(), which is flow-only for flowed orders.
+     * Delegates to the flow module's single owner
+     * (OrderFlowService::flowlessAdvisoryTargets).
      */
     public static function getAllowedOrderStatusTargets(?string $currentStatus): array
     {
-        return self::$allowedOrderTransitions[$currentStatus] ?? [];
+        return \App\Services\OrderFlow\OrderFlowService::flowlessAdvisoryTargets($currentStatus);
     }
 
     /**
@@ -880,9 +858,9 @@ class OrderService
                 }
             } else {
                 // Migration window only: flow-less rows (Marvel-created) offer
-                // legacy targets until P2 assigns every order a flow. Advisory
-                // only — the guard itself is flow-only.
-                $targets = self::getAllowedOrderStatusTargets($order->status);
+                // the flow module's advisory targets until P2 assigns every
+                // order a flow. Advisory only — the guard itself is flow-only.
+                $targets = \App\Services\OrderFlow\OrderFlowService::flowlessAdvisoryTargets((string) $order->status);
             }
         } catch (\Throwable $e) {
             report($e);
