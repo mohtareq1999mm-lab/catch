@@ -13,3 +13,11 @@ Guest credentials resolve to a single canonical `guest_identities` row through `
 - One additive nullable column per transport; browser-only identities carry an unused random `token_hash` slot so the NOT NULL + UNIQUE contract holds.
 - Bearer mode is the CSRF exemption boundary (`GuestCsrf` checks the resolved auth mode); cookie mode keeps the 419 contract unchanged.
 - Extending this to a third transport means one new hash column and one resolver branch — no business-logic duplication.
+
+## Implementation note (2026-11-21, #103)
+
+The mint, shape gate, keyed HMAC and credential-retirement column sets now live in one module, `App\Services\Guest\GuestCredentialService`, and the domain is carried by `App\Enums\GuestCredentialDomain` instead of per-service prefix strings. `GuestIdentityService`, `GuestOrderTokenService` and `GuestOrderClaimService` are callers.
+
+`GuestCredentialDomain::Legacy` deliberately stays at an empty prefix: browser identity cookies and order credentials (tracking, cancellation, claim) were persisted under that derivation, and adding a prefix would invalidate every live cookie and every issued tracking/cancellation link. Separating those credentials is a data migration (dual-read plus rehash), not a refactor, and is out of scope for #103.
+
+Claiming an order retires both order credentials through the module's `claimRetirement()` column set, composed into the claim path's single atomic UPDATE, so no second writer touches credential state.
