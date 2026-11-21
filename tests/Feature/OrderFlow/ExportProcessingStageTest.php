@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderFlow;
+use App\ValueObjects\TransitionActor;
 use App\Models\OrderFlow\OrderFlowStatus;
 use App\Models\OrderFlow\OrderStatus;
 use App\Services\Order\OrderTransitionService;
@@ -131,12 +132,12 @@ class ExportProcessingStageTest extends TestCase
     {
         $order = $this->packedInternationalOrder();
 
-        app(OrderTransitionService::class)->transitionTo($order, 'export_processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'export_processing');
         $fresh = $order->fresh();
         $this->assertSame('export_processing', $fresh->status);
         $this->assertSame($this->statusId('export_processing'), (int) $fresh->current_status_id);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'shipped');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'shipped');
         $fresh = $order->fresh();
         $this->assertSame('shipped', $fresh->status);
         $this->assertSame($this->statusId('shipped'), (int) $fresh->current_status_id);

@@ -3,7 +3,9 @@
 namespace App\Services\Payment;
 
 use App\Exceptions\UnsupportedGatewayException;
+use App\Models\User;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 
@@ -76,9 +78,10 @@ class ZeroValueOrderCompletionService
 
             // Canonical completion (emits PaymentSucceeded on success).
             // Coupon refusal throws and rolls everything back (fail-closed).
-            // Authority exemption: the requester is the customer, but the
-            // payable amount is zero, so no payment permission applies.
-            $this->orderTransitions->completeZeroValue($lockedOrder);
+            // Authority exemption: the zero-total completion is exempt from the
+            // F-1 payer gate inside execute(); the buyer is passed as the
+            // actor for the audit trail.
+            $this->orderTransitions->completeZeroValue($lockedOrder, TransitionActor::user(User::query()->find($userId)));
         });
     }
 }

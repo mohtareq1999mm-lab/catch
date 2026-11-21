@@ -13,6 +13,7 @@ use App\Models\Invoice;
 use App\Services\General\CartInventoryService;
 use App\Services\General\OrderService;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use App\Services\Inventory\OrderReservationService;
 use App\Services\Payment\PaymentCheckoutHandler;
 use App\Services\Payment\PaymentCompletionOutcome;
@@ -115,7 +116,7 @@ class OrderController extends Controller
         }
 
         try {
-            $cancelled = $this->orderTransitionService->cancelByCustomer($order);
+            $cancelled = $this->orderTransitionService->cancelByCustomer($order, TransitionActor::user($request->user()));
         } catch (\Throwable $e) {
             report($e);
 

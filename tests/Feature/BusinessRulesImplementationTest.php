@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Fulfillment\Warehouse;
+use App\ValueObjects\TransitionActor;
 use App\Models\CouponReservation;
 use App\Services\Coupon\CouponReservationService;
 use App\Services\Order\OrderTransitionService;
@@ -253,7 +254,7 @@ class BusinessRulesImplementationTest extends TestCase
         DB::transaction(function () use ($order) {
             $orderReservationService = app(\App\Services\Inventory\OrderReservationService::class);
             $orderReservationService->commit($order);
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         });
 
         // Reservation should be consumed (deleted)
@@ -324,7 +325,7 @@ class BusinessRulesImplementationTest extends TestCase
         // completed"). Paid exit is the refund path, not cancellation.
         // The rejected transition must change nothing (promotion stays 1).
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('Cancelling a paid (completed) order must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());
@@ -361,7 +362,7 @@ class BusinessRulesImplementationTest extends TestCase
         // enforced rule as the promotion test above (refund path owns paid
         // exit). The rejected transition must leave order AND stock untouched.
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('Cancelling a paid (completed) order must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());

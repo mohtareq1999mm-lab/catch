@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\CancelUnpaidOrders;
+use App\ValueObjects\TransitionActor;
 use App\Services\General\OrderService;
 use App\Services\Inventory\OrderReservationService;
 use App\Services\Order\OrderTransitionService;
@@ -716,7 +717,7 @@ Schema::create('users', function (Blueprint $table) {
         Event::fake([OrderStatusChanged::class]);
         $order = $this->createOrderWithPendingTransaction('cod');
 
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertNotFalse($result);
         $this->assertEquals('cancelled', $result->status);
@@ -740,7 +741,7 @@ Schema::create('users', function (Blueprint $table) {
         Event::fake([OrderStatusChanged::class]);
         $order = $this->createOrderWithPendingTransaction('myfatoorah', 'INV-123');
 
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $result->status);
@@ -759,7 +760,7 @@ Schema::create('users', function (Blueprint $table) {
         $order = $this->createOrderWithPendingTransaction();
         $order->delete();
 
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertFalse($result);
     }

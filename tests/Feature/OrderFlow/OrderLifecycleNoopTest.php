@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\OrderFlow;
 
 use App\Events\OrderCancelled;
+use App\ValueObjects\TransitionActor;
 use App\Events\OrderDelivered;
 use App\Events\OrderStatusChanged;
 use App\Events\PaymentSucceeded;
@@ -183,7 +184,7 @@ class OrderLifecycleNoopTest extends TestCase
         Sanctum::actingAs($this->user);
         $this->fakeLifecycleEvents();
 
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'pending');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'pending');
 
         $this->assertNotFalse($result);
         $this->assertSame('pending', $order->fresh()->status);
@@ -197,14 +198,14 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->admin);
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertSame('completed', $order->fresh()->status);
 
         $historyBefore = $this->historyCount($order);
         $usageBefore = (int) \Marvel\Database\Models\Promotion::query()->sum('usage');
 
         $this->fakeLifecycleEvents();
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertNotFalse($result);
         $this->assertSame('completed', $order->fresh()->status);
@@ -218,7 +219,7 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->user);
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
         $fresh = $order->fresh();
         $this->assertSame('cancelled', $fresh->status);
 
@@ -226,7 +227,7 @@ class OrderLifecycleNoopTest extends TestCase
         $inventoryBefore = $fresh->inventory_state;
 
         $this->fakeLifecycleEvents();
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertNotFalse($result);
         $this->assertSame('cancelled', $order->fresh()->status);
@@ -245,10 +246,10 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->user);
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'processing');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
             $this->fail('cancelled → processing must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('cancelled', $e->getMessage());
@@ -262,10 +263,10 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->admin);
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('completed → cancelled must stay forbidden.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());

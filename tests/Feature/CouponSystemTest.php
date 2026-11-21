@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\General\OrderService;
+use App\ValueObjects\TransitionActor;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -510,8 +511,8 @@ class CouponSystemTest extends TestCase
             'status' => 'pending',
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $count = CouponUsage::where('coupon_id', $coupon->id)
             ->where('user_id', $this->user->id)

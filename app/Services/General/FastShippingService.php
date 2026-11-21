@@ -6,6 +6,7 @@ use App\DTOs\CheckoutTotals;
 use App\Services\Checkout\OrderCreationService;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -155,6 +156,7 @@ class FastShippingService
                 if ($pendingOrder->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
                     $this->orderTransitionService->cancelAsSuperseded(
                         $pendingOrder,
+                        TransitionActor::user(auth()->user()),
                         'Superseded by fast re-checkout: committed pending order replaced by a fresh order',
                     );
                     $pendingOrder = null;

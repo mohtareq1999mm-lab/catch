@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Console\Commands\ReleaseReadyFulfillments;
+use App\ValueObjects\TransitionActor;
 use App\Events\OrderCreated;
 use App\Events\PaymentSucceeded;
 use App\Listeners\ReleaseFulfillmentOnCodPlacement;
@@ -252,7 +253,7 @@ class Phase3ReleaseHardeningTest extends TestCase
         $user = User::factory()->create(['type' => 'customer']);
         $order = $this->assignFlow($this->makeOrder($user, $this->makeProduct()));
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         try {
             app(FulfillmentService::class)->releaseForOrder($order->refresh());
@@ -275,7 +276,7 @@ class Phase3ReleaseHardeningTest extends TestCase
         $fulfillment = Fulfillment::where('order_id', $order->id)->firstOrFail();
 
         // Reaper-style cancel with never-paid parity flags.
-        app(OrderTransitionService::class)->expireUnpaid($order);
+        app(OrderTransitionService::class)->expireUnpaid($order, TransitionActor::system());
 
         $this->assertEquals('cancelled', $fulfillment->refresh()->status);
         $this->assertEquals(
@@ -330,7 +331,7 @@ class Phase3ReleaseHardeningTest extends TestCase
         ]);
         $digital = $this->makeOrder(User::factory()->create(['type' => 'customer']), $this->makeProduct(100, 'DIGITAL'), [], 'DIGITAL');
         $cancelled = $this->assignFlow($this->makeOrder(User::factory()->create(['type' => 'customer']), $this->makeProduct()));
-        app(OrderTransitionService::class)->transitionTo($cancelled, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($cancelled, TransitionActor::system(), 'cancelled');
 
         $this->artisan('fulfillment:release-ready')->assertExitCode(0);
 

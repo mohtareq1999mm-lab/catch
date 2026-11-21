@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\CouponReservation;
+use App\ValueObjects\TransitionActor;
 use App\Services\Coupon\CouponReservationService;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -107,9 +108,9 @@ class CouponConcurrencyProofTest extends TestCase
         $coupon = $this->makeCoupon('DUPC');
         $order = $this->makeOrder($user, $coupon);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertEquals(1, CouponUsage::where('coupon_id', $coupon->id)->where('user_id', $user->id)->count());
         $this->assertEquals(1, (int) $coupon->fresh()->used);
@@ -131,7 +132,7 @@ class CouponConcurrencyProofTest extends TestCase
         CouponReservation::where('order_id', $order->id)
             ->update(['expires_at' => now()->subMinute()]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertEquals('completed', $order->fresh()->status);
         $this->assertDatabaseHas('coupon_usages', ['coupon_id' => $coupon->id, 'user_id' => $user->id]);
@@ -147,10 +148,10 @@ class CouponConcurrencyProofTest extends TestCase
         $coupon = $this->makeCoupon('CANCP');
         $order = $this->makeOrder($user, $coupon);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
             $this->fail('Cancelled order must not transition to completed.');
         } catch (\RuntimeException $e) {
             $this->assertNotEmpty($e->getMessage());

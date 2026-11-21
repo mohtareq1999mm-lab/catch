@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\OrderCancelled;
+use App\ValueObjects\TransitionActor;
 use App\Events\OrderDelivered;
 use App\Events\OrderStatusChanged;
 use App\Events\PaymentSucceeded;
@@ -331,14 +332,14 @@ class OrderStatusLifecycleTest extends TestCase
         // Phase 8 (D8-5): the normal path requires the shipment completion
         // invariant — refused for a bare order.
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
             $this->fail('Normal delivered without the completion invariant must be refused.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
         }
 
         // The audited force path runs the same mutation + event contract.
-        $this->forceDeliver($order);
+        $this->forceDeliver($order, TransitionActor::system());
 
         Event::assertDispatchedTimes(OrderDelivered::class, 1);
         Event::assertDispatched(OrderDelivered::class, fn ($e) => $e->order->id === $order->id);
@@ -353,8 +354,8 @@ class OrderStatusLifecycleTest extends TestCase
         $order = $this->createOrder('delivered');
 
         // delivered is terminal for others, but same-status re-set is allowed by matrix
-        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
-        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
 
         Event::assertDispatchedTimes(OrderDelivered::class, 0);
     }
@@ -368,7 +369,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('processing');
 
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertNotNull($result);
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
@@ -390,7 +391,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         // The gateway callback owns the PaymentSucceeded dispatch (fires it
         // itself after commit), so it opts out via $emitPaymentSuccess = false.
-        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
+        app(OrderTransitionService::class)->completeFromGateway($tx->order, TransitionActor::gateway());
 
         Event::assertDispatchedTimes(PaymentSucceeded::class, 0);
         Event::assertDispatched(OrderStatusChanged::class, 1);
@@ -446,7 +447,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         Event::assertDispatched(OrderStatusChanged::class);
         Event::assertDispatched(OrderCancelled::class);
@@ -474,10 +475,10 @@ class OrderStatusLifecycleTest extends TestCase
         $flowService->assignFlowToOrder($order->refresh(), 'local');
 
 
-        $processing = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+        $processing = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
         $this->assertEquals('processing', $processing->refresh()->status);
 
-        $cancelled = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        $cancelled = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
         $this->assertEquals('cancelled', $cancelled->refresh()->status);
         $this->assertNotNull($cancelled->cancelled_at);
     }
@@ -491,7 +492,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
 
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
 
         $this->assertEquals('processing', $result->status);
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
@@ -505,7 +506,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
@@ -518,7 +519,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
         Event::assertNotDispatched(PaymentSucceeded::class);
@@ -531,15 +532,15 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
 
-        app(OrderTransitionService::class)->transitionTo($order, 'processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
         // Phase 8 (D8-5): delivered via the audited force path — still no
         // duplicate invoice.
-        $this->forceDeliver($order);
+        $this->forceDeliver($order, TransitionActor::system());
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
@@ -567,7 +568,7 @@ class OrderStatusLifecycleTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         \Laravel\Sanctum\Sanctum::actingAs($admin);
 
-        app(OrderTransitionService::class)->forceDeliver($order, 'lifecycle tail');
+        app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::user($admin), 'lifecycle tail');
     }
 
     /** @test */
@@ -575,8 +576,8 @@ class OrderStatusLifecycleTest extends TestCase
     {
         $order = $this->createOrder('pending');
 
-        app(OrderTransitionService::class)->transitionTo($order, 'pending');
-        app(OrderTransitionService::class)->transitionTo($order, 'pending');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'pending');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'pending');
 
         $this->assertSame(0, Invoice::where('order_id', $order->id)->count());
         $this->assertEquals('pending', $order->refresh()->status);
@@ -608,7 +609,7 @@ class OrderStatusLifecycleTest extends TestCase
 
         // Callback owns PaymentSucceeded (emit=false) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the invoice must still
         // be created by the first-leave-pending rule inside the transition.
-        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
+        app(OrderTransitionService::class)->completeFromGateway($tx->order, TransitionActor::gateway());
 
         Event::assertNotDispatched(PaymentSucceeded::class);
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());

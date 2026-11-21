@@ -483,6 +483,7 @@ class OrderRepository extends BaseRepository
 
         return app(\App\Services\Order\OrderTransitionService::class)->transitionTo(
             $order,
+            \App\ValueObjects\TransitionActor::user($user),
             $mapped,
             (array) ($request->input('flow_values') ?? [])
         );

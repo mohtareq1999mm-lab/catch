@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Models\Fulfillment\Fulfillment;
+use App\ValueObjects\TransitionActor;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
@@ -128,9 +129,9 @@ class ConcurrencyAttackTest extends TestCase
             'address' => ['city' => 'Cairo'],
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         // Second worker completes the same order again.
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $fresh = $order->refresh();
         $this->assertEquals('completed', $fresh->status);

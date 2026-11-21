@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\CouponClaimStatus;
+use App\ValueObjects\TransitionActor;
 use App\Enums\RateSource;
 use App\Events\PaymentSucceeded;
 use App\Listeners\Coupon\MarkCouponClaimRedeemed;
@@ -260,7 +261,7 @@ class CouponCurrencyClosureTest extends TestCase
             'status' => 'pending',
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         app(MarkCouponClaimRedeemed::class)->handle(new PaymentSucceeded($order->fresh()));
 
         $usedAfterComplete = $coupon->fresh()->used;
@@ -269,7 +270,7 @@ class CouponCurrencyClosureTest extends TestCase
 
         // completed → cancelled is rejected by the state machine ...
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('completed → cancelled must be rejected');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());
@@ -304,7 +305,7 @@ class CouponCurrencyClosureTest extends TestCase
         ]);
 
         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order, $coupon);
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order->id]);
         $this->assertDatabaseMissing('coupon_usages', ['coupon_id' => $coupon->id, 'user_id' => $user->id]);

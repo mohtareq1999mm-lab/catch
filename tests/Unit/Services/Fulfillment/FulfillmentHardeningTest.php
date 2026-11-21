@@ -3,6 +3,7 @@
 namespace Tests\Unit\Services\Fulfillment;
 
 use App\Models\Fulfillment\Location;
+use App\ValueObjects\TransitionActor;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\BatchPickingService;
@@ -131,7 +132,7 @@ class FulfillmentHardeningTest extends TestCase
         // completing it (paid online order) creates a genuine stage split:
         // processing vs completed must not batch together.
         $f2 = app(FulfillmentService::class)->releaseForOrder($o2, $this->warehouse->id, 'hard-s2');
-        app(OrderTransitionService::class)->transitionTo($o2, 'completed');
+        app(OrderTransitionService::class)->transitionTo($o2, TransitionActor::system(), 'completed');
 
         $this->expectException(\RuntimeException::class);
         app(BatchPickingService::class)->createBatchFromFulfillments(collect([$f1, $f2]), $this->warehouse->id);

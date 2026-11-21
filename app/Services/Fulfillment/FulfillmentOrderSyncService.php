@@ -6,6 +6,7 @@ use App\Events\Fulfillment\FulfillmentProgressed;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Shipment;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use App\Services\OrderFlow\OrderFlowService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Support\Facades\DB;
@@ -136,7 +137,7 @@ class FulfillmentOrderSyncService
             }
 
             try {
-                $mutated = $this->orderTransitions->advanceFulfillment($order, $target, $reason);
+                $mutated = $this->orderTransitions->advanceFulfillment($order, TransitionActor::system(), $target, $reason);
             } catch (\RuntimeException | \InvalidArgumentException $e) {
                 // Illegal transition under current flow/payment rules (e.g.
                 // L-01 paid-order intermediates, L-02 customs steps) or

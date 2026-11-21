@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Models\Fulfillment\Fulfillment;
+use App\ValueObjects\TransitionActor;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;

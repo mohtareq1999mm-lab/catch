@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Coupon\CouponAssignmentValidator;
+use App\ValueObjects\TransitionActor;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -535,7 +536,7 @@ class AssignedCouponSystemTest extends TestCase
                 'invoice_id' => "INV-MULTI-$i",
             ]);
 
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         }
 
         $assignment->refresh();
@@ -570,7 +571,7 @@ class AssignedCouponSystemTest extends TestCase
             'invoice_id' => 'INV-PUB-1',
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertDatabaseHas('coupon_usages', [
             'coupon_id' => $coupon->id,
@@ -726,7 +727,7 @@ class AssignedCouponSystemTest extends TestCase
             'invoice_id' => 'INV-AUDIT-1',
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $this->assertDatabaseHas('coupon_assignment_usages', [
             'coupon_assignment_id' => $assignment->id,
@@ -768,7 +769,7 @@ class AssignedCouponSystemTest extends TestCase
                 'invoice_id' => "INV-AUDIT-$i",
             ]);
 
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
             $orderIds[] = $order->id;
         }
@@ -1059,7 +1060,7 @@ class AssignedCouponSystemTest extends TestCase
             'invoice_id' => 'INV-CANCEL-1',
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $assignment->refresh();
         $this->assertEquals(1, $assignment->used, 'Cancellation must NOT decrement usage counter');
@@ -1127,7 +1128,7 @@ class AssignedCouponSystemTest extends TestCase
 
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
             $this->fail('Expected CouponConsumptionException when quota is exhausted at completion.');
         } catch (\App\Exceptions\CouponConsumptionException $e) {
             $this->assertNotEmpty($e->reason);

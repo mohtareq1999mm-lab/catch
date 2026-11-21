@@ -8,6 +8,7 @@ use App\DTOs\GatewayResult;
 use App\Exceptions\PaymentMismatchException;
 use App\Models\PaymentReconciliationResult;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use App\Services\Inventory\OrderReservationService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -308,6 +309,6 @@ class PaymentCompletionService
         // established by provider verification before this service was entered.
         // The intent resolves the order by its locked identity, so lifecycle
         // rows with invoice_id = NULL at claim time still complete.
-        $this->orderTransitions->completeFromGateway($order);
+        $this->orderTransitions->completeFromGateway($order, TransitionActor::gateway());
     }
 }

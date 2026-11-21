@@ -20,3 +20,22 @@ Why: the positional signature made correctness depend on remembering flag order 
 - Known debt accepted by this decision and tracked separately: authorization checks live inside the executor rather than in policies; the executor body is long; lifecycle events are dispatched inside the transition transaction (pre-existing behavior, unchanged here).
 - The delivery-completion rule (`paid + at least one fulfillment + every fulfillment delivered`) is no longer duplicated: both this executor's `delivered` guard and `ShipmentService::maybeCompleteOrder` ask `App\Services\Order\DeliveryCompletionInvariant`. Each caller keeps its own failure shape (throw vs. stay-as-is); neither restates the conditions.
 - `docs/api/` and the API contract are untouched: routes, payloads, and response shapes are unchanged.
+
+## Actor contract (explicit intent inputs)
+
+Every public intent takes the caller's actor as a required second parameter — `intent(Order $order, TransitionActor $actor, …)` — and the executor reads no ambient state (`auth()` is gone from `OrderTransitionService`; the actor derives history identity, F-1 payment authority, and force-deliver permission).
+
+Actor kinds and factories (`App\ValueObjects\TransitionActor`):
+
+- `TransitionActor::system()` — workers, reapers, schedulers, callbacks: unauthenticated background.
+- `TransitionActor::gateway()` — payment-provider callbacks: authority was established by provider verification.
+- `TransitionActor::user($user)` — an authenticated user; anonymous resolves to `system`; authenticated users record `admin` when they hold `payments.mark_paid` or `update-order-status`, else `user`.
+- `TransitionActor::guest()` — anonymous guest flows.
+
+Derived semantics:
+
+- History: `actor_id`/`actor_type` keep the legacy values for existing flows — authenticated users are recorded `admin` when they hold `payments.mark_paid` or `update-order-status`, else `user`; every other kind records `system` with a null id.
+- F-1 (completing an UNPAID order): a payer actor needs `payments.mark_paid`; system/gateway/guest kinds carry authority by construction; a zero-payable order exempts the gate — there is nothing to collect.
+- Force-deliver: the legacy `update-order-status` permission.
+
+Legacy callers that read ambient `auth()` now pass the equivalent actor (`TransitionActor::user(auth()->user())`); background callers pass `TransitionActor::system()`. The legacy webhook (`PaymentTrait`) passes `TransitionActor::user(auth()->user())` to preserve its documented "authenticated actor without payments.mark_paid stays refused" parity; the canonical callback (`PaymentCompletionService`) passes `TransitionActor::gateway()`.

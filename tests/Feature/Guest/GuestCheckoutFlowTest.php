@@ -3,6 +3,7 @@
 namespace Tests\Feature\Guest;
 
 use App\Models\GuestIdentity;
+use App\ValueObjects\TransitionActor;
 use App\Models\GuestIdempotencyKey;
 use App\Services\Guest\GuestOrderTokenService;
 use App\Services\Notifications\SMSService;
@@ -249,7 +250,7 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
 
         // Cancel the order: the cart becomes eligible.
         $order = $this->currentGuestOrders()->firstOrFail();
-        app(OrderTransitionService::class)->cancelByStaff($order, 'test');
+        app(OrderTransitionService::class)->cancelByStaff($order, TransitionActor::system(), 'test');
 
         $this->artisan('guest:prune-carts')->assertSuccessful();
 
