@@ -110,33 +110,6 @@ class GuestOrderTokenService
         return $order;
     }
 
-    public function findByCancellationToken(string $rawToken): ?Order
-    {
-        if (!$this->isValidTokenFormat($rawToken)) {
-            return null;
-        }
-
-        $order = Order::query()
-            ->where('guest_cancellation_token_hash', $this->hash($rawToken))
-            ->first();
-
-        if (!$order) {
-            return null;
-        }
-
-        if ($order->guest_cancellation_token_used_at !== null) {
-            return null;
-        }
-
-        $expiresAt = $order->guest_cancellation_token_expires_at;
-
-        if ($expiresAt !== null && $expiresAt->isPast()) {
-            return null;
-        }
-
-        return $order;
-    }
-
     /**
      * Tracking follows the order lifecycle, then a 30-day grace period after
      * the terminal timestamp. Active orders have no hard expiry.

@@ -277,14 +277,29 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
         $used = $this->createGuestOrder('cod');
         $used['order']->forceFill(['guest_cancellation_token_used_at' => now()])->save();
 
-        $this->requestCode($used['cancellation_token'])->assertStatus(404);
+        $usedResponse = $this->requestCode($used['cancellation_token'])->assertStatus(404);
 
         $expired = $this->createGuestOrder('cod');
         $expired['order']->forceFill([
             'guest_cancellation_token_expires_at' => now()->subMinute(),
         ])->save();
 
-        $this->requestCode($expired['cancellation_token'])->assertStatus(404);
+        $expiredResponse = $this->requestCode($expired['cancellation_token'])->assertStatus(404);
+
+        // No oracle: used, expired and unknown links are byte-identical.
+        $unknownResponse = $this->requestCode(str_repeat('a', 43))->assertStatus(404);
+
+        $this->assertSame($unknownResponse->getContent(), $usedResponse->getContent());
+        $this->assertSame($unknownResponse->getContent(), $expiredResponse->getContent());
+
+        // No code was issued, so no SMS budget was spent and no verification
+        // state exists for either dead link.
+        foreach ([$used, $expired] as $data) {
+            $this->assertTrue(
+                Cache::missing($this->stateKey($data['cancellation_token'])),
+                'A dead link must not write a verification state.'
+            );
+        }
     }
 
     /** @test */

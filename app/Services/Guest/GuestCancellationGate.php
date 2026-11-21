@@ -18,7 +18,7 @@ use Marvel\Database\Models\Order;
  * cancellation).
  *
  * Link-STATE checks (unknown/used/expired token) are NOT here: they belong to
- * the token hash lookup and are deliberately worded per surface.
+ * GuestCancellationLinkService, and are deliberately worded per surface.
  */
 class GuestCancellationGate
 {

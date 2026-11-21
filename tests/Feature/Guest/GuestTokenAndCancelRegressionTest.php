@@ -162,6 +162,41 @@ class GuestTokenAndCancelRegressionTest extends GuestCheckoutTestCase
     }
 
     /** @test */
+    public function a_used_cancellation_link_is_rejected_with_its_own_reason(): void
+    {
+        $data = $this->createGuestOrder('cod');
+        $order = $data['order'];
+        $token = $data['cancellation_token'];
+
+        $usedAt = now()->subMinutes(5);
+        $order->forceFill(['guest_cancellation_token_used_at' => $usedAt])->save();
+
+        $statusBefore = $order->fresh()->status;
+
+        $this->cancelWithCode($token, $this->bypassCode())
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', __('guest_checkout.cancel_link_used'));
+
+        $fresh = $order->fresh();
+
+        $this->assertSame(
+            $statusBefore,
+            $fresh->status,
+            'A rejected used link must not change the order status.'
+        );
+        $this->assertSame(
+            $usedAt->toIso8601String(),
+            $fresh->guest_cancellation_token_used_at->toIso8601String(),
+            'The original consumption instant must survive the rejected attempt untouched.'
+        );
+        $this->assertNull(
+            $fresh->cancelled_at,
+            'A rejected used link must not stamp the cancellation timestamp.'
+        );
+    }
+
+    /** @test */
     public function a_processing_state_cancellation_persists_marker_and_timestamp(): void
     {
         $data = $this->createGuestOrder('cod');
