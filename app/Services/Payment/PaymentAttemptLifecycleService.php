@@ -92,7 +92,7 @@ class PaymentAttemptLifecycleService
                 'gateway_transaction_id' => $providerId,
                 // Repo convention: invoice_id doubles as the provider
                 // reference slot (PaymentCheckoutHandler:126) and
-                // changeOrderStatus resolves transactions through it —
+                // the transition writer resolves transactions through it —
                 // adoption MUST populate it or completion cannot find the
                 // order.
                 'invoice_id' => $providerId,

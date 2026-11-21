@@ -10,6 +10,7 @@ use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Coupon\CouponValidator;
 use App\Services\General\CouponService;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -1141,10 +1142,10 @@ $table->decimal('product_total_price', 10, 2)->default(0);
     public function duplicate_coupon_usage_for_same_user_is_blocked()
     {
         $coupon = $this->createCoupon('DUPBLK', ['limiter' => 5, 'used' => 0]);
-        $orderService = app(OrderService::class);
+        $transitions = app(OrderTransitionService::class);
 
         // Use reflection to call private recordCouponUsage
-        $method = new \ReflectionMethod($orderService, 'recordCouponUsage');
+        $method = new \ReflectionMethod($transitions, 'recordCouponUsage');
         $method->setAccessible(true);
 
         // First usage
@@ -1156,7 +1157,7 @@ $table->decimal('product_total_price', 10, 2)->default(0);
             'total_price' => 100.00,
             'coupon' => 'DUPBLK',
         ]);
-        $method->invoke($orderService, $order1);
+        $method->invoke($transitions, $order1);
 
         $coupon->refresh();
         $this->assertEquals(1, $coupon->used);
@@ -1179,7 +1180,7 @@ $table->decimal('product_total_price', 10, 2)->default(0);
         ]);
         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order2, $coupon);
         try {
-            $method->invoke($orderService, $order2);
+            $method->invoke($transitions, $order2);
             $this->fail('Second consumption of the same public coupon must be blocked.');
         } catch (\App\Exceptions\CouponConsumptionException $e) {
             $this->assertSame(\App\Exceptions\CouponConsumptionException::REASON_ALREADY_USED, $e->reason);

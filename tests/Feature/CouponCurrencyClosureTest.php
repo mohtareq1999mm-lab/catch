@@ -12,7 +12,7 @@ use App\Services\Coupon\CouponClaimService;
 use App\Services\Customer\CustomerMetricsService;
 use App\Services\Gateway\MyFatoorahGateway;
 use App\Services\General\MyfatoraService;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Coupon;
@@ -260,7 +260,7 @@ class CouponCurrencyClosureTest extends TestCase
             'status' => 'pending',
         ]);
 
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         app(MarkCouponClaimRedeemed::class)->handle(new PaymentSucceeded($order->fresh()));
 
         $usedAfterComplete = $coupon->fresh()->used;
@@ -269,7 +269,7 @@ class CouponCurrencyClosureTest extends TestCase
 
         // completed → cancelled is rejected by the state machine ...
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
             $this->fail('completed → cancelled must be rejected');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());
@@ -304,7 +304,7 @@ class CouponCurrencyClosureTest extends TestCase
         ]);
 
         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order, $coupon);
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order->id]);
         $this->assertDatabaseMissing('coupon_usages', ['coupon_id' => $coupon->id, 'user_id' => $user->id]);

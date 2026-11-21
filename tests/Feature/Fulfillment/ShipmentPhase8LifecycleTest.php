@@ -11,6 +11,7 @@ use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -619,8 +620,7 @@ class ShipmentPhase8LifecycleTest extends TestCase
         // Order cancels: the shipped fulfillment is skipped (Phase-7 rule),
         // the live shipment is surfaced — never silently dropped, never
         // force-moved.
-        app(\App\Services\General\OrderService::class)
-            ->changeOrderStatus(null, 'cancelled', $order->id, true, 'buyer request');
+        app(OrderTransitionService::class)->cancelByStaff($order, 'buyer request');
 
         $this->assertEquals('cancelled', $order->refresh()->status);
         $this->assertEquals('shipped', $fulfillment->refresh()->status);

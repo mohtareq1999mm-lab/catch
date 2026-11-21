@@ -8,6 +8,7 @@ use App\Events\OrderStatusChanged;
 use App\Events\PaymentFailed;
 use App\Events\PaymentSucceeded;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
@@ -716,8 +717,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $result = $service->changeOrderStatus($tx->invoice_id, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
 
         $this->assertNotNull($result);
         $this->assertEquals('completed', $result->refresh()->status);
@@ -749,8 +749,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $result = $service->changeOrderStatus($tx->invoice_id, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
 
         $this->assertNotNull($result);
         $this->assertEquals('cancelled', $result->refresh()->status);
@@ -768,10 +767,9 @@ class OrdersProductionHardenTest extends TestCase
             'status' => 'completed',
         ]);
 
-        $service = app(OrderService::class);
 
         $this->expectException(\RuntimeException::class);
-        $service->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
     }
 
     /** @test */
@@ -785,10 +783,9 @@ class OrdersProductionHardenTest extends TestCase
             'status' => 'cancelled',
         ]);
 
-        $service = app(OrderService::class);
 
         $this->expectException(\RuntimeException::class);
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
     }
 
     /** @test */
@@ -802,10 +799,9 @@ class OrdersProductionHardenTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $service = app(OrderService::class);
 
         $this->expectException(\RuntimeException::class);
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
     }
 
     // ===================== PAYMENT CALLBACK =====================
@@ -988,8 +984,13 @@ class OrdersProductionHardenTest extends TestCase
     // ===================== INVENTORY =====================
 
     /** @test */
-    public function checkout_does_not_finalize_inventory()
+    public function checkout_commits_cod_inventory_at_creation()
     {
+        // COD placement announces OrderCreated; its release listener needs a
+        // warehouse this fixture does not own. The contract under test is
+        // checkout inventory, not fulfillment wiring.
+        Event::fake([OrderCreated::class]);
+
         $this->actAsCustomer();
         $this->createCartWithItems(2);
 
@@ -1004,15 +1005,21 @@ class OrdersProductionHardenTest extends TestCase
             'fulfillment_type' => 'delivery',
             'payment_method' => 'cod',
             'governorate_id' => $this->governorate->id,
-        ]);
+        ])->assertStatus(200);
 
         $product = $this->product->fresh();
 
+        // The cart row survives as a reusable container.
         $cart = Cart::where('user_id', $this->customer->id)->first();
         $this->assertEquals('active', $cart->status);
 
-        $this->assertEquals($initialStock, $product->stock_quantity);
-        $this->assertEquals($initialSold, $product->sold_quantity);
+        // Phase 3 addendum: COD/cashier secure inventory AT CREATION — the
+        // ordered slice leaves stock and is booked as sold in the same
+        // transaction that writes the order.
+        $order = Order::where('user_id', $this->customer->id)->latest()->first();
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->inventory_state);
+        $this->assertEquals($initialStock - 2, $product->stock_quantity);
+        $this->assertEquals($initialSold + 2, $product->sold_quantity);
     }
 
     /** @test */
@@ -1061,16 +1068,15 @@ class OrdersProductionHardenTest extends TestCase
 
         // Cancel the order via service (simulates admin or callback cancellation)
         Event::fake();
-        $service = app(OrderService::class);
 
         // Manually restore stock_quantity to what it was before checkout finalization
-        // Since checkout already finalized, we need to test cancel flow via changeOrderStatus
+        // Since checkout already finalized, we need to test cancel flow via OrderTransitionService
         // which fires OrderCancelled ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ RestoreProductInventory restores inventory
 
         // First, set inventory_restored_at to null to allow restoration
         $order->update(['inventory_restored_at' => null]);
 
-        $service->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         // After restore, stock should be back up
         $product = $this->product->fresh();
@@ -1126,8 +1132,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $service->changeOrderStatus($tx->invoice_id, 'completed');
+        app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
 
         Event::assertDispatched(OrderStatusChanged::class);
     }
@@ -1156,8 +1161,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $service = app(OrderService::class);
-        $service->changeOrderStatus($tx->invoice_id, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
 
         Event::assertDispatched(OrderCancelled::class);
     }
@@ -1316,6 +1320,8 @@ class OrdersProductionHardenTest extends TestCase
      * @test */
     public function duplicate_checkout_request_creates_new_order()
     {
+        Event::fake([OrderCreated::class]);
+
         $this->actAsCustomer();
         $this->createCartWithItems(1);
 
@@ -1336,10 +1342,10 @@ class OrdersProductionHardenTest extends TestCase
         $response2 = $this->postJson(self::PREFIX . '/checkout', $payload);
         $response2->assertStatus(400);
 
-        // Exactly one order exists and it owns its reservation.
+        // Exactly one order exists and it owns the committed COD inventory.
         $orders = Order::where('user_id', $this->customer->id)->get();
         $this->assertCount(1, $orders);
-        $this->assertEquals(Order::INVENTORY_STATE_ACTIVE, $orders->first()->inventory_state);
+        $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $orders->first()->inventory_state);
     }
 
     // ===================== ORDER ITEMS PRICE SNAPSHOT =====================

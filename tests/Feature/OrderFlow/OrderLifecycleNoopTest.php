@@ -9,6 +9,7 @@ use App\Events\OrderDelivered;
 use App\Events\OrderStatusChanged;
 use App\Events\PaymentSucceeded;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -182,7 +183,7 @@ class OrderLifecycleNoopTest extends TestCase
         Sanctum::actingAs($this->user);
         $this->fakeLifecycleEvents();
 
-        $result = app(OrderService::class)->changeOrderStatus(null, 'pending', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'pending');
 
         $this->assertNotFalse($result);
         $this->assertSame('pending', $order->fresh()->status);
@@ -196,14 +197,14 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->admin);
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertSame('completed', $order->fresh()->status);
 
         $historyBefore = $this->historyCount($order);
         $usageBefore = (int) \Marvel\Database\Models\Promotion::query()->sum('usage');
 
         $this->fakeLifecycleEvents();
-        $result = app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $this->assertNotFalse($result);
         $this->assertSame('completed', $order->fresh()->status);
@@ -217,7 +218,7 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->user);
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
         $fresh = $order->fresh();
         $this->assertSame('cancelled', $fresh->status);
 
@@ -225,7 +226,7 @@ class OrderLifecycleNoopTest extends TestCase
         $inventoryBefore = $fresh->inventory_state;
 
         $this->fakeLifecycleEvents();
-        $result = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertNotFalse($result);
         $this->assertSame('cancelled', $order->fresh()->status);
@@ -244,10 +245,10 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->user);
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'processing', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'processing');
             $this->fail('cancelled → processing must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('cancelled', $e->getMessage());
@@ -261,10 +262,10 @@ class OrderLifecycleNoopTest extends TestCase
         $order = $this->makeOrderFor($this->user, 'pending');
 
         Sanctum::actingAs($this->admin);
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         try {
-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
             $this->fail('completed → cancelled must stay forbidden.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());
@@ -284,7 +285,10 @@ class OrderLifecycleNoopTest extends TestCase
 
         $this->mock(OrderService::class, function ($mock) use ($order) {
             $mock->shouldReceive('getOrderForUser')->andReturn($order);
-            $mock->shouldReceive('changeOrderStatus')->once()->andReturn(false);
+        });
+
+        $this->mock(OrderTransitionService::class, function ($mock) {
+            $mock->shouldReceive('cancelByCustomer')->once()->andReturn(false);
         });
 
         Sanctum::actingAs($this->user);

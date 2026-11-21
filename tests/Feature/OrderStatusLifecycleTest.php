@@ -8,6 +8,7 @@ use App\Events\OrderStatusChanged;
 use App\Events\PaymentSucceeded;
 use App\Models\Invoice;
 use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -326,12 +327,11 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([OrderStatusChanged::class, OrderDelivered::class]);
 
         $order = $this->createOrder('completed');
-        $service = app(OrderService::class);
 
         // Phase 8 (D8-5): the normal path requires the shipment completion
         // invariant — refused for a bare order.
         try {
-            $service->changeOrderStatus(null, 'delivered', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
             $this->fail('Normal delivered without the completion invariant must be refused.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
@@ -351,11 +351,10 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([OrderDelivered::class]);
 
         $order = $this->createOrder('delivered');
-        $service = app(OrderService::class);
 
         // delivered is terminal for others, but same-status re-set is allowed by matrix
-        $service->changeOrderStatus(null, 'delivered', $order->id);
-        $service->changeOrderStatus(null, 'delivered', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
 
         Event::assertDispatchedTimes(OrderDelivered::class, 0);
     }
@@ -368,9 +367,8 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([PaymentSucceeded::class, OrderStatusChanged::class]);
 
         $order = $this->createOrder('processing');
-        $service = app(OrderService::class);
 
-        $result = $service->changeOrderStatus(null, 'completed', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $this->assertNotNull($result);
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
@@ -389,11 +387,10 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
         $tx = $this->createTransaction($order, 'online');
-        $service = app(OrderService::class);
 
         // The gateway callback owns the PaymentSucceeded dispatch (fires it
         // itself after commit), so it opts out via $emitPaymentSuccess = false.
-        $service->changeOrderStatus($tx->invoice_id, 'completed', null, false);
+        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
 
         Event::assertDispatchedTimes(PaymentSucceeded::class, 0);
         Event::assertDispatched(OrderStatusChanged::class, 1);
@@ -448,9 +445,8 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([OrderStatusChanged::class, OrderCancelled::class, PaymentSucceeded::class]);
 
         $order = $this->createOrder('pending');
-        $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         Event::assertDispatched(OrderStatusChanged::class);
         Event::assertDispatched(OrderCancelled::class);
@@ -477,12 +473,11 @@ class OrderStatusLifecycleTest extends TestCase
         $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
         $flowService->assignFlowToOrder($order->refresh(), 'local');
 
-        $service = app(OrderService::class);
 
-        $processing = $service->changeOrderStatus(null, 'processing', $order->id);
+        $processing = app(OrderTransitionService::class)->transitionTo($order, 'processing');
         $this->assertEquals('processing', $processing->refresh()->status);
 
-        $cancelled = $service->changeOrderStatus(null, 'cancelled', $order->id);
+        $cancelled = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
         $this->assertEquals('cancelled', $cancelled->refresh()->status);
         $this->assertNotNull($cancelled->cancelled_at);
     }
@@ -495,9 +490,8 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([PaymentSucceeded::class, OrderStatusChanged::class]);
 
         $order = $this->createOrder('pending');
-        $service = app(OrderService::class);
 
-        $result = $service->changeOrderStatus(null, 'processing', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
 
         $this->assertEquals('processing', $result->status);
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
@@ -510,9 +504,8 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([PaymentSucceeded::class]);
 
         $order = $this->createOrder('pending');
-        $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
@@ -524,9 +517,8 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([PaymentSucceeded::class]);
 
         $order = $this->createOrder('pending');
-        $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
         Event::assertNotDispatched(PaymentSucceeded::class);
@@ -538,12 +530,11 @@ class OrderStatusLifecycleTest extends TestCase
         Event::fake([PaymentSucceeded::class]);
 
         $order = $this->createOrder('pending');
-        $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'processing', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'processing');
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
-        $service->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
 
         // Phase 8 (D8-5): delivered via the audited force path — still no
@@ -576,19 +567,16 @@ class OrderStatusLifecycleTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         \Laravel\Sanctum\Sanctum::actingAs($admin);
 
-        app(OrderService::class)->changeOrderStatus(
-            null, 'delivered', $order->id, true, 'lifecycle tail', null, true, [], false, false, true
-        );
+        app(OrderTransitionService::class)->forceDeliver($order, 'lifecycle tail');
     }
 
     /** @test */
     public function same_status_reassignment_does_not_create_invoice()
     {
         $order = $this->createOrder('pending');
-        $service = app(OrderService::class);
 
-        $service->changeOrderStatus(null, 'pending', $order->id);
-        $service->changeOrderStatus(null, 'pending', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'pending');
+        app(OrderTransitionService::class)->transitionTo($order, 'pending');
 
         $this->assertSame(0, Invoice::where('order_id', $order->id)->count());
         $this->assertEquals('pending', $order->refresh()->status);
@@ -617,11 +605,10 @@ class OrderStatusLifecycleTest extends TestCase
 
         $order = $this->createOrder('pending');
         $tx = $this->createTransaction($order, 'online');
-        $service = app(OrderService::class);
 
         // Callback owns PaymentSucceeded (emit=false) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the invoice must still
         // be created by the first-leave-pending rule inside the transition.
-        $service->changeOrderStatus($tx->invoice_id, 'completed', null, false);
+        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
 
         Event::assertNotDispatched(PaymentSucceeded::class);
         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());

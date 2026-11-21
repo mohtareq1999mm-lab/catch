@@ -3,7 +3,7 @@
 namespace App\Services\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 
@@ -11,8 +11,8 @@ use Marvel\Database\Models\Order;
  * Guest cancellation via a single-use secure link plus a possession proof.
  *
  * The token is the first credential: hash lookup under a row lock, policy
- * check, atomic used-mark and the CANONICAL status writer
- * (changeOrderStatus). The OTP sent to the phone on the order (#81) is the
+ * check, atomic used-mark and the CANONICAL transition intent
+ * (cancelByGuest). The OTP sent to the phone on the order (#81) is the
  * second factor — the link alone never cancels. No second cancellation
  * authority exists.
  */
@@ -20,7 +20,7 @@ class GuestCancellationService
 {
     public function __construct(
         private GuestOrderTokenService $tokenService,
-        private OrderService $orderService,
+        private OrderTransitionService $orderTransitions,
         private GuestCancellationGate $gate,
         private GuestCancellationOtpService $cancellationOtp,
     ) {
@@ -71,19 +71,7 @@ class GuestCancellationService
             }
 
             try {
-                $cancelled = $this->orderService->changeOrderStatus(
-                    null,
-                    'cancelled',
-                    $order->id,
-                    auditReason: 'Guest single-use cancellation link',
-                    auditContext: [
-                        'trigger' => 'guest_cancellation_link',
-                        'possession_proof' => $proof,
-                    ],
-                    // ORD-1: never decrement promotion usage for an order
-                    // whose usage was never incremented (unpaid cancellation).
-                    skipPromotionDecrement: $order->payment_status !== Order::PAYMENT_STATUS_SUCCESS,
-                );
+                $cancelled = $this->orderTransitions->cancelByGuest($order, $proof);
             } catch (\Throwable $e) {
                 // Roll back the used-mark so a transient failure does not burn
                 // the customer's only cancellation link. The status writer is

@@ -8,6 +8,7 @@ use App\Models\Fulfillment\Warehouse;
 use App\Services\Fulfillment\BatchPickingService;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\PickingExecutionService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
@@ -130,7 +131,7 @@ class FulfillmentHardeningTest extends TestCase
         // completing it (paid online order) creates a genuine stage split:
         // processing vs completed must not batch together.
         $f2 = app(FulfillmentService::class)->releaseForOrder($o2, $this->warehouse->id, 'hard-s2');
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $o2->id);
+        app(OrderTransitionService::class)->transitionTo($o2, 'completed');
 
         $this->expectException(\RuntimeException::class);
         app(BatchPickingService::class)->createBatchFromFulfillments(collect([$f1, $f2]), $this->warehouse->id);

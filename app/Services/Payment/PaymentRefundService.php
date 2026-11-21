@@ -34,7 +34,7 @@ use Marvel\Database\Models\Transaction;
  * keys only need to be unique per order.
  *
  * Full refunds reuse the paid-cancel side-effect path from
- * OrderService::changeOrderStatus() (committed-inventory restore + coupon
+ * OrderTransitionService (committed-inventory restore + coupon
  * reservation release, never promotion decrement, never coupon return).
  * The `cancelled` transition itself is NOT used: it is disallowed from
  * `completed`, and a refunded order stays `completed` with
@@ -467,7 +467,7 @@ class PaymentRefundService
 
     /**
      * Paid-cancel side-effect path shared by manual and external full
-     * refunds (mirrors the changeOrderStatus() cancelled branch for paid
+     * refunds (mirrors the cancelled branch of OrderTransitionService for paid
      * orders): committed inventory is restored, the coupon reservation is
      * released (idempotent post-payment no-op), promotion usage is never
      * decremented and consumed coupons never return.

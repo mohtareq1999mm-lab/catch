@@ -32,7 +32,8 @@ class WarehouseWorkflowTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         foreach ([
-            'view-warehouse', 'manage-warehouse', 'manage-warehouse-workflow',
+            'view-warehouse', 'manage-warehouse',
+            'warehouse-workflow.show', 'warehouse-workflow.history', 'warehouse-workflow.publish',
             'view-fulfillment', 'manage-fulfillment', 'fulfillment.create', 'fulfillment.cancel',
             'picking-execute', 'packing-execute', 'packing.complete',
             'view-shipment', 'create-shipment', 'update-shipment',
@@ -41,7 +42,9 @@ class WarehouseWorkflowTest extends TestCase
         }
     }
 
-    private function admin(array $perms = ['manage-warehouse-workflow']): User
+    private function admin(array $perms = [
+        'warehouse-workflow.show', 'warehouse-workflow.history', 'warehouse-workflow.publish',
+    ]): User
     {
         $u = User::factory()->create(['type' => 'staff']);
         foreach ($perms as $p) {

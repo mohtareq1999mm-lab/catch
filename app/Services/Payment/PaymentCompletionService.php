@@ -7,7 +7,7 @@ namespace App\Services\Payment;
 use App\DTOs\GatewayResult;
 use App\Exceptions\PaymentMismatchException;
 use App\Models\PaymentReconciliationResult;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Inventory\OrderReservationService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -35,7 +35,7 @@ class PaymentCompletionService
     public function __construct(
         private PaymentCurrencyResolver $currencyResolver,
         private OrderReservationService $orderReservationService,
-        private OrderService $orderService,
+        private OrderTransitionService $orderTransitions,
     ) {}
 
     /**
@@ -300,18 +300,14 @@ class PaymentCompletionService
         // inventory source — the current cart is never read here.
         $this->orderReservationService->commit($order);
 
-        $this->orderService->finalizePromotionUsageAfterPayment($order);
+        $this->orderTransitions->finalizePromotionUsageAfterPayment($order);
 
-        // emitPaymentSuccess = false: the callback owns the PaymentSucceeded
-        // dispatch and fires it once after the transaction commits.
-        // Authority exemption: payment authority was established by provider
-        // verification before this service was entered.
-        //
-        // Lifecycle rows (PM-1) may carry invoice_id = NULL at claim time
-        // (the provider reference is not yet known pre-dispatch). Resolve
-        // the order directly through its id — the canonical orderId path of
-        // the writer — otherwise changeOrderStatus silently no-ops and the
-        // order never completes despite the paid transaction.
-        $this->orderService->changeOrderStatus(null, 'completed', $txn->order_id, false, null, null, false);
+        // completeFromGateway: emitPaymentSuccess = false because the callback
+        // owns the PaymentSucceeded dispatch and fires it once after the
+        // transaction commits. Authority exemption: payment authority was
+        // established by provider verification before this service was entered.
+        // The intent resolves the order by its locked identity, so lifecycle
+        // rows with invoice_id = NULL at claim time still complete.
+        $this->orderTransitions->completeFromGateway($order);
     }
 }

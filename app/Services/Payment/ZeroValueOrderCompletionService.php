@@ -3,7 +3,7 @@
 namespace App\Services\Payment;
 
 use App\Exceptions\UnsupportedGatewayException;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 
@@ -12,8 +12,8 @@ use Marvel\Database\Models\Order;
  * guest payment path share ONE implementation (no duplicated completion
  * authority). The gateway is never called: there is nothing to collect.
  *
- * Canonical completion still runs through OrderService::changeOrderStatus, so
- * inventory, coupons, promotions, invoice and PaymentSucceeded behave exactly
+ * Canonical completion still runs through the OrderTransitionService complete
+ * intent, so inventory, coupons, promotions, invoice and PaymentSucceeded behave
  * like any other completion.
  */
 class ZeroValueOrderCompletionService
@@ -21,7 +21,7 @@ class ZeroValueOrderCompletionService
     public function __construct(
         private PaymentGatewayFactory $paymentGatewayFactory,
         private PaymentCurrencyResolver $currencyResolver,
-        private OrderService $orderService,
+        private OrderTransitionService $orderTransitions,
     ) {
     }
 
@@ -78,7 +78,7 @@ class ZeroValueOrderCompletionService
             // Coupon refusal throws and rolls everything back (fail-closed).
             // Authority exemption: the requester is the customer, but the
             // payable amount is zero, so no payment permission applies.
-            $this->orderService->changeOrderStatus(null, 'completed', $lockedOrder->id, true, null, null, false);
+            $this->orderTransitions->completeZeroValue($lockedOrder);
         });
     }
 }

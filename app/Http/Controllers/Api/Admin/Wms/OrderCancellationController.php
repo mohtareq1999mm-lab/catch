@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Admin\Wms;
 
 use App\Http\Requests\Admin\Wms\BatchCommandRequest;
 use App\Models\Fulfillment\Fulfillment;
-use App\Services\General\OrderService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -13,7 +13,7 @@ use Marvel\Database\Models\Order;
 /**
  * P9-7: order-cancellation HTTP adapter for the during-fulfillment case.
  *
- * The ONLY order writer used here is OrderService::changeOrderStatus() —
+ * The ONLY order writer used here is the OrderTransitionService cancel intent —
  * Order Flow stays the sole lifecycle authority. Cancellation cascades to
  * open fulfillments inside that service (P7-1, same transaction); shipped /
  * terminal fulfillments are never force-cancelled and live shipments are
@@ -30,7 +30,7 @@ use Marvel\Enums\Permission;
 class OrderCancellationController extends WmsAdminController
 {
     public function __construct(
-        private OrderService $orders,
+        private OrderTransitionService $orderTransitions,
         private WarehouseAccess $access,
     ) {
         $this->middleware('permission:' . Permission::ORDER_CANCEL_DURING_FULFILLMENT, ['only' => ['cancel']]);
@@ -47,11 +47,8 @@ class OrderCancellationController extends WmsAdminController
 
         $result = false;
         try {
-            $result = $this->orders->changeOrderStatus(
-                null,
-                'cancelled',
-                $order->getKey(),
-                true,
+            $result = $this->orderTransitions->cancelByStaff(
+                $order,
                 (string) $request->validated('reason')
             );
         } catch (\RuntimeException $e) {

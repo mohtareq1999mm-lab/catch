@@ -14,7 +14,7 @@ use Throwable;
  *
  * Runs on the existing high queue, after commit (both events implement
  * ShouldDispatchAfterCommit). The sync service targets logistics steps only
- * (never completed/cancelled) through OrderService::changeOrderStatus, so:
+ * (never completed/cancelled) through OrderTransitionService, so:
  * - payment rules are untouched (completed stays payment-owned),
  * - the order-cancel cascade can never fire (cancelled never targeted),
  * - repeats/duplicates converge via same-state no-ops + row locks.

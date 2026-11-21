@@ -14,6 +14,7 @@ use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
@@ -51,10 +52,20 @@ class WmsEndToEndTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         foreach ([
+            // Route-level granular guards.
+            'warehouses.create', 'locations.create',
+            'fulfillments.show', 'fulfillment.create', 'fulfillments.create-packing-task',
+            'picking-tasks.claim', 'picking-tasks.confirm',
+            'batch.create', 'batch.assign', 'batch.start', 'batch.refresh-progress', 'batch.pending-fulfillments',
+            'packing-tasks.assign', 'packing-tasks.start', 'packing-tasks.pack', 'packing-tasks.verify',
+            'packages.create', 'packages.add-item', 'packages.seal',
+            'wms-shipments.create', 'wms-shipments.dispatch', 'wms-shipments.deliver',
+            'order.cancel-during-fulfillment',
+            // Controller-level warehouse-scope permissions (WarehouseAccess).
             'view-warehouse', 'manage-warehouse', 'view-location', 'manage-location',
-            'view-fulfillment', 'manage-fulfillment', 'fulfillment.create', 'fulfillment.cancel',
+            'view-fulfillment', 'manage-fulfillment', 'fulfillment.cancel',
             'picking-execute', 'packing-execute', 'packing.complete',
-            'batch.manage', 'batch.operate', 'order.cancel-during-fulfillment',
+            'batch.manage', 'batch.operate',
             'view-shipment', 'create-shipment', 'update-shipment',
         ] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
@@ -81,10 +92,18 @@ class WmsEndToEndTest extends TestCase
     private function operator(int $warehouseId): User
     {
         return $this->user($warehouseId, [
+            'warehouses.create', 'locations.create',
+            'fulfillments.show', 'fulfillment.create', 'fulfillments.create-packing-task',
+            'picking-tasks.claim', 'picking-tasks.confirm',
+            'batch.create', 'batch.assign', 'batch.start', 'batch.refresh-progress', 'batch.pending-fulfillments',
+            'packing-tasks.assign', 'packing-tasks.start', 'packing-tasks.pack', 'packing-tasks.verify',
+            'packages.create', 'packages.add-item', 'packages.seal',
+            'wms-shipments.create', 'wms-shipments.dispatch', 'wms-shipments.deliver',
+            'order.cancel-during-fulfillment',
             'view-warehouse', 'manage-warehouse', 'view-location', 'manage-location',
-            'view-fulfillment', 'manage-fulfillment', 'fulfillment.create', 'fulfillment.cancel',
+            'view-fulfillment', 'manage-fulfillment', 'fulfillment.cancel',
             'picking-execute', 'packing-execute', 'packing.complete',
-            'batch.manage', 'batch.operate', 'order.cancel-during-fulfillment',
+            'batch.manage', 'batch.operate',
             'view-shipment', 'create-shipment', 'update-shipment',
         ]);
     }
@@ -119,8 +138,16 @@ class WmsEndToEndTest extends TestCase
     public function test_e2e_paid_order_to_delivered_completion(): void
     {
         $operator = $this->user(null, [
+            'warehouses.create', 'locations.create',
+            'fulfillments.show', 'fulfillment.create', 'fulfillments.create-packing-task',
+            'picking-tasks.claim', 'picking-tasks.confirm',
+            'batch.create', 'batch.assign', 'batch.start', 'batch.refresh-progress', 'batch.pending-fulfillments',
+            'packing-tasks.assign', 'packing-tasks.start', 'packing-tasks.pack', 'packing-tasks.verify',
+            'packages.create', 'packages.add-item', 'packages.seal',
+            'wms-shipments.create', 'wms-shipments.dispatch', 'wms-shipments.deliver',
+            'order.cancel-during-fulfillment',
             'manage-warehouse', 'manage-location', 'view-fulfillment', 'manage-fulfillment',
-            'fulfillment.create', 'picking-execute', 'packing-execute', 'packing.complete',
+            'picking-execute', 'packing-execute', 'packing.complete',
             'batch.manage', 'batch.operate', 'view-shipment', 'create-shipment', 'update-shipment',
         ]);
         $auth = fn () => $this->actingAs($operator, 'sanctum');
@@ -175,7 +202,7 @@ class WmsEndToEndTest extends TestCase
             ->assertStatus(200)->assertJsonPath('data.status', 'completed');
         $this->assertSame('picked', $fulfillment->fresh()->status);
 
-        // Pack: task → assign → start → package → pack → verify.
+        // Pack: task → assign → start → package → pack → verify → seal.
         $packingTaskId = $auth()->postJson(
             "/api/v1/admin/fulfillments/{$fulfillmentId}/create-packing-task", []
         )->assertStatus(201)->json('data.id');
@@ -186,11 +213,11 @@ class WmsEndToEndTest extends TestCase
         $auth()->postJson("/api/v1/admin/packages/{$packageId}/add-item", [
             'fulfillment_item_id' => $itemId, 'quantity' => 2,
         ])->assertStatus(200);
-        $auth()->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
+        $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/verify", [])->assertStatus(200);
         $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/pack", [
             'weight' => 2.5, 'dimensions' => ['length' => 30, 'width' => 20, 'height' => 10],
         ])->assertStatus(200);
-        $auth()->postJson("/api/v1/admin/packing-tasks/{$packingTaskId}/verify", [])->assertStatus(200);
+        $auth()->postJson("/api/v1/admin/packages/{$packageId}/seal", [])->assertStatus(200);
         $this->assertSame('ready_to_ship', $fulfillment->fresh()->status);
 
         // Ship: label → dispatch → deliver.
@@ -206,8 +233,7 @@ class WmsEndToEndTest extends TestCase
         // Order Flow completion: paid + completed + all delivered → delivered.
         // The completion emits PaymentSucceeded, whose sync converges the
         // order straight to delivered (all fulfillments already delivered).
-        app(\App\Services\General\OrderService::class)
-            ->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertSame('delivered', $order->fresh()->status);
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
         $this->assertSame('delivered', $order->fresh()->status);
@@ -322,7 +348,7 @@ class WmsEndToEndTest extends TestCase
         // Foreign-homed operator probing fulfillment + shipment rows → 404.
         // NOTE: scoped permissions only — manage-warehouse is global by
         // design (WarehouseAccess) and would legitimately see across.
-        $foreign = $this->user($other->id, ['view-fulfillment']);
+        $foreign = $this->user($other->id, ['view-fulfillment', 'fulfillments.show', 'batch.pending-fulfillments']);
         $this->actingAs($foreign, 'sanctum')
             ->getJson("/api/v1/admin/fulfillments/{$first->id}")->assertStatus(404);
         $this->actingAs($foreign, 'sanctum')

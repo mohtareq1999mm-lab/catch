@@ -4,6 +4,7 @@ namespace Tests\Feature\Coupon;
 
 use App\Exceptions\CouponConsumptionException;
 use App\Services\Coupon\CouponOrchestrator;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Address;
@@ -101,7 +102,7 @@ class CouponCheckoutRevalidationTest extends TestCase
             'price' => 90.00,
             'coupon' => $coupon->code,
             'coupon_discount' => 10,
-            'status' => 'completed',
+            'status' => 'pending',
         ]);
 
         Transaction::create([
@@ -114,7 +115,7 @@ class CouponCheckoutRevalidationTest extends TestCase
             'invoice_id' => 'INV-REVAL-' . Str::random(8),
         ]);
 
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         return $order->fresh();
     }
@@ -398,7 +399,7 @@ class CouponCheckoutRevalidationTest extends TestCase
             'price' => 90.00,
             'coupon' => $coupon->code,
             'coupon_discount' => 10,
-            'status' => 'completed',
+            'status' => 'pending',
         ]);
 
         Transaction::create([
@@ -417,7 +418,7 @@ class CouponCheckoutRevalidationTest extends TestCase
         $this->assertNull($order->fresh()->user);
 
         try {
-            app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'completed');
             $this->fail('Completion without a user must throw.');
         } catch (CouponConsumptionException $e) {
             $this->assertSame(CouponConsumptionException::REASON_NOT_ELIGIBLE, $e->reason);

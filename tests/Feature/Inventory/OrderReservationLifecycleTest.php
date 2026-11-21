@@ -10,6 +10,7 @@ use App\Events\OrderCancelled;
 use App\Listeners\RestoreProductInventory;
 use App\Services\General\CartInventoryService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\Payment\Contracts\PaymentGatewayContract;
 use App\Services\Payment\PaymentGatewayFactory;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -785,7 +786,7 @@ class OrderReservationLifecycleTest extends TestCase
         $product = $this->makeSimpleProduct(stock: 5);
         $order = $this->makeActiveReservation($product, qty: 2);
 
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);
@@ -805,7 +806,7 @@ class OrderReservationLifecycleTest extends TestCase
         $stockAfterSale = $product->refresh()->stock_quantity; // 3
 
         Event::fake([OrderCancelled::class]);
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
 
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);

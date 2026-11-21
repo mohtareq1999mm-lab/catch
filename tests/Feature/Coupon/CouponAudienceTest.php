@@ -15,6 +15,7 @@ use App\Services\Coupon\Distribution\Events\CouponEventEnvelope;
 use App\Services\Coupon\Distribution\Messaging\FakeCouponEventTransport;
 use App\Services\Coupon\Distribution\NonDistributableCouponException;
 use App\Services\Coupon\Distribution\Outbox\CouponOutboxService;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Coupon;
@@ -83,7 +84,7 @@ class CouponAudienceTest extends TestCase
     {
         $order = $this->makeOrder($user, $coupon);
         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order, $coupon->fresh());
-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
 
         return $order->fresh();
     }
@@ -143,7 +144,7 @@ class CouponAudienceTest extends TestCase
         // Third use exceeds the personal quota (2), not base+assignment (3).
         $order = $this->makeOrder($ahmed, $coupon);
         try {
-            app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+            app(OrderTransitionService::class)->transitionTo($order, 'completed');
             $this->fail('Third completion must be rejected by assignment quota.');
         } catch (\App\Exceptions\CouponConsumptionException $e) {
             $this->assertSame(2, $coupon->fresh()->used);

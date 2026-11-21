@@ -373,7 +373,7 @@ class CheckoutPendingOrderRedesignTest extends TestCase
 
         // Baseline BEFORE checkout: COD commits inventory at creation, and the
         // later mark-paid recommit is an idempotent no-op by design
-        // (OrderService::markCodAsPaid → changeOrderStatus completed). A second
+        // (OrderService::markCodAsPaid → OrderTransitionService::completeManualPayment). A second
         // deduction here would be double-counting, not "committing".
         $stockBefore = $this->product->refresh()->stock_quantity;
 

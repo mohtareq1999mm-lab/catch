@@ -12,6 +12,7 @@ use App\Services\Fulfillment\FulfillmentService;
 use App\Services\General\OrderService;
 use App\Services\Inventory\InventoryRestoreService;
 use App\Services\Inventory\OrderReservationService;
+use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
@@ -137,7 +138,7 @@ class Phase3InventoryCommitTest extends TestCase
 
     private function cancel(Order $order): void
     {
-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
     }
 
     // ---- COD: creation commits, fulfillment follows ----
@@ -245,7 +246,7 @@ class Phase3InventoryCommitTest extends TestCase
         $this->assertEquals(10, (int) $product->stock_quantity);
 
         // Canonical completion commits; a second commit is a safe no-op.
-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->refresh()->inventory_state);
         $this->assertFalse(app(OrderReservationService::class)->commit($order->refresh()));
         $product->refresh();
@@ -426,6 +427,12 @@ class Phase3InventoryCommitTest extends TestCase
 
     public function test_committed_pending_retry_is_superseded_by_fresh_order(): void
     {
+        // The COD release announces FulfillmentProgressed; its sync listener
+        // would advance the order to processing. This test exercises the
+        // pending-order supersede path, so keep the fixture pending while
+        // still creating the fulfillment row.
+        \Illuminate\Support\Facades\Event::fake([\App\Events\Fulfillment\FulfillmentProgressed::class]);
+
         $this->makeWarehouse();
         $user = User::factory()->create(['type' => 'customer']);
         $product = $this->makeProduct(10);

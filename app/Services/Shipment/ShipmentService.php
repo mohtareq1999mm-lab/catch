@@ -9,7 +9,8 @@ use App\Models\Fulfillment\PackageItem;
 use App\Models\Fulfillment\PackingTask;
 use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentTransition;
-use App\Services\General\OrderService;
+use App\Services\Order\DeliveryCompletionInvariant;
+use App\Services\Order\OrderTransitionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -19,7 +20,8 @@ class ShipmentService
 {
     public function __construct(
         private FulfillmentTransition $fulfillmentTransitions,
-        private OrderService $orderService,
+        private OrderTransitionService $orderTransitions,
+        private DeliveryCompletionInvariant $deliveryCompletion,
     ) {}
 
     public function list(array $filters = [], int $perPage = 15)
@@ -393,7 +395,7 @@ class ShipmentService
      * LOCKING CONTRACT: the guard reads below are unlocked snapshots. This
      * is safe because every current caller holds the order lock (delivery
      * paths run inside their shipment transaction) and the actual mutation
-     * re-locks inside OrderService::changeOrderStatus. A future caller
+     * re-locks inside OrderTransitionService::markDelivered. A future caller
      * without the order lock MUST take it (or accept a check-then-act race
      * window) — do not call this from lock-free scheduler/listener code
      * without holding Order::lockForUpdate() first.
@@ -407,25 +409,17 @@ class ShipmentService
         if ($order->status !== Order::ORDER_STATUS_COMPLETED) {
             return false;
         }
-        if ($order->payment_status !== Order::PAYMENT_STATUS_SUCCESS) {
-            return false;
-        }
 
-        $open = Fulfillment::where('order_id', $order->id)
-            ->where('status', '!=', 'delivered')
-            ->exists();
-        if ($open) {
-            return false;
-        }
-
+        // ADR 0004: the payment/fulfillment/delivered rule lives in exactly
+        // one place. `false` keeps its "stay as-is" shape here; the order
+        // transition executor maps the same predicate to its own throw.
         // No fulfillments at all (e.g. digital-only): completion is owned by
         // the payment path, not shipment — do not auto-deliver.
-        $any = Fulfillment::where('order_id', $order->id)->exists();
-        if (!$any) {
+        if (!$this->deliveryCompletion->mayComplete($order)) {
             return false;
         }
 
-        $this->orderService->changeOrderStatus(null, 'delivered', $order->id);
+        $this->orderTransitions->markDelivered($order);
 
         Log::info('Order auto-delivered after all fulfillments delivered', ['order_id' => $order->id]);
 

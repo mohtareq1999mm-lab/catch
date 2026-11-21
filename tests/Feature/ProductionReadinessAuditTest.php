@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\DTOs\CheckoutTotals;
 use App\Events\OrderCancelled;
+use App\Events\PaymentSucceeded;
 use App\Services\Checkout\OrderCreationService;
 use App\Services\General\CartInventoryService;
 use App\Services\Inventory\OrderReservationService;
@@ -23,6 +24,7 @@ use App\Services\Invoice\Validators\MetadataValidator;
 use App\Services\Invoice\Validators\MoneyValidator;
 use App\Services\Invoice\Validators\SnapshotVersionValidator;
 use App\Services\Invoice\Validators\StructureValidator;
+use App\Services\Order\OrderTransitionService;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -176,11 +178,16 @@ class ProductionReadinessAuditTest extends TestCase
     {
         $p = $product ?? $this->product;
         $unitPrice = $price ?? $p->price;
-        $cart = Cart::create([
-            'user_id' => $this->user->id,
-            'status' => 'active',
-            'total_price' => $unitPrice * $qty,
-        ]);
+
+        // carts.user_id is unique: a second checkout in the same test reuses
+        // the container and replaces its slice instead of inserting a second
+        // cart row.
+        $cart = Cart::updateOrCreate(
+            ['user_id' => $this->user->id],
+            ['status' => 'active', 'total_price' => $unitPrice * $qty],
+        );
+
+        CartItem::where('cart_id', $cart->id)->delete();
 
         CartItem::create([
             'cart_id' => $cart->id,
@@ -698,17 +705,17 @@ class ProductionReadinessAuditTest extends TestCase
         $cart->update(['coupon' => $coupon->code]);
         $order = $this->simulateCheckout($cart);
 
-        // Call recordCouponUsage (via OrderService)
-        $orderService = app(OrderService::class);
-        $ref = new \ReflectionMethod($orderService, 'recordCouponUsage');
+        // Call recordCouponUsage (via the transition module)
+        $transitions = app(OrderTransitionService::class);
+        $ref = new \ReflectionMethod($transitions, 'recordCouponUsage');
         $ref->setAccessible(true);
-        $ref->invoke($orderService, $order);
+        $ref->invoke($transitions, $order);
 
         // First call: usage should be 1
         $this->assertEquals(1, $coupon->fresh()->used);
 
         // Second call: should not increment
-        $ref->invoke($orderService, $order);
+        $ref->invoke($transitions, $order);
         $this->assertEquals(1, $coupon->fresh()->used);
     }
 
@@ -739,10 +746,10 @@ class ProductionReadinessAuditTest extends TestCase
         $cart->update(['coupon' => $coupon->code]);
         $order = $this->simulateCheckout($cart);
 
-        $orderService = app(OrderService::class);
-        $ref = new \ReflectionMethod($orderService, 'recordCouponUsage');
+        $transitions = app(OrderTransitionService::class);
+        $ref = new \ReflectionMethod($transitions, 'recordCouponUsage');
         $ref->setAccessible(true);
-        $ref->invoke($orderService, $order);
+        $ref->invoke($transitions, $order);
 
         $this->assertEquals(1, $coupon->fresh()->used);
         $this->assertEquals(1, $assignment->fresh()->used);
@@ -754,7 +761,7 @@ class ProductionReadinessAuditTest extends TestCase
         $cart2 = $this->makeCart(2);
         $cart2->update(['coupon' => $coupon->code]);
         $order2 = $this->simulateCheckout($cart2);
-        $ref->invoke($orderService, $order2);
+        $ref->invoke($transitions, $order2);
 
         $this->assertEquals(2, $coupon->fresh()->used);
         $this->assertEquals(2, $assignment->fresh()->used);
@@ -990,13 +997,17 @@ class ProductionReadinessAuditTest extends TestCase
     /** @test */
     public function order_status_transition_rules(): void
     {
+        // This fixture writes the order row directly (no reservation), so its
+        // inventory_state is `none`. Completion announces PaymentSucceeded;
+        // the COD release listener would reject that unsecured state. The
+        // contract under test is the transition rule, not fulfillment release.
+        Event::fake([PaymentSucceeded::class]);
+
         $this->authenticate();
         $cart = $this->makeCart(2);
         $order = $this->simulateCheckout($cart);
 
         $this->assertEquals('pending', $order->status);
-
-        $orderService = app(OrderService::class);
 
         // F-1 world: completing an UNPAID order is a financial act requiring
         // payments.mark_paid. Grant it hermetically (mirrors a cashier/admin
@@ -1006,13 +1017,13 @@ class ProductionReadinessAuditTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         // pending → completed (allowed)
-        $result = $orderService->changeOrderStatus(null, 'completed', $order->id);
+        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $order->fresh()->status);
 
         // completed → cancelled (FORBIDDEN)
         $this->expectException(\RuntimeException::class);
-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
+        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
     }
 
     // =========================================================================
