@@ -82,7 +82,13 @@ class GuestOrderClaimTest extends GuestCheckoutTestCase
 
         $this->assertSame('claimed', $result['status']);
         $this->assertSame((int) $user->id, (int) $order->fresh()->user_id);
-        $this->assertNull($order->fresh()->guest_cancellation_token_hash);
+
+        // Both order credentials are retired by the claim.
+        $claimed = $order->fresh();
+        $this->assertNull($claimed->guest_cancellation_token_hash);
+        $this->assertNotNull($claimed->guest_cancellation_token_used_at);
+        $this->assertNull($claimed->guest_tracking_token_hash);
+        $this->assertNotNull($claimed->guest_tracking_revoked_at);
         $this->assertNotNull($tokenRow->fresh()->used_at);
 
         // The former guest browser loses access to the now-account-owned order.

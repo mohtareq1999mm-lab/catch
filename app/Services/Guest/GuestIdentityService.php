@@ -76,7 +76,7 @@ class GuestIdentityService
 
     public function hashToken(string $rawToken): string
     {
-        return $this->credentials->hash($rawToken);
+        return $this->credentials->hash($rawToken, GuestCredentialDomain::Legacy);
     }
 
     /**

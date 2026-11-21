@@ -4,6 +4,7 @@ namespace App\Services\Guest;
 
 use App\Audit\ActivityAuditService;
 use App\Contracts\GuestPhoneVerificationContract;
+use App\Enums\GuestCredentialDomain;
 use App\Models\GuestIdentity;
 use App\Models\GuestOrderClaimToken;
 use App\Support\UniqueViolation;
@@ -134,7 +135,7 @@ class GuestOrderClaimService
                 'guest_id' => $guest->id,
                 'order_id' => $order->id,
                 'user_id' => $user->id,
-                'token_hash' => $this->credentials->hash($raw),
+                'token_hash' => $this->credentials->hash($raw, GuestCredentialDomain::Legacy),
                 'expires_at' => $expiresAt,
             ]);
         });
@@ -172,7 +173,7 @@ class GuestOrderClaimService
             return ['status' => 'invalid_token'];
         }
 
-        $hash = $this->credentials->hash($claimToken);
+        $hash = $this->credentials->hash($claimToken, GuestCredentialDomain::Legacy);
 
         return DB::transaction(function () use ($user, $guest, $hash, $proof) {
             /** @var GuestOrderClaimToken|null $token */
@@ -235,7 +236,7 @@ class GuestOrderClaimService
                     ->update(array_merge(
                         // Guest cancellation/tracking links stop being usable.
                         $this->credentials->claimRetirement(),
-                        ['user_id' => $user->id, 'updated_at' => now()]
+                        ['user_id' => $user->id, 'updated_at' => now()],
                     ));
             } catch (QueryException $e) {
                 if (UniqueViolation::detect($e)) {

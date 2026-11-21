@@ -11,11 +11,11 @@ use App\Enums\GuestCredentialDomain;
  *  - the opaque-secret format (length bounds + shape pattern),
  *  - the CSPRNG mint,
  *  - the keyed HMAC with explicit domain separation (ADR 0001),
- *  - the credential-retirement column sets, so no caller writes credential
- *    state by hand.
+ *  - the credential-retirement column sets for claim, tracking revocation and
+ *    mobile revocation, so those transitions have one definition.
  *
- * Raw secrets are never persisted, logged or returned by this class; callers
- * hand them straight to the client and persist only the hash.
+ * Raw secrets are never persisted or logged by this class; callers hand them
+ * straight to the client and persist only the hash.
  */
 class GuestCredentialService
 {
@@ -38,10 +38,11 @@ class GuestCredentialService
     }
 
     /**
-     * Keyed HMAC-SHA256 with domain separation. The default `Legacy` domain
-     * keeps every hash persisted before this module resolving unchanged.
+     * Keyed HMAC-SHA256 with domain separation. `Legacy` keeps every hash
+     * persisted before this module resolving unchanged; new call sites must
+     * name their domain explicitly.
      */
-    public function hash(string $raw, GuestCredentialDomain $domain = GuestCredentialDomain::Legacy): string
+    public function hash(string $raw, GuestCredentialDomain $domain): string
     {
         return hash_hmac('sha256', $domain->value . $raw, (string) config('app.key'));
     }
@@ -90,8 +91,8 @@ class GuestCredentialService
     public function mobileRevocation(): array
     {
         return [
-            'revoked_at' => now(),
             'mobile_token_hash' => null,
+            'revoked_at' => now(),
         ];
     }
 }

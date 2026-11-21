@@ -25,7 +25,7 @@ class GuestCredentialServiceTest extends TestCase
     {
         $raw = $this->credentials->mint();
 
-        $legacy = $this->credentials->hash($raw);
+        $legacy = $this->credentials->hash($raw, GuestCredentialDomain::Legacy);
         $mobile = $this->credentials->hash($raw, GuestCredentialDomain::Mobile);
         $csrf = $this->credentials->hash($raw, GuestCredentialDomain::Csrf);
 
@@ -43,7 +43,34 @@ class GuestCredentialServiceTest extends TestCase
             $this->credentials->hash($raw, GuestCredentialDomain::Mobile),
             $this->credentials->hash($raw, GuestCredentialDomain::Mobile)
         );
-        $this->assertSame($this->credentials->hash($raw), $this->credentials->hash($raw));
+        $this->assertSame(
+            $this->credentials->hash($raw, GuestCredentialDomain::Legacy),
+            $this->credentials->hash($raw, GuestCredentialDomain::Legacy)
+        );
+    }
+
+    /**
+     * Compatibility pin: every hash persisted before this module existed must
+     * keep resolving, so the derivation is asserted against the raw HMAC
+     * contract rather than against the module itself.
+     */
+    public function test_digests_match_the_persisted_derivation(): void
+    {
+        $raw = $this->credentials->mint();
+        $key = (string) config('app.key');
+
+        $this->assertSame(
+            hash_hmac('sha256', $raw, $key),
+            $this->credentials->hash($raw, GuestCredentialDomain::Legacy)
+        );
+        $this->assertSame(
+            hash_hmac('sha256', 'guest-mobile|' . $raw, $key),
+            $this->credentials->hash($raw, GuestCredentialDomain::Mobile)
+        );
+        $this->assertSame(
+            hash_hmac('sha256', 'guest-csrf|' . $raw, $key),
+            $this->credentials->hash($raw, GuestCredentialDomain::Csrf)
+        );
     }
 
     public function test_pattern_accepts_the_boundary_lengths(): void

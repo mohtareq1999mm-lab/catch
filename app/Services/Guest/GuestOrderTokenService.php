@@ -2,6 +2,7 @@
 
 namespace App\Services\Guest;
 
+use App\Enums\GuestCredentialDomain;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
@@ -21,7 +22,7 @@ class GuestOrderTokenService
 
     public function hash(string $rawToken): string
     {
-        return $this->credentials->hash($rawToken);
+        return $this->credentials->hash($rawToken, GuestCredentialDomain::Legacy);
     }
 
     public function isValidTokenFormat(?string $token): bool
