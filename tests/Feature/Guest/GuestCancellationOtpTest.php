@@ -277,14 +277,20 @@ class GuestCancellationOtpTest extends GuestCheckoutTestCase
         $used = $this->createGuestOrder('cod');
         $used['order']->forceFill(['guest_cancellation_token_used_at' => now()])->save();
 
-        $this->requestCode($used['cancellation_token'])->assertStatus(404);
+        $usedResponse = $this->requestCode($used['cancellation_token'])->assertStatus(404);
 
         $expired = $this->createGuestOrder('cod');
         $expired['order']->forceFill([
             'guest_cancellation_token_expires_at' => now()->subMinute(),
         ])->save();
 
-        $this->requestCode($expired['cancellation_token'])->assertStatus(404);
+        $expiredResponse = $this->requestCode($expired['cancellation_token'])->assertStatus(404);
+
+        // No oracle: used, expired and unknown links are indistinguishable.
+        $unknownResponse = $this->requestCode(str_repeat('a', 43))->assertStatus(404);
+
+        $this->assertSame($unknownResponse->json(), $usedResponse->json());
+        $this->assertSame($unknownResponse->json(), $expiredResponse->json());
     }
 
     /** @test */

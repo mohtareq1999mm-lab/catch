@@ -2,12 +2,15 @@
 
 namespace Tests\Unit\Guest;
 
+use App\Enums\GuestCancellationLinkState;
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Services\Guest\GuestCancellationGate;
+use App\Services\Guest\GuestCancellationLinkService;
 use App\Services\Guest\GuestCancellationOtpService;
 use App\Services\Guest\GuestOrderTokenService;
 use App\Services\Notifications\SMSService;
 use App\Services\Payment\PaymentAttemptLifecycleService;
+use App\ValueObjects\GuestCancellationLink;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Support\Facades\Cache;
 use Marvel\Database\Models\Order;
@@ -62,8 +65,12 @@ class GuestCancellationOtpTest extends TestCase
     private function service(Order $order, \Closure $outcome): GuestCancellationOtpService
     {
         $tokens = Mockery::mock(GuestOrderTokenService::class);
-        $tokens->shouldReceive('findByCancellationToken')->andReturn($order);
         $tokens->shouldReceive('hash')->andReturnUsing(fn (string $raw) => 'hash-' . $raw);
+
+        $links = Mockery::mock(GuestCancellationLinkService::class);
+        $links->shouldReceive('resolve')->andReturn(
+            new GuestCancellationLink(GuestCancellationLinkState::Live, $order)
+        );
 
         $gate = Mockery::mock(GuestCancellationGate::class);
         $gate->shouldReceive('assertCancellable');
@@ -78,6 +85,7 @@ class GuestCancellationOtpTest extends TestCase
 
         return new GuestCancellationOtpService(
             $tokens,
+            $links,
             $gate,
             $sms,
             $bypass,

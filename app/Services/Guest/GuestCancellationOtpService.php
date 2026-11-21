@@ -38,6 +38,7 @@ class GuestCancellationOtpService
 
     public function __construct(
         private GuestOrderTokenService $tokens,
+        private GuestCancellationLinkService $links,
         private GuestCancellationGate $gate,
         private SMSService $sms,
         private StaticBypass $staticBypass,
@@ -55,13 +56,15 @@ class GuestCancellationOtpService
      */
     public function request(string $rawToken): array
     {
-        $order = $this->tokens->findByCancellationToken($rawToken);
+        $link = $this->links->resolve($rawToken);
 
-        if (!$order) {
+        if (!$link->isLive() || $link->order === null) {
             // Unknown, used and expired links answer identically: no oracle,
             // and no SMS budget is ever spent on a dead link.
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
         }
+
+        $order = $link->order;
 
         // The ONE policy gate: the same cancellable-status and unresolved-
         // payment rules the cancel endpoint runs (#81 review: no drift).

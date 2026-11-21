@@ -2,6 +2,7 @@
 
 namespace App\Services\Guest;
 
+use App\Enums\GuestCancellationLinkState;
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,7 @@ class GuestCancellationService
 {
     public function __construct(
         private GuestOrderTokenService $tokenService,
+        private GuestCancellationLinkService $links,
         private OrderTransitionService $orderTransitions,
         private GuestCancellationGate $gate,
         private GuestCancellationOtpService $cancellationOtp,
@@ -31,7 +33,9 @@ class GuestCancellationService
      */
     public function cancel(string $rawToken, string $code): Order
     {
-        if (!$this->tokenService->isValidTokenFormat($rawToken)) {
+        $link = $this->links->resolve($rawToken);
+
+        if ($link->order === null || $link->state === GuestCancellationLinkState::Unknown) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
         }
 
@@ -40,10 +44,10 @@ class GuestCancellationService
         // Preflight (no lock): a dead or ineligible link never reaches the
         // OTP provider. The transaction below repeats these gates under the
         // row lock and stays the authority.
-        $lockedOrder = $this->resolveByTokenHash($hash);
-        $this->assertCancellable($lockedOrder);
+        $candidate = $link->order;
+        $this->assertCancellable($candidate);
 
-        $proof = $this->cancellationOtp->verify($rawToken, $code, $lockedOrder);
+        $proof = $this->cancellationOtp->verify($rawToken, $code, $candidate);
 
         $order = DB::transaction(function () use ($hash, $proof) {
             /** @var Order|null $order */
@@ -90,39 +94,22 @@ class GuestCancellationService
     }
 
     /**
-     * @throws GuestCheckoutConflictException
-     */
-    private function resolveByTokenHash(string $hash): Order
-    {
-        /** @var Order|null $order */
-        $order = Order::query()
-            ->where('guest_cancellation_token_hash', $hash)
-            ->first();
-
-        if (!$order) {
-            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
-        }
-
-        return $order;
-    }
-
-    /**
      * The single gate chain shared by the preflight and the locked
      * transaction. Order matters: link state first, then policy, then money.
+     * The state itself comes from the liveness module — this surface only
+     * words the dead states.
      *
      * @throws GuestCheckoutConflictException
      */
     private function assertCancellable(Order $order): void
     {
-        // Link-STATE checks stay here (worded per surface); the POLICY gate
-        // is the one shared with the code-request endpoint (#81 review).
-        if ($order->guest_cancellation_token_used_at !== null) {
+        $state = $this->links->stateFor($order);
+
+        if ($state === GuestCancellationLinkState::Used) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
         }
 
-        $expiresAt = $order->guest_cancellation_token_expires_at;
-
-        if ($expiresAt !== null && $expiresAt->isPast()) {
+        if ($state === GuestCancellationLinkState::Expired) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_expired'), 422);
         }
 
