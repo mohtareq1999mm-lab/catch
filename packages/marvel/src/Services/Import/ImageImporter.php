@@ -60,23 +60,30 @@ final class ImageImporter
         }
 
         try {
-            if ($this->handler()->isValidUrl($imageUrl)) {
+            if ($this->downloader()->isValidUrl($imageUrl)) {
                 try {
-                    $downloaded = $this->handler()->downloadImage($imageUrl);
-                } catch (Throwable) {
+                    $downloaded = $this->downloader()->downloadImage($imageUrl);
+                } catch (Throwable $e) {
                     // Product posture (#107 decision 3): the unified module
-                    // throws on violations; the product importer turns that
-                    // into the same non-fatal error contract it had before —
-                    // the row stays and the failure is recorded.
+                    // throws on violations; the product importer records the
+                    // specific violation and stays non-fatal — the row stays.
+                    $message = trim((string) $e->getMessage());
+                    $this->report->addImageError(
+                        $rowIndex ?? 0,
+                        $productSku,
+                        $message !== ''
+                            ? $message
+                            : __('message.IMPORT.PRODUCT.IMAGE_DOWNLOAD_FAILED', ['image_url' => $imageUrl])
+                    );
                     $downloaded = null;
                 }
                 if ($downloaded) {
                     // Idempotency: skip if identical file already attached (hash comparison)
                     if ($this->isDuplicateMedia($product, $downloaded)) {
-                        $this->handler()->cleanup($downloaded);
+                        $this->downloader()->cleanup($downloaded);
                     } else {
-                        $this->handler()->attachToModel($product, $downloaded, 'products');
-                        $this->handler()->cleanup($downloaded);
+                        $this->downloader()->attachToModel($product, $downloaded, 'products');
+                        $this->downloader()->cleanup($downloaded);
                     }
                 } else {
                     $this->report->addImageError(
@@ -110,7 +117,7 @@ final class ImageImporter
         }
     }
 
-    private function handler(): ImportImageDownloader
+    private function downloader(): ImportImageDownloader
     {
         if ($this->downloader === null) {
             $this->downloader = new ImportImageDownloader('message.IMPORT.PRODUCT', 'product_img', new SsrfGuard());
