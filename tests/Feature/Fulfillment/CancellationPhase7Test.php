@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Events\OrderCancelled;
+use App\ValueObjects\TransitionActor;
 use App\Listeners\RestoreProductInventory;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\FulfillmentBatch;
@@ -138,8 +139,8 @@ class CancellationPhase7Test extends TestCase
     {
         $transitions = app(OrderTransitionService::class);
         $result = $reason === null
-            ? $transitions->transitionTo($order, 'cancelled')
-            : $transitions->cancelByStaff($order, $reason);
+            ? $transitions->transitionTo($order, TransitionActor::system(), 'cancelled')
+            : $transitions->cancelByStaff($order, TransitionActor::system(), $reason);
 
         $this->assertNotFalse($result);
 
@@ -388,7 +389,7 @@ class CancellationPhase7Test extends TestCase
         $statusBefore = $order->refresh()->status;
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('guard refusal must roll the order cancel back atomically');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('live shipment', $e->getMessage());
@@ -571,7 +572,7 @@ class CancellationPhase7Test extends TestCase
         // claim already won, the cancel path finds no COMMITTED inventory
         // (no restore) and no ACTIVE reservation (no release) — still once.
         app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order->refresh(), 'local');
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertEquals('cancelled', $order->refresh()->status);
         $this->assertEquals(50, $this->product->refresh()->stock_quantity);
@@ -648,7 +649,7 @@ class CancellationPhase7Test extends TestCase
 
         $this->cancelOrder($order->refresh());
         // Second cancel: previousStatus === cancelled → cancel branch skipped.
-        $again = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        $again = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
         $this->assertNotFalse($again);
 
         $this->assertEquals('cancelled', $order->refresh()->status);

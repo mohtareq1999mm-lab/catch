@@ -3,6 +3,7 @@
 namespace Tests\Feature\Wms;
 
 use App\Events\PaymentSucceeded;
+use App\ValueObjects\TransitionActor;
 use App\Listeners\FulfillDigitalProducts;
 use App\Listeners\ReleaseFulfillmentOnCodPlacement;
 use App\Listeners\ReleaseFulfillmentOnPayment;
@@ -321,7 +322,7 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
 
         // Payment-owned completion converges via official authority.
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertSame('delivered', $order->fresh()->status);
 
         // Inventory invariants: committed goods never double-moved by WMS HTTP.

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin\Wms;
 use App\Http\Requests\Admin\Wms\BatchCommandRequest;
 use App\Models\Fulfillment\Fulfillment;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -49,6 +50,7 @@ class OrderCancellationController extends WmsAdminController
         try {
             $result = $this->orderTransitions->cancelByStaff(
                 $order,
+                TransitionActor::user($request->user()),
                 (string) $request->validated('reason')
             );
         } catch (\RuntimeException $e) {

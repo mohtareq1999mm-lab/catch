@@ -8,6 +8,7 @@ use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Transaction;
 use App\Events\PaymentFailed;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use App\Services\Payment\PaymentGatewayFactory;
 
 /**
@@ -110,7 +111,7 @@ class CancelUnpaidOrders extends Command
                 // invoice and lifecycle events. Payment-domain finalization
                 // (pending transactions, PaymentFailed) stays here.
                 try {
-                    $mutated = app(OrderTransitionService::class)->expireUnpaid($lockedOrder);
+                    $mutated = app(OrderTransitionService::class)->expireUnpaid($lockedOrder, TransitionActor::system());
                 } catch (\Throwable $e) {
                     // A poison order must never abort the whole reaper run.
                     report($e);

@@ -17,6 +17,7 @@ use Marvel\Enums\PaymentGatewayType;
 use Marvel\Enums\PaymentStatus;
 use Marvel\Events\PaymentMethods;
 use Marvel\Facades\Payment;
+use App\ValueObjects\TransitionActor;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 trait PaymentTrait
@@ -392,9 +393,10 @@ trait PaymentTrait
                     
                     // Complete order (triggers coupon redemption, events)
                     // emitPaymentSuccess=false: webhook owns the PaymentSucceeded event
-                    // assertPaymentAuthority=true: parity with the pre-intent default —
-                    // an authenticated actor without payments.mark_paid stays refused.
-                    app(\App\Services\Order\OrderTransitionService::class)->completeFromGateway($lockedOrder, true);
+                    // actor: an authenticated actor without payments.mark_paid stays
+                    // refused (F-1 parity with the pre-intent default); anonymous
+                    // callers resolve to the system actor.
+                    app(\App\Services\Order\OrderTransitionService::class)->completeFromGateway($lockedOrder, \App\ValueObjects\TransitionActor::user(auth()->user()));
                 });
                 
                 // Fire event after transaction commits

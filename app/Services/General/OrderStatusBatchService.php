@@ -5,6 +5,7 @@ namespace App\Services\General;
 use App\Exceptions\FlowInputValidationException;
 use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Marvel\Database\Models\Order;
@@ -113,7 +114,7 @@ class OrderStatusBatchService
 
             // SAME authority, SAME args as the single-order PATCH
             // (payment authority asserted, common flow_values applied).
-            $mutated = $this->orderTransitions->transitionTo($order, $status, $flowValues);
+            $mutated = $this->orderTransitions->transitionTo($order, TransitionActor::user($actor), $status, $flowValues);
 
             if (!$mutated) {
                 return $this->failure($orderId, 'internal_error', __('message.ERROR.SOMETHING_WENT_WRONG'));

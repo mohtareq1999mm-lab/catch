@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Models\Fulfillment\Fulfillment;
+use App\ValueObjects\TransitionActor;
 use App\Models\Fulfillment\FulfillmentItem;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\PackingTask;
@@ -620,7 +621,7 @@ class ShipmentPhase8LifecycleTest extends TestCase
         // Order cancels: the shipped fulfillment is skipped (Phase-7 rule),
         // the live shipment is surfaced — never silently dropped, never
         // force-moved.
-        app(OrderTransitionService::class)->cancelByStaff($order, 'buyer request');
+        app(OrderTransitionService::class)->cancelByStaff($order, TransitionActor::system(), 'buyer request');
 
         $this->assertEquals('cancelled', $order->refresh()->status);
         $this->assertEquals('shipped', $fulfillment->refresh()->status);

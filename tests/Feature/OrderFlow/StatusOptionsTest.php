@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderStatus;
+use App\ValueObjects\TransitionActor;
 use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -475,7 +476,7 @@ class StatusOptionsTest extends TestCase
         // Reach the terminal source through the audited force path, then
         // verify it rejects everything afterwards.
         \Laravel\Sanctum\Sanctum::actingAs($op);
-        app(OrderTransitionService::class)->forceDeliver($order, 'granular perm walk');
+        app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::user($op), 'granular perm walk');
         $this->assertSame('delivered', $order->fresh()->status);
 
         $this->patchAs($op, $order, ['status' => 'cancelled'])->assertStatus(422);

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
@@ -58,7 +59,7 @@ class OrderLifecycleTest extends TestCase
     public function test_legal_pending_to_processing_applies(): void
     {
         $order = $this->makeOrder('pending');
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
         $this->assertNotFalse($result);
         $this->assertEquals('processing', $order->refresh()->status);
     }
@@ -66,7 +67,7 @@ class OrderLifecycleTest extends TestCase
     public function test_legal_pending_to_cancelled_applies_and_releases(): void
     {
         $order = $this->makeOrder('pending');
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
         $this->assertNotFalse($result);
         $fresh = $order->refresh();
         $this->assertEquals('cancelled', $fresh->status);
@@ -78,7 +79,7 @@ class OrderLifecycleTest extends TestCase
         $order = $this->makeOrder('completed');
         $before = $order->refresh()->getAttributes();
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'pending');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'pending');
             $this->fail('completed→pending must throw');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('pending', $e->getMessage());
@@ -91,7 +92,7 @@ class OrderLifecycleTest extends TestCase
     {
         $order = $this->makeOrder('cancelled');
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
             $this->fail('cancelled→completed must throw');
         } catch (\RuntimeException $e) {
             $this->assertNotEmpty($e->getMessage());
@@ -103,7 +104,7 @@ class OrderLifecycleTest extends TestCase
     {
         $order = $this->makeOrder('delivered');
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('delivered→cancelled must throw');
         } catch (\RuntimeException $e) {
             $this->assertNotEmpty($e->getMessage());
@@ -114,7 +115,7 @@ class OrderLifecycleTest extends TestCase
     public function test_terminal_states_accept_same_state_resets(): void
     {
         $order = $this->makeOrder('completed');
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $order->refresh()->status);
     }

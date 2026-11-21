@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Enums\ShipmentStatus;
+use App\ValueObjects\TransitionActor;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
@@ -229,7 +230,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $this->makeReadyFulfillment($order, 'p87-b');
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
             $this->fail('open fulfillment must block manual delivered');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -262,7 +263,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
 
         // The manual path refuses while payment is voided.
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
             $this->fail('unpaid order must not transition to delivered');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -283,7 +284,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $order = $this->makeCompletedOrder();
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
             $this->fail('zero fulfillments must block manual delivered');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -300,7 +301,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         // Unauthenticated force: refused (permission message is localized,
         // so only the loud refusal itself is asserted).
         try {
-            app(OrderTransitionService::class)->forceDeliver($order, 'recovery');
+            app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::system(), 'recovery');
             $this->fail('unauthenticated force must be refused');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -313,7 +314,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $plain = User::factory()->create(['type' => 'customer']);
         Sanctum::actingAs($plain);
         try {
-            app(OrderTransitionService::class)->forceDeliver($order, 'recovery');
+            app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::user($plain), 'recovery');
             $this->fail('unpermitted force must be refused');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -326,7 +327,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $admin = $this->makeAdminWith('update-order-status');
         Sanctum::actingAs($admin);
         try {
-            app(OrderTransitionService::class)->forceDeliver($order, '');
+            app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::user($admin), '');
             $this->fail('reasonless force must be refused');
         } catch (\RuntimeException $e) {
             if ($e instanceof \PHPUnit\Framework\Exception) {
@@ -343,7 +344,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $admin = $this->makeAdminWith('update-order-status');
         Sanctum::actingAs($admin);
 
-        $result = app(OrderTransitionService::class)->forceDeliver($order, 'service recovery #42');
+        $result = app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::user($admin), 'service recovery #42');
 
         $this->assertNotFalse($result);
         $this->assertEquals('delivered', $order->refresh()->status);

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\CouponClaimStatus;
+use App\ValueObjects\TransitionActor;
 use App\Events\PaymentSucceeded;
 use App\Listeners\Coupon\MarkCouponClaimRedeemed;
 use App\Services\Coupon\CouponClaimService;
@@ -260,7 +261,7 @@ class CouponRemediationTest extends TestCase
 
         $order = $this->createPendingOrderWithCoupon($this->user, $coupon);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         // INV-03: completed ⇒ usage committed.
         $this->assertDatabaseHas('coupon_usages', [
@@ -334,7 +335,7 @@ class CouponRemediationTest extends TestCase
         $order = $this->createPendingOrderWithCoupon($this->user, $coupon);
         app(CouponReservationService::class)->reserve($order, $coupon);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order->id]);
         $this->assertEquals(0, (int) $coupon->fresh()->used);

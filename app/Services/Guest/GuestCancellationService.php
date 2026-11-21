@@ -6,6 +6,7 @@ use App\Enums\GuestCancellationLinkState;
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Services\Order\OrderTransitionService;
 use App\ValueObjects\GuestCancellationLink;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 
@@ -72,7 +73,9 @@ class GuestCancellationService
             }
 
             try {
-                $cancelled = $this->orderTransitions->cancelByGuest($order, $proof);
+                $user = auth()->user();
+        $actor = $user ? TransitionActor::user($user) : TransitionActor::guest();
+        $cancelled = $this->orderTransitions->cancelByGuest($order, $actor, $proof);
             } catch (\Throwable $e) {
                 // Roll back the used-mark so a transient failure does not burn
                 // the customer's only cancellation link. The status writer is

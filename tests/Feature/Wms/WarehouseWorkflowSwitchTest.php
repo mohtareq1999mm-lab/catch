@@ -3,6 +3,7 @@
 namespace Tests\Feature\Wms;
 
 use App\Events\OrderCreated;
+use App\ValueObjects\TransitionActor;
 use App\Events\PaymentSucceeded;
 use App\Listeners\ReleaseFulfillmentOnCodPlacement;
 use App\Listeners\ReleaseFulfillmentOnPayment;
@@ -337,7 +338,7 @@ class WarehouseWorkflowSwitchTest extends TestCase
         // Complete through the canonical order writer. PaymentSucceeded
         // fires here (emit default), falls on the disabled listener, and
         // must stay a silent policy skip.
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         // Continue delivery through the EXISTING delivery process.
         app(ShipmentService::class)->markDelivered($shipment->id);

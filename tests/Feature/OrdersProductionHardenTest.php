@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\OrderCancelled;
+use App\ValueObjects\TransitionActor;
 use App\Events\OrderCreated;
 use App\Events\OrderStatusChanged;
 use App\Events\PaymentFailed;
@@ -717,7 +718,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($tx->order, TransitionActor::system(), 'completed');
 
         $this->assertNotNull($result);
         $this->assertEquals('completed', $result->refresh()->status);
@@ -749,7 +750,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
+        $result = app(OrderTransitionService::class)->transitionTo($tx->order, TransitionActor::system(), 'cancelled');
 
         $this->assertNotNull($result);
         $this->assertEquals('cancelled', $result->refresh()->status);
@@ -769,7 +770,7 @@ class OrdersProductionHardenTest extends TestCase
 
 
         $this->expectException(\RuntimeException::class);
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
     }
 
     /** @test */
@@ -785,7 +786,7 @@ class OrdersProductionHardenTest extends TestCase
 
 
         $this->expectException(\RuntimeException::class);
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
     }
 
     /** @test */
@@ -801,7 +802,7 @@ class OrdersProductionHardenTest extends TestCase
 
 
         $this->expectException(\RuntimeException::class);
-        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'delivered');
     }
 
     // ===================== PAYMENT CALLBACK =====================
@@ -1076,7 +1077,7 @@ class OrdersProductionHardenTest extends TestCase
         // First, set inventory_restored_at to null to allow restoration
         $order->update(['inventory_restored_at' => null]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         // After restore, stock should be back up
         $product = $this->product->fresh();
@@ -1132,7 +1133,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($tx->order, TransitionActor::system(), 'completed');
 
         Event::assertDispatched(OrderStatusChanged::class);
     }
@@ -1161,7 +1162,7 @@ class OrdersProductionHardenTest extends TestCase
             'uuid' => (string) Str::uuid(),
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($tx->order, TransitionActor::system(), 'cancelled');
 
         Event::assertDispatched(OrderCancelled::class);
     }

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Wms;
 
 use App\Events\OrderCreated;
+use App\ValueObjects\TransitionActor;
 use App\Events\PaymentSucceeded;
 use App\Listeners\ReleaseFulfillmentOnCodPlacement;
 use App\Listeners\ReleaseFulfillmentOnPayment;
@@ -233,7 +234,7 @@ class WmsEndToEndTest extends TestCase
         // Order Flow completion: paid + completed + all delivered → delivered.
         // The completion emits PaymentSucceeded, whose sync converges the
         // order straight to delivered (all fulfillments already delivered).
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertSame('delivered', $order->fresh()->status);
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
         $this->assertSame('delivered', $order->fresh()->status);

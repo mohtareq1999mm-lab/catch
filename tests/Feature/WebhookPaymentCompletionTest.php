@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\PaymentSucceeded;
+use App\ValueObjects\TransitionActor;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -178,7 +179,7 @@ class WebhookPaymentCompletionTest extends TestCase
         foreach ($orders as $order) {
             try {
                 DB::transaction(function () use ($order) {
-                    app(OrderTransitionService::class)->completeFromGateway($order, true);
+                    app(OrderTransitionService::class)->completeFromGateway($order, TransitionActor::gateway());
                 });
             } catch (\Throwable $e) {
                 // Expected: the overflow order loses the capacity race.
@@ -235,7 +236,7 @@ class WebhookPaymentCompletionTest extends TestCase
         $thrown = null;
         try {
             DB::transaction(function () use ($order) {
-                app(OrderTransitionService::class)->completeFromGateway($order, true);
+                app(OrderTransitionService::class)->completeFromGateway($order, TransitionActor::gateway());
             });
         } catch (\Throwable $e) {
             $thrown = $e;

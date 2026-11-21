@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderFlow;
+use App\ValueObjects\TransitionActor;
 use App\Models\OrderFlow\OrderStatus;
 use App\Services\Order\OrderTransitionService;
 use App\Services\OrderFlow\OrderFlowService;
@@ -440,8 +441,8 @@ class OrderStatusFlowTest extends TestCase
         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
-        app(OrderTransitionService::class)->transitionTo($order, 'processing');
-        app(OrderTransitionService::class)->transitionTo($order, 'packed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'packed');
 
         $order->refresh();
         $this->assertSame('packed', $order->status);
@@ -464,10 +465,10 @@ class OrderStatusFlowTest extends TestCase
         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
-        app(OrderTransitionService::class)->transitionTo($order, 'processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'shipped');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'shipped');
             $this->fail('Skipped status must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('processing', $e->getMessage());
@@ -483,7 +484,7 @@ class OrderStatusFlowTest extends TestCase
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
         Sanctum::actingAs($this->admin);
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $order->refresh();
         $this->assertSame('completed', $order->status);
@@ -497,9 +498,9 @@ class OrderStatusFlowTest extends TestCase
         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
-        app(OrderTransitionService::class)->transitionTo($order, 'processing');
-        app(OrderTransitionService::class)->transitionTo($order, 'packed');
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'packed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $order->refresh();
         $this->assertSame('cancelled', $order->status);
@@ -514,9 +515,9 @@ class OrderStatusFlowTest extends TestCase
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
         Sanctum::actingAs($this->admin);
-        app(OrderTransitionService::class)->transitionTo($order, 'processing');
-        app(OrderTransitionService::class)->transitionTo($order, 'packed');
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'packed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         $order->refresh();
         $this->assertSame('completed', $order->status);
@@ -530,10 +531,10 @@ class OrderStatusFlowTest extends TestCase
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
         Sanctum::actingAs($this->admin);
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
             $this->fail('Cancelling a completed order must be rejected.');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('completed', $e->getMessage());
@@ -549,11 +550,11 @@ class OrderStatusFlowTest extends TestCase
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
 
         foreach (['processing', 'packed', 'shipped', 'out_for_delivery'] as $step) {
-            app(OrderTransitionService::class)->transitionTo($order, $step);
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), $step);
         }
-        app(OrderTransitionService::class)->transitionTo($order, 'failed_delivery');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'failed_delivery');
         $this->assertSame('failed_delivery', $order->fresh()->status);
-        app(OrderTransitionService::class)->transitionTo($order, 'returned');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'returned');
         $this->assertSame('returned', $order->fresh()->status);
         $this->assertSame('returned', $order->fresh()->currentStatus->code);
     }
@@ -585,8 +586,8 @@ class OrderStatusFlowTest extends TestCase
         $this->freshCartWithProduct($this->user);
         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
-        app(OrderTransitionService::class)->transitionTo($order, 'processing');
-        app(OrderTransitionService::class)->transitionTo($order, 'packed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'processing');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'packed');
 
         $flow = OrderFlow::query()->where('shipping_type', 'local')->firstOrFail();
         $ids = $flow->statuses()->orderBy('order_flow_statuses.sort_order')->pluck('order_statuses.id')->all();

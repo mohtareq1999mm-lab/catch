@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\DTOs\CheckoutTotals;
+use App\ValueObjects\TransitionActor;
 use App\Events\OrderCancelled;
 use App\Events\PaymentSucceeded;
 use App\Services\Checkout\OrderCreationService;
@@ -1017,13 +1018,13 @@ class ProductionReadinessAuditTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         // pending → completed (allowed)
-        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        $result = app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertNotFalse($result);
         $this->assertEquals('completed', $order->fresh()->status);
 
         // completed → cancelled (FORBIDDEN)
         $this->expectException(\RuntimeException::class);
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
     }
 
     // =========================================================================

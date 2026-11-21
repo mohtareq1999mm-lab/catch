@@ -11,6 +11,7 @@ use App\Models\Shipment;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Order\DeliveryCompletionInvariant;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -419,7 +420,7 @@ class ShipmentService
             return false;
         }
 
-        $this->orderTransitions->markDelivered($order);
+        $this->orderTransitions->markDelivered($order, TransitionActor::system());
 
         Log::info('Order auto-delivered after all fulfillments delivered', ['order_id' => $order->id]);
 

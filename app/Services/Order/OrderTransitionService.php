@@ -11,6 +11,7 @@ use App\Services\General\PromotionService;
 use App\Services\Inventory\InventoryRestoreService;
 use App\Services\Inventory\OrderReservationService;
 use App\Services\Invoice\InvoiceService;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Marvel\Database\Models\Coupon;
@@ -60,44 +61,41 @@ class OrderTransitionService
     /**
      * Gateway-verified payment completed the order. The provider established
      * payment authority and the callback owns the PaymentSucceeded event.
-     *
-     * $assertPaymentAuthority defaults to false because the canonical callback
-     * derived the order from a claimed transaction. The legacy Marvel webhook
-     * passes true: its pre-intent call relied on the default, so an
-     * authenticated actor without payments.mark_paid is still refused there.
      */
-    public function completeFromGateway(Order $order, bool $assertPaymentAuthority = false): Order|false
+    public function completeFromGateway(Order $order, TransitionActor $actor): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_COMPLETED,
             emitPaymentSuccess: false,
-            assertPaymentAuthority: $assertPaymentAuthority,
+            actor: $actor,
         );
     }
 
     /**
      * A zero-payable order completed without provider verification. There is
-     * no payment to assert, so the payment-authority gate is exempt.
+     * no payment to assert, so the F-1 gate exempts zero-total completions;
+     * the caller still passes the paying actor for the audit trail.
      */
-    public function completeZeroValue(Order $order): Order|false
+    public function completeZeroValue(Order $order, TransitionActor $actor): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_COMPLETED,
-            assertPaymentAuthority: false,
+            actor: $actor,
         );
     }
 
     /**
      * Staff confirmed a cash/COD payment. The actor must hold
-     * payments.mark_paid unless the order is already paid.
+     * payments.mark_paid unless the order is already paid or unpaid-zero.
      */
-    public function completeManualPayment(Order $order, string $method, int $transactionId, ?string $reason = null): Order|false
+    public function completeManualPayment(Order $order, TransitionActor $actor, string $method, int $transactionId, ?string $reason = null): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_COMPLETED,
+            actor: $actor,
             auditReason: $reason,
             auditContext: [
                 'action' => 'manual_mark_paid',
@@ -112,11 +110,12 @@ class OrderTransitionService
      * never incremented, so it must not be decremented; the pending payment
      * marker becomes failed.
      */
-    public function expireUnpaid(Order $order): Order|false
+    public function expireUnpaid(Order $order, TransitionActor $actor): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_CANCELLED,
+            actor: $actor,
             auditReason: 'Order cancelled due to reservation expiry',
             auditContext: [
                 'reservation_expires_at' => $order->reservation_expires_at?->toIso8601String(),
@@ -131,11 +130,12 @@ class OrderTransitionService
      * The guest used the single-use cancellation link. The OTP proof rides
      * along in the audit trail.
      */
-    public function cancelByGuest(Order $order, string $proof): Order|false
+    public function cancelByGuest(Order $order, TransitionActor $actor, string $proof): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_CANCELLED,
+            actor: $actor,
             auditReason: 'Guest single-use cancellation link',
             auditContext: [
                 'trigger' => 'guest_cancellation_link',
@@ -150,27 +150,28 @@ class OrderTransitionService
     /**
      * The customer cancelled an unpaid, still-cancellable order.
      */
-    public function cancelByCustomer(Order $order): Order|false
+    public function cancelByCustomer(Order $order, TransitionActor $actor): Order|false
     {
-        return $this->execute($order, Order::ORDER_STATUS_CANCELLED);
+        return $this->execute($order, Order::ORDER_STATUS_CANCELLED, actor: $actor);
     }
 
     /**
      * Staff cancelled an order with a required operational reason.
      */
-    public function cancelByStaff(Order $order, string $reason): Order|false
+    public function cancelByStaff(Order $order, TransitionActor $actor, string $reason): Order|false
     {
-        return $this->execute($order, Order::ORDER_STATUS_CANCELLED, auditReason: $reason);
+        return $this->execute($order, Order::ORDER_STATUS_CANCELLED, actor: $actor, auditReason: $reason);
     }
 
     /**
      * A checkout retry replaced a still-pending order with a fresh one.
      */
-    public function cancelAsSuperseded(Order $order, string $reason): Order|false
+    public function cancelAsSuperseded(Order $order, TransitionActor $actor, string $reason): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_CANCELLED,
+            actor: $actor,
             auditReason: $reason,
             auditContext: [
                 'trigger' => 'checkout-retry-supersede',
@@ -184,11 +185,12 @@ class OrderTransitionService
      * Aggregate fulfillment progress legally advanced the order to a
      * logistics milestone.
      */
-    public function advanceFulfillment(Order $order, string $target, string $reason): Order|false
+    public function advanceFulfillment(Order $order, TransitionActor $actor, string $target, string $reason): Order|false
     {
         return $this->execute(
             $order,
             $target,
+            actor: $actor,
             auditReason: 'Fulfillment progress: ' . $reason,
             auditContext: [
                 'trigger' => 'fulfillment-sync',
@@ -201,20 +203,21 @@ class OrderTransitionService
      * Every fulfillment is delivered; the shipment path marks the order
      * delivered. The delivery invariant is enforced by execute().
      */
-    public function markDelivered(Order $order): Order|false
+    public function markDelivered(Order $order, TransitionActor $actor): Order|false
     {
-        return $this->execute($order, Order::ORDER_STATUS_DELIVERED);
+        return $this->execute($order, Order::ORDER_STATUS_DELIVERED, actor: $actor);
     }
 
     /**
-     * Audited escape hatch: bypass the delivery invariant with a permission,
-     * a reason, and an authenticated actor.
+     * Audited escape hatch: bypass the delivery invariant with the legacy
+     * update-order-status permission and a reason.
      */
-    public function forceDeliver(Order $order, string $reason): Order|false
+    public function forceDeliver(Order $order, TransitionActor $actor, string $reason): Order|false
     {
         return $this->execute(
             $order,
             Order::ORDER_STATUS_DELIVERED,
+            actor: $actor,
             auditReason: $reason,
             forceDelivered: true,
         );
@@ -225,9 +228,9 @@ class OrderTransitionService
      * update). Authorization is asserted by the caller before this intent is
      * reached.
      */
-    public function transitionTo(Order $order, string $status, array $flowValues = []): Order|false
+    public function transitionTo(Order $order, TransitionActor $actor, string $status, array $flowValues = []): Order|false
     {
-        return $this->execute($order, $status, flowValues: $flowValues);
+        return $this->execute($order, $status, actor: $actor, flowValues: $flowValues);
     }
 
     public function finalizePromotionUsageAfterPayment(Order $order): void
@@ -267,13 +270,15 @@ class OrderTransitionService
         bool $emitPaymentSuccess = true,
         ?string $auditReason = null,
         ?array $auditContext = null,
-        bool $assertPaymentAuthority = true,
+        ?TransitionActor $actor = null,
         array $flowValues = [],
         bool $skipPromotionDecrement = false,
         bool $markPaymentFailed = false,
         bool $forceDelivered = false,
     ): Order|false {
-        return DB::transaction(function () use ($order, $status, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered) {
+        $actor ??= TransitionActor::system();
+
+        return DB::transaction(function () use ($order, $status, $emitPaymentSuccess, $auditReason, $auditContext, $actor, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered) {
             $locked = Order::whereKey($order->getKey())->lockForUpdate()->first();
             if (!$locked) {
                 return false;
@@ -330,18 +335,20 @@ class OrderTransitionService
             }
 
             // F-1: completing an UNPAID order is a financial act. An
-            // authenticated actor needs payments.mark_paid; system/gateway
-            // paths (callbacks, webhooks, zero-value, reconciliation) run
-            // unauthenticated or pass $assertPaymentAuthority=false because
-            // payment authority was established elsewhere (provider
-            // verification or zero amount). Paid orders stay on the normal
-            // fulfillment path regardless of actor.
-            if ($status === Order::ORDER_STATUS_COMPLETED && $assertPaymentAuthority && auth()->check()
-                && !$this->deliveryCompletion->isPaid($order) && !$this->actorCanMarkPaid()
+            // authenticated payer needs payments.mark_paid; gateway/system
+            // paths run unauthenticated or pass a gateway actor (payment
+            // authority established by provider verification). A zero-payable
+            // order exempts the gate: there is nothing to collect. Paid orders
+            // stay on the normal fulfillment path regardless of actor.
+            if ($status === Order::ORDER_STATUS_COMPLETED
+                && !$this->deliveryCompletion->isPaid($order)
+                && (float) $order->total_price > 0
+                && !$actor->hasPaymentAuthority()
             ) {
                 \Illuminate\Support\Facades\Log::warning('Order completion blocked: missing payments.mark_paid', [
                     'order_id' => $order->id,
-                    'actor_id' => auth()->id(),
+                    'actor_id' => $actor->historyActorId(),
+                    'actor_type' => $actor->historyActorType(),
                     'previous_status' => $previousStatus,
                 ]);
 
@@ -362,7 +369,7 @@ class OrderTransitionService
             // is an additional business guard, never a second writer.
             if ($status === Order::ORDER_STATUS_DELIVERED && $previousStatus !== Order::ORDER_STATUS_DELIVERED) {
                 if ($forceDelivered) {
-                    if (!auth()->check() || !$this->actorCanForceDeliver()) {
+                    if (!$actor->canForceDeliver()) {
                         throw new \RuntimeException(
                             __('message.ERROR.PERMISSION_MISSING_PERMISSIONS')
                         );
@@ -374,11 +381,11 @@ class OrderTransitionService
                     }
                     $auditContext = array_merge($auditContext ?? [], [
                         'force_delivered' => true,
-                        'force_delivered_by' => auth()->id(),
+                        'force_delivered_by' => $actor->historyActorId(),
                     ]);
                     \Illuminate\Support\Facades\Log::warning('Order force-delivered (completion invariant bypassed)', [
                         'order_id' => $order->id,
-                        'actor_id' => auth()->id(),
+                        'actor_id' => $actor->historyActorId(),
                         'previous_status' => $previousStatus,
                         'reason' => trim($auditReason),
                     ]);
@@ -477,26 +484,10 @@ class OrderTransitionService
                 if (\Illuminate\Support\Facades\Schema::hasTable('order_status_history')) {
                     $oldPaymentStatus = $order->getOriginal('payment_status');
                     $oldFulfillmentStatus = $order->getOriginal('fulfillment_status');
-                    // Determine actor type
-                    $actorId = null;
-                    $actorType = 'system';
-                    if (auth()->check()) {
-                        $actorId = auth()->id();
-                        try {
-                            $user = auth()->user();
-                            // F-1: manual payment confirmation now carries
-                            // payments.mark_paid; the legacy order permission
-                            // is still recognized during the transition.
-                            $isAdmin = method_exists($user, 'hasAnyPermission')
-                                ? $user->hasAnyPermission(['payments.mark_paid', 'update-order-status'])
-                                : (method_exists($user, 'hasPermissionTo')
-                                    ? ($user->hasPermissionTo('payments.mark_paid') || $user->hasPermissionTo('update-order-status'))
-                                    : (method_exists($user, 'can') ? ($user->can('payments.mark_paid') || $user->can('update-order-status')) : false));
-                            $actorType = $isAdmin ? 'admin' : 'user';
-                        } catch (\Throwable $e) {
-                            $actorType = 'user';
-                        }
-                    }
+                    // Determine actor identity from the explicit intent
+                    // actor — never from ambient auth().
+                    $actorId = $actor->historyActorId();
+                    $actorType = $actor->historyActorType();
 
                     // Only record if status actually changed or payment/fulfillment changed
                     $shouldRecord = $previousStatus !== $order->status
@@ -668,7 +659,7 @@ class OrderTransitionService
                 // P7-1: order cancellation cascades to cancellable
                 // fulfillments through the fulfillment authority (same
                 // transaction — atomic with the order cancel above).
-                $this->cancelOpenFulfillmentsForOrder($order, $auditReason, $actorType ?? 'system');
+                $this->cancelOpenFulfillmentsForOrder($order, $auditReason, $actor);
             }
 
             event(new OrderStatusChanged($order, $previousStatus, $order->status, $actorId ?? null, $actorType ?? 'system'));
@@ -719,8 +710,9 @@ class OrderTransitionService
      * packed work, live shipment) propagate so the whole cancellation
      * rolls back atomically instead of orphaning warehouse work.
      */
-    private function cancelOpenFulfillmentsForOrder(Order $order, ?string $auditReason, string $actorType): void
+    private function cancelOpenFulfillmentsForOrder(Order $order, ?string $auditReason, TransitionActor $actor): void
     {
+        $actorType = $actor->historyActorType();
         $cancellable = ['pending', 'picking', 'picked', 'packing', 'ready_to_ship'];
 
         $ids = \App\Models\Fulfillment\Fulfillment::where('order_id', $order->getKey())
@@ -732,7 +724,7 @@ class OrderTransitionService
             $reason = trim((string) $auditReason) !== ''
                 ? trim((string) $auditReason)
                 : "Order #{$order->getKey()} cancelled";
-            $cancelledBy = auth()->check() ? auth()->id() : null;
+            $cancelledBy = $actor->historyActorId();
 
             foreach ($ids as $fulfillmentId) {
                 $fulfillment = \App\Models\Fulfillment\Fulfillment::whereKey($fulfillmentId)->first();
@@ -767,46 +759,6 @@ class OrderTransitionService
                 'skipped_fulfillments' => $skipped->toArray(),
                 'live_shipments_requiring_manual_follow_up' => $liveShipments,
             ]);
-        }
-    }
-
-    /**
-     * F-1 helper: does the current authenticated actor hold the dedicated
-     * manual-payment permission? The legacy update-order-status permission
-     * is intentionally NOT sufficient here.
-     */
-    private function actorCanMarkPaid(): bool
-    {
-        try {
-            $user = auth()->user();
-
-            if (!$user || !method_exists($user, 'hasAnyPermission')) {
-                return false;
-            }
-
-            return (bool) $user->hasAnyPermission(['payments.mark_paid']);
-        } catch (\Throwable $e) {
-            return false;
-        }
-    }
-
-    /**
-     * Phase 8 (D8-5): explicit permission for the force-delivered escape
-     * hatch. Reuses the existing update-order-status permission — Phase 8
-     * seeds no new permissions (Phase 9 owns RBAC).
-     */
-    private function actorCanForceDeliver(): bool
-    {
-        try {
-            $user = auth()->user();
-
-            if (!$user || !method_exists($user, 'hasAnyPermission')) {
-                return false;
-            }
-
-            return (bool) $user->hasAnyPermission(['update-order-status']);
-        } catch (\Throwable $e) {
-            return false;
         }
     }
 

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Inventory;
 
 use App\Events\OrderCancelled;
+use App\ValueObjects\TransitionActor;
 use App\Listeners\ReleaseFulfillmentOnCodPlacement;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\Location;
@@ -138,7 +139,7 @@ class Phase3InventoryCommitTest extends TestCase
 
     private function cancel(Order $order): void
     {
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
     }
 
     // ---- COD: creation commits, fulfillment follows ----
@@ -246,7 +247,7 @@ class Phase3InventoryCommitTest extends TestCase
         $this->assertEquals(10, (int) $product->stock_quantity);
 
         // Canonical completion commits; a second commit is a safe no-op.
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
         $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->refresh()->inventory_state);
         $this->assertFalse(app(OrderReservationService::class)->commit($order->refresh()));
         $product->refresh();

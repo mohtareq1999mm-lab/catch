@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\OrderFlow;
 
 use App\Models\OrderFlow\OrderStatus;
+use App\ValueObjects\TransitionActor;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
@@ -144,7 +145,7 @@ class ReaperAuthorityTest extends TestCase
         $order = $this->expiredUnpaidOrder();
 
         // No flag: Rule 17 applies — unpaid canonical cancels decrement.
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertSame('cancelled', $order->fresh()->status);
         $this->assertSame(4, (int) $this->promotion->fresh()->usage);

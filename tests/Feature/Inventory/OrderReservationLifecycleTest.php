@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Inventory;
 
 use App\Console\Commands\CancelUnpaidOrders;
+use App\ValueObjects\TransitionActor;
 use App\DTOs\GatewayResult;
 use App\Events\OrderCancelled;
 use App\Listeners\RestoreProductInventory;
@@ -786,7 +787,7 @@ class OrderReservationLifecycleTest extends TestCase
         $product = $this->makeSimpleProduct(stock: 5);
         $order = $this->makeActiveReservation($product, qty: 2);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);
@@ -806,7 +807,7 @@ class OrderReservationLifecycleTest extends TestCase
         $stockAfterSale = $product->refresh()->stock_quantity; // 3
 
         Event::fake([OrderCancelled::class]);
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $order->refresh();
         $this->assertEquals('cancelled', $order->status);

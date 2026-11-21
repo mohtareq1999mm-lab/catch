@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\OrderCancelled;
+use App\ValueObjects\TransitionActor;
 use App\Events\OrderStatusChanged;
 use App\Events\PaymentFailed;
 use App\Events\PaymentSucceeded;
@@ -974,7 +975,7 @@ class EventSystemTest extends TestCase
 
         $order = $this->createOrderWithPendingTransaction('cod');
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         Event::assertDispatched(OrderStatusChanged::class, fn ($e) => $e->order->id === $order->id);
     }
@@ -987,7 +988,7 @@ class EventSystemTest extends TestCase
         $order = $this->createOrderWithPendingTransaction('cod');
         $this->assertEquals('pending', $order->status);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         Event::assertDispatched(OrderCancelled::class, fn ($e) => $e->order->id === $order->id);
         $this->assertEquals('cancelled', $order->fresh()->status);
@@ -1166,7 +1167,7 @@ class EventSystemTest extends TestCase
         // ACTIVE hold, else no-ops). Set the premise the test asserts about.
         $order->update(['inventory_state' => Order::INVENTORY_STATE_COMMITTED]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'cancelled');
 
         $this->assertEquals('cancelled', $order->fresh()->status);
         $this->assertDatabaseHas('products', [

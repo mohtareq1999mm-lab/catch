@@ -3,6 +3,7 @@
 namespace Tests\Feature\Coupon;
 
 use App\Enums\CouponDistributionTriggerType;
+use App\ValueObjects\TransitionActor;
 use App\Events\Coupons\CouponActivated;
 use App\Listeners\Coupons\StartCouponDistribution;
 use App\Models\CouponOutbox;
@@ -84,7 +85,7 @@ class CouponAudienceTest extends TestCase
     {
         $order = $this->makeOrder($user, $coupon);
         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order, $coupon->fresh());
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         return $order->fresh();
     }
@@ -144,7 +145,7 @@ class CouponAudienceTest extends TestCase
         // Third use exceeds the personal quota (2), not base+assignment (3).
         $order = $this->makeOrder($ahmed, $coupon);
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
             $this->fail('Third completion must be rejected by assignment quota.');
         } catch (\App\Exceptions\CouponConsumptionException $e) {
             $this->assertSame(2, $coupon->fresh()->used);

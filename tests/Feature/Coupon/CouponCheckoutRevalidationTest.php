@@ -3,6 +3,7 @@
 namespace Tests\Feature\Coupon;
 
 use App\Exceptions\CouponConsumptionException;
+use App\ValueObjects\TransitionActor;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Order\OrderTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -115,7 +116,7 @@ class CouponCheckoutRevalidationTest extends TestCase
             'invoice_id' => 'INV-REVAL-' . Str::random(8),
         ]);
 
-        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+        app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
 
         return $order->fresh();
     }
@@ -418,7 +419,7 @@ class CouponCheckoutRevalidationTest extends TestCase
         $this->assertNull($order->fresh()->user);
 
         try {
-            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+            app(OrderTransitionService::class)->transitionTo($order, TransitionActor::system(), 'completed');
             $this->fail('Completion without a user must throw.');
         } catch (CouponConsumptionException $e) {
             $this->assertSame(CouponConsumptionException::REASON_NOT_ELIGIBLE, $e->reason);

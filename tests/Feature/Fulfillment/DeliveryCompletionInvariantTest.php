@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fulfillment;
 
 use App\Models\Fulfillment\Fulfillment;
+use App\ValueObjects\TransitionActor;
 use App\Models\Fulfillment\Warehouse;
 use App\Services\Order\DeliveryCompletionInvariant;
 use App\Services\Order\OrderTransitionService;
@@ -143,7 +144,7 @@ class DeliveryCompletionInvariantTest extends TestCase
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         Sanctum::actingAs($admin);
 
-        $result = app(OrderTransitionService::class)->forceDeliver($order, 'service recovery #102');
+        $result = app(OrderTransitionService::class)->forceDeliver($order, TransitionActor::user($admin), 'service recovery #102');
 
         $this->assertNotFalse($result);
         $this->assertEquals('delivered', $order->refresh()->status);

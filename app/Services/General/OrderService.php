@@ -9,6 +9,7 @@ use App\Services\Checkout\OrderCreationService;
 use App\Services\General\CartInventoryService;
 use App\Services\Tax\TaxCalculator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -354,6 +355,7 @@ class OrderService
                 if ($pendingOrder->inventory_state === Order::INVENTORY_STATE_COMMITTED) {
                     $this->orderTransition->cancelAsSuperseded(
                         $pendingOrder,
+                        TransitionActor::user(auth()->user()),
                         'Superseded by re-checkout: committed pending order replaced by a fresh order',
                     );
                     $pendingOrder = null;
@@ -912,10 +914,10 @@ class OrderService
             // (inventory commit, promotion finalization, coupon usage,
             // OrderStatusChanged, PaymentSucceeded) lives solely in
             // completeManualPayment() so there is one authoritative path.
-            // The manual-audit context (actor is resolved inside from the
-            // authenticated user; action, transaction and reason ride along)
-            // lands on the same immutable history row.
-            $this->orderTransition->completeManualPayment($order, 'cod', $transaction->id, $reason);
+            // The manual-audit context (actor resolved from the authenticated
+            // user as the calling authority; action, transaction and reason
+            // ride along) lands on the same immutable history row.
+            $this->orderTransition->completeManualPayment($order, TransitionActor::user(auth()->user()), 'cod', $transaction->id, $reason);
         });
     }
 
@@ -942,10 +944,10 @@ class OrderService
             // (inventory commit, promotion finalization, coupon usage,
             // OrderStatusChanged, PaymentSucceeded) lives solely in
             // completeManualPayment() so there is one authoritative path.
-            // The manual-audit context (actor is resolved inside from the
-            // authenticated user; action, transaction and reason ride along)
-            // lands on the same immutable history row.
-            $this->orderTransition->completeManualPayment($order, 'pay_at_cashier', $transaction->id, $reason);
+            // The manual-audit context (actor resolved from the authenticated
+            // user as the calling authority; action, transaction and reason
+            // ride along) lands on the same immutable history row.
+            $this->orderTransition->completeManualPayment($order, TransitionActor::user(auth()->user()), 'pay_at_cashier', $transaction->id, $reason);
         });
     }
 
