@@ -5,6 +5,7 @@ namespace Tests\Feature\ImportExport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use App\Events\FileOperationEvent;
 use Laravel\Sanctum\Sanctum;
@@ -120,6 +121,52 @@ class ProductImageSheetImportTest extends TestCase
             @unlink($second);
             @unlink($third);
         }
+    }
+
+    /**
+     * #107 decision 1: SVG is rejected on product imports (stored SVG is
+     * the latent stored-XSS vector if media is ever served inline). The
+     * product posture is non-fatal: the row stays and the image error is
+     * recorded.
+     */
+    public function test_svg_images_are_rejected_on_product_import(): void
+    {
+        Storage::fake('public');
+
+        Http::fake([
+            'https://example.com/logo.svg' => Http::response(
+                '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>',
+                200,
+                ['Content-Type' => 'image/svg+xml']
+            ),
+        ]);
+
+        $user = $this->makeAdmin();
+
+        $tmp = $this->createWorkbook([
+            ['', 'SKU-IMG', 'https://example.com/logo.svg'],
+        ]);
+        $path = 'imports/test_' . uniqid() . '.xlsx';
+        Storage::disk('public')->put($path, file_get_contents($tmp));
+        @unlink($tmp);
+
+        $import = Import::create([
+            'type' => 'product-import',
+            'file_path' => $path,
+            'file_name' => 'products.xlsx',
+            'status' => 'pending',
+            'total_rows' => 0,
+            'created_by' => $user->id,
+        ]);
+
+        (new ImportProductsJob($import->id))->handle();
+        $import->refresh();
+
+        $this->assertSame('completed', $import->status);
+        $this->assertNotEmpty($import->errors, 'The rejected SVG image must be recorded as an image error.');
+
+        $product = Product::where('sku', 'SKU-IMG')->firstOrFail();
+        $this->assertCount(0, $product->getMedia('products'));
     }
 
     /**

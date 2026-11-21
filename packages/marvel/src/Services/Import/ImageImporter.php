@@ -4,17 +4,16 @@ namespace Marvel\Services\Import;
 
 use Exception;
 use Marvel\Database\Models\Product;
-use Marvel\Services\Import\ImageHandlers\UrlImageHandler;
 use Throwable;
 
 /**
  * Owns the per-row image download: URL validation, duplicate-media skip,
- * handler reuse, attachment and failure reporting. Used by both the inline
- * sheet path and the asynchronous image job.
+ * downloader reuse, attachment and failure reporting. Used by both the
+ * inline sheet path and the asynchronous image job.
  */
 final class ImageImporter
 {
-    private ?UrlImageHandler $urlHandler = null;
+    private ?ImportImageDownloader $downloader = null;
 
     public function __construct(private readonly ImportReport $report)
     {
@@ -62,7 +61,15 @@ final class ImageImporter
 
         try {
             if ($this->handler()->isValidUrl($imageUrl)) {
-                $downloaded = $this->handler()->download($imageUrl);
+                try {
+                    $downloaded = $this->handler()->downloadImage($imageUrl);
+                } catch (Throwable) {
+                    // Product posture (#107 decision 3): the unified module
+                    // throws on violations; the product importer turns that
+                    // into the same non-fatal error contract it had before —
+                    // the row stays and the failure is recorded.
+                    $downloaded = null;
+                }
                 if ($downloaded) {
                     // Idempotency: skip if identical file already attached (hash comparison)
                     if ($this->isDuplicateMedia($product, $downloaded)) {
@@ -103,13 +110,13 @@ final class ImageImporter
         }
     }
 
-    private function handler(): UrlImageHandler
+    private function handler(): ImportImageDownloader
     {
-        if ($this->urlHandler === null) {
-            $this->urlHandler = new UrlImageHandler(new SsrfGuard());
+        if ($this->downloader === null) {
+            $this->downloader = new ImportImageDownloader('message.IMPORT.PRODUCT', 'product_img', new SsrfGuard());
         }
 
-        return $this->urlHandler;
+        return $this->downloader;
     }
 
     /**
