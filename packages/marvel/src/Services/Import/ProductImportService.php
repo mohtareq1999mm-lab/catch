@@ -13,7 +13,6 @@ use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ProductVariant;
 use Marvel\Enums\ProductType;
 use Marvel\Exceptions\ImportCancelledException;
-use Marvel\Services\Import\ImageHandlers\UrlImageHandler;
 use Marvel\Services\Import\ProductRowWriter;
 use Marvel\Services\Pricing\ProductPricingService;
 use Marvel\Workbook\ProductWorkbookSchema;

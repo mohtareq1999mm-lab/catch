@@ -2,25 +2,28 @@
 
 namespace Marvel\Services\Import;
 
+use Exception;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Spatie\MediaLibrary\HasMedia;
 
 /**
- * One owner for the import image download pipeline (brand and category
- * families): URL format validation, SSRF host/IP screening, bounded
- * redirect following, size and MIME limits, and temp-file staging.
+ * One owner for the import image download pipeline (product, brand and
+ * category families): URL format validation, SSRF host/IP screening,
+ * bounded redirect following, size and MIME limits, and temp-file staging.
  *
  * The two families previously carried byte-identical copies that had
- * drifted apart on the security side: the category copy rejected
- * pipe-separated URL cells and blocked private/reserved IPv6 ranges, the
- * brand copy rejected pipe-separated cells but blocked ALL IPv6 hosts
- * outright (including public ones). The unified guard keeps the pipe
- * rejection for both and replaces brand's blanket IPv6 ban with the
- * category-shaped screening — private/reserved IPv6 is blocked for both,
- * public IPv6 hosts (previously unusable for brand images) now download.
- * Brand rows keep their non-fatal image posture (a failed download never
- * fails the row).
+ * drifted: product (UrlImageHandler) accepted SVG and used a null-returning
+ * failure contract, brand/category rejected SVG and threw. #107 user
+ * decisions (recorded on the issue): SVG is rejected everywhere (stored SVG
+ * is the latent stored-XSS vector); size is 5 MB for all families; the
+ * failure contract is one throwing interface whose caller decides whether
+ * the failure fails the row; staging is the same directory for all
+ * families. The unified MIME allow-list is the product set minus SVG — the
+ * brand pipeline now accepts WebP too, aligning with brand request
+ * validation (BrandCreateRequest). `SsrfGuard` remains the policy
+ * implementation; `UrlImageHandler` is deleted.
  */
 final class ImportImageDownloader
 {
@@ -30,10 +33,18 @@ final class ImportImageDownloader
 
     public const IMAGE_TIMEOUT = 30;
 
+    /**
+     * One HTTP contract for every hop of the download: TLS certificate
+     * verification is never disabled and redirects stay manual so each hop
+     * passes the SSRF guard (see assertSafeUrl()).
+     */
+    public const HTTP_OPTIONS = ['allow_redirects' => false, 'verify' => true];
+
     private const ALLOWED_IMAGE_MIMES = [
         'image/jpeg',
         'image/png',
         'image/gif',
+        'image/webp',
     ];
 
     public function __construct(
@@ -63,10 +74,14 @@ final class ImportImageDownloader
     /**
      * Download one image through the bounded pipeline and stage it as a
      * temp file. Throws with the family's translated message on any
-     * violation; the caller decides whether that fails the row.
+     * violation; the caller decides whether that fails the row (#107
+     * decision 3: one throwing interface, caller decides posture).
      */
     public function downloadImage(string $url): string
     {
+        $url = $this->normalizeGoogleDriveUrl($url);
+        $url = $this->normalizeImageUrl($url);
+
         if (!$this->isValidUrlFormat($url)) {
             throw new RuntimeException(__($this->translationPrefix . '.INVALID_IMAGE_URL'));
         }
@@ -79,7 +94,7 @@ final class ImportImageDownloader
             $this->assertSafeUrl($currentUrl);
 
             $response = Http::timeout(self::IMAGE_TIMEOUT)
-                ->withOptions(['allow_redirects' => false, 'verify' => true])
+                ->withOptions(self::HTTP_OPTIONS)
                 ->get($currentUrl);
 
             $status = $response->status();
@@ -166,11 +181,26 @@ final class ImportImageDownloader
 
         // The ONE SSRF policy (SsrfGuard): resolution + the strictest block
         // rules live there; this path translates the internal failure into
-        // its own user-facing message.
+        // the family's user-facing message.
         try {
             $this->ssrfGuard->assertResolvablePublicHost($host);
         } catch (UnsafeImageUrlException) {
             throw new RuntimeException(__($this->translationPrefix . '.UNSAFE_IMAGE_URL'));
+        }
+    }
+
+    /**
+     * Product posture preserved (#107 decision 3): the product importer
+     * decides the failure is non-fatal at its call site.
+     */
+    public function isValidUrl(string $url): bool
+    {
+        $url = $this->normalizeImageUrl($url);
+        try {
+            $this->assertSafeUrl($url);
+            return true;
+        } catch (Exception $e) {
+            return false;
         }
     }
 
@@ -190,33 +220,38 @@ final class ImportImageDownloader
         }
     }
 
+    public function attachToModel(HasMedia $model, string $filePath, string $collection = 'products'): void
+    {
+        if (!file_exists($filePath)) {
+            return;
+        }
+
+        $model->addMedia($filePath)
+            ->toMediaCollection($collection);
+    }
+
+    public function cleanup(string $filePath): void
+    {
+        if (file_exists($filePath)) {
+            @unlink($filePath);
+        }
+    }
 
     private function resolveRedirectUrl(string $baseUrl, string $location): string
     {
-        $location = trim($location);
-
-        if (filter_var($location, FILTER_VALIDATE_URL) !== false) {
+        if (str_starts_with($location, 'http://') || str_starts_with($location, 'https://')) {
             return $location;
         }
-
-        if (str_starts_with($location, '//')) {
-            $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
-
-            return $scheme . ':' . $location;
-        }
-
-        $parts = parse_url($baseUrl);
-        $scheme = $parts['scheme'] ?? 'http';
-        $host = $parts['host'] ?? '';
-
+        $base = parse_url($baseUrl);
+        $scheme = $base['scheme'] ?? 'https';
+        $host = $base['host'] ?? '';
+        $port = isset($base['port']) ? ':' . $base['port'] : '';
         if (str_starts_with($location, '/')) {
-            return $scheme . '://' . $host . $location;
+            return $scheme . '://' . $host . $port . $location;
         }
-
-        $path = $parts['path'] ?? '/';
-        $dir = substr($path, 0, (int) strrpos($path, '/') + 1);
-
-        return $scheme . '://' . $host . $dir . $location;
+        $path = $base['path'] ?? '/';
+        $dir = rtrim(dirname($path), '/');
+        return $scheme . '://' . $host . $port . $dir . '/' . $location;
     }
 
     private function detectMime(string $body): string
@@ -233,6 +268,7 @@ final class ImportImageDownloader
         return match ($mime) {
             'image/png' => 'png',
             'image/gif' => 'gif',
+            'image/webp' => 'webp',
             default => 'jpg',
         };
     }
@@ -242,5 +278,84 @@ final class ImportImageDownloader
         $info = @getimagesize($tempPath);
 
         return is_array($info) && ($info[0] > 0) && ($info[1] > 0);
+    }
+
+    /**
+     * Google Drive "uc?export=download" links carry a real file id, so the
+     * raw URL has no extension that could be used for the audit surface.
+     */
+    private function normalizeGoogleDriveUrl(string $url): string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!$host || !str_contains($host, 'drive.google.com')) {
+            return $url;
+        }
+
+        $fileId = null;
+
+        if (preg_match('/\/file\/d\/([a-zA-Z0-9_-]+)/', $url, $matches)) {
+            $fileId = $matches[1];
+        }
+
+        if (!$fileId) {
+            $query = parse_url($url, PHP_URL_QUERY);
+            if ($query) {
+                parse_str($query, $params);
+                if (!empty($params['id'])) {
+                    $fileId = $params['id'];
+                }
+            }
+        }
+
+        if ($fileId) {
+            return 'https://drive.google.com/uc?export=download&confirm=t&id=' . $fileId;
+        }
+
+        return $url;
+    }
+
+    /**
+     * Preserve already-encoded %20, encode literal spaces safely — mirrors
+     * the product path's workbook-cell normalization.
+     */
+    private function normalizeImageUrl(string $url): string
+    {
+        $url = trim($url);
+        // Split URL into components to avoid double-encoding
+        $parts = parse_url($url);
+        if ($parts === false || !isset($parts['host'])) {
+            return $url;
+        }
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? '';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $path = $parts['path'] ?? '';
+        $query = $parts['query'] ?? null;
+        $fragment = $parts['fragment'] ?? null;
+
+        // Encode literal spaces in path/query without double-encoding %20
+        if (str_contains($path, ' ')) {
+            $segments = explode('/', $path);
+            $segments = array_map(function ($seg) {
+                $decoded = str_replace('%20', ' ', $seg);
+
+                return str_replace('%2F', '/', rawurlencode($decoded));
+            }, $segments);
+            $path = implode('/', $segments);
+        }
+        if ($query !== null && str_contains($query, ' ')) {
+            $query = str_replace(' ', '%20', str_replace('%20', ' ', $query));
+            $query = str_replace(' ', '%20', $query);
+        }
+
+        $normalized = $scheme . '://' . $host . $port . $path;
+        if ($query !== null) {
+            $normalized .= '?' . $query;
+        }
+        if ($fragment !== null) {
+            $normalized .= '#' . $fragment;
+        }
+
+        return $normalized;
     }
 }

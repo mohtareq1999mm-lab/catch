@@ -3,20 +3,19 @@
 namespace Tests\Unit\Services\Import;
 
 use Illuminate\Support\Facades\Http;
-use Marvel\Services\Import\ImageHandlers\UrlImageHandler;
+use Marvel\Services\Import\ImportImageDownloader;
 use Marvel\Services\Import\SsrfGuard;
 use Tests\TestCase;
 
 /**
- * Regression for the product import image path: TLS certificate verification
- * must stay enabled (candidate 01, architecture review).
- *
- * The URL comes from an uploaded workbook cell, i.e. from whoever supplied
- * the file. With `verify => false` a network attacker could substitute the
- * image response; the SSRF guard cannot compensate because it screens the
- * destination, not the transport.
+ * Regression for the product import image path (the unified module since
+ * #107): TLS certificate verification must stay enabled — the URL comes from
+ * an uploaded workbook cell, i.e. from whoever supplied the file. With
+ * `verify => false` a network attacker could substitute the image response;
+ * the SSRF guard cannot compensate because it screens the destination, not
+ * the transport.
  */
-class UrlImageHandlerTlsVerificationTest extends TestCase
+class ImportImageDownloaderTlsVerificationTest extends TestCase
 {
     /** 1x1 transparent PNG. */
     private const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -24,12 +23,12 @@ class UrlImageHandlerTlsVerificationTest extends TestCase
     public function test_http_options_enforce_tls_verification(): void
     {
         $this->assertTrue(
-            UrlImageHandler::HTTP_OPTIONS['verify'],
+            ImportImageDownloader::HTTP_OPTIONS['verify'],
             'Imported-image downloads must verify TLS certificates.'
         );
 
         $this->assertFalse(
-            UrlImageHandler::HTTP_OPTIONS['allow_redirects'],
+            ImportImageDownloader::HTTP_OPTIONS['allow_redirects'],
             'Redirects stay manual so every hop passes the SSRF guard.'
         );
     }
@@ -44,9 +43,9 @@ class UrlImageHandlerTlsVerificationTest extends TestCase
             ),
         ]);
 
-        $handler = new UrlImageHandler(new SsrfGuard());
+        $downloader = new ImportImageDownloader('message.IMPORT.PRODUCT', 'product_img', new SsrfGuard());
 
-        $path = $handler->download('https://8.8.8.8/logo.png');
+        $path = $downloader->downloadImage('https://8.8.8.8/logo.png');
 
         try {
             $this->assertNotNull($path, 'A valid public image must still download with verification enabled.');

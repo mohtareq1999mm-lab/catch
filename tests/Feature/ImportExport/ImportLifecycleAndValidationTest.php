@@ -258,7 +258,8 @@ class ImportLifecycleAndValidationTest extends TestCase
 
     public function test_ssrf_guards_still_block_private_ips(): void
     {
-        // Verify UrlImageHandler still blocks private IPs (must not be weakened for BE-011)
+        // Verify the unified import image downloader still blocks private IPs
+        // (must not be weakened for BE-011).
         $handlerPath = base_path('packages/marvel/src/Services/Import/ImageHandlers/UrlImageHandler.php');
         if (!file_exists($handlerPath)) {
             $handlerPath = base_path('packages/marvel/src/Services/Import/Support/RemoteImageDownloader.php');
