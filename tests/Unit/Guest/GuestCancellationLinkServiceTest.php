@@ -152,6 +152,37 @@ class GuestCancellationLinkServiceTest extends TestCase
         $this->assertSame(GuestCancellationLinkState::Used, $this->links->resolve($raw)->state);
     }
 
+    public function test_an_order_without_a_stored_hash_is_unknown(): void
+    {
+        $order = $this->orderWith(['guest_cancellation_token_hash' => null]);
+
+        $this->assertNull($order->guest_cancellation_token_hash);
+        $this->assertSame(
+            GuestCancellationLinkState::Unknown,
+            $this->links->stateFor($order),
+            'A row that never owned a link must not be reported live.'
+        );
+    }
+
+    public function test_expiry_exactly_now_is_still_live(): void
+    {
+        // Whole-second freeze: the model stores datetimes with second
+        // precision, so the comparison must not depend on microseconds.
+        $this->freezeSecond();
+
+        $order = new Order();
+        $order->forceFill([
+            'guest_cancellation_token_hash' => 'stored-hash',
+            'guest_cancellation_token_expires_at' => now(),
+        ]);
+
+        $this->assertSame(GuestCancellationLinkState::Live, $this->links->stateFor($order));
+
+        $this->travel(1)->seconds();
+
+        $this->assertSame(GuestCancellationLinkState::Expired, $this->links->stateFor($order));
+    }
+
     public function test_expiry_is_evaluated_against_the_clock(): void
     {
         $raw = $this->tokens->generateToken();

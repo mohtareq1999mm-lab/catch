@@ -5,6 +5,7 @@ namespace App\Services\Guest;
 use App\Enums\GuestCancellationLinkState;
 use App\Exceptions\GuestCheckoutConflictException;
 use App\Services\Order\OrderTransitionService;
+use App\ValueObjects\GuestCancellationLink;
 use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 
@@ -20,7 +21,6 @@ use Marvel\Database\Models\Order;
 class GuestCancellationService
 {
     public function __construct(
-        private GuestOrderTokenService $tokenService,
         private GuestCancellationLinkService $links,
         private OrderTransitionService $orderTransitions,
         private GuestCancellationGate $gate,
@@ -35,24 +35,18 @@ class GuestCancellationService
     {
         $link = $this->links->resolve($rawToken);
 
-        if ($link->order === null || $link->state === GuestCancellationLinkState::Unknown) {
-            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
-        }
-
-        $hash = $this->tokenService->hash($rawToken);
-
         // Preflight (no lock): a dead or ineligible link never reaches the
         // OTP provider. The transaction below repeats these gates under the
         // row lock and stays the authority.
-        $candidate = $link->order;
-        $this->assertCancellable($candidate);
+        $order = $this->liveOrder($link);
+        $this->gate->assertCancellable($order);
 
-        $proof = $this->cancellationOtp->verify($rawToken, $code, $candidate);
+        $proof = $this->cancellationOtp->verify($rawToken, $code, $order);
 
-        $order = DB::transaction(function () use ($hash, $proof) {
+        return DB::transaction(function () use ($link, $proof) {
             /** @var Order|null $order */
             $order = Order::query()
-                ->where('guest_cancellation_token_hash', $hash)
+                ->where('guest_cancellation_token_hash', $link->hash)
                 ->lockForUpdate()
                 ->first();
 
@@ -60,7 +54,10 @@ class GuestCancellationService
                 throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
             }
 
-            $this->assertCancellable($order);
+            // Re-derived from the LOCKED row: a concurrent winner's used-mark
+            // is visible here even though the preflight predates it.
+            $this->assertLiveState($this->links->stateFor($order));
+            $this->gate->assertCancellable($order);
 
             // Atomic single-use claim. If a concurrent request already used
             // the link, this update matches zero rows and the transaction
@@ -89,21 +86,39 @@ class GuestCancellationService
 
             return $order->refresh();
         });
-
-        return $order;
     }
 
     /**
-     * The single gate chain shared by the preflight and the locked
-     * transaction. Order matters: link state first, then policy, then money.
-     * The state itself comes from the liveness module — this surface only
-     * words the dead states.
+     * Preflight wording of a resolved link. Unknown (malformed, missing or
+     * unmatched) is the same no-oracle invalid answer this surface always
+     * gave; used and expired keep their distinct 422 reasons.
      *
      * @throws GuestCheckoutConflictException
      */
-    private function assertCancellable(Order $order): void
+    private function liveOrder(GuestCancellationLink $link): Order
     {
-        $state = $this->links->stateFor($order);
+        if ($link->order === null || $link->state === GuestCancellationLinkState::Unknown) {
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
+        }
+
+        $this->assertLiveState($link->state);
+
+        return $link->order;
+    }
+
+    /**
+     * The single state wording for this surface. The state itself always
+     * comes from the liveness module — this method never re-reads the token
+     * columns. Unknown is refused as an invalid link: a row that never owned
+     * a link cannot be cancelled through one.
+     *
+     * @throws GuestCheckoutConflictException
+     */
+    private function assertLiveState(GuestCancellationLinkState $state): void
+    {
+        if ($state === GuestCancellationLinkState::Unknown) {
+            throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_invalid'), 404);
+        }
 
         if ($state === GuestCancellationLinkState::Used) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_used'), 422);
@@ -112,7 +127,5 @@ class GuestCancellationService
         if ($state === GuestCancellationLinkState::Expired) {
             throw new GuestCheckoutConflictException(__('guest_checkout.cancel_link_expired'), 422);
         }
-
-        $this->gate->assertCancellable($order);
     }
 }

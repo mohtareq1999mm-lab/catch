@@ -30,23 +30,35 @@ class GuestCancellationLinkService
             return new GuestCancellationLink(GuestCancellationLinkState::Unknown, null);
         }
 
+        $hash = $this->tokens->hash($rawToken);
+
         $order = Order::query()
-            ->where('guest_cancellation_token_hash', $this->tokens->hash($rawToken))
+            ->where('guest_cancellation_token_hash', $hash)
             ->first();
 
         if (!$order) {
             return new GuestCancellationLink(GuestCancellationLinkState::Unknown, null);
         }
 
-        return new GuestCancellationLink($this->stateFor($order), $order);
+        return new GuestCancellationLink($this->stateFor($order), $order, $hash);
     }
 
     /**
      * Liveness of an already-loaded row (e.g. under the cancellation lock).
+     *
+     * Precondition: the row was matched by its stored hash (resolve(), or the
+     * locked lookup by the same hash). A row with no stored hash never owned a
+     * link, so its liveness is unknown rather than live — a caller must not
+     * pass an arbitrary order fetched by id and treat the answer as a grant.
+     *
      * Used wins over expired: the link was consumed first.
      */
     public function stateFor(Order $order): GuestCancellationLinkState
     {
+        if ($order->guest_cancellation_token_hash === null) {
+            return GuestCancellationLinkState::Unknown;
+        }
+
         if ($order->guest_cancellation_token_used_at !== null) {
             return GuestCancellationLinkState::Used;
         }

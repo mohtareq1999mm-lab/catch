@@ -62,18 +62,33 @@ class GuestCancellationOtpTest extends TestCase
         return $order->refresh();
     }
 
-    private function service(Order $order, \Closure $outcome): GuestCancellationOtpService
-    {
+    private function service(
+        Order $order,
+        \Closure $outcome,
+        GuestCancellationLinkState $state = GuestCancellationLinkState::Live,
+    ): GuestCancellationOtpService {
         $tokens = Mockery::mock(GuestOrderTokenService::class);
         $tokens->shouldReceive('hash')->andReturnUsing(fn (string $raw) => 'hash-' . $raw);
 
+        // Unknown never carries an order; used/expired still expose the
+        // matched row, exactly like the real resolver.
+        $matchedOrder = $state === GuestCancellationLinkState::Unknown ? null : $order;
+
         $links = Mockery::mock(GuestCancellationLinkService::class);
-        $links->shouldReceive('resolve')->andReturn(
-            new GuestCancellationLink(GuestCancellationLinkState::Live, $order)
+        $links->shouldReceive('resolve')->andReturnUsing(
+            fn (string $raw) => new GuestCancellationLink(
+                $state,
+                $matchedOrder,
+                $matchedOrder === null ? null : 'hash-' . $raw,
+            )
         );
 
         $gate = Mockery::mock(GuestCancellationGate::class);
-        $gate->shouldReceive('assertCancellable');
+        if ($state === GuestCancellationLinkState::Live) {
+            $gate->shouldReceive('assertCancellable');
+        } else {
+            $gate->shouldNotReceive('assertCancellable');
+        }
 
         $sms = Mockery::mock(SMSService::class);
         $sms->shouldReceive('formatPhone')->andReturnUsing(fn (string $phone) => $phone);
@@ -117,6 +132,46 @@ class GuestCancellationOtpTest extends TestCase
                 return new Result(['not used by this fake']);
             }
         };
+    }
+
+    /**
+     * Dead links never reach the provider or the policy gate: unknown, used
+     * and expired answer the same no-oracle 404 and write no verification
+     * state, so no SMS budget can be spent on them.
+     */
+    public function test_dead_links_answer_the_no_oracle_404_without_side_effects(): void
+    {
+        $deadStates = [
+            GuestCancellationLinkState::Unknown,
+            GuestCancellationLinkState::Used,
+            GuestCancellationLinkState::Expired,
+        ];
+
+        foreach ($deadStates as $state) {
+            $raw = 'dead-' . $state->value;
+            $order = $this->order('hash-' . $raw);
+
+            $providerCalls = 0;
+            $service = $this->service($order, function () use (&$providerCalls) {
+                $providerCalls++;
+
+                return Result::providerError(['must never be called']);
+            }, $state);
+
+            try {
+                $service->request($raw);
+                $this->fail("Expected the no-oracle 404 for a {$state->value} link.");
+            } catch (GuestCheckoutConflictException $e) {
+                $this->assertSame(404, $e->httpStatus());
+                $this->assertSame(__('guest_checkout.cancel_link_invalid'), $e->getMessage());
+            }
+
+            $this->assertSame(0, $providerCalls, "A {$state->value} link must never contact the provider.");
+            $this->assertNull(
+                Cache::get(self::STATE_PREFIX . 'hash-' . $raw),
+                "A {$state->value} link must never write a verification state."
+            );
+        }
     }
 
     /**
