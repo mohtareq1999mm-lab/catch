@@ -1,0 +1,1990 @@
+﻿diff --git a/app/Services/General/OrderService.php b/app/Services/General/OrderService.php
+index b2cb477..267f755 100644
+--- a/app/Services/General/OrderService.php
++++ b/app/Services/General/OrderService.php
+@@ -889,32 +889,6 @@ class OrderService
+         return array_values(array_unique($targets));
+     }
+ 
+-    /**
+-     * Compatibility adapter for the pre-intent interface.
+-     *
+-     * @deprecated New code must call an OrderTransitionService intent. This
+-     *             method and its invoice/id locator are retained only until
+-     *             the remaining test callers are migrated (PR2).
+-     *
+-     * @internal
+-     */
+-    public function changeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [], bool $skipPromotionDecrement = false, bool $markPaymentFailed = false, bool $forceDelivered = false): Order|false
+-    {
+-        return $this->orderTransition->legacyChangeOrderStatus(
+-            $invoiceId,
+-            $status,
+-            $orderId,
+-            $emitPaymentSuccess,
+-            $auditReason,
+-            $auditContext,
+-            $assertPaymentAuthority,
+-            $flowValues,
+-            $skipPromotionDecrement,
+-            $markPaymentFailed,
+-            $forceDelivered,
+-        );
+-    }
+-
+     public function markCodAsPaid(Order $order, ?string $reason = null): void
+     {
+         DB::transaction(function () use ($order, $reason) {
+diff --git a/app/Services/Order/OrderTransitionService.php b/app/Services/Order/OrderTransitionService.php
+index 35c5087..cfcaf9e 100644
+--- a/app/Services/Order/OrderTransitionService.php
++++ b/app/Services/Order/OrderTransitionService.php
+@@ -19,7 +19,6 @@ use Marvel\Database\Models\CouponAssignmentUsage;
+ use Marvel\Database\Models\CouponUsage;
+ use Marvel\Database\Models\Order;
+ use Marvel\Database\Models\Promotion;
+-use Marvel\Database\Models\Transaction;
+ use Marvel\Enums\OrderStatus as MarvelOrderStatus;
+ 
+ /**
+@@ -33,9 +32,9 @@ use Marvel\Enums\OrderStatus as MarvelOrderStatus;
+  * This is the only writer of order lifecycle status (`orders.status`,
+  * `current_status_id`, `order_status`, `payment_status` derived from
+  * completion, `fulfillment_status` derived from order status). Controllers,
+- * jobs, commands, and legacy adapters must call an intent here; none may
+- * mutate those columns directly. `finalizePromotionUsageAfterPayment()` is the
+- * one companion writer on the same row and only stamps `promotion_consumed`.
++ * jobs, commands, and listeners must call an intent here; none may mutate
++ * those columns directly. `finalizePromotionUsageAfterPayment()` is the one
++ * companion writer on the same row and only stamps `promotion_consumed`.
+  */
+ class OrderTransitionService
+ {
+@@ -221,68 +220,15 @@ class OrderTransitionService
+     }
+ 
+     /**
+-     * Staff-directed transition to an explicit target (single PATCH, batch
+-     * update, and the legacy status adapter). Authorization is asserted by
+-     * the caller before this intent is reached.
++     * Staff-directed transition to an explicit target (single PATCH and batch
++     * update). Authorization is asserted by the caller before this intent is
++     * reached.
+      */
+     public function transitionTo(Order $order, string $status, array $flowValues = []): Order|false
+     {
+         return $this->execute($order, $status, flowValues: $flowValues);
+     }
+ 
+-    /**
+-     * Compatibility adapter for the pre-intent interface.
+-     *
+-     * @deprecated New code must call the named intents above. This method and
+-     *             its invoice/id locator exist only until the remaining test
+-     *             callers are migrated (PR2), then are deleted.
+-     *
+-     * @internal
+-     */
+-    public function legacyChangeOrderStatus($invoiceId, $status, $orderId = null, bool $emitPaymentSuccess = true, ?string $auditReason = null, ?array $auditContext = null, bool $assertPaymentAuthority = true, array $flowValues = [], bool $skipPromotionDecrement = false, bool $markPaymentFailed = false, bool $forceDelivered = false): Order|false
+-    {
+-        $order = null;
+-        $transaction = null;
+-        $resolvedByInvoice = false;
+-
+-        if ($invoiceId) {
+-            $transaction = Transaction::where('invoice_id', $invoiceId)->first();
+-            if ($transaction) {
+-                $order = $transaction->order()->first();
+-                $resolvedByInvoice = $order !== null;
+-            }
+-        }
+-
+-        if (!$order && $orderId) {
+-            $order = Order::whereKey($orderId)->first();
+-            if ($order) {
+-                // Parity with the pre-intent locator: the id path always resolves
+-                // the order's own latest transaction, never the invoice's.
+-                $transaction = $order->transactions()->latest()->first();
+-                $resolvedByInvoice = false;
+-            }
+-        }
+-
+-        if (!$order) {
+-            return false;
+-        }
+-
+-        return $this->execute(
+-            $order,
+-            $status,
+-            emitPaymentSuccess: $emitPaymentSuccess,
+-            auditReason: $auditReason,
+-            auditContext: $auditContext,
+-            assertPaymentAuthority: $assertPaymentAuthority,
+-            flowValues: $flowValues,
+-            skipPromotionDecrement: $skipPromotionDecrement,
+-            markPaymentFailed: $markPaymentFailed,
+-            forceDelivered: $forceDelivered,
+-            transaction: $resolvedByInvoice ? $transaction : null,
+-            invoiceReference: $invoiceId ?: null,
+-        );
+-    }
+-
+     public function finalizePromotionUsageAfterPayment(Order $order): void
+     {
+         if ($order->promotion_consumed) {
+@@ -325,16 +271,14 @@ class OrderTransitionService
+         bool $skipPromotionDecrement = false,
+         bool $markPaymentFailed = false,
+         bool $forceDelivered = false,
+-        ?Transaction $transaction = null,
+-        ?string $invoiceReference = null,
+     ): Order|false {
+-        return DB::transaction(function () use ($order, $status, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered, $transaction, $invoiceReference) {
++        return DB::transaction(function () use ($order, $status, $emitPaymentSuccess, $auditReason, $auditContext, $assertPaymentAuthority, $flowValues, $skipPromotionDecrement, $markPaymentFailed, $forceDelivered) {
+             $locked = Order::whereKey($order->getKey())->lockForUpdate()->first();
+             if (!$locked) {
+                 return false;
+             }
+             $order = $locked;
+-            $transaction = $transaction ?? $order->transactions()->latest()->first();
++            $transaction = $order->transactions()->latest()->first();
+ 
+             $previousStatus = $order->status;
+ 
+@@ -551,8 +495,6 @@ class OrderTransitionService
+                         } catch (\Throwable $e) {
+                             $actorType = 'user';
+                         }
+-                    } elseif ($invoiceReference !== null) {
+-                        $actorType = 'payment_gateway';
+                     }
+ 
+                     // Only record if status actually changed or payment/fulfillment changed
+@@ -562,7 +504,6 @@ class OrderTransitionService
+ 
+                     if ($shouldRecord) {
+                         $historyMetadata = [
+-                            'invoice_id' => $invoiceReference,
+                             'old_payment_status' => $oldPaymentStatus,
+                             'new_payment_status' => $updateData['payment_status'] ?? $order->payment_status,
+                             'old_fulfillment_status' => $oldFulfillmentStatus,
+diff --git a/docs/adr/0004-order-lifecycle-intent-named-single-writer.md b/docs/adr/0004-order-lifecycle-intent-named-single-writer.md
+index 5578549..4da2011 100644
+--- a/docs/adr/0004-order-lifecycle-intent-named-single-writer.md
++++ b/docs/adr/0004-order-lifecycle-intent-named-single-writer.md
+@@ -4,14 +4,14 @@ Every change to an Order's lifecycle status goes through `App\Services\Order\Ord
+ 
+ Why: the positional signature made correctness depend on remembering flag order at fourteen call sites, and every new caller could silently invent a flag combination the lifecycle rules never sanctioned. Intent names make the caller's authority explicit and leave exactly one place where transition rules can change.
+ 
+-`OrderService::changeOrderStatus` remains as a deprecated adapter that forwards to `OrderTransitionService::legacyChangeOrderStatus`. Production callers were migrated in this change; the adapter exists only for the remaining test callers and is deleted once they move to intents.
++`OrderService::changeOrderStatus` and its `legacyChangeOrderStatus` delegate were a temporary compatibility seam: production callers were migrated first, then the test callers, and the seam was deleted. No caller passes positional transition flags any more.
+ 
+ ## Considered Options
+ 
+ - **Keep the flag-based signature** — rejected: it is the defect. Flags encode internal mechanics, not intent, and drift between call sites is invisible in review.
+ - **One class per transition** — rejected: twelve classes would share the same executor, lock, and consequence block; the split adds indirection without isolating any rule.
+ - **Status value object with typed transitions** — deferred: it changes the public error contract (`Order|false`) and the legacy callers in one step. The intent surface can adopt it later without touching call sites again.
+-- **Chosen**: one module, twelve intents, one private executor, temporary delegating adapter.
++- **Chosen**: one module, twelve intents, one private executor. The temporary delegating adapter that bridged the migration has since been deleted.
+ 
+ ## Consequences
+ 
+diff --git a/tests/Feature/AssignedCouponSystemTest.php b/tests/Feature/AssignedCouponSystemTest.php
+index 9b9a2fe..93febd1 100644
+--- a/tests/Feature/AssignedCouponSystemTest.php
++++ b/tests/Feature/AssignedCouponSystemTest.php
+@@ -4,6 +4,7 @@ namespace Tests\Feature;
+ 
+ use App\Services\Coupon\CouponAssignmentValidator;
+ use App\Services\Coupon\CouponOrchestrator;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Str;
+ use Laravel\Sanctum\Sanctum;
+@@ -534,8 +535,7 @@ class AssignedCouponSystemTest extends TestCase
+                 'invoice_id' => "INV-MULTI-$i",
+             ]);
+ 
+-            $orderService = app(\App\Services\General\OrderService::class);
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         }
+ 
+         $assignment->refresh();
+@@ -570,8 +570,7 @@ class AssignedCouponSystemTest extends TestCase
+             'invoice_id' => 'INV-PUB-1',
+         ]);
+ 
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertDatabaseHas('coupon_usages', [
+             'coupon_id' => $coupon->id,
+@@ -727,8 +726,7 @@ class AssignedCouponSystemTest extends TestCase
+             'invoice_id' => 'INV-AUDIT-1',
+         ]);
+ 
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertDatabaseHas('coupon_assignment_usages', [
+             'coupon_assignment_id' => $assignment->id,
+@@ -770,8 +768,7 @@ class AssignedCouponSystemTest extends TestCase
+                 'invoice_id' => "INV-AUDIT-$i",
+             ]);
+ 
+-            $orderService = app(\App\Services\General\OrderService::class);
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+             $orderIds[] = $order->id;
+         }
+@@ -1062,8 +1059,7 @@ class AssignedCouponSystemTest extends TestCase
+             'invoice_id' => 'INV-CANCEL-1',
+         ]);
+ 
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $assignment->refresh();
+         $this->assertEquals(1, $assignment->used, 'Cancellation must NOT decrement usage counter');
+@@ -1129,10 +1125,9 @@ class AssignedCouponSystemTest extends TestCase
+             'invoice_id' => 'INV-OVER-1',
+         ]);
+ 
+-        $orderService = app(\App\Services\General\OrderService::class);
+ 
+         try {
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+             $this->fail('Expected CouponConsumptionException when quota is exhausted at completion.');
+         } catch (\App\Exceptions\CouponConsumptionException $e) {
+             $this->assertNotEmpty($e->reason);
+diff --git a/tests/Feature/BusinessRulesImplementationTest.php b/tests/Feature/BusinessRulesImplementationTest.php
+index 3921708..bf5e2dd 100644
+--- a/tests/Feature/BusinessRulesImplementationTest.php
++++ b/tests/Feature/BusinessRulesImplementationTest.php
+@@ -5,6 +5,7 @@ namespace Tests\Feature;
+ use App\Models\Fulfillment\Warehouse;
+ use App\Models\CouponReservation;
+ use App\Services\Coupon\CouponReservationService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Support\Facades\DB;
+ use Illuminate\Support\Str;
+@@ -249,11 +250,10 @@ class BusinessRulesImplementationTest extends TestCase
+         $this->user->givePermissionTo(
+             \Spatie\Permission\Models\Permission::findOrCreate('payments.mark_paid', 'api')
+         );
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        DB::transaction(function () use ($order, $orderService) {
++        DB::transaction(function () use ($order) {
+             $orderReservationService = app(\App\Services\Inventory\OrderReservationService::class);
+             $orderReservationService->commit($order);
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         });
+ 
+         // Reservation should be consumed (deleted)
+@@ -323,9 +323,8 @@ class BusinessRulesImplementationTest extends TestCase
+         // ("legacy forbids cancelling paid orders; refunds keep status
+         // completed"). Paid exit is the refund path, not cancellation.
+         // The rejected transition must change nothing (promotion stays 1).
+-        $orderService = app(\App\Services\General\OrderService::class);
+         try {
+-            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('Cancelling a paid (completed) order must be rejected.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('completed', $e->getMessage());
+@@ -361,9 +360,8 @@ class BusinessRulesImplementationTest extends TestCase
+         // Paid (completed) orders cannot transition to cancelled — same
+         // enforced rule as the promotion test above (refund path owns paid
+         // exit). The rejected transition must leave order AND stock untouched.
+-        $orderService = app(\App\Services\General\OrderService::class);
+         try {
+-            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('Cancelling a paid (completed) order must be rejected.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('completed', $e->getMessage());
+diff --git a/tests/Feature/CheckoutPendingOrderRedesignTest.php b/tests/Feature/CheckoutPendingOrderRedesignTest.php
+index 829e82b..5c1d834 100644
+--- a/tests/Feature/CheckoutPendingOrderRedesignTest.php
++++ b/tests/Feature/CheckoutPendingOrderRedesignTest.php
+@@ -373,7 +373,7 @@ class CheckoutPendingOrderRedesignTest extends TestCase
+ 
+         // Baseline BEFORE checkout: COD commits inventory at creation, and the
+         // later mark-paid recommit is an idempotent no-op by design
+-        // (OrderService::markCodAsPaid → changeOrderStatus completed). A second
++        // (OrderService::markCodAsPaid → OrderTransitionService::completeManualPayment). A second
+         // deduction here would be double-counting, not "committing".
+         $stockBefore = $this->product->refresh()->stock_quantity;
+ 
+diff --git a/tests/Feature/Coupon/CouponAudienceTest.php b/tests/Feature/Coupon/CouponAudienceTest.php
+index 5a2b9fd..e74d540 100644
+--- a/tests/Feature/Coupon/CouponAudienceTest.php
++++ b/tests/Feature/Coupon/CouponAudienceTest.php
+@@ -15,6 +15,7 @@ use App\Services\Coupon\Distribution\Events\CouponEventEnvelope;
+ use App\Services\Coupon\Distribution\Messaging\FakeCouponEventTransport;
+ use App\Services\Coupon\Distribution\NonDistributableCouponException;
+ use App\Services\Coupon\Distribution\Outbox\CouponOutboxService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Str;
+ use Marvel\Database\Models\Coupon;
+@@ -83,7 +84,7 @@ class CouponAudienceTest extends TestCase
+     {
+         $order = $this->makeOrder($user, $coupon);
+         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order, $coupon->fresh());
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         return $order->fresh();
+     }
+@@ -143,7 +144,7 @@ class CouponAudienceTest extends TestCase
+         // Third use exceeds the personal quota (2), not base+assignment (3).
+         $order = $this->makeOrder($ahmed, $coupon);
+         try {
+-            app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+             $this->fail('Third completion must be rejected by assignment quota.');
+         } catch (\App\Exceptions\CouponConsumptionException $e) {
+             $this->assertSame(2, $coupon->fresh()->used);
+diff --git a/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php b/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php
+index d40b46f..7f7b391 100644
+--- a/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php
++++ b/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php
+@@ -4,6 +4,7 @@ namespace Tests\Feature\Coupon;
+ 
+ use App\Exceptions\CouponConsumptionException;
+ use App\Services\Coupon\CouponOrchestrator;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Str;
+ use Marvel\Database\Models\Address;
+@@ -114,7 +115,7 @@ class CouponCheckoutRevalidationTest extends TestCase
+             'invoice_id' => 'INV-REVAL-' . Str::random(8),
+         ]);
+ 
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         return $order->fresh();
+     }
+@@ -417,7 +418,7 @@ class CouponCheckoutRevalidationTest extends TestCase
+         $this->assertNull($order->fresh()->user);
+ 
+         try {
+-            app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+             $this->fail('Completion without a user must throw.');
+         } catch (CouponConsumptionException $e) {
+             $this->assertSame(CouponConsumptionException::REASON_NOT_ELIGIBLE, $e->reason);
+diff --git a/tests/Feature/CouponConcurrencyProofTest.php b/tests/Feature/CouponConcurrencyProofTest.php
+index eb65578..b52148a 100644
+--- a/tests/Feature/CouponConcurrencyProofTest.php
++++ b/tests/Feature/CouponConcurrencyProofTest.php
+@@ -5,6 +5,7 @@ namespace Tests\Feature;
+ use App\Models\CouponReservation;
+ use App\Services\Coupon\CouponReservationService;
+ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Facades\DB;
+ use Illuminate\Support\Str;
+@@ -108,9 +109,9 @@ class CouponConcurrencyProofTest extends TestCase
+         $order = $this->makeOrder($user, $coupon);
+ 
+         $service = app(OrderService::class);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertEquals(1, CouponUsage::where('coupon_id', $coupon->id)->where('user_id', $user->id)->count());
+         $this->assertEquals(1, (int) $coupon->fresh()->used);
+@@ -132,7 +133,7 @@ class CouponConcurrencyProofTest extends TestCase
+         CouponReservation::where('order_id', $order->id)
+             ->update(['expires_at' => now()->subMinute()]);
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertEquals('completed', $order->fresh()->status);
+         $this->assertDatabaseHas('coupon_usages', ['coupon_id' => $coupon->id, 'user_id' => $user->id]);
+@@ -149,10 +150,10 @@ class CouponConcurrencyProofTest extends TestCase
+         $order = $this->makeOrder($user, $coupon);
+ 
+         $service = app(OrderService::class);
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         try {
+-            $service->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+             $this->fail('Cancelled order must not transition to completed.');
+         } catch (\RuntimeException $e) {
+             $this->assertNotEmpty($e->getMessage());
+diff --git a/tests/Feature/CouponCurrencyClosureTest.php b/tests/Feature/CouponCurrencyClosureTest.php
+index 4a6e6ba..5373e70 100644
+--- a/tests/Feature/CouponCurrencyClosureTest.php
++++ b/tests/Feature/CouponCurrencyClosureTest.php
+@@ -12,7 +12,7 @@ use App\Services\Coupon\CouponClaimService;
+ use App\Services\Customer\CustomerMetricsService;
+ use App\Services\Gateway\MyFatoorahGateway;
+ use App\Services\General\MyfatoraService;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Str;
+ use Marvel\Database\Models\Coupon;
+@@ -260,7 +260,7 @@ class CouponCurrencyClosureTest extends TestCase
+             'status' => 'pending',
+         ]);
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         app(MarkCouponClaimRedeemed::class)->handle(new PaymentSucceeded($order->fresh()));
+ 
+         $usedAfterComplete = $coupon->fresh()->used;
+@@ -269,7 +269,7 @@ class CouponCurrencyClosureTest extends TestCase
+ 
+         // completed → cancelled is rejected by the state machine ...
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('completed → cancelled must be rejected');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('completed', $e->getMessage());
+@@ -304,7 +304,7 @@ class CouponCurrencyClosureTest extends TestCase
+         ]);
+ 
+         app(\App\Services\Coupon\CouponReservationService::class)->reserve($order, $coupon);
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order->id]);
+         $this->assertDatabaseMissing('coupon_usages', ['coupon_id' => $coupon->id, 'user_id' => $user->id]);
+diff --git a/tests/Feature/CouponRemediationTest.php b/tests/Feature/CouponRemediationTest.php
+index cce95a2..a1311ec 100644
+--- a/tests/Feature/CouponRemediationTest.php
++++ b/tests/Feature/CouponRemediationTest.php
+@@ -9,6 +9,7 @@ use App\Services\Coupon\CouponClaimService;
+ use App\Services\Coupon\CouponOrchestrator;
+ use App\Services\Coupon\CouponReservationService;
+ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Str;
+@@ -259,7 +260,7 @@ class CouponRemediationTest extends TestCase
+ 
+         $order = $this->createPendingOrderWithCoupon($this->user, $coupon);
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         // INV-03: completed ⇒ usage committed.
+         $this->assertDatabaseHas('coupon_usages', [
+@@ -333,7 +334,7 @@ class CouponRemediationTest extends TestCase
+         $order = $this->createPendingOrderWithCoupon($this->user, $coupon);
+         app(CouponReservationService::class)->reserve($order, $coupon);
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertDatabaseMissing('coupon_reservations', ['order_id' => $order->id]);
+         $this->assertEquals(0, (int) $coupon->fresh()->used);
+diff --git a/tests/Feature/CouponSystemTest.php b/tests/Feature/CouponSystemTest.php
+index 9150975..0d26f74 100644
+--- a/tests/Feature/CouponSystemTest.php
++++ b/tests/Feature/CouponSystemTest.php
+@@ -3,6 +3,7 @@
+ namespace Tests\Feature;
+ 
+ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Str;
+ use Laravel\Sanctum\Sanctum;
+@@ -510,8 +511,8 @@ class CouponSystemTest extends TestCase
+         ]);
+ 
+         $orderService = app(OrderService::class);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $count = CouponUsage::where('coupon_id', $coupon->id)
+             ->where('user_id', $this->user->id)
+diff --git a/tests/Feature/EventSystemTest.php b/tests/Feature/EventSystemTest.php
+index 5e26217..e51eb8a 100644
+--- a/tests/Feature/EventSystemTest.php
++++ b/tests/Feature/EventSystemTest.php
+@@ -15,6 +15,7 @@ use App\Services\General\MyfatoraService;
+ use App\Jobs\LogActivityJob;
+ use App\Listeners\SendOrderCancelledNotification;
+ use App\Listeners\SendOrderStatusChangedNotification;
++use App\Services\Order\OrderTransitionService;
+ use Marvel\Listeners\SendOrderCancelledNotification as MarvelSendOrderCancelledNotification;
+ use Marvel\Providers\EventServiceProvider as MarvelEventServiceProvider;
+ use App\Listeners\SendPaymentFailedNotification;
+@@ -974,7 +975,7 @@ class EventSystemTest extends TestCase
+         $order = $this->createOrderWithPendingTransaction('cod');
+ 
+         $orderService = app(OrderService::class);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         Event::assertDispatched(OrderStatusChanged::class, fn ($e) => $e->order->id === $order->id);
+     }
+@@ -988,7 +989,7 @@ class EventSystemTest extends TestCase
+         $this->assertEquals('pending', $order->status);
+ 
+         $orderService = app(OrderService::class);
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         Event::assertDispatched(OrderCancelled::class, fn ($e) => $e->order->id === $order->id);
+         $this->assertEquals('cancelled', $order->fresh()->status);
+@@ -1168,7 +1169,7 @@ class EventSystemTest extends TestCase
+         $order->update(['inventory_state' => Order::INVENTORY_STATE_COMMITTED]);
+ 
+         $orderService = app(OrderService::class);
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertEquals('cancelled', $order->fresh()->status);
+         $this->assertDatabaseHas('products', [
+diff --git a/tests/Feature/Fulfillment/CancellationPhase7Test.php b/tests/Feature/Fulfillment/CancellationPhase7Test.php
+index 1a9ea61..01e10e2 100644
+--- a/tests/Feature/Fulfillment/CancellationPhase7Test.php
++++ b/tests/Feature/Fulfillment/CancellationPhase7Test.php
+@@ -20,9 +20,9 @@ use App\Services\Fulfillment\FulfillmentTransition;
+ use App\Services\Fulfillment\OrderPickingService;
+ use App\Services\Fulfillment\PackingService;
+ use App\Services\Fulfillment\PickingExecutionService;
+-use App\Services\General\OrderService;
+ use App\Services\Inventory\InventoryRestoreService;
+ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Shipment\ShipmentService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Marvel\Database\Models\Order;
+@@ -135,7 +135,10 @@ class CancellationPhase7Test extends TestCase
+ 
+     private function cancelOrder(Order $order, ?string $reason = null): Order
+     {
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, $reason);
++        $transitions = app(OrderTransitionService::class);
++        $result = $reason === null
++            ? $transitions->transitionTo($order, 'cancelled')
++            : $transitions->cancelByStaff($order, $reason);
+ 
+         $this->assertNotFalse($result);
+ 
+@@ -375,7 +378,7 @@ class CancellationPhase7Test extends TestCase
+         app(ShipmentService::class)->createForFulfillment($fulfillment->refresh(), [], 'p74-ship3');
+ 
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('guard refusal must roll the order cancel back atomically');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('live shipment', $e->getMessage());
+@@ -544,7 +547,7 @@ class CancellationPhase7Test extends TestCase
+         // claim already won, the cancel path finds no COMMITTED inventory
+         // (no restore) and no ACTIVE reservation (no release) — still once.
+         app(\App\Services\OrderFlow\OrderFlowService::class)->assignFlowToOrder($order->refresh(), 'local');
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertEquals('cancelled', $order->refresh()->status);
+         $this->assertEquals(50, $this->product->refresh()->stock_quantity);
+@@ -621,7 +624,7 @@ class CancellationPhase7Test extends TestCase
+ 
+         $this->cancelOrder($order->refresh());
+         // Second cancel: previousStatus === cancelled → cancel branch skipped.
+-        $again = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        $again = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+         $this->assertNotFalse($again);
+ 
+         $this->assertEquals('cancelled', $order->refresh()->status);
+diff --git a/tests/Feature/Fulfillment/ConcurrencyAttackTest.php b/tests/Feature/Fulfillment/ConcurrencyAttackTest.php
+index de43a8d..53a629d 100644
+--- a/tests/Feature/Fulfillment/ConcurrencyAttackTest.php
++++ b/tests/Feature/Fulfillment/ConcurrencyAttackTest.php
+@@ -9,7 +9,7 @@ use App\Models\Fulfillment\Warehouse;
+ use App\Services\Fulfillment\FulfillmentService;
+ use App\Services\Fulfillment\OrderPickingService;
+ use App\Services\Fulfillment\PickingExecutionService;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Marvel\Database\Models\Order;
+ use Marvel\Database\Models\Product;
+@@ -128,10 +128,9 @@ class ConcurrencyAttackTest extends TestCase
+             'address' => ['city' => 'Cairo'],
+         ]);
+ 
+-        $service = app(OrderService::class);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         // Second worker completes the same order again.
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $fresh = $order->refresh();
+         $this->assertEquals('completed', $fresh->status);
+diff --git a/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php b/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php
+index a7c78a3..0b4760f 100644
+--- a/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php
++++ b/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php
+@@ -13,8 +13,8 @@ use App\Models\Fulfillment\Location;
+ use App\Models\Fulfillment\ProductLocation;
+ use App\Models\Fulfillment\Warehouse;
+ use App\Services\Fulfillment\FulfillmentService;
+-use App\Services\General\OrderService;
+ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\OrderFlow\OrderFlowService;
+ use App\Services\Warehouse\WarehouseWorkflowSwitchService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+@@ -252,7 +252,7 @@ class Phase3ReleaseHardeningTest extends TestCase
+         $user = User::factory()->create(['type' => 'customer']);
+         $order = $this->assignFlow($this->makeOrder($user, $this->makeProduct()));
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         try {
+             app(FulfillmentService::class)->releaseForOrder($order->refresh());
+@@ -275,10 +275,7 @@ class Phase3ReleaseHardeningTest extends TestCase
+         $fulfillment = Fulfillment::where('order_id', $order->id)->firstOrFail();
+ 
+         // Reaper-style cancel with never-paid parity flags.
+-        app(OrderService::class)->changeOrderStatus(
+-            null, 'cancelled', $order->id, true, 'reservation expired', ['trigger' => 'test'],
+-            true, [], true, true
+-        );
++        app(OrderTransitionService::class)->expireUnpaid($order);
+ 
+         $this->assertEquals('cancelled', $fulfillment->refresh()->status);
+         $this->assertEquals(
+@@ -333,7 +330,7 @@ class Phase3ReleaseHardeningTest extends TestCase
+         ]);
+         $digital = $this->makeOrder(User::factory()->create(['type' => 'customer']), $this->makeProduct(100, 'DIGITAL'), [], 'DIGITAL');
+         $cancelled = $this->assignFlow($this->makeOrder(User::factory()->create(['type' => 'customer']), $this->makeProduct()));
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $cancelled->id);
++        app(OrderTransitionService::class)->transitionTo($cancelled, 'cancelled');
+ 
+         $this->artisan('fulfillment:release-ready')->assertExitCode(0);
+ 
+diff --git a/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php b/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php
+index 1cec37e..ddf60c0 100644
+--- a/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php
++++ b/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php
+@@ -11,7 +11,6 @@ use App\Models\OrderStatusHistory;
+ use App\Models\Shipment;
+ use App\Services\Fulfillment\FulfillmentService;
+ use App\Services\Fulfillment\FulfillmentTransition;
+-use App\Services\General\OrderService;
+ use App\Services\Order\OrderTransitionService;
+ use App\Services\Shipment\ShipmentService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+@@ -230,7 +229,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
+         $this->makeReadyFulfillment($order, 'p87-b');
+ 
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+             $this->fail('open fulfillment must block manual delivered');
+         } catch (\RuntimeException $e) {
+             if ($e instanceof \PHPUnit\Framework\Exception) {
+@@ -263,7 +262,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
+ 
+         // The manual path refuses while payment is voided.
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+             $this->fail('unpaid order must not transition to delivered');
+         } catch (\RuntimeException $e) {
+             if ($e instanceof \PHPUnit\Framework\Exception) {
+@@ -284,7 +283,7 @@ class ShipmentPhase8GovernanceTest extends TestCase
+         $order = $this->makeCompletedOrder();
+ 
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+             $this->fail('zero fulfillments must block manual delivered');
+         } catch (\RuntimeException $e) {
+             if ($e instanceof \PHPUnit\Framework\Exception) {
+diff --git a/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php b/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php
+index 84a5863..11cf632 100644
+--- a/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php
++++ b/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php
+@@ -11,6 +11,7 @@ use App\Models\Fulfillment\Warehouse;
+ use App\Models\Shipment;
+ use App\Services\Fulfillment\FulfillmentService;
+ use App\Services\Fulfillment\FulfillmentTransition;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Shipment\ShipmentService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Facades\DB;
+@@ -619,8 +620,7 @@ class ShipmentPhase8LifecycleTest extends TestCase
+         // Order cancels: the shipped fulfillment is skipped (Phase-7 rule),
+         // the live shipment is surfaced — never silently dropped, never
+         // force-moved.
+-        app(\App\Services\General\OrderService::class)
+-            ->changeOrderStatus(null, 'cancelled', $order->id, true, 'buyer request');
++        app(OrderTransitionService::class)->cancelByStaff($order, 'buyer request');
+ 
+         $this->assertEquals('cancelled', $order->refresh()->status);
+         $this->assertEquals('shipped', $fulfillment->refresh()->status);
+diff --git a/tests/Feature/Guest/GuestCheckoutFlowTest.php b/tests/Feature/Guest/GuestCheckoutFlowTest.php
+index d45bb1d..4f4eed3 100644
+--- a/tests/Feature/Guest/GuestCheckoutFlowTest.php
++++ b/tests/Feature/Guest/GuestCheckoutFlowTest.php
+@@ -5,8 +5,8 @@ namespace Tests\Feature\Guest;
+ use App\Models\GuestIdentity;
+ use App\Models\GuestIdempotencyKey;
+ use App\Services\Guest\GuestOrderTokenService;
+-use App\Services\General\OrderService;
+ use App\Services\Notifications\SMSService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Mail\Transport\ArrayTransport;
+ use Marvel\Database\Models\Cart;
+ use Marvel\Database\Models\CartItem;
+@@ -249,12 +249,7 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
+ 
+         // Cancel the order: the cart becomes eligible.
+         $order = $this->currentGuestOrders()->firstOrFail();
+-        app(OrderService::class)->changeOrderStatus(
+-            null,
+-            'cancelled',
+-            $order->id,
+-            auditReason: 'test',
+-        );
++        app(OrderTransitionService::class)->cancelByStaff($order, 'test');
+ 
+         $this->artisan('guest:prune-carts')->assertSuccessful();
+ 
+diff --git a/tests/Feature/Inventory/OrderReservationLifecycleTest.php b/tests/Feature/Inventory/OrderReservationLifecycleTest.php
+index 7dd7210..275b32e 100644
+--- a/tests/Feature/Inventory/OrderReservationLifecycleTest.php
++++ b/tests/Feature/Inventory/OrderReservationLifecycleTest.php
+@@ -10,6 +10,7 @@ use App\Events\OrderCancelled;
+ use App\Listeners\RestoreProductInventory;
+ use App\Services\General\CartInventoryService;
+ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Payment\Contracts\PaymentGatewayContract;
+ use App\Services\Payment\PaymentGatewayFactory;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+@@ -785,7 +786,7 @@ class OrderReservationLifecycleTest extends TestCase
+         $product = $this->makeSimpleProduct(stock: 5);
+         $order = $this->makeActiveReservation($product, qty: 2);
+ 
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $order->refresh();
+         $this->assertEquals('cancelled', $order->status);
+@@ -805,7 +806,7 @@ class OrderReservationLifecycleTest extends TestCase
+         $stockAfterSale = $product->refresh()->stock_quantity; // 3
+ 
+         Event::fake([OrderCancelled::class]);
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $order->refresh();
+         $this->assertEquals('cancelled', $order->status);
+diff --git a/tests/Feature/Inventory/Phase3InventoryCommitTest.php b/tests/Feature/Inventory/Phase3InventoryCommitTest.php
+index 5dfe786..1d386cf 100644
+--- a/tests/Feature/Inventory/Phase3InventoryCommitTest.php
++++ b/tests/Feature/Inventory/Phase3InventoryCommitTest.php
+@@ -12,6 +12,7 @@ use App\Services\Fulfillment\FulfillmentService;
+ use App\Services\General\OrderService;
+ use App\Services\Inventory\InventoryRestoreService;
+ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\OrderFlow\OrderFlowService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Marvel\Database\Models\Order;
+@@ -137,7 +138,7 @@ class Phase3InventoryCommitTest extends TestCase
+ 
+     private function cancel(Order $order): void
+     {
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+     }
+ 
+     // ---- COD: creation commits, fulfillment follows ----
+@@ -245,7 +246,7 @@ class Phase3InventoryCommitTest extends TestCase
+         $this->assertEquals(10, (int) $product->stock_quantity);
+ 
+         // Canonical completion commits; a second commit is a safe no-op.
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertEquals(Order::INVENTORY_STATE_COMMITTED, $order->refresh()->inventory_state);
+         $this->assertFalse(app(OrderReservationService::class)->commit($order->refresh()));
+         $product->refresh();
+diff --git a/tests/Feature/OrderFlow/ExportProcessingStageTest.php b/tests/Feature/OrderFlow/ExportProcessingStageTest.php
+index e4ae5cc..db94a4d 100644
+--- a/tests/Feature/OrderFlow/ExportProcessingStageTest.php
++++ b/tests/Feature/OrderFlow/ExportProcessingStageTest.php
+@@ -7,7 +7,7 @@ namespace Tests\Feature\OrderFlow;
+ use App\Models\OrderFlow\OrderFlow;
+ use App\Models\OrderFlow\OrderFlowStatus;
+ use App\Models\OrderFlow\OrderStatus;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Support\Facades\DB;
+ use Illuminate\Support\Facades\Schema;
+@@ -130,14 +130,13 @@ class ExportProcessingStageTest extends TestCase
+     public function new_stage_walks_through_canonical_writer(): void
+     {
+         $order = $this->packedInternationalOrder();
+-        $service = app(OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'export_processing', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'export_processing');
+         $fresh = $order->fresh();
+         $this->assertSame('export_processing', $fresh->status);
+         $this->assertSame($this->statusId('export_processing'), (int) $fresh->current_status_id);
+ 
+-        $service->changeOrderStatus(null, 'shipped', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'shipped');
+         $fresh = $order->fresh();
+         $this->assertSame('shipped', $fresh->status);
+         $this->assertSame($this->statusId('shipped'), (int) $fresh->current_status_id);
+diff --git a/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php b/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php
+index 11a100d..5e33e57 100644
+--- a/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php
++++ b/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php
+@@ -21,7 +21,7 @@ use Tests\TestCase;
+  *
+  * - Mapped legacy codes (pending/processing/completed/cancelled/
+  *   out_for_delivery/ready_for_pickup) flow through
+- *   OrderService::changeOrderStatus (flow authority, granular permission,
++ *   OrderTransitionService::transitionTo (flow authority, granular permission,
+  *   history, side effects) with the status mirror kept in sync.
+  * - The canonical writer re-syncs the legacy `order_status` column (D4)
+  *   so Marvel readers never drift.
+diff --git a/tests/Feature/OrderFlow/OrderFlowMatrixTest.php b/tests/Feature/OrderFlow/OrderFlowMatrixTest.php
+index dd163f1..7045ee0 100644
+--- a/tests/Feature/OrderFlow/OrderFlowMatrixTest.php
++++ b/tests/Feature/OrderFlow/OrderFlowMatrixTest.php
+@@ -6,6 +6,7 @@ namespace Tests\Feature\OrderFlow;
+ 
+ use App\Models\OrderFlow\OrderFlow;
+ use App\Models\OrderFlow\OrderStatus;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\OrderFlow\OrderFlowService;
+ use Database\Seeders\OrderFlowSeeder;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+@@ -180,7 +181,7 @@ class OrderFlowMatrixTest extends TestCase
+ 
+     private function change(Order $order, string $to): void
+     {
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, $to, $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, $to);
+     }
+ 
+     private function assertInvariants(Order $order): void
+@@ -264,19 +265,16 @@ class OrderFlowMatrixTest extends TestCase
+     private function forceDeliver(Order $order): void
+     {
+         Sanctum::actingAs($this->admin);
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(
+-            null, 'delivered', $order->id, true, 'flow walk tail', null, true, [], false, false, true
+-        );
++        app(OrderTransitionService::class)->forceDeliver($order, 'flow walk tail');
+     }
+ 
+     public function test_invalid_skips_and_backward_moves_fail(): void
+     {
+         $order = $this->checkoutOrder();
+-        $service = app(\App\Services\General\OrderService::class);
+ 
+         foreach (['shipped', 'delivered', 'out_for_delivery'] as $skip) {
+             try {
+-                $service->changeOrderStatus(null, $skip, $order->id);
++                app(OrderTransitionService::class)->transitionTo($order, $skip);
+                 $this->fail("Skip to {$skip} must be rejected.");
+             } catch (\RuntimeException) {
+             }
+@@ -286,7 +284,7 @@ class OrderFlowMatrixTest extends TestCase
+ 
+         foreach (['pending', 'delivered'] as $bad) {
+             try {
+-                $service->changeOrderStatus(null, $bad, $order->id);
++                app(OrderTransitionService::class)->transitionTo($order, $bad);
+                 $this->fail("Move to {$bad} must be rejected.");
+             } catch (\RuntimeException) {
+             }
+@@ -298,14 +296,13 @@ class OrderFlowMatrixTest extends TestCase
+     public function test_terminal_states_reject_everything_but_noop(): void
+     {
+         $order = $this->checkoutOrder();
+-        $service = app(\App\Services\General\OrderService::class);
+         Sanctum::actingAs($this->admin);
+         // completed is a milestone, not terminal. Phase 8 (D8-5): the
+         // normal completed -> delivered tail requires the completion
+         // invariant; the audited force path covers the remainder.
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         try {
+-            $service->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+             $this->fail('Normal delivered without the completion invariant must be refused.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
+@@ -315,14 +312,14 @@ class OrderFlowMatrixTest extends TestCase
+ 
+         foreach (['pending', 'processing', 'packed', 'completed', 'cancelled'] as $bad) {
+             try {
+-                $service->changeOrderStatus(null, $bad, $order->id);
++                app(OrderTransitionService::class)->transitionTo($order, $bad);
+                 $this->fail("Move from delivered to {$bad} must be rejected.");
+             } catch (\RuntimeException) {
+             }
+         }
+ 
+         // Same-status no-op stays allowed (legacy idempotency).
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+         $this->assertSame('delivered', $order->fresh()->status);
+     }
+ 
+@@ -333,7 +330,6 @@ class OrderFlowMatrixTest extends TestCase
+     public function test_stale_state_concurrent_update_fails_safely(): void
+     {
+         $order = $this->checkoutOrder();
+-        $service = app(\App\Services\General\OrderService::class);
+ 
+         // Two actors read `processing`.
+         $this->change($order, 'processing');
+@@ -346,7 +342,7 @@ class OrderFlowMatrixTest extends TestCase
+         // under lock the row is now packed, and packed -> shipped IS valid,
+         // so use a truly invalid target to prove the guard reads fresh state.
+         try {
+-            $service->changeOrderStatus(null, 'delivered', $stale->id);
++            app(OrderTransitionService::class)->transitionTo($stale, 'delivered');
+             $this->fail('Stale concurrent skip must be rejected.');
+         } catch (\RuntimeException) {
+         }
+@@ -354,7 +350,7 @@ class OrderFlowMatrixTest extends TestCase
+         // And a repeat of the already-applied step is a harmless no-op
+         // producing no duplicate history row.
+         $historyCount = $stale->statusHistory()->count();
+-        $service->changeOrderStatus(null, 'packed', $stale->id);
++        app(OrderTransitionService::class)->transitionTo($stale, 'packed');
+         $this->assertSame($historyCount, $stale->statusHistory()->count());
+         $this->assertSame('packed', $order->fresh()->status);
+     }
+diff --git a/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php b/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php
+index 36982f2..c640493 100644
+--- a/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php
++++ b/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php
+@@ -183,7 +183,7 @@ class OrderLifecycleNoopTest extends TestCase
+         Sanctum::actingAs($this->user);
+         $this->fakeLifecycleEvents();
+ 
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'pending', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'pending');
+ 
+         $this->assertNotFalse($result);
+         $this->assertSame('pending', $order->fresh()->status);
+@@ -197,14 +197,14 @@ class OrderLifecycleNoopTest extends TestCase
+         $order = $this->makeOrderFor($this->user, 'pending');
+ 
+         Sanctum::actingAs($this->admin);
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertSame('completed', $order->fresh()->status);
+ 
+         $historyBefore = $this->historyCount($order);
+         $usageBefore = (int) \Marvel\Database\Models\Promotion::query()->sum('usage');
+ 
+         $this->fakeLifecycleEvents();
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertNotFalse($result);
+         $this->assertSame('completed', $order->fresh()->status);
+@@ -218,7 +218,7 @@ class OrderLifecycleNoopTest extends TestCase
+         $order = $this->makeOrderFor($this->user, 'pending');
+ 
+         Sanctum::actingAs($this->user);
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+         $fresh = $order->fresh();
+         $this->assertSame('cancelled', $fresh->status);
+ 
+@@ -226,7 +226,7 @@ class OrderLifecycleNoopTest extends TestCase
+         $inventoryBefore = $fresh->inventory_state;
+ 
+         $this->fakeLifecycleEvents();
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertNotFalse($result);
+         $this->assertSame('cancelled', $order->fresh()->status);
+@@ -245,10 +245,10 @@ class OrderLifecycleNoopTest extends TestCase
+         $order = $this->makeOrderFor($this->user, 'pending');
+ 
+         Sanctum::actingAs($this->user);
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'processing', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'processing');
+             $this->fail('cancelled → processing must be rejected.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('cancelled', $e->getMessage());
+@@ -262,10 +262,10 @@ class OrderLifecycleNoopTest extends TestCase
+         $order = $this->makeOrderFor($this->user, 'pending');
+ 
+         Sanctum::actingAs($this->admin);
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         try {
+-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('completed → cancelled must stay forbidden.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('completed', $e->getMessage());
+diff --git a/tests/Feature/OrderFlow/OrderStatusFlowTest.php b/tests/Feature/OrderFlow/OrderStatusFlowTest.php
+index 63ec10c..17a6af4 100644
+--- a/tests/Feature/OrderFlow/OrderStatusFlowTest.php
++++ b/tests/Feature/OrderFlow/OrderStatusFlowTest.php
+@@ -6,6 +6,7 @@ namespace Tests\Feature\OrderFlow;
+ 
+ use App\Models\OrderFlow\OrderFlow;
+ use App\Models\OrderFlow\OrderStatus;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\OrderFlow\OrderFlowService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Database\Schema\Blueprint;
+@@ -430,10 +431,9 @@ class OrderStatusFlowTest extends TestCase
+         $this->freshCartWithProduct($this->user);
+         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+-        $service = app(\App\Services\General\OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
+ 
+         $order->refresh();
+         $this->assertSame('packed', $order->status);
+@@ -455,12 +455,11 @@ class OrderStatusFlowTest extends TestCase
+         $this->freshCartWithProduct($this->user);
+         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+-        $service = app(\App\Services\General\OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'processing', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
+ 
+         try {
+-            $service->changeOrderStatus(null, 'shipped', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'shipped');
+             $this->fail('Skipped status must be rejected.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('processing', $e->getMessage());
+@@ -476,7 +475,7 @@ class OrderStatusFlowTest extends TestCase
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+ 
+         Sanctum::actingAs($this->admin);
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $order->refresh();
+         $this->assertSame('completed', $order->status);
+@@ -489,11 +488,10 @@ class OrderStatusFlowTest extends TestCase
+         $this->freshCartWithProduct($this->user);
+         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+-        $service = app(\App\Services\General\OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $order->refresh();
+         $this->assertSame('cancelled', $order->status);
+@@ -508,10 +506,9 @@ class OrderStatusFlowTest extends TestCase
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+ 
+         Sanctum::actingAs($this->admin);
+-        $service = app(\App\Services\General\OrderService::class);
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $order->refresh();
+         $this->assertSame('completed', $order->status);
+@@ -525,11 +522,10 @@ class OrderStatusFlowTest extends TestCase
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+ 
+         Sanctum::actingAs($this->admin);
+-        $service = app(\App\Services\General\OrderService::class);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         try {
+-            $service->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('Cancelling a completed order must be rejected.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('completed', $e->getMessage());
+@@ -543,14 +539,13 @@ class OrderStatusFlowTest extends TestCase
+         $this->freshCartWithProduct($this->user);
+         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+-        $service = app(\App\Services\General\OrderService::class);
+ 
+         foreach (['processing', 'packed', 'shipped', 'out_for_delivery'] as $step) {
+-            $service->changeOrderStatus(null, $step, $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, $step);
+         }
+-        $service->changeOrderStatus(null, 'failed_delivery', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'failed_delivery');
+         $this->assertSame('failed_delivery', $order->fresh()->status);
+-        $service->changeOrderStatus(null, 'returned', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'returned');
+         $this->assertSame('returned', $order->fresh()->status);
+         $this->assertSame('returned', $order->fresh()->currentStatus->code);
+     }
+@@ -582,9 +577,8 @@ class OrderStatusFlowTest extends TestCase
+         $this->freshCartWithProduct($this->user);
+         $this->checkout($this->user, $this->baseCheckoutPayload())->assertStatus(200);
+         $order = Order::query()->where('user_id', $this->user->id)->latest('id')->firstOrFail();
+-        $service = app(\App\Services\General\OrderService::class);
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
+ 
+         $flow = OrderFlow::query()->where('shipping_type', 'local')->firstOrFail();
+         $ids = $flow->statuses()->orderBy('order_flow_statuses.sort_order')->pluck('order_statuses.id')->all();
+diff --git a/tests/Feature/OrderFlow/ReaperAuthorityTest.php b/tests/Feature/OrderFlow/ReaperAuthorityTest.php
+index 06b97ee..cd7215c 100644
+--- a/tests/Feature/OrderFlow/ReaperAuthorityTest.php
++++ b/tests/Feature/OrderFlow/ReaperAuthorityTest.php
+@@ -5,7 +5,7 @@ declare(strict_types=1);
+ namespace Tests\Feature\OrderFlow;
+ 
+ use App\Models\OrderFlow\OrderStatus;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Support\Carbon;
+ use Illuminate\Support\Facades\Schema;
+@@ -20,7 +20,7 @@ use Tests\TestCase;
+ /**
+  * P3-1 (decision D3): the unpaid-order reaper (orders:cancel-unpaid) performs
+  * its lifecycle mutation exclusively through the canonical writer
+- * (OrderService::changeOrderStatus) — the intentional bypass is gone.
++ * (OrderTransitionService::expireUnpaid) — the intentional bypass is gone.
+  *
+  * Outcome parity pinned here:
+  * - expired pending orders cancel (status/current-stage/cancelled_at,
+@@ -144,7 +144,7 @@ class ReaperAuthorityTest extends TestCase
+         $order = $this->expiredUnpaidOrder();
+ 
+         // No flag: Rule 17 applies — unpaid canonical cancels decrement.
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertSame('cancelled', $order->fresh()->status);
+         $this->assertSame(4, (int) $this->promotion->fresh()->usage);
+diff --git a/tests/Feature/OrderFlow/StatusOptionsTest.php b/tests/Feature/OrderFlow/StatusOptionsTest.php
+index 83f933b..3b32160 100644
+--- a/tests/Feature/OrderFlow/StatusOptionsTest.php
++++ b/tests/Feature/OrderFlow/StatusOptionsTest.php
+@@ -5,6 +5,7 @@ declare(strict_types=1);
+ namespace Tests\Feature\OrderFlow;
+ 
+ use App\Models\OrderFlow\OrderStatus;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\OrderFlow\OrderFlowService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Database\Schema\Blueprint;
+@@ -474,9 +475,7 @@ class StatusOptionsTest extends TestCase
+         // Reach the terminal source through the audited force path, then
+         // verify it rejects everything afterwards.
+         \Laravel\Sanctum\Sanctum::actingAs($op);
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(
+-            null, 'delivered', $order->id, true, 'granular perm walk', null, true, [], false, false, true
+-        );
++        app(OrderTransitionService::class)->forceDeliver($order, 'granular perm walk');
+         $this->assertSame('delivered', $order->fresh()->status);
+ 
+         $this->patchAs($op, $order, ['status' => 'cancelled'])->assertStatus(422);
+diff --git a/tests/Feature/OrderFlow/SubsystemBindingTest.php b/tests/Feature/OrderFlow/SubsystemBindingTest.php
+index 6c4bc97..09b8cd1 100644
+--- a/tests/Feature/OrderFlow/SubsystemBindingTest.php
++++ b/tests/Feature/OrderFlow/SubsystemBindingTest.php
+@@ -30,7 +30,7 @@ use Tests\TestCase;
+  *   completed + paid orders whose every fulfillment is delivered — through
+  *   the canonical writer (completed→delivered terminal absorption).
+  * - Payment: covered by OrderStatusLifecycleTest (markCodAsPaid /
+- *   markCashierPaid complete exclusively via changeOrderStatus).
++ *   markCashierPaid complete exclusively via OrderTransitionService intents).
+  */
+ class SubsystemBindingTest extends TestCase
+ {
+diff --git a/tests/Feature/OrderLifecycleTest.php b/tests/Feature/OrderLifecycleTest.php
+index b3b14c0..bb2ecb8 100644
+--- a/tests/Feature/OrderLifecycleTest.php
++++ b/tests/Feature/OrderLifecycleTest.php
+@@ -3,13 +3,14 @@
+ namespace Tests\Feature;
+ 
+ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Marvel\Database\Models\Order;
+ use Marvel\Database\Models\User;
+ use Tests\TestCase;
+ 
+ /**
+- * Phase 3 — Order lifecycle: single canonical writer (OrderService::changeOrderStatus),
++ * Phase 3 — Order lifecycle: single canonical writer (OrderTransitionService),
+  * legal transitions apply, illegal transitions throw WITHOUT mutation.
+  */
+ class OrderLifecycleTest extends TestCase
+@@ -63,7 +64,7 @@ class OrderLifecycleTest extends TestCase
+     public function test_legal_pending_to_processing_applies(): void
+     {
+         $order = $this->makeOrder('pending');
+-        $result = $this->service()->changeOrderStatus(null, 'processing', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+         $this->assertNotFalse($result);
+         $this->assertEquals('processing', $order->refresh()->status);
+     }
+@@ -71,7 +72,7 @@ class OrderLifecycleTest extends TestCase
+     public function test_legal_pending_to_cancelled_applies_and_releases(): void
+     {
+         $order = $this->makeOrder('pending');
+-        $result = $this->service()->changeOrderStatus(null, 'cancelled', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+         $this->assertNotFalse($result);
+         $fresh = $order->refresh();
+         $this->assertEquals('cancelled', $fresh->status);
+@@ -83,7 +84,7 @@ class OrderLifecycleTest extends TestCase
+         $order = $this->makeOrder('completed');
+         $before = $order->refresh()->getAttributes();
+         try {
+-            $this->service()->changeOrderStatus(null, 'pending', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'pending');
+             $this->fail('completed→pending must throw');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('pending', $e->getMessage());
+@@ -96,7 +97,7 @@ class OrderLifecycleTest extends TestCase
+     {
+         $order = $this->makeOrder('cancelled');
+         try {
+-            $this->service()->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+             $this->fail('cancelled→completed must throw');
+         } catch (\RuntimeException $e) {
+             $this->assertNotEmpty($e->getMessage());
+@@ -108,7 +109,7 @@ class OrderLifecycleTest extends TestCase
+     {
+         $order = $this->makeOrder('delivered');
+         try {
+-            $this->service()->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+             $this->fail('delivered→cancelled must throw');
+         } catch (\RuntimeException $e) {
+             $this->assertNotEmpty($e->getMessage());
+@@ -119,7 +120,7 @@ class OrderLifecycleTest extends TestCase
+     public function test_terminal_states_accept_same_state_resets(): void
+     {
+         $order = $this->makeOrder('completed');
+-        $result = $this->service()->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertNotFalse($result);
+         $this->assertEquals('completed', $order->refresh()->status);
+     }
+diff --git a/tests/Feature/OrderStatusLifecycleTest.php b/tests/Feature/OrderStatusLifecycleTest.php
+index 6b255f0..b4590f7 100644
+--- a/tests/Feature/OrderStatusLifecycleTest.php
++++ b/tests/Feature/OrderStatusLifecycleTest.php
+@@ -8,6 +8,7 @@ use App\Events\OrderStatusChanged;
+ use App\Events\PaymentSucceeded;
+ use App\Models\Invoice;
+ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Support\Facades\Event;
+ use Illuminate\Support\Facades\Schema;
+@@ -326,12 +327,11 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([OrderStatusChanged::class, OrderDelivered::class]);
+ 
+         $order = $this->createOrder('completed');
+-        $service = app(OrderService::class);
+ 
+         // Phase 8 (D8-5): the normal path requires the shipment completion
+         // invariant — refused for a bare order.
+         try {
+-            $service->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+             $this->fail('Normal delivered without the completion invariant must be refused.');
+         } catch (\RuntimeException $e) {
+             $this->assertStringContainsString('every fulfillment delivered', $e->getMessage());
+@@ -351,11 +351,10 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([OrderDelivered::class]);
+ 
+         $order = $this->createOrder('delivered');
+-        $service = app(OrderService::class);
+ 
+         // delivered is terminal for others, but same-status re-set is allowed by matrix
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+ 
+         Event::assertDispatchedTimes(OrderDelivered::class, 0);
+     }
+@@ -368,9 +367,8 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([PaymentSucceeded::class, OrderStatusChanged::class]);
+ 
+         $order = $this->createOrder('processing');
+-        $service = app(OrderService::class);
+ 
+-        $result = $service->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertNotNull($result);
+         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
+@@ -389,11 +387,10 @@ class OrderStatusLifecycleTest extends TestCase
+ 
+         $order = $this->createOrder('pending');
+         $tx = $this->createTransaction($order, 'online');
+-        $service = app(OrderService::class);
+ 
+         // The gateway callback owns the PaymentSucceeded dispatch (fires it
+         // itself after commit), so it opts out via $emitPaymentSuccess = false.
+-        $service->changeOrderStatus($tx->invoice_id, 'completed', null, false);
++        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
+ 
+         Event::assertDispatchedTimes(PaymentSucceeded::class, 0);
+         Event::assertDispatched(OrderStatusChanged::class, 1);
+@@ -448,9 +445,8 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([OrderStatusChanged::class, OrderCancelled::class, PaymentSucceeded::class]);
+ 
+         $order = $this->createOrder('pending');
+-        $service = app(OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         Event::assertDispatched(OrderStatusChanged::class);
+         Event::assertDispatched(OrderCancelled::class);
+@@ -477,12 +473,11 @@ class OrderStatusLifecycleTest extends TestCase
+         $flowService = app(\App\Services\OrderFlow\OrderFlowService::class);
+         $flowService->assignFlowToOrder($order->refresh(), 'local');
+ 
+-        $service = app(OrderService::class);
+ 
+-        $processing = $service->changeOrderStatus(null, 'processing', $order->id);
++        $processing = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+         $this->assertEquals('processing', $processing->refresh()->status);
+ 
+-        $cancelled = $service->changeOrderStatus(null, 'cancelled', $order->id);
++        $cancelled = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+         $this->assertEquals('cancelled', $cancelled->refresh()->status);
+         $this->assertNotNull($cancelled->cancelled_at);
+     }
+@@ -495,9 +490,8 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([PaymentSucceeded::class, OrderStatusChanged::class]);
+ 
+         $order = $this->createOrder('pending');
+-        $service = app(OrderService::class);
+ 
+-        $result = $service->changeOrderStatus(null, 'processing', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+ 
+         $this->assertEquals('processing', $result->status);
+         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
+@@ -510,9 +504,8 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([PaymentSucceeded::class]);
+ 
+         $order = $this->createOrder('pending');
+-        $service = app(OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
+         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
+@@ -524,9 +517,8 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([PaymentSucceeded::class]);
+ 
+         $order = $this->createOrder('pending');
+-        $service = app(OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
+         Event::assertNotDispatched(PaymentSucceeded::class);
+@@ -538,12 +530,11 @@ class OrderStatusLifecycleTest extends TestCase
+         Event::fake([PaymentSucceeded::class]);
+ 
+         $order = $this->createOrder('pending');
+-        $service = app(OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'processing', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
+         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
+ 
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
+ 
+         // Phase 8 (D8-5): delivered via the audited force path — still no
+@@ -576,19 +567,16 @@ class OrderStatusLifecycleTest extends TestCase
+         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+         \Laravel\Sanctum\Sanctum::actingAs($admin);
+ 
+-        app(OrderService::class)->changeOrderStatus(
+-            null, 'delivered', $order->id, true, 'lifecycle tail', null, true, [], false, false, true
+-        );
++        app(OrderTransitionService::class)->forceDeliver($order, 'lifecycle tail');
+     }
+ 
+     /** @test */
+     public function same_status_reassignment_does_not_create_invoice()
+     {
+         $order = $this->createOrder('pending');
+-        $service = app(OrderService::class);
+ 
+-        $service->changeOrderStatus(null, 'pending', $order->id);
+-        $service->changeOrderStatus(null, 'pending', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'pending');
++        app(OrderTransitionService::class)->transitionTo($order, 'pending');
+ 
+         $this->assertSame(0, Invoice::where('order_id', $order->id)->count());
+         $this->assertEquals('pending', $order->refresh()->status);
+@@ -617,11 +605,10 @@ class OrderStatusLifecycleTest extends TestCase
+ 
+         $order = $this->createOrder('pending');
+         $tx = $this->createTransaction($order, 'online');
+-        $service = app(OrderService::class);
+ 
+         // Callback owns PaymentSucceeded (emit=false) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the invoice must still
+         // be created by the first-leave-pending rule inside the transition.
+-        $service->changeOrderStatus($tx->invoice_id, 'completed', null, false);
++        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
+ 
+         Event::assertNotDispatched(PaymentSucceeded::class);
+         $this->assertSame(1, Invoice::where('order_id', $order->id)->count());
+diff --git a/tests/Feature/OrdersProductionHardenTest.php b/tests/Feature/OrdersProductionHardenTest.php
+index d1e4aa8..699099a 100644
+--- a/tests/Feature/OrdersProductionHardenTest.php
++++ b/tests/Feature/OrdersProductionHardenTest.php
+@@ -8,6 +8,7 @@ use App\Events\OrderStatusChanged;
+ use App\Events\PaymentFailed;
+ use App\Events\PaymentSucceeded;
+ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+ use Illuminate\Support\Facades\Config;
+ use Illuminate\Support\Facades\Event;
+@@ -716,8 +717,7 @@ class OrdersProductionHardenTest extends TestCase
+             'uuid' => (string) Str::uuid(),
+         ]);
+ 
+-        $service = app(OrderService::class);
+-        $result = $service->changeOrderStatus($tx->invoice_id, 'completed');
++        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
+ 
+         $this->assertNotNull($result);
+         $this->assertEquals('completed', $result->refresh()->status);
+@@ -749,8 +749,7 @@ class OrdersProductionHardenTest extends TestCase
+             'uuid' => (string) Str::uuid(),
+         ]);
+ 
+-        $service = app(OrderService::class);
+-        $result = $service->changeOrderStatus($tx->invoice_id, 'cancelled');
++        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
+ 
+         $this->assertNotNull($result);
+         $this->assertEquals('cancelled', $result->refresh()->status);
+@@ -768,10 +767,9 @@ class OrdersProductionHardenTest extends TestCase
+             'status' => 'completed',
+         ]);
+ 
+-        $service = app(OrderService::class);
+ 
+         $this->expectException(\RuntimeException::class);
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+     }
+ 
+     /** @test */
+@@ -785,10 +783,9 @@ class OrdersProductionHardenTest extends TestCase
+             'status' => 'cancelled',
+         ]);
+ 
+-        $service = app(OrderService::class);
+ 
+         $this->expectException(\RuntimeException::class);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+     }
+ 
+     /** @test */
+@@ -802,10 +799,9 @@ class OrdersProductionHardenTest extends TestCase
+             'status' => 'pending',
+         ]);
+ 
+-        $service = app(OrderService::class);
+ 
+         $this->expectException(\RuntimeException::class);
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+     }
+ 
+     // ===================== PAYMENT CALLBACK =====================
+@@ -1061,16 +1057,15 @@ class OrdersProductionHardenTest extends TestCase
+ 
+         // Cancel the order via service (simulates admin or callback cancellation)
+         Event::fake();
+-        $service = app(OrderService::class);
+ 
+         // Manually restore stock_quantity to what it was before checkout finalization
+-        // Since checkout already finalized, we need to test cancel flow via changeOrderStatus
++        // Since checkout already finalized, we need to test cancel flow via OrderTransitionService
+         // which fires OrderCancelled ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ RestoreProductInventory restores inventory
+ 
+         // First, set inventory_restored_at to null to allow restoration
+         $order->update(['inventory_restored_at' => null]);
+ 
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         // After restore, stock should be back up
+         $product = $this->product->fresh();
+@@ -1126,8 +1121,7 @@ class OrdersProductionHardenTest extends TestCase
+             'uuid' => (string) Str::uuid(),
+         ]);
+ 
+-        $service = app(OrderService::class);
+-        $service->changeOrderStatus($tx->invoice_id, 'completed');
++        app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
+ 
+         Event::assertDispatched(OrderStatusChanged::class);
+     }
+@@ -1156,8 +1150,7 @@ class OrdersProductionHardenTest extends TestCase
+             'uuid' => (string) Str::uuid(),
+         ]);
+ 
+-        $service = app(OrderService::class);
+-        $service->changeOrderStatus($tx->invoice_id, 'cancelled');
++        app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
+ 
+         Event::assertDispatched(OrderCancelled::class);
+     }
+diff --git a/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php b/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php
+index a338ee2..92b6eb9 100644
+--- a/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php
++++ b/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php
+@@ -52,7 +52,7 @@ class AttemptLifecycleArchitectureTest extends TestCase
+         config(['payment.gateways.tabby.webhook_header' => 'X-Test-Auth']);
+         config(['payment.gateways.tabby.account' => 'default']);
+ 
+-        // Completion (changeOrderStatus → currency resolution) needs the
++        // Completion (OrderTransitionService → currency resolution) needs the
+         // currency catalog seeded; the attempt tests run USD end-to-end.
+         DB::table('currencies')->updateOrInsert(['code' => 'USD'], [
+             'name' => json_encode(['en' => 'US Dollar']),
+diff --git a/tests/Feature/Payment/MarvelStatusReachabilityTest.php b/tests/Feature/Payment/MarvelStatusReachabilityTest.php
+index 11d2bfd..4ad9437 100644
+--- a/tests/Feature/Payment/MarvelStatusReachabilityTest.php
++++ b/tests/Feature/Payment/MarvelStatusReachabilityTest.php
+@@ -16,7 +16,7 @@ use Tests\Feature\Currency\CurrencyTestCase;
+ /**
+  * SHOULD-FIX (d): Marvel PATCH /api/v1/orders/{id}/status reachability proof.
+  *
+- * RESULT: BLOCKED. The F-1 authority gate in OrderService::changeOrderStatus()
++ * RESULT: BLOCKED. The F-1 authority gate in OrderTransitionService::transitionTo()
+  * now rejects completed-transitions on UNPAID orders when the authenticated
+  * actor lacks `payments.mark_paid` (422, order untouched). An admin holding
+  * ONLY `update-order-status` can no longer financially complete an order via
+diff --git a/tests/Feature/PaymentProductionHardenTest.php b/tests/Feature/PaymentProductionHardenTest.php
+index 06b8d09..d7a66d1 100644
+--- a/tests/Feature/PaymentProductionHardenTest.php
++++ b/tests/Feature/PaymentProductionHardenTest.php
+@@ -3,6 +3,7 @@
+ namespace Tests\Feature;
+ 
+ use App\DTOs\GatewayResult;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Payment\Contracts\PaymentGatewayContract;
+ use App\Services\Payment\PaymentGatewayFactory;
+ use Carbon\Carbon;
+@@ -26,7 +27,6 @@ use App\Events\OrderCancelled;
+ use App\Events\PaymentFailed;
+ use App\Events\PaymentSucceeded;
+ use App\Events\OrderStatusChanged;
+-use App\Services\General\OrderService;
+ use Marvel\Database\Models\Coupon;
+ use Marvel\Database\Models\CouponAssignment;
+ use Marvel\Database\Models\CouponAssignmentUsage;
+@@ -1130,7 +1130,7 @@ public function mark_paid_response_has_correct_structure()
+         $this->expectException(\RuntimeException::class);
+         $this->expectExceptionMessage('Cannot change order status from completed to cancelled');
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+     }
+ 
+     /** @test */
+@@ -1143,7 +1143,7 @@ public function mark_paid_response_has_correct_structure()
+         $this->expectException(\RuntimeException::class);
+         $this->expectExceptionMessage('Cannot change order status from delivered to pending');
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'pending', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'pending');
+     }
+ 
+     /** @test */
+@@ -1156,7 +1156,7 @@ public function mark_paid_response_has_correct_structure()
+         $this->expectException(\RuntimeException::class);
+         $this->expectExceptionMessage('Cannot change order status from cancelled to completed');
+ 
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+     }
+ 
+     /** @test */
+@@ -1165,7 +1165,7 @@ public function mark_paid_response_has_correct_structure()
+         $order = $this->createOrderWithPendingTransaction('cod');
+         $this->assertEquals('pending', $order->status);
+ 
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertNotFalse($result);
+         $this->assertEquals('completed', $order->fresh()->status);
+@@ -1372,12 +1372,11 @@ public function mark_paid_response_has_correct_structure()
+             'coupon' => $coupon->code,
+         ]);
+ 
+-        $service = app(OrderService::class);
+ 
+         DB::beginTransaction();
+         try {
+-            $service->changeOrderStatus(null, 'completed', $order1->id);
+-            $service->changeOrderStatus(null, 'completed', $order2->id);
++            app(OrderTransitionService::class)->transitionTo($order1, 'completed');
++            app(OrderTransitionService::class)->transitionTo($order2, 'completed');
+             DB::commit();
+         } catch (\Throwable $e) {
+             DB::rollBack();
+diff --git a/tests/Feature/PaymentSystemTest.php b/tests/Feature/PaymentSystemTest.php
+index 64b7dee..8bbd1a6 100644
+--- a/tests/Feature/PaymentSystemTest.php
++++ b/tests/Feature/PaymentSystemTest.php
+@@ -5,6 +5,7 @@ namespace Tests\Feature;
+ use App\Console\Commands\CancelUnpaidOrders;
+ use App\Services\General\OrderService;
+ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Payment\PaymentCheckoutHandler;
+ use Carbon\Carbon;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+@@ -707,16 +708,15 @@ Schema::create('users', function (Blueprint $table) {
+         ]);
+     }
+ 
+-    // ========== OrderService: changeOrderStatus with orderId fallback ==========
++    // ========== OrderTransitionService: explicit status transitions ==========
+ 
+     /** @test */
+-    public function change_order_status_works_with_order_id_when_invoice_id_is_null()
++    public function transition_to_cancelled_marks_pending_transaction_failed()
+     {
+         Event::fake([OrderStatusChanged::class]);
+         $order = $this->createOrderWithPendingTransaction('cod');
+ 
+-        $orderService = app(OrderService::class);
+-        $result = $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertNotFalse($result);
+         $this->assertEquals('cancelled', $result->status);
+@@ -735,13 +735,12 @@ Schema::create('users', function (Blueprint $table) {
+     }
+ 
+     /** @test */
+-    public function change_order_status_still_works_with_invoice_id()
++    public function transition_to_completed_marks_pending_transaction_paid()
+     {
+         Event::fake([OrderStatusChanged::class]);
+         $order = $this->createOrderWithPendingTransaction('myfatoorah', 'INV-123');
+ 
+-        $orderService = app(OrderService::class);
+-        $result = $orderService->changeOrderStatus('INV-123', 'completed');
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         $this->assertNotFalse($result);
+         $this->assertEquals('completed', $result->status);
+@@ -755,10 +754,12 @@ Schema::create('users', function (Blueprint $table) {
+     }
+ 
+     /** @test */
+-    public function change_order_status_returns_false_when_no_order_found()
++    public function transition_returns_false_when_order_no_longer_exists()
+     {
+-        $orderService = app(OrderService::class);
+-        $result = $orderService->changeOrderStatus(null, 'cancelled', 99999);
++        $order = $this->createOrderWithPendingTransaction();
++        $order->delete();
++
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+ 
+         $this->assertFalse($result);
+     }
+diff --git a/tests/Feature/ProductionReadinessAuditTest.php b/tests/Feature/ProductionReadinessAuditTest.php
+index b617715..acc277c 100644
+--- a/tests/Feature/ProductionReadinessAuditTest.php
++++ b/tests/Feature/ProductionReadinessAuditTest.php
+@@ -12,7 +12,6 @@ use App\Services\Inventory\OrderReservationService;
+ use App\Services\Coupon\CouponCalculator;
+ use App\Services\Coupon\CouponOrchestrator;
+ use App\Services\General\OrderService;
+-use App\Services\Order\OrderTransitionService;
+ use App\Services\General\PromotionService;
+ use App\Services\Invoice\InvoiceNumberService;
+ use App\Services\Invoice\InvoiceSnapshotService;
+@@ -24,6 +23,7 @@ use App\Services\Invoice\Validators\MetadataValidator;
+ use App\Services\Invoice\Validators\MoneyValidator;
+ use App\Services\Invoice\Validators\SnapshotVersionValidator;
+ use App\Services\Invoice\Validators\StructureValidator;
++use App\Services\Order\OrderTransitionService;
+ use Carbon\Carbon;
+ use Illuminate\Database\Schema\Blueprint;
+ use Illuminate\Foundation\Testing\DatabaseTransactions;
+@@ -1007,13 +1007,13 @@ class ProductionReadinessAuditTest extends TestCase
+         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+ 
+         // pending → completed (allowed)
+-        $result = $orderService->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertNotFalse($result);
+         $this->assertEquals('completed', $order->fresh()->status);
+ 
+         // completed → cancelled (FORBIDDEN)
+         $this->expectException(\RuntimeException::class);
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+     }
+ 
+     // =========================================================================
+diff --git a/tests/Feature/WebhookPaymentCompletionTest.php b/tests/Feature/WebhookPaymentCompletionTest.php
+index d12f759..39b3f00 100644
+--- a/tests/Feature/WebhookPaymentCompletionTest.php
++++ b/tests/Feature/WebhookPaymentCompletionTest.php
+@@ -3,7 +3,7 @@
+ namespace Tests\Feature;
+ 
+ use App\Events\PaymentSucceeded;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Facades\DB;
+ use Illuminate\Support\Facades\Event;
+@@ -138,13 +138,11 @@ class WebhookPaymentCompletionTest extends TestCase
+             ]);
+         }
+ 
+-        $orderService = app(OrderService::class);
+-
+         // Complete all orders
+         foreach ($orders as $order) {
+             try {
+-                DB::transaction(function () use ($orderService, $order) {
+-                    $orderService->changeOrderStatus(null, 'completed', $order->id, false);
++                DB::transaction(function () use ($order) {
++                    app(OrderTransitionService::class)->completeFromGateway($order, true);
+                 });
+             } catch (\Throwable $e) {
+                 // Expected: some may fail due to limiter
+@@ -184,12 +182,10 @@ class WebhookPaymentCompletionTest extends TestCase
+             'expires_at' => now()->addMinutes(30),
+         ]);
+ 
+-        $orderService = app(OrderService::class);
+-
+         // Attempt to complete order (will fail validation if no assignment)
+         try {
+-            DB::transaction(function () use ($orderService, $order) {
+-                $orderService->changeOrderStatus(null, 'completed', $order->id, false);
++            DB::transaction(function () use ($order) {
++                app(OrderTransitionService::class)->completeFromGateway($order, true);
+             });
+         } catch (\Throwable $e) {
+             // Expected
+diff --git a/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php b/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php
+index bafffd4..768acbe 100644
+--- a/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php
++++ b/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php
+@@ -16,6 +16,7 @@ use App\Models\Fulfillment\ProductLocation;
+ use App\Models\Fulfillment\Warehouse;
+ use App\Models\Shipment;
+ use App\Models\WarehouseWorkflowVersion;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Facades\Storage;
+ use Illuminate\Support\Facades\URL;
+@@ -302,7 +303,7 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
+         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
+ 
+         // Payment-owned completion converges via official authority.
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertSame('delivered', $order->fresh()->status);
+ 
+         // Inventory invariants: committed goods never double-moved by WMS HTTP.
+diff --git a/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php b/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php
+index 277ea7c..6509a80 100644
+--- a/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php
++++ b/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php
+@@ -11,7 +11,7 @@ use App\Models\Fulfillment\Warehouse;
+ use App\Models\Shipment;
+ use App\Services\Fulfillment\FulfillmentService;
+ use App\Services\Fulfillment\FulfillmentTransition;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Shipment\ShipmentService;
+ use App\Services\Warehouse\WarehouseWorkflowSwitchService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+@@ -337,7 +337,7 @@ class WarehouseWorkflowSwitchTest extends TestCase
+         // Complete through the canonical order writer. PaymentSucceeded
+         // fires here (emit default), falls on the disabled listener, and
+         // must stay a silent policy skip.
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         // Continue delivery through the EXISTING delivery process.
+         app(ShipmentService::class)->markDelivered($shipment->id);
+diff --git a/tests/Feature/Wms/WmsEndToEndTest.php b/tests/Feature/Wms/WmsEndToEndTest.php
+index 288361c..64b181b 100644
+--- a/tests/Feature/Wms/WmsEndToEndTest.php
++++ b/tests/Feature/Wms/WmsEndToEndTest.php
+@@ -14,6 +14,7 @@ use App\Models\Fulfillment\ProductLocation;
+ use App\Models\Fulfillment\Warehouse;
+ use App\Models\Shipment;
+ use App\Services\Fulfillment\FulfillmentService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Marvel\Database\Models\Order;
+ use Marvel\Database\Models\Product;
+@@ -206,8 +207,7 @@ class WmsEndToEndTest extends TestCase
+         // Order Flow completion: paid + completed + all delivered → delivered.
+         // The completion emits PaymentSucceeded, whose sync converges the
+         // order straight to delivered (all fulfillments already delivered).
+-        app(\App\Services\General\OrderService::class)
+-            ->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+         $this->assertSame('delivered', $order->fresh()->status);
+         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/deliver", [])->assertStatus(200);
+         $this->assertSame('delivered', $order->fresh()->status);
+diff --git a/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php b/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php
+index 59f77b4..ea506e2 100644
+--- a/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php
++++ b/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php
+@@ -19,6 +19,7 @@ use App\Services\Fulfillment\PackingService;
+ use App\Services\Fulfillment\PickingExecutionService;
+ use App\Services\General\OrderService;
+ use App\Services\Inventory\StockOperationService;
++use App\Services\Order\OrderTransitionService;
+ use App\Services\Shipment\ShipmentService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Facades\Event;
+@@ -131,7 +132,7 @@ class WmsFulfillmentOrderSyncTest extends TestCase
+             'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+             'payment_method' => 'online',
+         ]);
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+ 
+         return $order->fresh();
+     }
+@@ -460,7 +461,7 @@ class WmsFulfillmentOrderSyncTest extends TestCase
+ 
+         $order = $this->codOrder();
+         $this->release($order);
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, 'customer changed mind');
++        app(OrderTransitionService::class)->cancelByStaff($order, 'customer changed mind');
+         $this->assertSame('cancelled', $order->fresh()->status);
+         $this->assertSame('cancelled', Fulfillment::where('order_id', $order->id)->firstOrFail()->status);
+         $history = $order->statusHistory()->count();
+@@ -501,7 +502,7 @@ class WmsFulfillmentOrderSyncTest extends TestCase
+ 
+         $order = $this->codOrder();
+         $this->release($order);
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, 'customer changed mind');
++        app(OrderTransitionService::class)->cancelByStaff($order, 'customer changed mind');
+         $stockBefore = (float) $this->product->fresh()->stock_quantity;
+ 
+         // Cancelled commitments pin nothing: the hint is free again.
+diff --git a/tests/Feature/Wms/WmsOrderCancellationTest.php b/tests/Feature/Wms/WmsOrderCancellationTest.php
+index 722d936..fcf101a 100644
+--- a/tests/Feature/Wms/WmsOrderCancellationTest.php
++++ b/tests/Feature/Wms/WmsOrderCancellationTest.php
+@@ -19,7 +19,7 @@ use Tests\TestCase;
+ /**
+  * P9-7: during-fulfillment order cancellation adapter.
+  *
+- * Sole writer: OrderService::changeOrderStatus (Order Flow authority).
++ * Sole writer: OrderTransitionService (Order Flow authority).
+  * The cascade into open fulfillments runs inside that service (P7-1);
+  * shipped/terminal fulfillments are never force-cancelled (F8-5).
+  * Scope is fail-closed: non-global actors need every non-cancelled
+diff --git a/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php b/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php
+index 06bc613..5d69c38 100644
+--- a/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php
++++ b/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php
+@@ -8,6 +8,7 @@ use App\Models\Fulfillment\Warehouse;
+ use App\Services\Fulfillment\BatchPickingService;
+ use App\Services\Fulfillment\FulfillmentService;
+ use App\Services\Fulfillment\PickingExecutionService;
++use App\Services\Order\OrderTransitionService;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Marvel\Database\Models\Order;
+ use Marvel\Database\Models\Product;
+@@ -130,7 +131,7 @@ class FulfillmentHardeningTest extends TestCase
+         // completing it (paid online order) creates a genuine stage split:
+         // processing vs completed must not batch together.
+         $f2 = app(FulfillmentService::class)->releaseForOrder($o2, $this->warehouse->id, 'hard-s2');
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $o2->id);
++        app(OrderTransitionService::class)->transitionTo($o2, 'completed');
+ 
+         $this->expectException(\RuntimeException::class);
+         app(BatchPickingService::class)->createBatchFromFulfillments(collect([$f1, $f2]), $this->warehouse->id);

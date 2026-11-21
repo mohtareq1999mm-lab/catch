@@ -1,0 +1,740 @@
+﻿diff --git a/tests/Feature/AssignedCouponSystemTest.php b/tests/Feature/AssignedCouponSystemTest.php
+index 9b9a2fe..93febd1 100644
+--- a/tests/Feature/AssignedCouponSystemTest.php
++++ b/tests/Feature/AssignedCouponSystemTest.php
+@@ -6,0 +7 @@ use App\Services\Coupon\CouponOrchestrator;
++use App\Services\Order\OrderTransitionService;
+@@ -537,2 +538 @@ class AssignedCouponSystemTest extends TestCase
+-            $orderService = app(\App\Services\General\OrderService::class);
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -573,2 +573 @@ class AssignedCouponSystemTest extends TestCase
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -730,2 +729 @@ class AssignedCouponSystemTest extends TestCase
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -773,2 +771 @@ class AssignedCouponSystemTest extends TestCase
+-            $orderService = app(\App\Services\General\OrderService::class);
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -1065,2 +1062 @@ class AssignedCouponSystemTest extends TestCase
+-        $orderService = app(\App\Services\General\OrderService::class);
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -1132 +1127,0 @@ class AssignedCouponSystemTest extends TestCase
+-        $orderService = app(\App\Services\General\OrderService::class);
+@@ -1135 +1130 @@ class AssignedCouponSystemTest extends TestCase
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/BusinessRulesImplementationTest.php b/tests/Feature/BusinessRulesImplementationTest.php
+index 3921708..88e0742 100644
+--- a/tests/Feature/BusinessRulesImplementationTest.php
++++ b/tests/Feature/BusinessRulesImplementationTest.php
+@@ -7,0 +8 @@ use App\Services\Coupon\CouponReservationService;
++use App\Services\Order\OrderTransitionService;
+@@ -256 +257 @@ class BusinessRulesImplementationTest extends TestCase
+-            $orderService->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -326 +326,0 @@ class BusinessRulesImplementationTest extends TestCase
+-        $orderService = app(\App\Services\General\OrderService::class);
+@@ -328 +328 @@ class BusinessRulesImplementationTest extends TestCase
+-            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -364 +363,0 @@ class BusinessRulesImplementationTest extends TestCase
+-        $orderService = app(\App\Services\General\OrderService::class);
+@@ -366 +365 @@ class BusinessRulesImplementationTest extends TestCase
+-            $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/CheckoutPendingOrderRedesignTest.php b/tests/Feature/CheckoutPendingOrderRedesignTest.php
+index 829e82b..5c1d834 100644
+--- a/tests/Feature/CheckoutPendingOrderRedesignTest.php
++++ b/tests/Feature/CheckoutPendingOrderRedesignTest.php
+@@ -376 +376 @@ class CheckoutPendingOrderRedesignTest extends TestCase
+-        // (OrderService::markCodAsPaid → changeOrderStatus completed). A second
++        // (OrderService::markCodAsPaid → OrderTransitionService::completeManualPayment). A second
+diff --git a/tests/Feature/Coupon/CouponAudienceTest.php b/tests/Feature/Coupon/CouponAudienceTest.php
+index 5a2b9fd..e74d540 100644
+--- a/tests/Feature/Coupon/CouponAudienceTest.php
++++ b/tests/Feature/Coupon/CouponAudienceTest.php
+@@ -17,0 +18 @@ use App\Services\Coupon\Distribution\Outbox\CouponOutboxService;
++use App\Services\Order\OrderTransitionService;
+@@ -86 +87 @@ class CouponAudienceTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -146 +147 @@ class CouponAudienceTest extends TestCase
+-            app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php b/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php
+index d40b46f..7f7b391 100644
+--- a/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php
++++ b/tests/Feature/Coupon/CouponCheckoutRevalidationTest.php
+@@ -6,0 +7 @@ use App\Services\Coupon\CouponOrchestrator;
++use App\Services\Order\OrderTransitionService;
+@@ -117 +118 @@ class CouponCheckoutRevalidationTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -420 +421 @@ class CouponCheckoutRevalidationTest extends TestCase
+-            app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/CouponConcurrencyProofTest.php b/tests/Feature/CouponConcurrencyProofTest.php
+index eb65578..b52148a 100644
+--- a/tests/Feature/CouponConcurrencyProofTest.php
++++ b/tests/Feature/CouponConcurrencyProofTest.php
+@@ -7,0 +8 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -111,3 +112,3 @@ class CouponConcurrencyProofTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -135 +136 @@ class CouponConcurrencyProofTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -152 +153 @@ class CouponConcurrencyProofTest extends TestCase
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -155 +156 @@ class CouponConcurrencyProofTest extends TestCase
+-            $service->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/CouponCurrencyClosureTest.php b/tests/Feature/CouponCurrencyClosureTest.php
+index 4a6e6ba..5373e70 100644
+--- a/tests/Feature/CouponCurrencyClosureTest.php
++++ b/tests/Feature/CouponCurrencyClosureTest.php
+@@ -15 +15 @@ use App\Services\General\MyfatoraService;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -263 +263 @@ class CouponCurrencyClosureTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -272 +272 @@ class CouponCurrencyClosureTest extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -307 +307 @@ class CouponCurrencyClosureTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/CouponRemediationTest.php b/tests/Feature/CouponRemediationTest.php
+index cce95a2..a1311ec 100644
+--- a/tests/Feature/CouponRemediationTest.php
++++ b/tests/Feature/CouponRemediationTest.php
+@@ -11,0 +12 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -262 +263 @@ class CouponRemediationTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -336 +337 @@ class CouponRemediationTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/CouponSystemTest.php b/tests/Feature/CouponSystemTest.php
+index 9150975..0d26f74 100644
+--- a/tests/Feature/CouponSystemTest.php
++++ b/tests/Feature/CouponSystemTest.php
+@@ -5,0 +6 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -513,2 +514,2 @@ class CouponSystemTest extends TestCase
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/EventSystemTest.php b/tests/Feature/EventSystemTest.php
+index 5e26217..e51eb8a 100644
+--- a/tests/Feature/EventSystemTest.php
++++ b/tests/Feature/EventSystemTest.php
+@@ -17,0 +18 @@ use App\Listeners\SendOrderStatusChangedNotification;
++use App\Services\Order\OrderTransitionService;
+@@ -977 +978 @@ class EventSystemTest extends TestCase
+-        $orderService->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -991 +992 @@ class EventSystemTest extends TestCase
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -1171 +1172 @@ class EventSystemTest extends TestCase
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/Fulfillment/CancellationPhase7Test.php b/tests/Feature/Fulfillment/CancellationPhase7Test.php
+index 1a9ea61..01e10e2 100644
+--- a/tests/Feature/Fulfillment/CancellationPhase7Test.php
++++ b/tests/Feature/Fulfillment/CancellationPhase7Test.php
+@@ -23 +22,0 @@ use App\Services\Fulfillment\PickingExecutionService;
+-use App\Services\General\OrderService;
+@@ -25,0 +25 @@ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+@@ -138 +138,4 @@ class CancellationPhase7Test extends TestCase
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, $reason);
++        $transitions = app(OrderTransitionService::class);
++        $result = $reason === null
++            ? $transitions->transitionTo($order, 'cancelled')
++            : $transitions->cancelByStaff($order, $reason);
+@@ -378 +381 @@ class CancellationPhase7Test extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -547 +550 @@ class CancellationPhase7Test extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -624 +627 @@ class CancellationPhase7Test extends TestCase
+-        $again = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        $again = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/Fulfillment/ConcurrencyAttackTest.php b/tests/Feature/Fulfillment/ConcurrencyAttackTest.php
+index de43a8d..66bf204 100644
+--- a/tests/Feature/Fulfillment/ConcurrencyAttackTest.php
++++ b/tests/Feature/Fulfillment/ConcurrencyAttackTest.php
+@@ -12,0 +13 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -132 +133 @@ class ConcurrencyAttackTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -134 +135 @@ class ConcurrencyAttackTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php b/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php
+index a7c78a3..0b4760f 100644
+--- a/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php
++++ b/tests/Feature/Fulfillment/Phase3ReleaseHardeningTest.php
+@@ -16 +15,0 @@ use App\Services\Fulfillment\FulfillmentService;
+-use App\Services\General\OrderService;
+@@ -17,0 +17 @@ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+@@ -255 +255 @@ class Phase3ReleaseHardeningTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -278,4 +278 @@ class Phase3ReleaseHardeningTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(
+-            null, 'cancelled', $order->id, true, 'reservation expired', ['trigger' => 'test'],
+-            true, [], true, true
+-        );
++        app(OrderTransitionService::class)->expireUnpaid($order);
+@@ -336 +333 @@ class Phase3ReleaseHardeningTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $cancelled->id);
++        app(OrderTransitionService::class)->transitionTo($cancelled, 'cancelled');
+diff --git a/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php b/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php
+index 1cec37e..ddf60c0 100644
+--- a/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php
++++ b/tests/Feature/Fulfillment/ShipmentPhase8GovernanceTest.php
+@@ -14 +13,0 @@ use App\Services\Fulfillment\FulfillmentTransition;
+-use App\Services\General\OrderService;
+@@ -233 +232 @@ class ShipmentPhase8GovernanceTest extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -266 +265 @@ class ShipmentPhase8GovernanceTest extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -287 +286 @@ class ShipmentPhase8GovernanceTest extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+diff --git a/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php b/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php
+index 84a5863..11cf632 100644
+--- a/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php
++++ b/tests/Feature/Fulfillment/ShipmentPhase8LifecycleTest.php
+@@ -13,0 +14 @@ use App\Services\Fulfillment\FulfillmentTransition;
++use App\Services\Order\OrderTransitionService;
+@@ -622,2 +623 @@ class ShipmentPhase8LifecycleTest extends TestCase
+-        app(\App\Services\General\OrderService::class)
+-            ->changeOrderStatus(null, 'cancelled', $order->id, true, 'buyer request');
++        app(OrderTransitionService::class)->cancelByStaff($order, 'buyer request');
+diff --git a/tests/Feature/Guest/GuestCheckoutFlowTest.php b/tests/Feature/Guest/GuestCheckoutFlowTest.php
+index d45bb1d..4f4eed3 100644
+--- a/tests/Feature/Guest/GuestCheckoutFlowTest.php
++++ b/tests/Feature/Guest/GuestCheckoutFlowTest.php
+@@ -8 +7,0 @@ use App\Services\Guest\GuestOrderTokenService;
+-use App\Services\General\OrderService;
+@@ -9,0 +9 @@ use App\Services\Notifications\SMSService;
++use App\Services\Order\OrderTransitionService;
+@@ -252,6 +252 @@ class GuestCheckoutFlowTest extends GuestCheckoutTestCase
+-        app(OrderService::class)->changeOrderStatus(
+-            null,
+-            'cancelled',
+-            $order->id,
+-            auditReason: 'test',
+-        );
++        app(OrderTransitionService::class)->cancelByStaff($order, 'test');
+diff --git a/tests/Feature/Inventory/OrderReservationLifecycleTest.php b/tests/Feature/Inventory/OrderReservationLifecycleTest.php
+index 7dd7210..275b32e 100644
+--- a/tests/Feature/Inventory/OrderReservationLifecycleTest.php
++++ b/tests/Feature/Inventory/OrderReservationLifecycleTest.php
+@@ -12,0 +13 @@ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+@@ -788 +789 @@ class OrderReservationLifecycleTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -808 +809 @@ class OrderReservationLifecycleTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/Inventory/Phase3InventoryCommitTest.php b/tests/Feature/Inventory/Phase3InventoryCommitTest.php
+index 5dfe786..1d386cf 100644
+--- a/tests/Feature/Inventory/Phase3InventoryCommitTest.php
++++ b/tests/Feature/Inventory/Phase3InventoryCommitTest.php
+@@ -14,0 +15 @@ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+@@ -140 +141 @@ class Phase3InventoryCommitTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -248 +249 @@ class Phase3InventoryCommitTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/OrderFlow/ExportProcessingStageTest.php b/tests/Feature/OrderFlow/ExportProcessingStageTest.php
+index e4ae5cc..79ad155 100644
+--- a/tests/Feature/OrderFlow/ExportProcessingStageTest.php
++++ b/tests/Feature/OrderFlow/ExportProcessingStageTest.php
+@@ -10,0 +11 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -135 +136 @@ class ExportProcessingStageTest extends TestCase
+-        $service->changeOrderStatus(null, 'export_processing', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'export_processing');
+@@ -140 +141 @@ class ExportProcessingStageTest extends TestCase
+-        $service->changeOrderStatus(null, 'shipped', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'shipped');
+diff --git a/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php b/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php
+index 11a100d..5e33e57 100644
+--- a/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php
++++ b/tests/Feature/OrderFlow/MarvelUpdateAdapterTest.php
+@@ -24 +24 @@ use Tests\TestCase;
+- *   OrderService::changeOrderStatus (flow authority, granular permission,
++ *   OrderTransitionService::transitionTo (flow authority, granular permission,
+diff --git a/tests/Feature/OrderFlow/OrderFlowMatrixTest.php b/tests/Feature/OrderFlow/OrderFlowMatrixTest.php
+index dd163f1..7045ee0 100644
+--- a/tests/Feature/OrderFlow/OrderFlowMatrixTest.php
++++ b/tests/Feature/OrderFlow/OrderFlowMatrixTest.php
+@@ -8,0 +9 @@ use App\Models\OrderFlow\OrderStatus;
++use App\Services\Order\OrderTransitionService;
+@@ -183 +184 @@ class OrderFlowMatrixTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, $to, $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, $to);
+@@ -267,3 +268 @@ class OrderFlowMatrixTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(
+-            null, 'delivered', $order->id, true, 'flow walk tail', null, true, [], false, false, true
+-        );
++        app(OrderTransitionService::class)->forceDeliver($order, 'flow walk tail');
+@@ -275 +273,0 @@ class OrderFlowMatrixTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -279 +277 @@ class OrderFlowMatrixTest extends TestCase
+-                $service->changeOrderStatus(null, $skip, $order->id);
++                app(OrderTransitionService::class)->transitionTo($order, $skip);
+@@ -289 +287 @@ class OrderFlowMatrixTest extends TestCase
+-                $service->changeOrderStatus(null, $bad, $order->id);
++                app(OrderTransitionService::class)->transitionTo($order, $bad);
+@@ -301 +298,0 @@ class OrderFlowMatrixTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -306 +303 @@ class OrderFlowMatrixTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -308 +305 @@ class OrderFlowMatrixTest extends TestCase
+-            $service->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -318 +315 @@ class OrderFlowMatrixTest extends TestCase
+-                $service->changeOrderStatus(null, $bad, $order->id);
++                app(OrderTransitionService::class)->transitionTo($order, $bad);
+@@ -325 +322 @@ class OrderFlowMatrixTest extends TestCase
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -336 +332,0 @@ class OrderFlowMatrixTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -349 +345 @@ class OrderFlowMatrixTest extends TestCase
+-            $service->changeOrderStatus(null, 'delivered', $stale->id);
++            app(OrderTransitionService::class)->transitionTo($stale, 'delivered');
+@@ -357 +353 @@ class OrderFlowMatrixTest extends TestCase
+-        $service->changeOrderStatus(null, 'packed', $stale->id);
++        app(OrderTransitionService::class)->transitionTo($stale, 'packed');
+diff --git a/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php b/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php
+index 36982f2..c640493 100644
+--- a/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php
++++ b/tests/Feature/OrderFlow/OrderLifecycleNoopTest.php
+@@ -186 +186 @@ class OrderLifecycleNoopTest extends TestCase
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'pending', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'pending');
+@@ -200 +200 @@ class OrderLifecycleNoopTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -207 +207 @@ class OrderLifecycleNoopTest extends TestCase
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -221 +221 @@ class OrderLifecycleNoopTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -229 +229 @@ class OrderLifecycleNoopTest extends TestCase
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -248 +248 @@ class OrderLifecycleNoopTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -251 +251 @@ class OrderLifecycleNoopTest extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'processing', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'processing');
+@@ -265 +265 @@ class OrderLifecycleNoopTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -268 +268 @@ class OrderLifecycleNoopTest extends TestCase
+-            app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/OrderFlow/OrderStatusFlowTest.php b/tests/Feature/OrderFlow/OrderStatusFlowTest.php
+index 63ec10c..17a6af4 100644
+--- a/tests/Feature/OrderFlow/OrderStatusFlowTest.php
++++ b/tests/Feature/OrderFlow/OrderStatusFlowTest.php
+@@ -8,0 +9 @@ use App\Models\OrderFlow\OrderStatus;
++use App\Services\Order\OrderTransitionService;
+@@ -433 +433,0 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -435,2 +435,2 @@ class OrderStatusFlowTest extends TestCase
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
+@@ -458 +457,0 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -460 +459 @@ class OrderStatusFlowTest extends TestCase
+-        $service->changeOrderStatus(null, 'processing', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
+@@ -463 +462 @@ class OrderStatusFlowTest extends TestCase
+-            $service->changeOrderStatus(null, 'shipped', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'shipped');
+@@ -479 +478 @@ class OrderStatusFlowTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -492 +490,0 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -494,3 +492,3 @@ class OrderStatusFlowTest extends TestCase
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -511,4 +509,3 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -528,2 +525 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -532 +528 @@ class OrderStatusFlowTest extends TestCase
+-            $service->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -546 +541,0 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+@@ -549 +544 @@ class OrderStatusFlowTest extends TestCase
+-            $service->changeOrderStatus(null, $step, $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, $step);
+@@ -551 +546 @@ class OrderStatusFlowTest extends TestCase
+-        $service->changeOrderStatus(null, 'failed_delivery', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'failed_delivery');
+@@ -553 +548 @@ class OrderStatusFlowTest extends TestCase
+-        $service->changeOrderStatus(null, 'returned', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'returned');
+@@ -585,3 +580,2 @@ class OrderStatusFlowTest extends TestCase
+-        $service = app(\App\Services\General\OrderService::class);
+-        $service->changeOrderStatus(null, 'processing', $order->id);
+-        $service->changeOrderStatus(null, 'packed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
++        app(OrderTransitionService::class)->transitionTo($order, 'packed');
+diff --git a/tests/Feature/OrderFlow/ReaperAuthorityTest.php b/tests/Feature/OrderFlow/ReaperAuthorityTest.php
+index 06b97ee..cd7215c 100644
+--- a/tests/Feature/OrderFlow/ReaperAuthorityTest.php
++++ b/tests/Feature/OrderFlow/ReaperAuthorityTest.php
+@@ -8 +8 @@ use App\Models\OrderFlow\OrderStatus;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -23 +23 @@ use Tests\TestCase;
+- * (OrderService::changeOrderStatus) — the intentional bypass is gone.
++ * (OrderTransitionService::expireUnpaid) — the intentional bypass is gone.
+@@ -147 +147 @@ class ReaperAuthorityTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/OrderFlow/StatusOptionsTest.php b/tests/Feature/OrderFlow/StatusOptionsTest.php
+index 83f933b..3b32160 100644
+--- a/tests/Feature/OrderFlow/StatusOptionsTest.php
++++ b/tests/Feature/OrderFlow/StatusOptionsTest.php
+@@ -7,0 +8 @@ use App\Models\OrderFlow\OrderStatus;
++use App\Services\Order\OrderTransitionService;
+@@ -477,3 +478 @@ class StatusOptionsTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(
+-            null, 'delivered', $order->id, true, 'granular perm walk', null, true, [], false, false, true
+-        );
++        app(OrderTransitionService::class)->forceDeliver($order, 'granular perm walk');
+diff --git a/tests/Feature/OrderFlow/SubsystemBindingTest.php b/tests/Feature/OrderFlow/SubsystemBindingTest.php
+index 6c4bc97..09b8cd1 100644
+--- a/tests/Feature/OrderFlow/SubsystemBindingTest.php
++++ b/tests/Feature/OrderFlow/SubsystemBindingTest.php
+@@ -33 +33 @@ use Tests\TestCase;
+- *   markCashierPaid complete exclusively via changeOrderStatus).
++ *   markCashierPaid complete exclusively via OrderTransitionService intents).
+diff --git a/tests/Feature/OrderLifecycleTest.php b/tests/Feature/OrderLifecycleTest.php
+index b3b14c0..bb2ecb8 100644
+--- a/tests/Feature/OrderLifecycleTest.php
++++ b/tests/Feature/OrderLifecycleTest.php
+@@ -5,0 +6 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -12 +13 @@ use Tests\TestCase;
+- * Phase 3 — Order lifecycle: single canonical writer (OrderService::changeOrderStatus),
++ * Phase 3 — Order lifecycle: single canonical writer (OrderTransitionService),
+@@ -66 +67 @@ class OrderLifecycleTest extends TestCase
+-        $result = $this->service()->changeOrderStatus(null, 'processing', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+@@ -74 +75 @@ class OrderLifecycleTest extends TestCase
+-        $result = $this->service()->changeOrderStatus(null, 'cancelled', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -86 +87 @@ class OrderLifecycleTest extends TestCase
+-            $this->service()->changeOrderStatus(null, 'pending', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'pending');
+@@ -99 +100 @@ class OrderLifecycleTest extends TestCase
+-            $this->service()->changeOrderStatus(null, 'completed', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -111 +112 @@ class OrderLifecycleTest extends TestCase
+-            $this->service()->changeOrderStatus(null, 'cancelled', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -122 +123 @@ class OrderLifecycleTest extends TestCase
+-        $result = $this->service()->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/OrderStatusLifecycleTest.php b/tests/Feature/OrderStatusLifecycleTest.php
+index 6b255f0..bf35587 100644
+--- a/tests/Feature/OrderStatusLifecycleTest.php
++++ b/tests/Feature/OrderStatusLifecycleTest.php
+@@ -10,0 +11 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -334 +335 @@ class OrderStatusLifecycleTest extends TestCase
+-            $service->changeOrderStatus(null, 'delivered', $order->id);
++            app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -357,2 +358,2 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -373 +374 @@ class OrderStatusLifecycleTest extends TestCase
+-        $result = $service->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -396 +397 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus($tx->invoice_id, 'completed', null, false);
++        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
+@@ -453 +454 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -482 +483 @@ class OrderStatusLifecycleTest extends TestCase
+-        $processing = $service->changeOrderStatus(null, 'processing', $order->id);
++        $processing = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+@@ -485 +486 @@ class OrderStatusLifecycleTest extends TestCase
+-        $cancelled = $service->changeOrderStatus(null, 'cancelled', $order->id);
++        $cancelled = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -500 +501 @@ class OrderStatusLifecycleTest extends TestCase
+-        $result = $service->changeOrderStatus(null, 'processing', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'processing');
+@@ -515 +516 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -529 +530 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -543 +544 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'processing', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'processing');
+@@ -546 +547 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -579,3 +580 @@ class OrderStatusLifecycleTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(
+-            null, 'delivered', $order->id, true, 'lifecycle tail', null, true, [], false, false, true
+-        );
++        app(OrderTransitionService::class)->forceDeliver($order, 'lifecycle tail');
+@@ -590,2 +589,2 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus(null, 'pending', $order->id);
+-        $service->changeOrderStatus(null, 'pending', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'pending');
++        app(OrderTransitionService::class)->transitionTo($order, 'pending');
+@@ -624 +623 @@ class OrderStatusLifecycleTest extends TestCase
+-        $service->changeOrderStatus($tx->invoice_id, 'completed', null, false);
++        app(OrderTransitionService::class)->completeFromGateway($tx->order, true);
+diff --git a/tests/Feature/OrdersProductionHardenTest.php b/tests/Feature/OrdersProductionHardenTest.php
+index d1e4aa8..653ea3e 100644
+--- a/tests/Feature/OrdersProductionHardenTest.php
++++ b/tests/Feature/OrdersProductionHardenTest.php
+@@ -10,0 +11 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -720 +721 @@ class OrdersProductionHardenTest extends TestCase
+-        $result = $service->changeOrderStatus($tx->invoice_id, 'completed');
++        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
+@@ -753 +754 @@ class OrdersProductionHardenTest extends TestCase
+-        $result = $service->changeOrderStatus($tx->invoice_id, 'cancelled');
++        $result = app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
+@@ -774 +775 @@ class OrdersProductionHardenTest extends TestCase
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -791 +792 @@ class OrdersProductionHardenTest extends TestCase
+-        $service->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -808 +809 @@ class OrdersProductionHardenTest extends TestCase
+-        $service->changeOrderStatus(null, 'delivered', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'delivered');
+@@ -1067 +1068 @@ class OrdersProductionHardenTest extends TestCase
+-        // Since checkout already finalized, we need to test cancel flow via changeOrderStatus
++        // Since checkout already finalized, we need to test cancel flow via OrderTransitionService
+@@ -1073 +1074 @@ class OrdersProductionHardenTest extends TestCase
+-        $service->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -1130 +1131 @@ class OrdersProductionHardenTest extends TestCase
+-        $service->changeOrderStatus($tx->invoice_id, 'completed');
++        app(OrderTransitionService::class)->transitionTo($tx->order, 'completed');
+@@ -1160 +1161 @@ class OrdersProductionHardenTest extends TestCase
+-        $service->changeOrderStatus($tx->invoice_id, 'cancelled');
++        app(OrderTransitionService::class)->transitionTo($tx->order, 'cancelled');
+diff --git a/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php b/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php
+index a338ee2..92b6eb9 100644
+--- a/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php
++++ b/tests/Feature/Payment/AttemptLifecycleArchitectureTest.php
+@@ -55 +55 @@ class AttemptLifecycleArchitectureTest extends TestCase
+-        // Completion (changeOrderStatus → currency resolution) needs the
++        // Completion (OrderTransitionService → currency resolution) needs the
+diff --git a/tests/Feature/Payment/MarvelStatusReachabilityTest.php b/tests/Feature/Payment/MarvelStatusReachabilityTest.php
+index 11d2bfd..4ad9437 100644
+--- a/tests/Feature/Payment/MarvelStatusReachabilityTest.php
++++ b/tests/Feature/Payment/MarvelStatusReachabilityTest.php
+@@ -19 +19 @@ use Tests\Feature\Currency\CurrencyTestCase;
+- * RESULT: BLOCKED. The F-1 authority gate in OrderService::changeOrderStatus()
++ * RESULT: BLOCKED. The F-1 authority gate in OrderTransitionService::transitionTo()
+diff --git a/tests/Feature/PaymentProductionHardenTest.php b/tests/Feature/PaymentProductionHardenTest.php
+index 06b8d09..8680691 100644
+--- a/tests/Feature/PaymentProductionHardenTest.php
++++ b/tests/Feature/PaymentProductionHardenTest.php
+@@ -5,0 +6 @@ use App\DTOs\GatewayResult;
++use App\Services\Order\OrderTransitionService;
+@@ -1133 +1134 @@ public function mark_paid_response_has_correct_structure()
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -1146 +1147 @@ public function mark_paid_response_has_correct_structure()
+-        app(OrderService::class)->changeOrderStatus(null, 'pending', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'pending');
+@@ -1159 +1160 @@ public function mark_paid_response_has_correct_structure()
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -1168 +1169 @@ public function mark_paid_response_has_correct_structure()
+-        $result = app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -1379,2 +1380,2 @@ public function mark_paid_response_has_correct_structure()
+-            $service->changeOrderStatus(null, 'completed', $order1->id);
+-            $service->changeOrderStatus(null, 'completed', $order2->id);
++            app(OrderTransitionService::class)->transitionTo($order1, 'completed');
++            app(OrderTransitionService::class)->transitionTo($order2, 'completed');
+diff --git a/tests/Feature/PaymentSystemTest.php b/tests/Feature/PaymentSystemTest.php
+index 64b7dee..8bbd1a6 100644
+--- a/tests/Feature/PaymentSystemTest.php
++++ b/tests/Feature/PaymentSystemTest.php
+@@ -7,0 +8 @@ use App\Services\Inventory\OrderReservationService;
++use App\Services\Order\OrderTransitionService;
+@@ -710 +711 @@ Schema::create('users', function (Blueprint $table) {
+-    // ========== OrderService: changeOrderStatus with orderId fallback ==========
++    // ========== OrderTransitionService: explicit status transitions ==========
+@@ -713 +714 @@ Schema::create('users', function (Blueprint $table) {
+-    public function change_order_status_works_with_order_id_when_invoice_id_is_null()
++    public function transition_to_cancelled_marks_pending_transaction_failed()
+@@ -718,2 +719 @@ Schema::create('users', function (Blueprint $table) {
+-        $orderService = app(OrderService::class);
+-        $result = $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+@@ -738 +738 @@ Schema::create('users', function (Blueprint $table) {
+-    public function change_order_status_still_works_with_invoice_id()
++    public function transition_to_completed_marks_pending_transaction_paid()
+@@ -743,2 +743 @@ Schema::create('users', function (Blueprint $table) {
+-        $orderService = app(OrderService::class);
+-        $result = $orderService->changeOrderStatus('INV-123', 'completed');
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -758 +757 @@ Schema::create('users', function (Blueprint $table) {
+-    public function change_order_status_returns_false_when_no_order_found()
++    public function transition_returns_false_when_order_no_longer_exists()
+@@ -760,2 +759,4 @@ Schema::create('users', function (Blueprint $table) {
+-        $orderService = app(OrderService::class);
+-        $result = $orderService->changeOrderStatus(null, 'cancelled', 99999);
++        $order = $this->createOrderWithPendingTransaction();
++        $order->delete();
++
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/ProductionReadinessAuditTest.php b/tests/Feature/ProductionReadinessAuditTest.php
+index b617715..acc277c 100644
+--- a/tests/Feature/ProductionReadinessAuditTest.php
++++ b/tests/Feature/ProductionReadinessAuditTest.php
+@@ -15 +14,0 @@ use App\Services\General\OrderService;
+-use App\Services\Order\OrderTransitionService;
+@@ -26,0 +26 @@ use App\Services\Invoice\Validators\StructureValidator;
++use App\Services\Order\OrderTransitionService;
+@@ -1010 +1010 @@ class ProductionReadinessAuditTest extends TestCase
+-        $result = $orderService->changeOrderStatus(null, 'completed', $order->id);
++        $result = app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -1016 +1016 @@ class ProductionReadinessAuditTest extends TestCase
+-        $orderService->changeOrderStatus(null, 'cancelled', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'cancelled');
+diff --git a/tests/Feature/WebhookPaymentCompletionTest.php b/tests/Feature/WebhookPaymentCompletionTest.php
+index d12f759..ca7a287 100644
+--- a/tests/Feature/WebhookPaymentCompletionTest.php
++++ b/tests/Feature/WebhookPaymentCompletionTest.php
+@@ -6,0 +7 @@ use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -147 +148 @@ class WebhookPaymentCompletionTest extends TestCase
+-                    $orderService->changeOrderStatus(null, 'completed', $order->id, false);
++                    app(OrderTransitionService::class)->completeFromGateway($order, true);
+@@ -192 +193 @@ class WebhookPaymentCompletionTest extends TestCase
+-                $orderService->changeOrderStatus(null, 'completed', $order->id, false);
++                app(OrderTransitionService::class)->completeFromGateway($order, true);
+diff --git a/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php b/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php
+index bafffd4..768acbe 100644
+--- a/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php
++++ b/tests/Feature/Wms/WarehouseWorkflowHttpE2ETest.php
+@@ -18,0 +19 @@ use App\Models\WarehouseWorkflowVersion;
++use App\Services\Order\OrderTransitionService;
+@@ -305 +306 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php b/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php
+index 277ea7c..6509a80 100644
+--- a/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php
++++ b/tests/Feature/Wms/WarehouseWorkflowSwitchTest.php
+@@ -14 +14 @@ use App\Services\Fulfillment\FulfillmentTransition;
+-use App\Services\General\OrderService;
++use App\Services\Order\OrderTransitionService;
+@@ -340 +340 @@ class WarehouseWorkflowSwitchTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/Wms/WmsEndToEndTest.php b/tests/Feature/Wms/WmsEndToEndTest.php
+index 288361c..64b181b 100644
+--- a/tests/Feature/Wms/WmsEndToEndTest.php
++++ b/tests/Feature/Wms/WmsEndToEndTest.php
+@@ -16,0 +17 @@ use App\Services\Fulfillment\FulfillmentService;
++use App\Services\Order\OrderTransitionService;
+@@ -209,2 +210 @@ class WmsEndToEndTest extends TestCase
+-        app(\App\Services\General\OrderService::class)
+-            ->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+diff --git a/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php b/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php
+index 59f77b4..ea506e2 100644
+--- a/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php
++++ b/tests/Feature/Wms/WmsFulfillmentOrderSyncTest.php
+@@ -21,0 +22 @@ use App\Services\Inventory\StockOperationService;
++use App\Services\Order\OrderTransitionService;
+@@ -134 +135 @@ class WmsFulfillmentOrderSyncTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'completed', $order->id);
++        app(OrderTransitionService::class)->transitionTo($order, 'completed');
+@@ -463 +464 @@ class WmsFulfillmentOrderSyncTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, 'customer changed mind');
++        app(OrderTransitionService::class)->cancelByStaff($order, 'customer changed mind');
+@@ -504 +505 @@ class WmsFulfillmentOrderSyncTest extends TestCase
+-        app(OrderService::class)->changeOrderStatus(null, 'cancelled', $order->id, true, 'customer changed mind');
++        app(OrderTransitionService::class)->cancelByStaff($order, 'customer changed mind');
+diff --git a/tests/Feature/Wms/WmsOrderCancellationTest.php b/tests/Feature/Wms/WmsOrderCancellationTest.php
+index 722d936..fcf101a 100644
+--- a/tests/Feature/Wms/WmsOrderCancellationTest.php
++++ b/tests/Feature/Wms/WmsOrderCancellationTest.php
+@@ -22 +22 @@ use Tests\TestCase;
+- * Sole writer: OrderService::changeOrderStatus (Order Flow authority).
++ * Sole writer: OrderTransitionService (Order Flow authority).
+diff --git a/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php b/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php
+index 06bc613..5d69c38 100644
+--- a/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php
++++ b/tests/Unit/Services/Fulfillment/FulfillmentHardeningTest.php
+@@ -10,0 +11 @@ use App\Services\Fulfillment\PickingExecutionService;
++use App\Services\Order\OrderTransitionService;
+@@ -133 +134 @@ class FulfillmentHardeningTest extends TestCase
+-        app(\App\Services\General\OrderService::class)->changeOrderStatus(null, 'completed', $o2->id);
++        app(OrderTransitionService::class)->transitionTo($o2, 'completed');

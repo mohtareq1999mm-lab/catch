@@ -42,7 +42,7 @@ class OrderResource extends Resource
                 'sort_order' => $this->resolveCurrentSortOrder(),
             ]),
             'expected_delivery_at' => $this->expected_delivery_at?->toIso8601String(),
-            'customer' => $this->when($this->relationLoaded('user') && $this->user, [
+            'customer' => $this->when($this->relationLoaded('user') && $this->user, fn () => [
                 'id' => $this->user->id,
                 'name' => $this->user->name,
                 'email' => $this->user->email,
