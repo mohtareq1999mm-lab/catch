@@ -36,11 +36,10 @@ use Marvel\Database\Models\User;
  */
 class GuestOrderClaimService
 {
-    private const TOKEN_PATTERN = '/^[A-Za-z0-9_-]{20,120}$/';
-
     public function __construct(
         private GuestPhoneVerificationContract $verifier,
         private GuestIdentityService $identities,
+        private GuestCredentialService $credentials,
     ) {
     }
 
@@ -109,7 +108,7 @@ class GuestOrderClaimService
             return ['status' => 'not_eligible'];
         }
 
-        $raw = $this->generateToken();
+        $raw = $this->credentials->mint();
         $expiresAt = now()->addHours(max(1, (int) config('guest_checkout.order_claim.token_ttl_hours', 24)));
         $claimable = true;
 
@@ -135,7 +134,7 @@ class GuestOrderClaimService
                 'guest_id' => $guest->id,
                 'order_id' => $order->id,
                 'user_id' => $user->id,
-                'token_hash' => $this->hashToken($raw),
+                'token_hash' => $this->credentials->hash($raw),
                 'expires_at' => $expiresAt,
             ]);
         });
@@ -169,11 +168,11 @@ class GuestOrderClaimService
             return ['status' => 'verification_required'];
         }
 
-        if (!preg_match(self::TOKEN_PATTERN, $claimToken)) {
+        if (!$this->credentials->isValidFormat($claimToken)) {
             return ['status' => 'invalid_token'];
         }
 
-        $hash = $this->hashToken($claimToken);
+        $hash = $this->credentials->hash($claimToken);
 
         return DB::transaction(function () use ($user, $guest, $hash, $proof) {
             /** @var GuestOrderClaimToken|null $token */
@@ -233,15 +232,11 @@ class GuestOrderClaimService
                 $assigned = Order::query()
                     ->whereKey($order->id)
                     ->whereNull('user_id')
-                    ->update([
-                        'user_id' => $user->id,
+                    ->update(array_merge(
                         // Guest cancellation/tracking links stop being usable.
-                        'guest_cancellation_token_hash' => null,
-                        'guest_cancellation_token_used_at' => now(),
-                        'guest_tracking_token_hash' => null,
-                        'guest_tracking_revoked_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+                        $this->credentials->claimRetirement(),
+                        ['user_id' => $user->id, 'updated_at' => now()]
+                    ));
             } catch (QueryException $e) {
                 if (UniqueViolation::detect($e)) {
                     return ['status' => 'pending_order_conflict'];
@@ -361,15 +356,5 @@ class GuestOrderClaimService
             ->where('status', Order::ORDER_STATUS_PENDING)
             ->whereKeyNot($order->id)
             ->exists();
-    }
-
-    private function hashToken(string $raw): string
-    {
-        return hash_hmac('sha256', $raw, (string) config('app.key'));
-    }
-
-    private function generateToken(): string
-    {
-        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
     }
 }

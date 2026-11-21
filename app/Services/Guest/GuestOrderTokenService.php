@@ -15,21 +15,24 @@ use Marvel\Database\Models\Order;
  */
 class GuestOrderTokenService
 {
-    private const TOKEN_PATTERN = '/^[A-Za-z0-9_-]{20,120}$/';
+    public function __construct(private GuestCredentialService $credentials)
+    {
+    }
 
     public function hash(string $rawToken): string
     {
-        return hash_hmac('sha256', $rawToken, (string) config('app.key'));
+        return $this->credentials->hash($rawToken);
     }
 
     public function isValidTokenFormat(?string $token): bool
     {
-        return is_string($token) && (bool) preg_match(self::TOKEN_PATTERN, $token);
+        return $this->credentials->isValidFormat($token);
     }
 
+    /** Kept public: tracking-link tests and the concurrency probe mint here. */
     public function generateToken(): string
     {
-        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        return $this->credentials->mint();
     }
 
     /**
@@ -43,13 +46,14 @@ class GuestOrderTokenService
         }
 
         $raw = $this->generateToken();
+        $hash = $this->hash($raw);
 
         Order::query()->whereKey($order->id)->update([
-            'guest_tracking_token_hash' => $this->hash($raw),
+            'guest_tracking_token_hash' => $hash,
             'updated_at' => now(),
         ]);
 
-        $order->setAttribute('guest_tracking_token_hash', $this->hash($raw));
+        $order->setAttribute('guest_tracking_token_hash', $hash);
 
         return $raw;
     }
@@ -65,16 +69,17 @@ class GuestOrderTokenService
         }
 
         $raw = $this->generateToken();
+        $hash = $this->hash($raw);
         $expiresAt = now()->addHours(max(1, (int) config('guest_checkout.cancellation_link_ttl_hours', 24)));
 
         Order::query()->whereKey($order->id)->update([
-            'guest_cancellation_token_hash' => $this->hash($raw),
+            'guest_cancellation_token_hash' => $hash,
             'guest_cancellation_token_used_at' => null,
             'guest_cancellation_token_expires_at' => $expiresAt,
             'updated_at' => now(),
         ]);
 
-        $order->setAttribute('guest_cancellation_token_hash', $this->hash($raw));
+        $order->setAttribute('guest_cancellation_token_hash', $hash);
         $order->setAttribute('guest_cancellation_token_used_at', null);
         $order->setAttribute('guest_cancellation_token_expires_at', $expiresAt);
 
@@ -154,11 +159,9 @@ class GuestOrderTokenService
 
     public function revokeTracking(Order $order, ?int $adminId = null): bool
     {
-        $updated = Order::query()->whereKey($order->id)->update([
-            'guest_tracking_token_hash' => null,
-            'guest_tracking_revoked_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $updated = Order::query()->whereKey($order->id)->update(
+            $this->credentials->trackingRevocation() + ['updated_at' => now()]
+        );
 
         if ($updated > 0) {
             // Safe audit trail: ids only, never the credential.

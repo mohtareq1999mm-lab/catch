@@ -2,6 +2,7 @@
 
 namespace App\Services\Guest;
 
+use App\Enums\GuestCredentialDomain;
 use App\Enums\GuestErrorCode;
 use App\Exceptions\GuestSessionRejection;
 use App\Models\GuestIdentity;
@@ -44,9 +45,6 @@ class GuestIdentityService
     public const MODE_COOKIE = 'cookie';
     public const MODE_BEARER = 'bearer';
 
-    /** Shape gate applied to Bearer tokens before any database lookup. */
-    private const TOKEN_PATTERN = '/^[A-Za-z0-9_-]{20,120}$/';
-
     /** Upper bound for a raw credential before any comparison (legacy column width). */
     private const TOKEN_MAX_LENGTH = 191;
 
@@ -65,8 +63,10 @@ class GuestIdentityService
     private const ATTR_RAW = '_guest_raw_token';
     private const ATTR_MODE = '_guest_auth_mode';
 
-    public function __construct(private CookieJar $cookies)
-    {
+    public function __construct(
+        private CookieJar $cookies,
+        private GuestCredentialService $credentials,
+    ) {
     }
 
     public function ttlDays(): int
@@ -76,7 +76,7 @@ class GuestIdentityService
 
     public function hashToken(string $rawToken): string
     {
-        return hash_hmac('sha256', $rawToken, (string) config('app.key'));
+        return $this->credentials->hash($rawToken);
     }
 
     /**
@@ -87,7 +87,7 @@ class GuestIdentityService
      */
     public function hashMobileToken(string $rawToken): string
     {
-        return hash_hmac('sha256', 'guest-mobile|' . $rawToken, (string) config('app.key'));
+        return $this->credentials->hash($rawToken, GuestCredentialDomain::Mobile);
     }
 
     /**
@@ -152,7 +152,7 @@ class GuestIdentityService
      */
     public function create(Request $request): array
     {
-        $raw = $this->generateToken();
+        $raw = $this->credentials->mint();
         $identity = GuestIdentity::create([
             'token_hash' => $this->hashToken($raw),
             'expires_at' => now()->addDays($this->ttlDays()),
@@ -178,9 +178,9 @@ class GuestIdentityService
      */
     public function createForMobile(Request $request): array
     {
-        $raw = $this->generateToken();
+        $raw = $this->credentials->mint();
         $identity = GuestIdentity::create([
-            'token_hash' => $this->hashToken($this->generateToken()),
+            'token_hash' => $this->hashToken($this->credentials->mint()),
             'mobile_token_hash' => $this->hashMobileToken($raw),
             'expires_at' => now()->addDays($this->ttlDays()),
         ]);
@@ -198,7 +198,7 @@ class GuestIdentityService
      */
     public function rotateMobileToken(Request $request, GuestIdentity $identity): string
     {
-        $raw = $this->generateToken();
+        $raw = $this->credentials->mint();
 
         $identity->forceFill([
             'mobile_token_hash' => $this->hashMobileToken($raw),
@@ -219,10 +219,7 @@ class GuestIdentityService
      */
     public function revokeMobile(GuestIdentity $identity): void
     {
-        $identity->forceFill([
-            'revoked_at' => now(),
-            'mobile_token_hash' => null,
-        ])->save();
+        $identity->forceFill($this->credentials->mobileRevocation())->save();
     }
 
     /**
@@ -278,14 +275,14 @@ class GuestIdentityService
     /** Deterministic, unguessable double-submit CSRF token for this identity. */
     public function csrfToken(GuestIdentity $identity): string
     {
-        return hash_hmac('sha256', 'guest-csrf|' . $identity->id, (string) config('app.key'));
+        return $this->credentials->hash((string) $identity->id, GuestCredentialDomain::Csrf);
     }
 
     /** Format gate for Bearer tokens; rejects Sanctum customer tokens ("id|…"). */
     public function isValidTokenFormat(?string $token): bool
     {
         return is_string($token) && $token !== '' && strlen($token) <= self::TOKEN_MAX_LENGTH
-            && (bool) preg_match(self::TOKEN_PATTERN, $token);
+            && $this->credentials->isValidFormat($token);
     }
 
     /** Request-scoped raw token (cookie transport only). */
@@ -412,10 +409,5 @@ class GuestIdentityService
         $domain = config('guest_checkout.cookie.domain');
 
         return is_string($domain) && $domain !== '' ? $domain : null;
-    }
-
-    private function generateToken(): string
-    {
-        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
     }
 }
