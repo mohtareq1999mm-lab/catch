@@ -60,4 +60,15 @@ class CarrierConfigurationException extends RuntimeException
     {
         return new self("Carrier provider [{$providerCode}] adapter context does not match configuration");
     }
+
+    /** #143: no secret value is ever included in the message. */
+    public static function webhookNotConfigured(string $providerCode): self
+    {
+        return new self("Carrier provider [{$providerCode}] has no usable webhook configuration");
+    }
+
+    public static function unsupportedWebhookVersion(string $providerCode, string $version): self
+    {
+        return new self("Carrier provider [{$providerCode}] has unsupported webhook version [{$version}]");
+    }
 }
