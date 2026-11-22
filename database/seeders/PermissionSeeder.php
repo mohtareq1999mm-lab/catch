@@ -104,6 +104,9 @@ class PermissionSeeder extends Seeder
             'payments.verify',
             'payments.reconcile',
 
+            // 🧾 COD settlement evidence (finance read-only)
+            'cod-settlement.view',
+
             // 👤 Customer
             'view-profile',
             'update-profile',
