@@ -7,6 +7,7 @@ use App\DTOs\Tax\TaxBreakdown;
 use App\Events\OrderCreated;
 use App\Services\Checkout\OrderCreationService;
 use App\Services\General\CartInventoryService;
+use App\Services\Shipping\ShippingQuoteService;
 use App\Services\Tax\TaxCalculator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use App\ValueObjects\TransitionActor;
@@ -16,11 +17,9 @@ use Illuminate\Support\Facades\Schema;
 use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
-use Marvel\Database\Models\Governorate;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\Settings;
-use Marvel\Database\Models\ShippingPrice;
 use Marvel\Enums\ShippingMethod;
 use App\Services\Coupon\CouponCalculator;
 use App\Services\Coupon\CouponOrchestrator;
@@ -55,6 +54,7 @@ class OrderService
         private \App\Services\Inventory\OrderReservationService $orderReservationService,
         private \App\Services\Order\OrderTransitionService $orderTransition,
         private CouponReservationService $couponReservationService,
+        private ShippingQuoteService $shippingQuoteService,
     ) {}
 
     public function paginateForUser(Request $request): LengthAwarePaginator
@@ -172,9 +172,13 @@ class OrderService
                     ShippingMethod::SCHEDULED,
                 );
 
-                $shippingInfo = $this->resolveShippingPrice((int) $request->input('governorate_id') ?: null);
-                $shippingPrice = $this->resolveShippingChargeForCart($cart, $checkoutTotals, $shippingInfo);
-                $shippingPrice = $this->resolveFreeShippingByCoupon($checkoutTotals->couponDiscountType, $shippingPrice);
+                // Preview uses the same quote authority and coupon waiver as
+                // order creation; the waiver keeps the quoted shipping at zero.
+                $shippingPrice = $this->shippingQuoteService->quoteForCart(
+                    $cart,
+                    (int) $request->input('governorate_id') ?: null,
+                    $checkoutTotals->couponDiscountType,
+                )['shipping_amount'];
 
                 // Preview totals include the authoritative tax breakdown.
                 $checkoutTotals = $this->withTaxes($checkoutTotals, $cart, $shippingPrice);
@@ -294,12 +298,13 @@ class OrderService
             $orderData['user_id'] = $guestId !== null ? null : $request->user()->id;
             $orderData['guest_id'] = $guestId;
 
-            $shippingInfo = $this->resolveShippingPrice((int) ($orderData['governorate_id'] ?? null));
-            $shippingPrice = $this->resolveShippingChargeForCart($cart, $checkoutTotals, $shippingInfo);
-            if ($freeShippingCoupon) {
-                $shippingPrice = 0;
-            }
-            $governorateId = $shippingInfo['governorate_id'];
+            $quote = $this->shippingQuoteService->quoteForCart(
+                $cart,
+                (int) ($orderData['governorate_id'] ?? null),
+                $freeShippingCoupon ? DiscountType::FREE_SHIPPING : null,
+            );
+            $shippingPrice = $quote['shipping_amount'];
+            $governorateId = $quote['governorate_id'];
 
             // Authoritative tax calculation — once, after discounts.
             // Shipping is NEVER taxable.
@@ -500,92 +505,34 @@ class OrderService
         return $this->promotionService->eligiblePromotionsPayload($cart);
     }
 
-
-
     public function getGovernorateShippingInfo(?int $governorateId): array
     {
-        return $this->resolveShippingPrice($governorateId);
+        return $this->shippingQuoteService->governorateShippingInfo($governorateId);
+    }
+
+    /** Kept for legacy reflection-based tests; quote authority lives in ShippingQuoteService. */
+    private function resolveShippingPrice(?int $governorateId): array
+    {
+        return $this->shippingQuoteService->governorateShippingInfo($governorateId);
     }
 
     public function resolveFreeShippingByThreshold(float $subtotal, ?float $freeShippingOver, float $shippingPrice): float
     {
-        if ($freeShippingOver !== null && $subtotal > $freeShippingOver) {
-            return 0;
-        }
-        return $shippingPrice;
+        return $this->shippingQuoteService->applyFreeShippingThreshold($subtotal, $freeShippingOver, $shippingPrice);
     }
 
     /**
      * D4 — shipping exists only for PHYSICAL lines.
-     * Digital-only carts ship nothing; mixed carts apply the normal
-     * governorate price, with the free-shipping threshold evaluated against
-     * the physical-lines subtotal only.
+     * Kept as a thin delegate: quote behavior belongs to ShippingQuoteService.
      */
     public function resolveShippingChargeForCart(Cart $cart, CheckoutTotals $checkoutTotals, array $shippingInfo): float
     {
-        $physicalSubtotal = $this->physicalLinesSubtotal($cart);
-
-        if ($physicalSubtotal <= 0) {
-            return 0;
-        }
-
-        return $this->resolveFreeShippingByThreshold($physicalSubtotal, $shippingInfo['free_shipping_over'], $shippingInfo['price']);
-    }
-
-    private function physicalLinesSubtotal(Cart $cart): float
-    {
-        $cart->loadMissing(['items.product']);
-
-        return round((float) $cart->items->sum(function ($item) {
-            if (($item->product?->item_type ?? \Marvel\Enums\ItemType::PHYSICAL) === \Marvel\Enums\ItemType::DIGITAL) {
-                return 0;
-            }
-
-            return (float) ($item->total_price ?? 0);
-        }), 2);
+        return $this->shippingQuoteService->shippingForCart($cart, $shippingInfo);
     }
 
     public function resolveFreeShippingByCoupon(?string $couponDiscountType, float $shippingPrice): float
     {
-        if ($couponDiscountType === DiscountType::FREE_SHIPPING) {
-            return 0;
-        }
-        return $shippingPrice;
-    }
-
-    private function resolveShippingPrice(?int $governorateId): array
-    {
-        if (!$governorateId) {
-            return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => null];
-        }
-
-        // Governorate/shipping decoupling: existence and shippability are
-        // separate concerns. A nonexistent id yields the null triple (FK
-        // safety for the order snapshot). An existent-but-inactive
-        // governorate keeps its id (snapshot truth = selected delivery
-        // area) with zero shipping — master status must not erase the area.
-        $governorate = Governorate::query()->where('id', $governorateId)->first();
-        if (!$governorate) {
-            return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => null];
-        }
-
-        if (!$governorate->status) {
-            return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => $governorateId];
-        }
-
-        $shippingPrice = $governorate->shippingPrice()
-            ->where('status', true)
-            ->first();
-
-        if (!$shippingPrice) {
-            return ['price' => 0, 'free_shipping_over' => null, 'governorate_id' => $governorateId];
-        }
-
-        return [
-            'price' => (float) $shippingPrice->price,
-            'free_shipping_over' => $shippingPrice->free_shipping_over !== null ? (float) $shippingPrice->free_shipping_over : null,
-            'governorate_id' => $governorateId,
-        ];
+        return $this->shippingQuoteService->applyCouponWaiver($couponDiscountType, $shippingPrice);
     }
 
     private function getCartUser()

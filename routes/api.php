@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\General\PickupLocationController;
 use App\Http\Controllers\Api\General\ProductController;
 use App\Http\Controllers\Api\General\PromotionController;
 use App\Http\Controllers\Api\General\SettingController;
+use App\Http\Controllers\Api\General\ShippingWebhookController;
 use App\Http\Controllers\Api\General\SiteReviewController;
 use App\Http\Controllers\Api\General\SliderController;
 use App\Http\Controllers\Api\General\TagController;
@@ -156,6 +157,12 @@ Route::prefix('v1/general')->group(function () {
         // (TAMARA_NOTIFICATION_TOKEN verifies the HS256 tamaraToken JWT in
         // both query string and Authorization header).
         Route::post('checkout/webhooks/tamara', [PaymentWebhookController::class, 'tamara'])->middleware('throttle:payment-webhook')->name('api.checkout.webhooks.tamara');
+        //======================== shipping webhooks (provider-signed, public, inbox-only) ========================/
+        // #143: fail-closed provider/IP limiter -> raw-body HMAC -> durable
+        // inbox insert -> acknowledgement. Never mutates lifecycle state.
+        Route::post('shipping/webhooks/{provider}', [ShippingWebhookController::class, 'handle'])
+            ->where('provider', '[a-z0-9_-]+')
+            ->name('api.shipping.webhook');
         //======================== public order tracking (no auth, verified by email/phone) ========================/
         // FAIL-CLOSED throttle (`throttle.failclosed`): enforced even while the
         // global disable switch is on — identity-less public surface, IP-keyed

@@ -104,6 +104,9 @@ class PermissionSeeder extends Seeder
             'payments.verify',
             'payments.reconcile',
 
+            // 🧾 COD settlement evidence (finance read-only)
+            'cod-settlement.view',
+
             // 👤 Customer
             'view-profile',
             'update-profile',
@@ -405,6 +408,9 @@ class PermissionSeeder extends Seeder
 
             // 📷 Barcode Scanning
             'barcode.scan',
+
+            // 🚚 Shipping Provider Status (read-only)
+            'shipping-provider-status.view',
 
             // 🚚 WMS Shipments Granular Permissions
             'wms-shipments.index',

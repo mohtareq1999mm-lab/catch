@@ -534,6 +534,13 @@ Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admi
     Route::post('{orderId}/cancel', [\App\Http\Controllers\Api\Admin\Wms\OrderCancellationController::class, 'cancel'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_CANCEL_DURING_FULFILLMENT)->name('api.admin.orders.cancel');
 });
 
+// Read-only deployment-backed carrier status. No provider CRUD and no
+// credential-bearing routes are exposed.
+Route::prefix('admin/shipping/providers')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\Admin\ShippingProviderStatusController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::SHIPPING_PROVIDER_STATUS_VIEW)->name('api.admin.shipping.providers.index');
+    Route::get('{provider}', [\App\Http\Controllers\Api\Admin\ShippingProviderStatusController::class, 'show'])->whereAlphaNumeric('provider')->middleware('permission:' . \Marvel\Enums\Permission::SHIPPING_PROVIDER_STATUS_VIEW)->name('api.admin.shipping.providers.show');
+});
+
 // Order Status catalog + configurable Order Flows (linear, sort_order-driven).
 Route::prefix('admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::ORDER_STATUSES_INDEX)->name('api.admin.order-statuses.index');
@@ -723,6 +730,12 @@ Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::get('overview', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'overview'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OVERVIEW)->name('api.admin.inventory.overview');
     Route::get('operations', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operations'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OPERATIONS_INDEX)->name('api.admin.inventory.operations.index');
     Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OPERATIONS_SHOW)->name('api.admin.inventory.operations.show');
+});
+
+// #135: finance-only COD settlement evidence reads. No write/payment route.
+Route::prefix('admin/cod-settlements')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('statements', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.index');
+    Route::get('statements/{id}', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.show');
 });
 
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without

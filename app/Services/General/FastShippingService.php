@@ -6,6 +6,7 @@ use App\DTOs\CheckoutTotals;
 use App\Services\Checkout\OrderCreationService;
 use App\Services\Coupon\CouponOrchestrator;
 use App\Services\Order\OrderTransitionService;
+use App\Services\Shipping\ShippingQuoteService;
 use App\ValueObjects\TransitionActor;
 use Carbon\Carbon;
 use Exception;
@@ -17,7 +18,6 @@ use Marvel\Database\Models\Governorate;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Repositories\FastShippingRepository;
-use Marvel\Enums\DiscountType;
 use Marvel\Enums\ShippingMethod;
 
 class FastShippingService
@@ -30,6 +30,7 @@ class FastShippingService
         private CartInventoryService $cartInventoryService,
         private OrderCreationService $orderCreationService,
         private \App\Services\Inventory\OrderReservationService $orderReservationService,
+        private ShippingQuoteService $shippingQuoteService,
     ) {}
 
     public function getStatus(): array
@@ -120,9 +121,11 @@ class FastShippingService
             $eta = $this->fastShippingRepo->calculateEta();
 
             $governorateId = (int) $request->input('governorate_id');
-            $shippingInfo = $this->orderService->getGovernorateShippingInfo($governorateId);
-            $shippingPrice = $this->orderService->resolveFreeShippingByThreshold($checkoutTotals->subtotal, $shippingInfo['free_shipping_over'], $shippingInfo['price']);
-            $shippingPrice = $this->orderService->resolveFreeShippingByCoupon($checkoutTotals->couponDiscountType, $shippingPrice);
+            $shippingPrice = $this->shippingQuoteService->quote(
+                $governorateId,
+                $checkoutTotals->subtotal,
+                $checkoutTotals->couponDiscountType,
+            )['shipping_amount'];
 
             $pendingOrder = $this->orderCreationService->findPendingOrderForUser((int) $user->id);
 

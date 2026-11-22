@@ -497,6 +497,9 @@ final class Permission extends Enum
     public const PAYMENTS_VERIFY = 'payments.verify';
     public const PAYMENTS_RECONCILE = 'payments.reconcile';
 
+    // 🧾 COD settlement evidence (finance read-only)
+    public const COD_SETTLEMENT_VIEW = 'cod-settlement.view';
+
     // 👥 Admin Users Granular Permissions
     public const ADMIN_USERS_CREATE = 'admin-users.create';
     public const ADMIN_USERS_UPDATE_ACTIVATION = 'admin-users.update-activation';
@@ -509,4 +512,7 @@ final class Permission extends Enum
 
     // 📷 WMS Barcode Scanning
     public const BARCODE_SCAN = 'barcode.scan';
+
+    // 🚚 Shipping Provider Status (read-only)
+    public const SHIPPING_PROVIDER_STATUS_VIEW = 'shipping-provider-status.view';
 }

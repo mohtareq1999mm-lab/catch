@@ -208,6 +208,7 @@ return [
         'deliver_fulfillment' => 'Cannot deliver shipment #:shipment: fulfillment #:fulfillment is :status, expected shipped',
         'transition' => "Shipment :shipment cannot transition from ':from' to ':to'",
         'cancel_reason' => 'Shipment cancellation reason is required',
+        'internal_cancel_reason' => 'Cancelled by internal delivery provider',
         'cancel_state' => "Shipment :shipment cannot be cancelled from ':status'",
         'cancel_fulfillment' => 'Cannot cancel shipment #:shipment: fulfillment #:fulfillment is already :status (cancellation never moves fulfillment backward)',
         'field_locked' => "Shipment field ':field' is transition-authority owned and cannot be mass-updated",
