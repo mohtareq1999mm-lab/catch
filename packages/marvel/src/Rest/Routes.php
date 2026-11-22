@@ -534,6 +534,13 @@ Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admi
     Route::post('{orderId}/cancel', [\App\Http\Controllers\Api\Admin\Wms\OrderCancellationController::class, 'cancel'])->whereNumber('orderId')->middleware('permission:' . \Marvel\Enums\Permission::ORDER_CANCEL_DURING_FULFILLMENT)->name('api.admin.orders.cancel');
 });
 
+// Read-only deployment-backed carrier status. No provider CRUD and no
+// credential-bearing routes are exposed.
+Route::prefix('admin/shipping/providers')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\Admin\ShippingProviderStatusController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::SHIPPING_PROVIDER_STATUS_VIEW)->name('api.admin.shipping.providers.index');
+    Route::get('{provider}', [\App\Http\Controllers\Api\Admin\ShippingProviderStatusController::class, 'show'])->whereAlphaNumeric('provider')->middleware('permission:' . \Marvel\Enums\Permission::SHIPPING_PROVIDER_STATUS_VIEW)->name('api.admin.shipping.providers.show');
+});
+
 // Order Status catalog + configurable Order Flows (linear, sort_order-driven).
 Route::prefix('admin/order-statuses')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\OrderStatusCatalogController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::ORDER_STATUSES_INDEX)->name('api.admin.order-statuses.index');
