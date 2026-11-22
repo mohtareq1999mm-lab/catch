@@ -83,5 +83,52 @@ return [
                 ],
             ],
         ],
+        'internal' => [
+            // Built-in local delivery: no outbound calls, no env credentials,
+            // no webhook secret and no database-backed provider record.
+            'adapter' => App\Services\Shipment\Providers\InternalDeliveryGateway::class,
+            'mode' => 'internal',
+            'account_code' => 'internal-local',
+            'channels' => ['web', 'mobile'],
+            'geographies' => ['EG'],
+            'modes' => [
+                'internal' => [
+                    'enabled' => true,
+                    'base_url' => 'internal://local-delivery',
+                    // Factory requires a non-empty map; this is a local marker,
+                    // never an external credential or secret.
+                    'credentials' => ['local' => 'internal'],
+                    'timeout_seconds' => 5,
+                    'retry' => [
+                        'attempts' => 1,
+                        'backoff_ms' => 0,
+                        'max_backoff_ms' => 0,
+                    ],
+                    'queues' => [
+                        'dispatch' => 'shipping.internal.dispatch',
+                        'webhook' => 'shipping.internal.webhook',
+                    ],
+                    'webhook' => [
+                        // Version marker only: no secret and no inbox consumer.
+                        'version' => 'internal',
+                    ],
+                    'capability_verification' => [
+                        'create_shipment' => [
+                            'verified_at' => '2026-11-22T00:00:00Z',
+                            'evidence' => 'built-in internal delivery adapter',
+                        ],
+                        'cancel_shipment' => [
+                            'verified_at' => '2026-11-22T00:00:00Z',
+                            'evidence' => 'built-in internal delivery adapter',
+                        ],
+                    ],
+                    'status_map' => [
+                        'version' => 1,
+                        'status_map_owner' => 'shipment-service',
+                        'statuses' => [],
+                    ],
+                ],
+            ],
+        ],
     ],
 ];
