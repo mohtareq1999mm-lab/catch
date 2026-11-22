@@ -97,7 +97,7 @@ class ShippingProviderStatusTest extends TestCase
         $response = $this->getJson('/api/v1/admin/shipping/providers');
 
         $response->assertOk();
-        $row = $response->json('data.data.0');
+        $row = $response->json('data.0');
         $this->assertSame(['provider', 'mode', 'enabled', 'verified_capabilities'], array_keys($row));
         $this->assertSame('carrier', $row['provider']);
         $this->assertSame('sandbox', $row['mode']);

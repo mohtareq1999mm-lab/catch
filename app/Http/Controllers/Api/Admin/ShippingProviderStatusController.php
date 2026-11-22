@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\Shipment\CarrierGatewayFactory;
 use Illuminate\Http\JsonResponse;
-use Marvel\Enums\Permission;
 use Marvel\Traits\ApiResponse;
 
 /**
@@ -18,10 +17,7 @@ class ShippingProviderStatusController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly CarrierGatewayFactory $factories)
-    {
-        $this->middleware(['auth:sanctum', 'permission:' . Permission::SHIPPING_PROVIDER_STATUS_VIEW]);
-    }
+    public function __construct(private readonly CarrierGatewayFactory $factories) {}
 
     public function index(): JsonResponse
     {
@@ -29,7 +25,7 @@ class ShippingProviderStatusController extends Controller
             __('message.MESSAGE.SHIPPING_PROVIDER_STATUSES_RETRIEVED'),
             200,
             true,
-            ['data' => $this->factories->statuses()],
+            $this->factories->statuses(),
         );
     }
 

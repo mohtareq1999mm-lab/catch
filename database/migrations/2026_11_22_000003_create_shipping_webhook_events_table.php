@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Shipping\ShippingWebhookStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -30,13 +31,16 @@ return new class extends Migration
             $table->string('provider_shipment_ref', 191)->nullable();
             $table->foreignId('shipment_id')->nullable()->constrained('shipments')->nullOnDelete();
             $table->json('redacted_payload');
-            $table->string('status', 20)->default('received');
+            $table->string('status', 20)->default(ShippingWebhookStatus::RECEIVED->value);
             $table->text('last_error')->nullable();
             $table->timestamp('received_at');
             $table->timestamp('occurred_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['provider_code', 'event_key'], 'uq_shipping_webhook_event');
+            // The provider's raw event id is kept verbatim for traceability;
+            // acceptance is scoped to provider + mode + account so the same id
+            // in a different deployment identity is a distinct delivery.
+            $table->unique(['provider_code', 'mode', 'account_code', 'event_key'], 'uq_shipping_webhook_event');
             $table->index(['provider_code', 'mode', 'account_code'], 'idx_shipping_webhook_identity');
             $table->index('shipment_id', 'idx_shipping_webhook_shipment');
             $table->index('status', 'idx_shipping_webhook_status');

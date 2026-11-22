@@ -144,6 +144,20 @@ class ShippingQuoteServiceTest extends TestCase
         $this->assertSame(30.00, $cartQuote['shipping_amount']);
     }
 
+    /** Regression: digital-only carts must never be charged shipping. */
+    public function test_quote_for_cart_returns_zero_shipping_for_digital_only_cart(): void
+    {
+        $governorate = $this->makeGovernorate(40.00);
+        $cart = $this->makeCartWithLine(ItemType::DIGITAL, 500.00);
+
+        $quote = app(ShippingQuoteService::class)->quoteForCart($cart, (int) $governorate->id);
+
+        $this->assertSame(0.0, $quote['subtotal']);
+        $this->assertSame(0.0, $quote['shipping_amount']);
+        // Traceability is retained: the authoritative rate is still reported.
+        $this->assertSame(40.00, $quote['price']);
+    }
+
     /** Regression #134: the invoice preview must apply the coupon waiver too. */
     public function test_invoice_preview_zeroes_shipping_for_free_shipping_coupon(): void
     {
