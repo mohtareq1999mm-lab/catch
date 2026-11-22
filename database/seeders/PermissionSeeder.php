@@ -406,6 +406,9 @@ class PermissionSeeder extends Seeder
             // 📷 Barcode Scanning
             'barcode.scan',
 
+            // 🚚 Shipping Provider Status (read-only)
+            'shipping-provider-status.view',
+
             // 🚚 WMS Shipments Granular Permissions
             'wms-shipments.index',
             'wms-shipments.show',

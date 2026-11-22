@@ -509,4 +509,7 @@ final class Permission extends Enum
 
     // 📷 WMS Barcode Scanning
     public const BARCODE_SCAN = 'barcode.scan';
+
+    // 🚚 Shipping Provider Status (read-only)
+    public const SHIPPING_PROVIDER_STATUS_VIEW = 'shipping-provider-status.view';
 }
