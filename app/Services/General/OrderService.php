@@ -172,11 +172,12 @@ class OrderService
                     ShippingMethod::SCHEDULED,
                 );
 
-                // Preserve preview behavior: coupon waiver is applied at order
-                // creation, not in the invoice preview.
+                // Preview uses the same quote authority and coupon waiver as
+                // order creation; the waiver keeps the quoted shipping at zero.
                 $shippingPrice = $this->shippingQuoteService->quoteForCart(
                     $cart,
                     (int) $request->input('governorate_id') ?: null,
+                    $checkoutTotals->couponDiscountType,
                 )['shipping_amount'];
 
                 // Preview totals include the authoritative tax breakdown.
