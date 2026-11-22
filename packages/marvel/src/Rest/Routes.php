@@ -732,6 +732,12 @@ Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OPERATIONS_SHOW)->name('api.admin.inventory.operations.show');
 });
 
+// #135: finance-only COD settlement evidence reads. No write/payment route.
+Route::prefix('admin/cod-settlements')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::get('statements', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.index');
+    Route::get('statements/{id}', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.show');
+});
+
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without
 // auth or throttle). Test payments use the gateway sandbox directly.
 
