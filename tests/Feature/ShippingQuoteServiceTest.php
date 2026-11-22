@@ -6,9 +6,12 @@ use App\DTOs\CheckoutTotals;
 use App\Services\General\OrderService;
 use App\Services\Shipping\ShippingQuoteService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
+use Marvel\Database\Models\Coupon;
 use Marvel\Database\Models\Country;
 use Marvel\Database\Models\Governorate;
 use Marvel\Database\Models\Product;
@@ -139,6 +142,34 @@ class ShippingQuoteServiceTest extends TestCase
         $cartQuote = $service->quoteForCart($cart, (int) $governorate->id);
         $this->assertSame(60.00, $cartQuote['subtotal']);
         $this->assertSame(30.00, $cartQuote['shipping_amount']);
+    }
+
+    /** Regression #134: the invoice preview must apply the coupon waiver too. */
+    public function test_invoice_preview_zeroes_shipping_for_free_shipping_coupon(): void
+    {
+        $governorate = $this->makeGovernorate(25.00);
+        $cart = $this->makeCartWithLine(ItemType::PHYSICAL, 60.00);
+        $coupon = Coupon::create([
+            'name' => ['en' => 'Preview Free Shipping'],
+            'slug' => 'preview-free-shipping-'.Str::lower(Str::random(6)),
+            'code' => 'PREVIEW-FS-'.Str::upper(Str::random(6)),
+            'discount_type' => DiscountType::FREE_SHIPPING,
+            'discount' => 0,
+            'status' => true,
+            'start_date' => now()->subDay(),
+            'end_date' => now()->addMonth(),
+        ]);
+        $cart->update(['coupon' => $coupon->code]);
+
+        Sanctum::actingAs($cart->user);
+        $request = Request::create('/', 'POST', ['governorate_id' => $governorate->id]);
+        $request->setUserResolver(fn () => $cart->user);
+
+        $previewTotal = app(OrderService::class)->calcInvoicePrice($request);
+
+        // Without the waiver the authoritative 25.00 rate leaks into the preview.
+        $this->assertSame(60.00, round((float) $previewTotal, 2));
+        $this->assertSame(60.00, round((float) $cart->fresh()->total_price, 2));
     }
 
     /** Golden: a zero authoritative rate stays zero; no client price enters the table. */
