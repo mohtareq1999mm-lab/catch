@@ -10,6 +10,7 @@ use Marvel\Database\Models\Cart;
 use Marvel\Database\Models\CartItem;
 use Marvel\Database\Models\Country;
 use Marvel\Database\Models\Governorate;
+use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\ShippingPrice;
 use Marvel\Database\Models\User;
@@ -139,6 +140,34 @@ class CheckoutApiTest extends TestCase
         ]);
 
         $this->assertContains($response->status(), [200, 409]);
+    }
+
+    public function test_checkout_ignores_client_supplied_shipping_amount()
+    {
+        Event::fake();
+
+        $this->auth();
+        $this->createCartWithItem();
+
+        $response = $this->postJson(self::PREFIX . '/checkout', [
+            'name' => 'John Doe',
+            'user_phone' => '01000000001',
+            'user_email' => 'john@example.com',
+            'governorate_id' => $this->governorate->id,
+            'shipping_method' => 'SCHEDULED',
+            'payment_method' => 'cod',
+            'address' => ['street' => '123 Main St', 'city' => 'Cairo'],
+            'shipping_price' => 999.99,
+            'shipping_amount' => 999.99,
+        ]);
+
+        $this->assertContains($response->status(), [200, 409]);
+
+        $order = Order::where('user_id', $this->user->id)->first();
+        $this->assertNotNull($order);
+        $this->assertEquals(20.00, (float) $order->shipping_price);
+        $this->assertEquals(120.00, (float) $order->total_price);
+        $this->assertEquals(1, ShippingPrice::count());
     }
 
     public function test_checkout_does_not_finalize_inventory()
