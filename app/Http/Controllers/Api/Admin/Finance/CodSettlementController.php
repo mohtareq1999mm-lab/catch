@@ -7,7 +7,6 @@ use App\Http\Requests\Admin\Finance\ListCodSettlementStatementsRequest;
 use App\Http\Resources\Settlement\CodSettlementStatementResource;
 use App\Services\Settlement\CodSettlementService;
 use Illuminate\Http\JsonResponse;
-use Marvel\Enums\Permission;
 use Marvel\Traits\ApiResponse;
 
 /**
@@ -20,10 +19,7 @@ class CodSettlementController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private CodSettlementService $settlements)
-    {
-        $this->middleware('permission:' . Permission::COD_SETTLEMENT_VIEW, ['only' => ['index', 'show']]);
-    }
+    public function __construct(private CodSettlementService $settlements) {}
 
     /**
      * GET /api/v1/admin/cod-settlements/statements

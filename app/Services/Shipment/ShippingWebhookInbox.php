@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\Date;
  * #143: durable accept-once inbox.
  *
  * The insert is committed before the HTTP layer acknowledges the delivery.
- * A unique-key collision is a replay: it returns NULL and the caller does no
- * further work. Shipment linkage is a read-only UUID lookup; this service
- * never writes to a shipment or any other lifecycle table.
+ * A collision on the scoped unique key (provider + mode + account + event_key)
+ * is a replay: it returns NULL and the caller does no further work. The raw
+ * event_key is stored verbatim. Shipment linkage is a read-only UUID lookup;
+ * this service never writes to a shipment or any other lifecycle table.
  */
 final class ShippingWebhookInbox
 {

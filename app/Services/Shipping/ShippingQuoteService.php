@@ -86,7 +86,16 @@ class ShippingQuoteService
     /** Scheduled checkout quote: the threshold base is the physical-lines subtotal. */
     public function quoteForCart(Cart $cart, ?int $governorateId, ?string $couponDiscountType = null): array
     {
-        return $this->quote($governorateId, $this->physicalLinesSubtotal($cart), $couponDiscountType);
+        $physicalSubtotal = $this->physicalLinesSubtotal($cart);
+        $quote = $this->quote($governorateId, $physicalSubtotal, $couponDiscountType);
+
+        // Digital-only carts have nothing to ship. Keep the authoritative
+        // rate in the projection for traceability, but never charge it.
+        if ($physicalSubtotal <= 0) {
+            $quote['shipping_amount'] = 0.0;
+        }
+
+        return $quote;
     }
 
     public function applyFreeShippingThreshold(float $subtotal, ?float $freeShippingOver, float $shippingPrice): float

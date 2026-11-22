@@ -112,6 +112,31 @@ class ShippingWebhookInboxTest extends TestCase
         );
     }
 
+    public function test_same_event_id_in_different_mode_and_account_is_not_a_duplicate(): void
+    {
+        $payload = $this->payload(['id' => 'evt_scoped_identity_143']);
+
+        $sandbox = $this->postWebhook($payload);
+        $sandbox->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+
+        config([
+            'shipping.providers.null.mode' => 'production',
+            'shipping.providers.null.account_code' => 'null-production',
+            'shipping.providers.null.modes.production.enabled' => true,
+            'shipping.providers.null.modes.production.webhook.secret' => self::SECRET,
+            'shipping.providers.null.modes.production.webhook.version' => 'v1',
+        ]);
+
+        $production = $this->postWebhook($payload);
+        $production->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+
+        $rows = ShippingWebhookEvent::orderBy('id')->get();
+        $this->assertCount(2, $rows);
+        $this->assertSame(['evt_scoped_identity_143', 'evt_scoped_identity_143'], $rows->pluck('event_key')->all());
+        $this->assertSame(['sandbox', 'production'], $rows->pluck('mode')->all());
+        $this->assertSame(['null-local', 'null-production'], $rows->pluck('account_code')->all());
+    }
+
     public function test_limiter_backend_failure_fails_closed_with_503_before_verification(): void
     {
         $limiter = Mockery::mock(RateLimiter::class);
