@@ -9,9 +9,23 @@ declare(strict_types=1);
  * authority and no admin-editable provider record. Both mode blocks are
  * disabled by default. The factory fails closed when a mode is mixed,
  * disabled, missing credentials, or missing capability verification.
+ *
+ * #143 webhook delivery is an inbox/verification surface only. It never
+ * mutates shipment, order, fulfillment, payment, or inventory state.
+ * Webhooks are therefore a WAKE-UP signal, not the source of truth: polling
+ * the existing read-only tracking surface is the documented fallback whenever
+ * a provider callback is unavailable, dropped, or parked for replay. The
+ * durable inbox plus stable event identity make webhook replay safe.
  */
 return [
     'default_mode' => env('SHIPPING_DEFAULT_MODE', 'sandbox'),
+
+    // #143: fail-closed limiter for provider -> trusted source IP. Backend
+    // failure returns 503 (no verification/DB work); a real limit returns 429.
+    'webhook_rate_limit' => [
+        'max_attempts' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_MAX', 60)),
+        'decay_seconds' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_DECAY_SECONDS', 60)),
+    ],
 
     'providers' => [
         'null' => [
