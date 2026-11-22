@@ -205,6 +205,7 @@ return [
         'deliver_fulfillment' => 'لا يمكن توصيل الشحنة #:shipment: التنفيذ #:fulfillment حالته :status والمتوقع shipped.',
         'transition' => 'الشحنة :shipment لا يمكن نقلها من \':from\' إلى \':to\'.',
         'cancel_reason' => 'سبب إلغاء الشحنة مطلوب.',
+        'internal_cancel_reason' => 'أُلغيت بواسطة مزود التوصيل الداخلي.',
         'cancel_state' => 'الشحنة :shipment لا يمكن إلغاؤها من الحالة \':status\'.',
         'cancel_fulfillment' => 'لا يمكن إلغاء الشحنة #:shipment: التنفيذ #:fulfillment حالته بالفعل :status (الإلغاء لا يرجع التنفيذ للخلف أبدًا).',
         'field_locked' => 'حقل الشحنة \':field\' مملوك لسلطة الانتقال ولا يمكن تحديثه جماعيًا.',
