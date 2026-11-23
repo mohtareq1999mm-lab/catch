@@ -6,9 +6,12 @@ use App\Enums\SettlementMode;
 use App\Exceptions\CodSettlementPrecisionException;
 use App\Models\Currency;
 use App\Models\Settlement\CodSettlementStatement;
+use App\Support\UniqueViolation;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Marvel\Database\Models\Order;
 
@@ -33,26 +36,41 @@ class CodSettlementService
         );
         $identity['currency_code'] = $lines[0]['currency_code'];
 
-        return DB::transaction(function () use ($identity, $lines, $overlapRule): CodSettlementStatement {
-            $this->assertNoDuplicateStatement($identity);
-            $overlap = $this->findOverlappingStatement($identity);
-            if ($overlap !== null) {
-                if ($overlapRule === 'reject') {
-                    throw new InvalidArgumentException(__('cod_settlement.overlapping_statement'));
+        $lockName = $this->statementScopeLockName($identity);
+        $lockAcquired = $this->acquireStatementScopeLock($lockName);
+
+        try {
+            return DB::transaction(function () use ($identity, $lines, $overlapRule): CodSettlementStatement {
+                $this->assertNoDuplicateStatement($identity);
+                $overlap = $this->findOverlappingStatement($identity);
+                if ($overlap !== null) {
+                    if ($overlapRule === 'reject') {
+                        throw new InvalidArgumentException(__('cod_settlement.overlapping_statement'));
+                    }
+
+                    if ($overlapRule === 'flag') {
+                        $metadata = $identity['metadata'] ?? [];
+                        $metadata['overlap'] = [
+                            'rule' => 'flag',
+                            'statement_ids' => [$overlap->id],
+                        ];
+                        $identity['metadata'] = $metadata;
+                    }
                 }
 
-                if ($overlapRule === 'flag') {
-                    $metadata = $identity['metadata'] ?? [];
-                    $metadata['overlap'] = [
-                        'rule' => 'flag',
-                        'statement_ids' => [$overlap->id],
-                    ];
-                    $identity['metadata'] = $metadata;
-                }
+                return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
+            });
+        } catch (QueryException $e) {
+            if ($this->isDuplicateStatementViolation($e, $identity)) {
+                throw $this->duplicateStatementException();
             }
 
-            return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
-        });
+            throw $e;
+        } finally {
+            if ($lockAcquired) {
+                $this->releaseStatementScopeLock($lockName);
+            }
+        }
     }
 
     public function findStatement(int $id): CodSettlementStatement
@@ -365,19 +383,92 @@ class CodSettlementService
 
     private function assertNoDuplicateStatement(array $identity): void
     {
-        $duplicate = CodSettlementStatement::query()
+        $duplicate = $this->duplicateStatementQuery($identity)
+            ->lockForUpdate()
+            ->exists();
+
+        if ($duplicate) {
+            throw $this->duplicateStatementException();
+        }
+    }
+
+    private function duplicateStatementQuery(array $identity)
+    {
+        return CodSettlementStatement::query()
             ->where('provider_code', $identity['provider_code'])
             ->where('mode', $identity['mode'])
             ->where('account_code', $identity['account_code'])
             ->whereDate('period_start', $identity['period_start'])
             ->whereDate('period_end', $identity['period_end'])
-            ->where('currency_code', $identity['currency_code'])
-            ->lockForUpdate()
-            ->exists();
+            ->where('currency_code', $identity['currency_code']);
+    }
 
-        if ($duplicate) {
-            throw new InvalidArgumentException(__('cod_settlement.duplicate_statement'));
+    private function duplicateStatementException(): ValidationException
+    {
+        return ValidationException::withMessages([
+            'statement_key' => [__('cod_settlement.duplicate_statement')],
+        ]);
+    }
+
+    private function isDuplicateStatementViolation(QueryException $e, array $identity): bool
+    {
+        if (! UniqueViolation::detect($e)) {
+            return false;
         }
+
+        $message = $e->getMessage();
+        if (str_contains($message, 'uq_cod_settlement_statement_identity')) {
+            return true;
+        }
+
+        // SQLite and some drivers omit index names; confirm against the
+        // deterministic statement identity before mapping to domain error.
+        return $this->duplicateStatementQuery($identity)->exists();
+    }
+
+    private function statementScopeLockName(array $identity): string
+    {
+        $payload = implode('|', [
+            'cod_settlement',
+            (string) $identity['provider_code'],
+            (string) $identity['mode'],
+            (string) $identity['account_code'],
+            (string) $identity['currency_code'],
+        ]);
+
+        return 'cod_settlement:' . sha1($payload);
+    }
+
+    private function acquireStatementScopeLock(string $lockName): bool
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() !== 'mysql') {
+            return false;
+        }
+
+        $timeout = max(0, (int) config('cod_settlement.scope_lock_timeout', 5));
+        $acquired = $connection->selectOne('SELECT GET_LOCK(?, ?) AS acquired', [$lockName, $timeout]);
+        $result = is_object($acquired) ? ($acquired->acquired ?? null) : ($acquired['acquired'] ?? null);
+
+        if ((int) $result === 1) {
+            return true;
+        }
+
+        throw ValidationException::withMessages([
+            'statement_key' => [__('cod_settlement.lock_timeout')],
+        ]);
+    }
+
+    private function releaseStatementScopeLock(string $lockName): void
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() !== 'mysql') {
+            return;
+        }
+
+        $connection->selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName]);
     }
 
     private function findOverlappingStatement(array $identity): ?CodSettlementStatement

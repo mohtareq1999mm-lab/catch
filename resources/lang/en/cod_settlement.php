@@ -8,4 +8,5 @@ return [
     'currency_conflict' => 'Mixed-currency statements and currency conflicts are not allowed.',
     'duplicate_statement' => 'A COD settlement statement already exists for this provider, mode, account, period, and currency.',
     'overlapping_statement' => 'A COD settlement statement overlaps an existing statement for this provider, mode, account, and currency.',
+    'lock_timeout' => 'Could not acquire settlement scope lock; please retry.',
 ];

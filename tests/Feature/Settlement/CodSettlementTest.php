@@ -417,8 +417,8 @@ class CodSettlementTest extends TestCase
         try {
             $service->createStatement(array_merge($payload, ['statement_key' => 'stmt-dup-2']));
             $this->fail('Duplicate statement identity must be rejected.');
-        } catch (\InvalidArgumentException $e) {
-            $this->assertSame(__('cod_settlement.duplicate_statement'), $e->getMessage());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(__('cod_settlement.duplicate_statement'), $e->errors()['statement_key'][0] ?? null);
         }
 
         $this->assertSame(1, CodSettlementStatement::query()->count());
@@ -492,5 +492,99 @@ class CodSettlementTest extends TestCase
             'currency_code' => 'USD',
             'expected_minor' => 10050,
         ]);
+    }
+
+    public function test_duplicate_db_unique_violation_is_translated_to_domain_validation_error(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order('EGP');
+        $service = app(CodSettlementService::class);
+        $payload = $this->statementPayload($order, [
+            'statement_key' => 'stmt-race-1',
+            'provider_code' => 'carrier_race',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-race',
+            'period_start' => '2026-12-01',
+            'period_end' => '2026-12-31',
+        ]);
+
+        $service->createStatement($payload);
+
+        $method = new \ReflectionMethod(CodSettlementService::class, 'isDuplicateStatementViolation');
+        $method->setAccessible(true);
+        $identity = [
+            'provider_code' => 'carrier_race',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-race',
+            'period_start' => '2026-12-01',
+            'period_end' => '2026-12-31',
+            'currency_code' => 'EGP',
+        ];
+
+        $pdo = new \PDOException('duplicate', 23000);
+        $pdo->errorInfo = ['23000', 1062, 'Duplicate entry for uq_cod_settlement_statement_identity'];
+        $queryException = new \Illuminate\Database\QueryException(
+            'mysql',
+            'insert into cod_settlement_statements ...',
+            [],
+            $pdo
+        );
+
+        $this->assertTrue($method->invoke($service, $queryException, $identity));
+
+        $duplicateMethod = new \ReflectionMethod(CodSettlementService::class, 'duplicateStatementException');
+        $duplicateMethod->setAccessible(true);
+        try {
+            throw $duplicateMethod->invoke($service);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(__('cod_settlement.duplicate_statement'), $e->errors()['statement_key'][0] ?? null);
+        }
+    }
+
+    public function test_overlap_reject_uses_scope_lock_and_fails_closed_on_timeout(): void
+    {
+        $this->currency('EGP');
+        $service = app(CodSettlementService::class);
+
+        $lockNameMethod = new \ReflectionMethod(CodSettlementService::class, 'statementScopeLockName');
+        $lockNameMethod->setAccessible(true);
+        $identity = [
+            'provider_code' => 'carrier_a',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-1',
+            'currency_code' => 'EGP',
+        ];
+        $lockName = $lockNameMethod->invoke($service, $identity);
+        $this->assertStringStartsWith('cod_settlement:', $lockName);
+        $this->assertSame(55, strlen($lockName));
+
+        $acquire = new \ReflectionMethod(CodSettlementService::class, 'acquireStatementScopeLock');
+        $acquire->setAccessible(true);
+        $release = new \ReflectionMethod(CodSettlementService::class, 'releaseStatementScopeLock');
+        $release->setAccessible(true);
+
+        $connection = DB::connection();
+        if ($connection->getDriverName() !== 'mysql') {
+            $this->markTestSkipped('Scope lock timeout behavior is exercised on MySQL.');
+        }
+
+        config(['cod_settlement.scope_lock_timeout' => 0]);
+        config(['database.connections.mysql_lock_test' => config('database.connections.' . $connection->getName())]);
+        $other = DB::connection('mysql_lock_test');
+        $other->selectOne('SELECT GET_LOCK(?, 1) AS acquired', [$lockName]);
+
+        try {
+            $acquire->invoke($service, $lockName);
+            $this->fail('Lock timeout must fail closed.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(__('cod_settlement.lock_timeout'), $e->errors()['statement_key'][0] ?? null);
+        } finally {
+            $other->selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName]);
+            DB::disconnect('mysql_lock_test');
+        }
+
+        // lock should be acquirable after release
+        $this->assertTrue($acquire->invoke($service, $lockName));
+        $release->invoke($service, $lockName);
     }
 }
