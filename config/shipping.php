@@ -27,11 +27,17 @@ return [
      */
     'default_provider' => env('SHIPPING_DEFAULT_PROVIDER', 'internal'),
 
-    // #143: fail-closed limiter for provider -> trusted source IP. Backend
+    // #143/#153: fail-closed limiter for provider -> trusted source IP. Backend
     // failure returns 503 (no verification/DB work); a real limit returns 429.
+    // Source IP is derived only through configured trusted proxies; missing or
+    // empty configuration fails closed before verification/inbox work.
     'webhook_rate_limit' => [
         'max_attempts' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_MAX', 60)),
         'decay_seconds' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_DECAY_SECONDS', 60)),
+        'trusted_proxies' => array_values(array_filter(array_map(
+            static fn (string $proxy): string => trim($proxy),
+            explode(',', (string) env('SHIPPING_WEBHOOK_TRUSTED_PROXIES', ''))
+        ), static fn (string $proxy): bool => $proxy !== '')),
     ],
 
     'providers' => [
