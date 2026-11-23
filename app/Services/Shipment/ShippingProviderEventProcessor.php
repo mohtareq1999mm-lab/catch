@@ -133,14 +133,17 @@ final class ShippingProviderEventProcessor
         ProviderStatusMapping $mapping,
         ?string $modeMismatch,
     ): void {
-        $notes = $this->exceptionNotes($event->raw_status, $mapping->mappingVersion);
+        $notes = $this->withModeMismatchNote(
+            $this->exceptionNotes($event->raw_status, $mapping->mappingVersion),
+            $modeMismatch,
+        );
 
         if ($modeMismatch !== null) {
             $event->update(['exception_classification' => ProviderEventExceptionType::MODE_MISMATCH->value]);
             $this->raiseException(
                 $event,
                 ProviderEventExceptionType::MODE_MISMATCH,
-                $notes.'; mode_mismatch='.$modeMismatch,
+                $notes,
             );
 
             return;
@@ -215,18 +218,21 @@ final class ShippingProviderEventProcessor
         );
     }
 
+    private function withModeMismatchNote(string $notes, ?string $modeMismatch): string
+    {
+        return $modeMismatch === null || $modeMismatch === ''
+            ? $notes
+            : $notes.'; mode_mismatch='.$modeMismatch;
+    }
+
     private function exceptionNotes(
         ?string $rawStatus,
         string $mappingVersion,
         ?string $transitionError = null,
-        ?string $modeMismatch = null,
     ): string {
         $notes = 'raw_status='.($rawStatus ?? '<missing>').'; mapping_version='.($mappingVersion !== '' ? $mappingVersion : '<none>');
         if ($transitionError !== null && $transitionError !== '') {
             $notes .= '; transition_error='.$transitionError;
-        }
-        if ($modeMismatch !== null && $modeMismatch !== '') {
-            $notes .= '; mode_mismatch='.$modeMismatch;
         }
 
         return $notes;

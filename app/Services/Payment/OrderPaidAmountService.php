@@ -162,12 +162,11 @@ final class OrderPaidAmountService
             ->where('status', RefundService::STATUS_APPROVED)
             ->orderBy('id')
             ->each(function (Refund $refund) use ($currencyCode, $decimalPlaces, &$refundedMinor): void {
-                $refundCurrency = $refund->getRawOriginal('currency') ?? $refund->currency;
-                if ($refundCurrency !== null) {
-                    $refundCurrency = strtoupper(trim((string) $refundCurrency));
-                    if ($refundCurrency !== $currencyCode) {
-                        throw CodAmountEvidenceException::mixedCurrency();
-                    }
+                $refundCurrency = strtoupper(trim((string) (
+                    $refund->getRawOriginal('currency') ?? $refund->currency ?? ''
+                )));
+                if ($refundCurrency !== $currencyCode) {
+                    throw CodAmountEvidenceException::mixedCurrency();
                 }
 
                 $refundedMinor += $this->toMinorUnits(
@@ -187,8 +186,9 @@ final class OrderPaidAmountService
     }
 
     /**
-     * Exact decimal string -> integer minor units. Trailing fractional zeros
-     * are canonicalised because MySQL stores money with fixed scale, but a
+     * Exact decimal string -> integer minor units. Ints, finite floats and
+     * strings are normalised without rounding; trailing fractional zeros are
+     * canonicalised because MySQL stores money with fixed scale, but a
      * non-zero fraction beyond the currency's precision is never rounded.
      */
     private function toMinorUnits(mixed $amount, int $decimalPlaces): int
@@ -201,7 +201,7 @@ final class OrderPaidAmountService
             throw CodAmountEvidenceException::invalidAmount();
         }
 
-        $raw = is_string($amount) ? trim($amount) : number_format((float) $amount, $decimalPlaces, '.', '');
+        $raw = $this->exactDecimalString($amount);
         if (!preg_match('/^(\d+)(?:\.(\d+))?$/', $raw, $matches)) {
             throw CodAmountEvidenceException::invalidAmount();
         }
@@ -222,5 +222,21 @@ final class OrderPaidAmountService
         }
 
         return (int) $digits;
+    }
+
+    private function exactDecimalString(int|float|string $amount): string
+    {
+        if (is_string($amount)) {
+            return trim($amount);
+        }
+        if (is_int($amount)) {
+            return (string) $amount;
+        }
+
+        try {
+            return (string) json_encode($amount, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw CodAmountEvidenceException::invalidAmount();
+        }
     }
 }

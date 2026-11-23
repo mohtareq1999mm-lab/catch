@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\DTOs\Shipping\CarrierGatewayContext;
-use App\Enums\SettlementMode;
 use App\Enums\Shipping\CarrierCapability;
+use App\Enums\Shipping\ProviderMode;
 use App\Exceptions\CarrierConfigurationException;
 use App\Models\Shipment;
 use App\Services\Shipment\Contracts\CarrierGatewayContract;
@@ -28,11 +28,9 @@ class CarrierGatewayFactory
         ?string $channel = null,
         ?string $geography = null,
     ): CarrierGatewayContract {
-        $provider = $this->requireProvider($providerCode);
+        [$provider, $mode] = $this->providerWithValidatedMode($providerCode);
         $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
-        $this->assertSingleMode($providerCode, $modes);
 
-        $mode = $this->validatedMode($providerCode, $provider);
         $block = $this->requireModeBlock($providerCode, $modes, $mode);
         $this->requireCredentials($providerCode, $block);
         $this->requireCapabilityVerification($providerCode, $block, $capability);
@@ -58,11 +56,9 @@ class CarrierGatewayFactory
      */
     public function resolveMode(string $providerCode): string
     {
-        $provider = $this->requireProvider($providerCode);
-        $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
-        $this->assertSingleMode($providerCode, $modes);
+        [, $mode] = $this->providerWithValidatedMode($providerCode);
 
-        return $this->validatedMode($providerCode, $provider);
+        return $mode;
     }
 
     /**
@@ -98,13 +94,24 @@ class CarrierGatewayFactory
         return $this->make($providerCode, $capability, $channel, $geography);
     }
 
+    /** @return array{0: array<string,mixed>, 1: string} */
+    private function providerWithValidatedMode(string $providerCode): array
+    {
+        $provider = $this->requireProvider($providerCode);
+        $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
+
+        $this->assertSingleMode($providerCode, $modes);
+
+        return [$provider, $this->validatedMode($providerCode, $provider)];
+    }
+
     /** @param array<string,mixed> $provider */
     private function validatedMode(string $providerCode, array $provider): string
     {
-        $configured = $provider['mode'] ?? $this->config->get('shipping.default_mode', 'sandbox');
+        $configured = $provider['mode'] ?? $this->config->get('shipping.default_mode', ProviderMode::SANDBOX->value);
         $mode = is_string($configured) ? trim($configured) : '';
 
-        if ($mode === '' || (SettlementMode::tryFrom($mode) === null && $mode !== 'internal')) {
+        if ($mode === '' || ProviderMode::tryFrom($mode) === null) {
             throw CarrierConfigurationException::invalidMode($providerCode, $mode);
         }
 
@@ -120,7 +127,9 @@ class CarrierGatewayFactory
     public function status(string $providerCode): array
     {
         $provider = $this->config->get("shipping.providers.{$providerCode}");
-        $mode = is_array($provider) && is_string($provider['mode'] ?? null) ? $provider['mode'] : 'sandbox';
+        $mode = is_array($provider) && is_string($provider['mode'] ?? null)
+            ? $provider['mode']
+            : ProviderMode::SANDBOX->value;
         $modes = is_array($provider) && is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
         $block = $modes[$mode] ?? null;
 

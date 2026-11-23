@@ -299,6 +299,44 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
         app(OrderPaidAmountService::class)->forOrder($order);
     }
 
+    public function test_refund_without_currency_fails_closed_instead_of_adopting_the_order_currency(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 100);
+        $this->refund($order, 10, 'approved', null);
+
+        $this->expectException(CodAmountEvidenceException::class);
+        $this->expectExceptionMessage(__('cod_amount.mixed_currency'));
+
+        app(OrderPaidAmountService::class)->forOrder($order);
+    }
+
+    public function test_refund_with_blank_currency_fails_closed_instead_of_adopting_the_order_currency(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 100);
+        $this->refund($order, 10, 'approved', '   ');
+
+        $this->expectException(CodAmountEvidenceException::class);
+        $this->expectExceptionMessage(__('cod_amount.mixed_currency'));
+
+        app(OrderPaidAmountService::class)->forOrder($order);
+    }
+
+    public function test_float_amount_with_excess_precision_fails_closed_without_rounding(): void
+    {
+        $order = $this->orderWithUsdPrecision(2, ['total_price' => 40.125]);
+
+        $this->expectException(CodAmountEvidenceException::class);
+        $this->expectExceptionMessage(__('cod_amount.invalid_amount'));
+
+        app(OrderPaidAmountService::class)->forOrder($order);
+    }
+
     public function test_it_fails_closed_when_executed_refunds_exceed_captured_money(): void
     {
         $this->usd();
