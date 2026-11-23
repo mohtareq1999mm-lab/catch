@@ -7,6 +7,7 @@ namespace Tests\Unit\Shipping;
 use App\DTOs\Shipping\CarrierGatewayContext;
 use App\Enums\Shipping\CarrierCapability;
 use App\Exceptions\CarrierConfigurationException;
+use App\Models\Shipment;
 use App\Services\Shipment\CarrierGatewayFactory;
 use Tests\Support\Shipping\ConfiguredCarrierGateway;
 use Tests\Support\Shipping\NeverConstructedCarrier;
@@ -85,6 +86,42 @@ class CarrierGatewayFactoryTest extends TestCase
         }
 
         $this->assertSame(0, NeverConstructedCarrier::$constructions);
+    }
+
+    public function test_configuration_flag_without_credentials_is_not_proof_of_mode_isolation(): void
+    {
+        foreach (['sandbox', 'production'] as $activeMode) {
+            config(['shipping.providers.carrier' => $this->providerForMode($activeMode)]);
+            $otherMode = $activeMode === 'sandbox' ? 'production' : 'sandbox';
+            config(["shipping.providers.carrier.modes.{$otherMode}.enabled" => true]);
+
+            try {
+                app(CarrierGatewayFactory::class)->make('carrier');
+                $this->fail("A bare [{$otherMode}] flag must not be accepted.");
+            } catch (CarrierConfigurationException $exception) {
+                $this->assertStringContainsString('mixed sandbox/production', $exception->getMessage());
+            }
+        }
+
+        $this->assertSame(0, ConfiguredCarrierGateway::$constructions);
+    }
+
+    public function test_gateway_resolution_uses_the_shipment_mode_snapshot_in_both_directions(): void
+    {
+        foreach (['sandbox', 'production'] as $snapshot) {
+            $flipped = $snapshot === 'sandbox' ? 'production' : 'sandbox';
+            config(['shipping.providers.carrier' => $this->providerForMode($flipped)]);
+            $shipment = new Shipment(['provider_code' => 'carrier', 'provider_mode' => $snapshot]);
+
+            try {
+                app(CarrierGatewayFactory::class)->makeForShipment($shipment);
+                $this->fail("A [{$snapshot}] shipment must not follow a [{$flipped}] config flip.");
+            } catch (CarrierConfigurationException $exception) {
+                $this->assertStringContainsString('mode mismatch', $exception->getMessage());
+            }
+        }
+
+        $this->assertSame(0, ConfiguredCarrierGateway::$constructions);
     }
 
     public function test_missing_capability_verification_fails_closed(): void
@@ -170,6 +207,22 @@ class CarrierGatewayFactoryTest extends TestCase
         $this->assertSame('EG', $context->geography);
         $this->assertSame(['quote'], $context->verifiedCapabilities);
         $this->assertSame(1, ConfiguredCarrierGateway::$constructions);
+    }
+
+    /** @return array<string,mixed> */
+    private function providerForMode(string $mode): array
+    {
+        $provider = $this->validProvider(['mode' => $mode]);
+
+        if ($mode === 'production') {
+            $production = $provider['modes']['sandbox'];
+            $production['base_url'] = 'https://api.example.test';
+            $production['credentials'] = ['api_key' => 'production-key'];
+            $provider['modes']['production'] = $production;
+            $provider['modes']['sandbox'] = ['enabled' => false, 'credentials' => []];
+        }
+
+        return $provider;
     }
 
     /** @param array<string,mixed> $overrides */

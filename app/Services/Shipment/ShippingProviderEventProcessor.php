@@ -8,6 +8,8 @@ use App\DTOs\Shipping\ProviderStatusMapping;
 use App\Enums\Shipping\ProviderEventExceptionType;
 use App\Enums\Shipping\ShipmentExceptionSeverity;
 use App\Enums\Shipping\ShipmentExceptionStatus;
+use App\Exceptions\CarrierConfigurationException;
+use App\Models\Shipment;
 use App\Models\Shipping\ShipmentException;
 use App\Models\Shipping\ShippingProviderEvent;
 use App\Models\Shipping\ShippingWebhookEvent;
@@ -29,6 +31,7 @@ final class ShippingProviderEventProcessor
     public function __construct(
         private readonly CarrierStatusMapper $mapper,
         private readonly ShipmentService $shipments,
+        private readonly CarrierGatewayFactory $factories,
     ) {}
 
     public function process(ShippingWebhookEvent $webhook): ShippingProviderEvent
@@ -39,15 +42,18 @@ final class ShippingProviderEventProcessor
         }
 
         $rawStatus = $this->rawStatusFrom($webhook);
+        // #149: compare the event's environment with the shipment snapshot
+        // before any mapping is allowed to reach the canonical authority.
+        $modeMismatch = $this->modeMismatchFor($webhook);
         $mapping = $this->mapper->map($webhook->provider_code, $webhook->mode, $rawStatus);
 
-        $event = DB::transaction(function () use ($webhook, $rawStatus, $mapping): ?ShippingProviderEvent {
+        $event = DB::transaction(function () use ($webhook, $rawStatus, $mapping, $modeMismatch): ?ShippingProviderEvent {
             $event = $this->storeProviderEvent($webhook, $rawStatus, $mapping);
             if ($event === null) {
                 return null;
             }
 
-            $this->recordMappingException($event, $webhook, $rawStatus, $mapping);
+            $this->recordMappingException($event, $mapping, $modeMismatch);
 
             return $event;
         });
@@ -56,7 +62,7 @@ final class ShippingProviderEventProcessor
             return ShippingProviderEvent::query()->where('webhook_event_id', $webhook->id)->firstOrFail();
         }
 
-        $this->applyTransition($event, $webhook, $rawStatus, $mapping);
+        $this->applyTransition($event, $mapping, $modeMismatch);
 
         return $event->fresh();
     }
@@ -72,6 +78,26 @@ final class ShippingProviderEventProcessor
             : null;
 
         return is_string($status) ? $status : null;
+    }
+
+    private function modeMismatchFor(ShippingWebhookEvent $webhook): ?string
+    {
+        if ($webhook->shipment_id === null) {
+            return null;
+        }
+
+        $shipment = Shipment::query()->find((int) $webhook->shipment_id);
+        if ($shipment === null) {
+            return null;
+        }
+
+        try {
+            $this->factories->assertShipmentMode($shipment, is_string($webhook->mode) ? $webhook->mode : '');
+        } catch (CarrierConfigurationException $exception) {
+            return $exception->getMessage();
+        }
+
+        return null;
     }
 
     private function storeProviderEvent(
@@ -104,46 +130,56 @@ final class ShippingProviderEventProcessor
 
     private function recordMappingException(
         ShippingProviderEvent $event,
-        ShippingWebhookEvent $webhook,
-        ?string $rawStatus,
         ProviderStatusMapping $mapping,
+        ?string $modeMismatch,
     ): void {
-        if (!$mapping->canTransition()) {
+        $notes = $this->withModeMismatchNote(
+            $this->exceptionNotes($event->raw_status, $mapping->mappingVersion),
+            $modeMismatch,
+        );
+
+        if ($modeMismatch !== null) {
+            $event->update(['exception_classification' => ProviderEventExceptionType::MODE_MISMATCH->value]);
             $this->raiseException(
                 $event,
-                $mapping->exceptionType ?? ProviderEventExceptionType::UNKNOWN_STATUS,
-                $this->exceptionNotes($rawStatus, $mapping->mappingVersion),
+                ProviderEventExceptionType::MODE_MISMATCH,
+                $notes,
             );
 
             return;
         }
 
-        if ($webhook->shipment_id === null) {
-            $event->update(['exception_classification' => ProviderEventExceptionType::UNMATCHED_SHIPMENT->value]);
+        if (!$mapping->canTransition()) {
             $this->raiseException(
                 $event,
-                ProviderEventExceptionType::UNMATCHED_SHIPMENT,
-                $this->exceptionNotes($rawStatus, $mapping->mappingVersion),
+                $mapping->exceptionType ?? ProviderEventExceptionType::UNKNOWN_STATUS,
+                $notes,
             );
+
+            return;
+        }
+
+        if ($event->shipment_id === null) {
+            $event->update(['exception_classification' => ProviderEventExceptionType::UNMATCHED_SHIPMENT->value]);
+            $this->raiseException($event, ProviderEventExceptionType::UNMATCHED_SHIPMENT, $notes);
         }
     }
 
     private function applyTransition(
         ShippingProviderEvent $event,
-        ShippingWebhookEvent $webhook,
-        ?string $rawStatus,
         ProviderStatusMapping $mapping,
+        ?string $modeMismatch,
     ): void {
-        if (!$mapping->canTransition() || $webhook->shipment_id === null) {
+        if ($modeMismatch !== null || !$mapping->canTransition() || $event->shipment_id === null) {
             return;
         }
 
         try {
             // One transaction: a failed evidence mark must not leave a status
             // transition behind, since replay short-circuits on the event row.
-            DB::transaction(function () use ($event, $webhook, $mapping): void {
+            DB::transaction(function () use ($event, $mapping): void {
                 $this->shipments->updateStatus(
-                    (int) $webhook->shipment_id,
+                    (int) $event->shipment_id,
                     $mapping->mappedStatus->value,
                     'provider_status_map_version:'.$mapping->mappingVersion,
                 );
@@ -159,7 +195,7 @@ final class ShippingProviderEventProcessor
             $this->raiseException(
                 $event,
                 ProviderEventExceptionType::INVALID_MAPPING_CONFIG,
-                $this->exceptionNotes($rawStatus, $mapping->mappingVersion, $exception->getMessage()),
+                $this->exceptionNotes($event->raw_status, $mapping->mappingVersion, $exception->getMessage()),
             );
         }
     }
@@ -180,6 +216,13 @@ final class ShippingProviderEventProcessor
                 'opened_at' => now(),
             ],
         );
+    }
+
+    private function withModeMismatchNote(string $notes, ?string $modeMismatch): string
+    {
+        return $modeMismatch === null || $modeMismatch === ''
+            ? $notes
+            : $notes.'; mode_mismatch='.$modeMismatch;
     }
 
     private function exceptionNotes(
