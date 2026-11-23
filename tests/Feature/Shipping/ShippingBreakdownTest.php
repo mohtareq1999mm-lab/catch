@@ -238,4 +238,60 @@ class ShippingBreakdownTest extends TestCase
             'currency_code' => 'USD',
         ]);
     }
+
+    public function test_update_order_preserves_stored_fast_shipping_fee_when_omitted(): void
+    {
+        $this->seedCurrency('USD', 2);
+
+        $user = \Marvel\Database\Models\User::factory()->create();
+        $cart = \Marvel\Database\Models\Cart::create([
+            'user_id' => $user->id,
+            'status' => 'active',
+            'total_price' => 100.0,
+        ]);
+
+        $totals = new \App\DTOs\CheckoutTotals(
+            subtotal: 100.0,
+            promotionDiscount: 0.0,
+            couponDiscount: 0.0,
+            finalTotal: 100.0,
+        );
+
+        $service = app(\App\Services\Checkout\OrderCreationService::class);
+        $order = $service->createOrder(
+            orderData: [
+                'user_id' => $user->id,
+                'name' => 'Update Customer',
+                'user_phone' => '01000000000',
+                'user_email' => 'update@example.com',
+                'address' => '123 Update Street',
+            ],
+            cart: $cart,
+            checkoutTotals: $totals,
+            shippingPrice: 15.0,
+            fastShippingFee: 10.0,
+        );
+
+        $this->assertNotNull($order);
+        $order->refresh();
+        $this->assertSame(10.0, (float) $order->fast_shipping_fee);
+        $this->assertSame(10.0, (float) $order->shipping_breakdown['fast_shipping_fee']);
+        $this->assertSame(25.0, (float) $order->shipping_breakdown['total']);
+        $this->assertSame(125.0, (float) $order->total_price);
+
+        $updated = $service->updateOrder(
+            order: $order,
+            orderData: ['user_id' => $user->id],
+            cart: $cart,
+            checkoutTotals: $totals,
+            shippingPrice: 15.0,
+        );
+
+        $updated->refresh();
+        $this->assertSame(10.0, (float) $updated->fast_shipping_fee);
+        $this->assertSame(10.0, (float) $updated->shipping_breakdown['fast_shipping_fee']);
+        $this->assertSame(15.0, (float) $updated->shipping_breakdown['net_shipping']);
+        $this->assertSame(25.0, (float) $updated->shipping_breakdown['total']);
+        $this->assertSame(125.0, (float) $updated->total_price);
+    }
 }
