@@ -95,6 +95,8 @@ return [
         'eta_updated_description' => 'Estimated delivery: :new_eta',
         'eta_delayed' => 'Delivery Delayed',
         'eta_delayed_description' => 'Delivery delayed by :delay_days days. New estimated delivery: :new_eta',
+        'delayed' => 'Delivery Delayed',
+        'delayed_description' => 'Your package delivery is delayed.',
     ],
 
     // Refund Events
