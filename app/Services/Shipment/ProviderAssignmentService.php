@@ -62,8 +62,10 @@ final class ProviderAssignmentService
 
     public function override(Shipment $shipment, string $providerCode, string $reason): Shipment
     {
+        // The FormRequest owns required/string/max:500; only whitespace-only
+        // input survives it and needs a translated rejection here.
         $reason = trim($reason);
-        if ($reason === '' || mb_strlen($reason) > 500) {
+        if ($reason === '') {
             throw new InvalidArgumentException(__('shipping.audit.override_reason_required'));
         }
 

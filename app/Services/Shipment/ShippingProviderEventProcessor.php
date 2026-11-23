@@ -91,7 +91,7 @@ final class ShippingProviderEventProcessor
                 'provider_event_key' => $webhook->event_key,
                 'raw_status' => $rawStatus,
                 'mapping_version' => $mapping->mappingVersion,
-                'mapped_status' => $mapping->mappedStatus,
+                'mapped_status' => $mapping->mappedStatus?->value,
                 'exception_classification' => $mapping->exceptionType?->value,
                 'payload_reference' => 'shipping_webhook_event:'.$webhook->id,
                 'payload_hash' => $payloadHash,
@@ -139,15 +139,20 @@ final class ShippingProviderEventProcessor
         }
 
         try {
-            $this->shipments->updateStatus(
-                (int) $webhook->shipment_id,
-                (string) $mapping->mappedStatus,
-                'provider_status_map_version:'.$mapping->mappingVersion,
-            );
-            $event->update(['applied_at' => now()]);
+            // One transaction: a failed evidence mark must not leave a status
+            // transition behind, since replay short-circuits on the event row.
+            DB::transaction(function () use ($event, $webhook, $mapping): void {
+                $this->shipments->updateStatus(
+                    (int) $webhook->shipment_id,
+                    $mapping->mappedStatus->value,
+                    'provider_status_map_version:'.$mapping->mappingVersion,
+                );
+                $event->update(['applied_at' => now()]);
+            });
         } catch (\RuntimeException $exception) {
             // The event row was already committed. Keep it, mark the mapping
             // unusable for this shipment, and surface the failure internally.
+            $event->refresh();
             $event->update([
                 'exception_classification' => ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value,
             ]);

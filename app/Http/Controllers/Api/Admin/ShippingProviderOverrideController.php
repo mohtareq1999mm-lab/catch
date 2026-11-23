@@ -8,6 +8,7 @@ use App\Exceptions\CarrierConfigurationException;
 use App\Exceptions\ProviderOverrideConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shipment\OverrideShippingProviderRequest;
+use App\Http\Resources\Shipment\ProviderOverrideResource;
 use App\Services\Shipment\ProviderAssignmentService;
 use App\Services\Shipment\ShipmentService;
 use Illuminate\Http\JsonResponse;
@@ -55,12 +56,7 @@ final class ShippingProviderOverrideController extends Controller
             __('message.MESSAGE.SHIPPING_PROVIDER_OVERRIDDEN'),
             200,
             true,
-            [
-                'shipment_id' => $updated->id,
-                'provider_code' => $updated->provider_code,
-                'service_level' => $updated->provider_service_level,
-                'provider_override' => (bool) $updated->provider_override,
-            ],
+            ProviderOverrideResource::make($updated),
         );
     }
 }

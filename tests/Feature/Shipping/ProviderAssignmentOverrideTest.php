@@ -181,8 +181,13 @@ class ProviderAssignmentOverrideTest extends TestCase
         ]);
 
         $response->assertOk();
-        $this->assertSame('alternate', $response->json('data.provider_code'));
-        $this->assertSame('express', $response->json('data.service_level'));
+        $this->assertSame([
+            'shipment_id' => $shipment->id,
+            'provider_code' => 'alternate',
+            'service_level' => 'express',
+            'provider_override' => true,
+        ], $response->json('data'));
+        $this->assertSame(__('message.MESSAGE.SHIPPING_PROVIDER_OVERRIDDEN'), $response->json('message'));
 
         $updated = $shipment->fresh();
         $this->assertSame('alternate', $updated->provider_code);
@@ -197,6 +202,21 @@ class ProviderAssignmentOverrideTest extends TestCase
         $this->assertSame('carrier capacity incident', $activity->properties['reason']);
         $this->assertSame('internal', $activity->properties['old']['provider_code']);
         $this->assertSame('alternate', $activity->properties['new']['provider_code']);
+    }
+
+    public function test_whitespace_only_reason_is_rejected_by_the_assignment_authority(): void
+    {
+        $shipment = $this->createShipment();
+
+        try {
+            app(ProviderAssignmentService::class)->override($shipment, 'alternate', " \t\n ");
+            $this->fail('A whitespace-only override reason must be rejected.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame(__('shipping.audit.override_reason_required'), $exception->getMessage());
+        }
+
+        $this->assertSame('internal', $shipment->fresh()->provider_code);
+        $this->assertSame(0, Activity::where('event', 'provider_override')->count());
     }
 
     public function test_override_is_refused_after_awb_creation(): void

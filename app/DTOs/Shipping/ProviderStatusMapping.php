@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\DTOs\Shipping;
 
+use App\Enums\ShipmentStatus;
 use App\Enums\Shipping\ProviderEventExceptionType;
 
 /**
@@ -15,7 +16,7 @@ use App\Enums\Shipping\ProviderEventExceptionType;
 final class ProviderStatusMapping
 {
     public function __construct(
-        public readonly ?string $mappedStatus,
+        public readonly ?ShipmentStatus $mappedStatus,
         public readonly string $mappingVersion,
         public readonly ?ProviderEventExceptionType $exceptionType,
     ) {}
