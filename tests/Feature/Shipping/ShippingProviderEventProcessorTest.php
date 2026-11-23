@@ -64,6 +64,7 @@ class ShippingProviderEventProcessorTest extends TestCase
         $this->assertSame('label_created', $event->raw_status);
         $this->assertSame('7', $event->mapping_version);
         $this->assertSame(ShipmentStatus::LABEL_CREATED->value, $event->mapped_status);
+        $this->assertNotNull($event->applied_at);
         $this->assertNull($event->exception_classification);
         $this->assertSame('shipping_webhook_event:'.$webhook->id, $event->payload_reference);
         $this->assertSame(
@@ -181,6 +182,36 @@ class ShippingProviderEventProcessorTest extends TestCase
                 'status' => ShipmentStatus::DELIVERED->value,
             ]],
         ], $recorder->calls);
+    }
+
+    public function test_failed_applied_at_write_rolls_back_the_transition_and_keeps_evidence(): void
+    {
+        $shipment = $this->createShipment();
+        $webhook = $this->createInboxRow($shipment, 'label_created', 'evt_applied_at_failure_151');
+        $recorder = $this->bindRecordingService();
+        $failOnce = true;
+        ShippingProviderEvent::updating(function () use (&$failOnce): void {
+            if ($failOnce) {
+                $failOnce = false;
+                throw new \RuntimeException('simulated applied_at write failure');
+            }
+        });
+
+        try {
+            $event = $this->processor()->process($webhook);
+        } finally {
+            ShippingProviderEvent::flushEventListeners();
+        }
+
+        $this->assertSame(ShipmentStatus::PENDING->value, $shipment->fresh()->status);
+        $this->assertNull($event->fresh()->applied_at);
+        $this->assertSame(
+            ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value,
+            $event->fresh()->exception_classification,
+        );
+        $this->assertSame(1, ShippingProviderEvent::count());
+        $this->assertSame(1, ShipmentException::count());
+        $this->assertCount(1, $recorder->calls);
     }
 
     public function test_evidence_models_link_shipment_webhook_and_exception(): void

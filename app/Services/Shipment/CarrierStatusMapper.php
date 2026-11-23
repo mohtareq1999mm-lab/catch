@@ -45,11 +45,12 @@ final class CarrierStatusMapper
         }
 
         $mappedStatus = array_key_first($candidates);
-        if (!is_string($mappedStatus) || ShipmentStatus::tryFrom($mappedStatus) === null) {
+        $status = is_string($mappedStatus) ? ShipmentStatus::tryFrom($mappedStatus) : null;
+        if ($status === null) {
             return $this->exception(ProviderEventExceptionType::INVALID_MAPPING_CONFIG, $map['version']);
         }
 
-        return new ProviderStatusMapping($mappedStatus, $map['version'], null);
+        return new ProviderStatusMapping($status, $map['version'], null);
     }
 
     /**

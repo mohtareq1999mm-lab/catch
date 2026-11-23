@@ -39,7 +39,7 @@ final class CarrierStatusMapperTest extends TestCase
     {
         $mapping = $this->mapper()->map('test_carrier', 'sandbox', 'in_transit');
 
-        $this->assertSame(ShipmentStatus::IN_TRANSIT->value, $mapping->mappedStatus);
+        $this->assertSame(ShipmentStatus::IN_TRANSIT, $mapping->mappedStatus);
         $this->assertSame('7', $mapping->mappingVersion);
         $this->assertNull($mapping->exceptionType);
         $this->assertTrue($mapping->canTransition());
