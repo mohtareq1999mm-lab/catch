@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Shipment;
 use App\Models\User;
 use Marvel\Database\Models\Order;
 
@@ -18,6 +19,7 @@ class ReturnRequest extends Model
         'return_number',
         'order_id',
         'fulfillment_id',
+        'shipment_id',
         'warehouse_id',
         'customer_id',
         'status',
@@ -36,6 +38,7 @@ class ReturnRequest extends Model
         'completed_at',
         'images',
         'metadata',
+        'provider_return_metadata',
     ];
 
     protected $casts = [
@@ -48,6 +51,7 @@ class ReturnRequest extends Model
         'completed_at' => 'datetime',
         'images' => 'array',
         'metadata' => 'array',
+        'provider_return_metadata' => 'array',
     ];
 
     public function order(): BelongsTo
@@ -58,6 +62,11 @@ class ReturnRequest extends Model
     public function fulfillment(): BelongsTo
     {
         return $this->belongsTo(Fulfillment::class);
+    }
+
+    public function shipment(): BelongsTo
+    {
+        return $this->belongsTo(Shipment::class);
     }
 
     public function warehouse(): BelongsTo

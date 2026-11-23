@@ -57,7 +57,11 @@ class ProviderAssignmentOverrideTest extends TestCase
             'service_level' => 'express',
             'channels' => ['web'],
             'geographies' => ['EG'],
-            'modes' => ['sandbox' => ['enabled' => true, 'credentials' => ['api_key' => 'x']]],
+            'modes' => ['sandbox' => [
+                'enabled' => true,
+                'credentials' => ['api_key' => 'x'],
+                'status_map' => ['version' => 1, 'statuses' => []],
+            ]],
         ]);
 
         $this->homeWarehouse = Warehouse::create([
@@ -102,7 +106,12 @@ class ProviderAssignmentOverrideTest extends TestCase
     public function test_default_provider_is_resolved_from_config_and_client_provider_input_is_ignored(): void
     {
         $this->assertSame(
-            ['provider_code' => 'internal', 'service_level' => 'standard', 'provider_mode' => 'internal'],
+            [
+                'provider_code' => 'internal',
+                'service_level' => 'standard',
+                'mapping_version' => '1',
+                'provider_mode' => 'internal',
+            ],
             app(ProviderAssignmentService::class)->resolve(),
         );
 
@@ -488,10 +497,12 @@ class ProviderAssignmentOverrideTest extends TestCase
                 'sandbox' => [
                     'enabled' => $mode === 'sandbox',
                     'credentials' => $mode === 'sandbox' ? ['api_key' => 'sandbox-key'] : [],
+                    'status_map' => ['version' => 1, 'statuses' => []],
                 ],
                 'production' => [
                     'enabled' => $mode === 'production',
                     'credentials' => $mode === 'production' ? ['api_key' => 'production-key'] : [],
+                    'status_map' => ['version' => 1, 'statuses' => []],
                 ],
             ],
         ];
