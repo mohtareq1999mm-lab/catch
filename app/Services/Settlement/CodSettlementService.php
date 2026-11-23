@@ -25,13 +25,34 @@ class CodSettlementService
     public function createStatement(array $payload): CodSettlementStatement
     {
         $identity = $this->validateIdentity($payload);
-        $lines = $this->resolveLines($this->normalizeLines($payload['lines'] ?? null), $identity);
-
-        return DB::transaction(fn (): CodSettlementStatement => $this->persistStatement(
+        $overlapRule = $this->validateOverlapRule($payload['overlap_rule'] ?? null);
+        $lines = $this->resolveLines(
+            $this->normalizeLines($payload['lines'] ?? null),
             $identity,
-            $lines,
-            $this->statementTotals($lines)
-        ));
+            $identity['currency_code']
+        );
+        $identity['currency_code'] = $lines[0]['currency_code'];
+
+        return DB::transaction(function () use ($identity, $lines, $overlapRule): CodSettlementStatement {
+            $this->assertNoDuplicateStatement($identity);
+            $overlap = $this->findOverlappingStatement($identity);
+            if ($overlap !== null) {
+                if ($overlapRule === 'reject') {
+                    throw new InvalidArgumentException(__('cod_settlement.overlapping_statement'));
+                }
+
+                if ($overlapRule === 'flag') {
+                    $metadata = $identity['metadata'] ?? [];
+                    $metadata['overlap'] = [
+                        'rule' => 'flag',
+                        'statement_ids' => [$overlap->id],
+                    ];
+                    $identity['metadata'] = $metadata;
+                }
+            }
+
+            return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
+        });
     }
 
     public function findStatement(int $id): CodSettlementStatement
@@ -84,15 +105,15 @@ class CodSettlementService
         return $statement->load('lines');
     }
 
-    private function resolveLines(array $normalizedLines, array $identity): array
+    private function resolveLines(array $normalizedLines, array $identity, ?string $headerCurrencyCode): array
     {
         $orders = Order::query()
             ->whereIn('id', array_values(array_unique(array_column($normalizedLines, 'order_id'))))
             ->get()
             ->keyBy('id');
 
-        $currencyCode = null;
-        $decimalPlaces = null;
+        $currencyCode = $headerCurrencyCode;
+        $decimalPlaces = $currencyCode !== null ? $this->decimalPlacesFor($currencyCode) : null;
         $lineIdentity = array_intersect_key($identity, array_flip([
             'provider_code', 'mode', 'account_code', 'period_start', 'period_end',
         ]));
@@ -198,6 +219,7 @@ class CodSettlementService
             'account_code' => $this->stringField($payload['account_code'] ?? null, 'account_code', 64),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            'currency_code' => $this->optionalCurrencyCode($payload['currency_code'] ?? null),
             'metadata' => $metadata,
         ];
     }
@@ -311,6 +333,65 @@ class CodSettlementService
         }
 
         return $value;
+    }
+
+    private function optionalCurrencyCode(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $code = strtoupper($this->stringField($value, 'currency_code', 3));
+        if (!preg_match('/^[A-Z]{3}$/', $code)) {
+            throw $this->invalidPayload('currency_code');
+        }
+
+        return $code;
+    }
+
+    private function validateOverlapRule(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $rule = $this->stringField($value, 'overlap_rule', 16);
+        if (!in_array($rule, ['flag', 'reject'], true)) {
+            throw $this->invalidPayload('overlap_rule');
+        }
+
+        return $rule;
+    }
+
+    private function assertNoDuplicateStatement(array $identity): void
+    {
+        $duplicate = CodSettlementStatement::query()
+            ->where('provider_code', $identity['provider_code'])
+            ->where('mode', $identity['mode'])
+            ->where('account_code', $identity['account_code'])
+            ->whereDate('period_start', $identity['period_start'])
+            ->whereDate('period_end', $identity['period_end'])
+            ->where('currency_code', $identity['currency_code'])
+            ->lockForUpdate()
+            ->exists();
+
+        if ($duplicate) {
+            throw new InvalidArgumentException(__('cod_settlement.duplicate_statement'));
+        }
+    }
+
+    private function findOverlappingStatement(array $identity): ?CodSettlementStatement
+    {
+        return CodSettlementStatement::query()
+            ->where('provider_code', $identity['provider_code'])
+            ->where('mode', $identity['mode'])
+            ->where('account_code', $identity['account_code'])
+            ->where('currency_code', $identity['currency_code'])
+            ->whereDate('period_start', '<=', $identity['period_end'])
+            ->whereDate('period_end', '>=', $identity['period_start'])
+            ->lockForUpdate()
+            ->orderBy('id')
+            ->first();
     }
 
     private function invalidPayload(string $field): InvalidArgumentException
