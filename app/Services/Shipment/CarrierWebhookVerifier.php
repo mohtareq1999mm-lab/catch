@@ -200,6 +200,11 @@ final class CarrierWebhookVerifier
             $normalized,
         );
 
+        $legacy = $this->legacyFallbackFingerprint($providerCode, $context, $identity);
+        if (! in_array($legacy, $candidates, true)) {
+            $candidates[] = $legacy;
+        }
+
         foreach ($candidates as $candidate) {
             if ($this->existingFingerprint($providerCode, $context['mode'], $context['account_code'], $candidate)) {
                 return $candidate;
@@ -207,6 +212,25 @@ final class CarrierWebhookVerifier
         }
 
         return $candidates[0];
+    }
+
+    /**
+     * Pre-#159 fallback format for dedupe continuity. Must match the legacy
+     * fp:<sha256> identity exactly; never used as the primary format for new rows.
+     *
+     * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
+     */
+    private function legacyFallbackFingerprint(string $providerCode, array $context, array $identity): string
+    {
+        return 'fp:'.hash('sha256', implode('|', [
+            $providerCode,
+            $context['mode'],
+            $context['account_code'],
+            $identity['object_ref'] ?? 'no-object',
+            $identity['event_type'],
+            $identity['status'],
+        ]));
     }
 
     /** @param array<string,mixed> $body

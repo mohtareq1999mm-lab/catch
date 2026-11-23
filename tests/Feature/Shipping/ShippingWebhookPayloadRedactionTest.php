@@ -157,6 +157,46 @@ class ShippingWebhookPayloadRedactionTest extends TestCase
         $this->assertSame($firstKey, ShippingWebhookEvent::firstOrFail()->event_key);
     }
 
+    public function test_legacy_sha256_fallback_fingerprint_is_deduped_after_versioned_hmac_upgrade(): void
+    {
+        $payload = $this->payload([
+            'type' => 'shipment.status_changed',
+            'status' => 'in_transit',
+            'data' => ['shipment' => ['id' => 'carrier_legacy_159']],
+        ]);
+        unset($payload['id']);
+
+        $legacyKey = 'fp:'.hash('sha256', implode('|', [
+            'null',
+            'sandbox',
+            'null-local',
+            'carrier_legacy_159',
+            'shipment.status_changed',
+            'in_transit',
+        ]));
+
+        ShippingWebhookEvent::query()->create([
+            'provider_code' => 'null',
+            'mode' => 'sandbox',
+            'account_code' => 'null-local',
+            'webhook_version' => 'v1',
+            'event_key' => $legacyKey,
+            'event_type' => 'shipment.status_changed',
+            'provider_shipment_ref' => 'carrier_legacy_159',
+            'shipment_id' => null,
+            'redacted_payload' => ['event_key' => $legacyKey],
+            'raw_status' => 'received',
+            'status' => 'received',
+            'received_at' => now()->subDay(),
+            'occurred_at' => now()->subDay(),
+        ]);
+
+        $this->postWebhook($payload)->assertStatus(200)->assertJsonPath('data.status', 'duplicate');
+
+        $this->assertSame(1, ShippingWebhookEvent::count());
+        $this->assertSame($legacyKey, ShippingWebhookEvent::firstOrFail()->event_key);
+    }
+
     /** @param array<string,mixed> $overrides */
     private function payload(array $overrides = []): array
     {
