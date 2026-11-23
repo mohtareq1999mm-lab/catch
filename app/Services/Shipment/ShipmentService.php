@@ -454,9 +454,9 @@ class ShipmentService
      * Timestamp semantics (F8-9): shipped_at = carrier handoff, set ONLY on
      * picked_up. The old dead 'shipped' arm is gone — no such status exists.
      */
-    public function updateStatus(int $id, string $newStatus, ?string $notes = null): Shipment
+    public function updateStatus(int $id, string $newStatus, ?string $notes = null, array $context = []): Shipment
     {
-        return DB::transaction(function () use ($id, $newStatus, $notes) {
+        return DB::transaction(function () use ($id, $newStatus, $notes, $context) {
             $probe = Shipment::findOrFail($id);
 
             if ((int) $probe->order_id) {
@@ -471,7 +471,7 @@ class ShipmentService
                 );
             }
 
-            $this->writeStatus($shipment, $newStatus, $notes);
+            $this->writeStatus($shipment, $newStatus, $notes, [], $context);
 
             $fresh = $shipment->fresh();
             $this->syncOrderMirror($fresh);

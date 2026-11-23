@@ -16,16 +16,6 @@ use App\Models\Shipping\ShippingWebhookEvent;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
-/**
- * #151: turns an accepted webhook inbox row into durable provider evidence and,
- * only for a known unambiguous versioned mapping, a canonical shipment
- * transition through ShipmentService. The inbox ingest boundary never calls
- * this service; processing is a separate, replay-safe step.
- *
- * Evidence is committed before the transition attempt. A configured map that
- * targets a shipment-state the authority refuses therefore leaves the raw
- * event and an internal exception behind instead of rolling both back.
- */
 final class ShippingProviderEventProcessor
 {
     public function __construct(
@@ -42,8 +32,6 @@ final class ShippingProviderEventProcessor
         }
 
         $rawStatus = $this->rawStatusFrom($webhook);
-        // #149: compare the event's environment with the shipment snapshot
-        // before any mapping is allowed to reach the canonical authority.
         $modeMismatch = $this->modeMismatchFor($webhook);
         $mapping = $this->mapper->map($webhook->provider_code, $webhook->mode, $rawStatus);
 
@@ -116,6 +104,9 @@ final class ShippingProviderEventProcessor
                 'account_code' => $webhook->account_code,
                 'provider_event_key' => $webhook->event_key,
                 'raw_status' => $rawStatus,
+                'occurred_at' => $webhook->occurred_at,
+                'received_at' => $webhook->received_at,
+                'ordering_key' => $this->orderingKey($webhook),
                 'mapping_version' => $mapping->mappingVersion,
                 'mapped_status' => $mapping->mappedStatus?->value,
                 'exception_classification' => $mapping->exceptionType?->value,
@@ -140,22 +131,16 @@ final class ShippingProviderEventProcessor
 
         if ($modeMismatch !== null) {
             $event->update(['exception_classification' => ProviderEventExceptionType::MODE_MISMATCH->value]);
-            $this->raiseException(
-                $event,
-                ProviderEventExceptionType::MODE_MISMATCH,
-                $notes,
-            );
-
+            $this->raiseException($event, ProviderEventExceptionType::MODE_MISMATCH, $notes);
             return;
         }
 
-        if (!$mapping->canTransition()) {
+        if (! $mapping->canTransition()) {
             $this->raiseException(
                 $event,
                 $mapping->exceptionType ?? ProviderEventExceptionType::UNKNOWN_STATUS,
                 $notes,
             );
-
             return;
         }
 
@@ -170,13 +155,35 @@ final class ShippingProviderEventProcessor
         ProviderStatusMapping $mapping,
         ?string $modeMismatch,
     ): void {
-        if ($modeMismatch !== null || !$mapping->canTransition() || $event->shipment_id === null) {
+        if ($modeMismatch !== null || ! $mapping->canTransition() || $event->shipment_id === null) {
+            return;
+        }
+
+        $shipment = Shipment::query()->find((int) $event->shipment_id);
+        if ($shipment === null) {
+            $event->update(['exception_classification' => ProviderEventExceptionType::UNMATCHED_SHIPMENT->value]);
+            $this->raiseException($event, ProviderEventExceptionType::UNMATCHED_SHIPMENT, $this->exceptionNotes($event->raw_status, $mapping->mappingVersion));
+            return;
+        }
+
+        if ($this->isTerminalReversal($shipment, $mapping)) {
+            $event->update(['exception_classification' => ProviderEventExceptionType::TERMINAL_STATE_REVERSAL->value]);
+            $this->raiseException(
+                $event,
+                ProviderEventExceptionType::TERMINAL_STATE_REVERSAL,
+                $this->exceptionNotes($event->raw_status, $mapping->mappingVersion, 'terminal_state_reversal:current='.$shipment->status.',mapped='.$mapping->mappedStatus?->value),
+            );
+            return;
+        }
+
+        $orderingBlock = $this->orderingBlockReason($shipment, $event, $mapping);
+        if ($orderingBlock !== null) {
+            $event->update(['exception_classification' => $orderingBlock->value]);
+            $this->raiseException($event, $orderingBlock, $this->exceptionNotes($event->raw_status, $mapping->mappingVersion, 'ordering_block='.$orderingBlock->value));
             return;
         }
 
         try {
-            // One transaction: a failed evidence mark must not leave a status
-            // transition behind, since replay short-circuits on the event row.
             DB::transaction(function () use ($event, $mapping): void {
                 $this->shipments->updateStatus(
                     (int) $event->shipment_id,
@@ -186,25 +193,14 @@ final class ShippingProviderEventProcessor
                 $event->update(['applied_at' => now()]);
             });
         } catch (\RuntimeException $exception) {
-            // The event row was already committed. Keep it, mark the mapping
-            // unusable for this shipment, and surface the failure internally.
             $event->refresh();
-            $event->update([
-                'exception_classification' => ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value,
-            ]);
-            $this->raiseException(
-                $event,
-                ProviderEventExceptionType::INVALID_MAPPING_CONFIG,
-                $this->exceptionNotes($event->raw_status, $mapping->mappingVersion, $exception->getMessage()),
-            );
+            $event->update(['exception_classification' => ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value]);
+            $this->raiseException($event, ProviderEventExceptionType::INVALID_MAPPING_CONFIG, $this->exceptionNotes($event->raw_status, $mapping->mappingVersion, $exception->getMessage()));
         }
     }
 
-    private function raiseException(
-        ShippingProviderEvent $event,
-        ProviderEventExceptionType $type,
-        string $notes,
-    ): void {
+    private function raiseException(ShippingProviderEvent $event, ProviderEventExceptionType $type, string $notes): void
+    {
         ShipmentException::firstOrCreate(
             ['provider_event_id' => $event->id],
             [
@@ -218,6 +214,88 @@ final class ShippingProviderEventProcessor
         );
     }
 
+    private function orderingKey(ShippingWebhookEvent $webhook): string
+    {
+        $occurred = $webhook->occurred_at?->getTimestamp() ?? 0;
+        $received = $webhook->received_at?->getTimestamp() ?? 0;
+        return $occurred.':'.$received.':'.$webhook->id;
+    }
+
+    private function isTerminalReversal(Shipment $shipment, ProviderStatusMapping $mapping): bool
+    {
+        $mapped = $mapping->mappedStatus?->value;
+        if ($mapped === null) {
+            return false;
+        }
+
+        if (! in_array((string) $shipment->status, Shipment::TERMINAL_STATUSES, true)) {
+            return false;
+        }
+
+        return (string) $shipment->status !== $mapped;
+    }
+
+    private function orderingBlockReason(Shipment $shipment, ShippingProviderEvent $event, ProviderStatusMapping $mapping): ?ProviderEventExceptionType
+    {
+        $mapped = $mapping->mappedStatus?->value;
+        if ($mapped === null || (string) $shipment->status === $mapped) {
+            return null;
+        }
+
+        $latestApplied = ShippingProviderEvent::query()
+            ->where('shipment_id', $event->shipment_id)
+            ->whereNotNull('applied_at')
+            ->where('id', '!=', $event->id)
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('received_at')
+            ->orderByDesc('id')
+            ->first();
+
+        $currentKey = $this->orderingKeyFromEvent($event);
+
+        if ($latestApplied !== null) {
+            $latestKey = $this->orderingKeyFromEvent($latestApplied);
+
+            return $currentKey < $latestKey ? ProviderEventExceptionType::OUT_OF_ORDER_EVENT : null;
+        }
+
+        $latestTimeline = \App\Models\OrderTrackingEvent::query()
+            ->where('order_id', $shipment->order_id)
+            ->where('event_type', 'shipment.status_changed')
+            ->where('new_status', (string) $shipment->status)
+            ->latest('event_timestamp')
+            ->latest('id')
+            ->first();
+
+        if ($latestTimeline?->event_timestamp !== null) {
+            $timelineKey = $latestTimeline->event_timestamp->getTimestamp().':'.$latestTimeline->event_timestamp->getTimestamp().':0';
+            if ($currentKey < $timelineKey) {
+                return ProviderEventExceptionType::OUT_OF_ORDER_EVENT;
+            }
+        }
+
+        $baseline = $shipment->updated_at ?? $shipment->created_at;
+        if ($baseline !== null) {
+            $baselineKey = $baseline->getTimestamp().':'.$baseline->getTimestamp().':0';
+            if ($currentKey < $baselineKey) {
+                return ProviderEventExceptionType::OUT_OF_ORDER_EVENT;
+            }
+        }
+
+        if ($event->occurred_at === null || $event->received_at === null) {
+            return ProviderEventExceptionType::OUT_OF_ORDER_EVENT;
+        }
+
+        return null;
+    }
+
+    private function orderingKeyFromEvent(ShippingProviderEvent $event): string
+    {
+        $occurred = $event->occurred_at?->getTimestamp() ?? 0;
+        $received = $event->received_at?->getTimestamp() ?? 0;
+        return $occurred.':'.$received.':'.$event->id;
+    }
+
     private function withModeMismatchNote(string $notes, ?string $modeMismatch): string
     {
         return $modeMismatch === null || $modeMismatch === ''
@@ -225,11 +303,8 @@ final class ShippingProviderEventProcessor
             : $notes.'; mode_mismatch='.$modeMismatch;
     }
 
-    private function exceptionNotes(
-        ?string $rawStatus,
-        string $mappingVersion,
-        ?string $transitionError = null,
-    ): string {
+    private function exceptionNotes(?string $rawStatus, string $mappingVersion, ?string $transitionError = null): string
+    {
         $notes = 'raw_status='.($rawStatus ?? '<missing>').'; mapping_version='.($mappingVersion !== '' ? $mappingVersion : '<none>');
         if ($transitionError !== null && $transitionError !== '') {
             $notes .= '; transition_error='.$transitionError;

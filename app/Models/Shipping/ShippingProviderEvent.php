@@ -23,6 +23,9 @@ class ShippingProviderEvent extends Model
         'account_code',
         'provider_event_key',
         'raw_status',
+        'occurred_at',
+        'received_at',
+        'ordering_key',
         'mapping_version',
         'mapped_status',
         'exception_classification',
@@ -32,6 +35,8 @@ class ShippingProviderEvent extends Model
     ];
 
     protected $casts = [
+        'occurred_at' => 'datetime',
+        'received_at' => 'datetime',
         'applied_at' => 'datetime',
     ];
 

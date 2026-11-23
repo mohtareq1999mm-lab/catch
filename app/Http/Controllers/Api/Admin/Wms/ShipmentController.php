@@ -7,11 +7,13 @@ use App\Http\Requests\Admin\Wms\BulkCreateShipmentsRequest;
 use App\Http\Requests\Admin\Wms\BulkShipmentActionRequest;
 use App\Http\Requests\Admin\Wms\CreateShipmentRequest;
 use App\Http\Requests\Admin\Wms\ListShipmentsRequest;
+use App\Http\Requests\Admin\Wms\ManualShipmentCorrectionRequest;
 use App\Http\Requests\Admin\Wms\ShipmentNotesRequest;
 use App\Http\Resources\Wms\ShipmentDetailResource;
 use App\Http\Resources\Wms\ShipmentResource;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Shipment;
+use App\Services\Shipment\ShipmentManualCorrectionService;
 use App\Services\Shipment\ShipmentService;
 use App\Services\Warehouse\WarehouseAccess;
 use Illuminate\Http\JsonResponse;
@@ -36,6 +38,7 @@ class ShipmentController extends WmsAdminController
 {
     public function __construct(
         private ShipmentService $shipments,
+        private ShipmentManualCorrectionService $manualCorrections,
     ) {
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_INDEX, ['only' => ['index']]);
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_SHOW, ['only' => ['show']]);
@@ -46,6 +49,7 @@ class ShipmentController extends WmsAdminController
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_DISPATCH, ['only' => ['dispatchShipment']]);
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_DELIVER, ['only' => ['markDelivered']]);
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_CANCEL, ['only' => ['cancelShipment']]);
+        $this->middleware('permission:wms-shipments.manual-correct', ['only' => ['manualCorrection']]);
     }
 
     private function shipmentWarehouseId(Shipment $shipment): int
@@ -313,5 +317,38 @@ class ShipmentController extends WmsAdminController
             true,
             ShipmentDetailResource::make($cancelled->fresh())
         );
+    }
+
+        public function manualCorrection(ManualShipmentCorrectionRequest $request, int $id): JsonResponse
+    {
+        $shipment = Shipment::whereKey($id)->firstOrFail();
+        if ($shipment->fulfillment_id !== null) {
+            $this->authorizeWarehouseScope($this->shipmentWarehouseId($shipment), 'update-shipment');
+        }
+
+        try {
+            $correction = $this->manualCorrections->correct(
+                $shipment->id,
+                (string) $request->validated('status'),
+                (string) $request->validated('reason'),
+                $this->actorId(),
+            );
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            $this->unprocessable($e->getMessage());
+        }
+
+        return $this->apiResponse(__('wms.shipment.updated'), 200, true, [
+            'shipment' => ShipmentDetailResource::make($shipment->fresh()),
+            'correction' => [
+                'id' => $correction->id,
+                'shipment_id' => $correction->shipment_id,
+                'old_status' => $correction->old_status,
+                'new_status' => $correction->new_status,
+                'reason' => $correction->reason,
+                'actor_id' => $correction->actor_id,
+                'timeline_event_id' => $correction->timeline_event_id,
+                'created_at' => $correction->created_at?->toIso8601String(),
+            ],
+        ]);
     }
 }
