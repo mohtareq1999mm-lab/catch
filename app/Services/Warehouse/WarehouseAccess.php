@@ -168,6 +168,7 @@ class WarehouseAccess
                 'wms-shipments.dispatch' => 'update-shipment',
                 'wms-shipments.deliver' => 'update-shipment',
                 'wms-shipments.cancel' => 'update-shipment',
+                'wms-shipments.manual-correct' => 'update-shipment',
                 'barcode.scan' => 'view-fulfillment',
             ];
 

@@ -6,6 +6,7 @@ namespace App\Services\Shipment;
 
 use App\Events\Shipment\ShipmentStatusChanged;
 use App\Models\Shipping\ShipmentNotification;
+use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
 
 class ShipmentNotificationRecorder
@@ -53,9 +54,6 @@ class ShipmentNotificationRecorder
 
     private function isDuplicateKey(QueryException $e): bool
     {
-        $sqlState = $e->errorInfo[0] ?? null;
-        $driverCode = (int) ($e->errorInfo[1] ?? 0);
-
-        return $sqlState === '23000' || $driverCode === 1062;
+        return UniqueViolation::detect($e);
     }
 }

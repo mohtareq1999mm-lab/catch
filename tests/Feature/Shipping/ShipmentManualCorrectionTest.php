@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Shipping;
 
+use App\Models\Fulfillment\Fulfillment;
+use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Permission as MarvelPermission;
 use Marvel\Database\Models\User;
+use Marvel\Enums\Permission as PermissionEnum;
 use Tests\TestCase;
 
 class ShipmentManualCorrectionTest extends TestCase
@@ -18,8 +21,11 @@ class ShipmentManualCorrectionTest extends TestCase
 
     public function test_manual_correction_requires_authorization_and_audits_change(): void
     {
-        $actor = $this->authorizedUser();
-        $shipment = $this->createShipment();
+        $warehouse = Warehouse::create([
+            'code' => 'WH-MC', 'name' => 'Manual Correction WH', 'status' => 'active', 'is_default' => true,
+        ]);
+        $actor = $this->authorizedUser($warehouse->id);
+        $shipment = $this->createShipment($warehouse->id);
 
         $response = $this->actingAs($actor, 'sanctum')->postJson("/api/v1/admin/shipments/{$shipment->id}/manual-correction", [
             'status' => 'picked_up',
@@ -61,24 +67,53 @@ class ShipmentManualCorrectionTest extends TestCase
         $this->assertDatabaseCount('shipment_manual_corrections', 0);
     }
 
-    private function authorizedUser(): User
+    public function test_manual_correction_rejects_invalid_status(): void
     {
-        $user = $this->userWithoutPermission();
-        $permission = MarvelPermission::firstOrCreate(['name' => 'wms-shipments.manual-correct', 'guard_name' => 'api']);
-        $user->givePermissionTo($permission);
+        $actor = $this->authorizedUser();
+        $shipment = $this->createShipment();
+
+        $this->actingAs($actor, 'sanctum')->postJson("/api/v1/admin/shipments/{$shipment->id}/manual-correction", [
+            'status' => 'not-a-real-status',
+            'reason' => 'Bad status.',
+        ])->assertStatus(422)->assertJsonValidationErrors(['status']);
+
+        $this->assertDatabaseCount('shipment_manual_corrections', 0);
+    }
+
+    public function test_manual_correction_is_not_found_for_null_fulfillment_shipment(): void
+    {
+        $actor = $this->authorizedUser();
+        $shipment = $this->createShipment();
+
+        $this->actingAs($actor, 'sanctum')->postJson("/api/v1/admin/shipments/{$shipment->id}/manual-correction", [
+            'status' => 'picked_up',
+            'reason' => 'Order-only shipment should not be on WMS surface.',
+        ])->assertStatus(404);
+
+        $this->assertDatabaseCount('shipment_manual_corrections', 0);
+    }
+
+    private function authorizedUser(?int $warehouseId = null): User
+    {
+        $user = $this->userWithoutPermission($warehouseId);
+        foreach ([PermissionEnum::WMS_SHIPMENTS_MANUAL_CORRECT, 'update-shipment'] as $name) {
+            $permission = MarvelPermission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
+            $user->givePermissionTo($permission);
+        }
         return $user;
     }
 
-    private function userWithoutPermission(): User
+    private function userWithoutPermission(?int $warehouseId = null): User
     {
         return User::create([
             'name' => 'Manual Correction Actor',
             'email' => 'manual-correction-'.Str::lower(Str::random(8)).'@example.test',
             'password' => bcrypt('password'),
+            'warehouse_id' => $warehouseId,
         ]);
     }
 
-    private function createShipment(): Shipment
+    private function createShipment(?int $warehouseId = null): Shipment
     {
         $customer = User::create([
             'name' => 'Manual Correction Customer',
@@ -99,8 +134,20 @@ class ShipmentManualCorrectionTest extends TestCase
             'address' => ['city' => 'Cairo'],
         ]);
 
+        $fulfillmentId = null;
+        if ($warehouseId !== null) {
+            $fulfillment = Fulfillment::create([
+                'order_id' => $order->id,
+                'warehouse_id' => $warehouseId,
+                'status' => 'ready_to_ship',
+                'items_snapshot' => [['order_item_id' => 1, 'product_id' => 1, 'product_name' => 'P', 'product_sku' => 'SKU', 'quantity' => 1]],
+            ]);
+            $fulfillmentId = $fulfillment->id;
+        }
+
         return Shipment::create([
             'order_id' => $order->id,
+            'fulfillment_id' => $fulfillmentId,
             'status' => 'label_created',
             'provider_code' => 'test_carrier',
             'provider_mode' => 'sandbox',

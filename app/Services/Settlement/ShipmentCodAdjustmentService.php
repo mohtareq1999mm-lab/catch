@@ -6,6 +6,7 @@ namespace App\Services\Settlement;
 
 use App\Exceptions\CodSettlementPrecisionException;
 use App\Models\Currency;
+use App\Models\Settlement\CodSettlementStatement;
 use App\Models\Settlement\ShipmentCodAdjustment;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,10 @@ class ShipmentCodAdjustmentService
         }
 
         $decimalPlaces = $this->decimalPlacesFor($currencyCode);
+
+        if ($statementId !== null) {
+            $this->assertStatementOwnership($statementId, $order, $currencyCode, $decimalPlaces);
+        }
 
         $original = $this->minor($payload['original_collectible_minor'] ?? null, 'original_collectible_minor');
         $old = $this->minor($payload['old_collectible_minor'] ?? null, 'old_collectible_minor');
@@ -127,6 +132,29 @@ class ShipmentCodAdjustmentService
         }
 
         return $decimalPlaces;
+    }
+
+    private function assertStatementOwnership(int $statementId, Order $order, string $currencyCode, int $decimalPlaces): void
+    {
+        $statement = CodSettlementStatement::query()->with('lines')->find($statementId);
+        if ($statement === null) {
+            throw new InvalidArgumentException('Invalid statement_id.');
+        }
+
+        $statementCurrency = strtoupper(trim((string) $statement->currency_code));
+        if ($statementCurrency !== $currencyCode || (int) $statement->decimal_places !== $decimalPlaces) {
+            throw new InvalidArgumentException('Invalid statement_id.');
+        }
+
+        $matchesOrder = $statement->lines->contains(
+            fn ($line): bool => (int) $line->order_id === (int) $order->id
+                && strtoupper(trim((string) $line->currency_code)) === $currencyCode
+                && (int) $line->decimal_places === $decimalPlaces
+        );
+
+        if (!$matchesOrder) {
+            throw new InvalidArgumentException('Invalid statement_id.');
+        }
     }
 
     private function positiveInt(mixed $value, string $field): int

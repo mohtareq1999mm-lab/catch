@@ -440,6 +440,7 @@ final class Permission extends Enum
     public const WMS_SHIPMENTS_DISPATCH = 'wms-shipments.dispatch';
     public const WMS_SHIPMENTS_DELIVER = 'wms-shipments.deliver';
     public const WMS_SHIPMENTS_CANCEL = 'wms-shipments.cancel';
+    public const WMS_SHIPMENTS_MANUAL_CORRECT = 'wms-shipments.manual-correct';
 
     // 📊 Inventory Operations Granular Permissions
     public const INVENTORY_RECEIVE = 'inventory.receive';
