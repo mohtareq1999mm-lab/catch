@@ -42,6 +42,7 @@ final class ShippingWebhookInbox
                 'provider_shipment_ref' => $event->providerShipmentRef,
                 'shipment_id' => $shipmentId,
                 'redacted_payload' => $event->redactedPayload,
+                'raw_status' => $event->rawStatus,
                 'status' => ShippingWebhookStatus::RECEIVED->value,
                 'last_error' => null,
                 'received_at' => Date::now(),

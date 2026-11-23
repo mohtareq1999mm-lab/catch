@@ -63,4 +63,16 @@ class ShippingConfigTest extends TestCase
             $this->assertArrayHasKey('status_map', $block);
         }
     }
+
+    public function test_every_registered_status_map_carries_a_version(): void
+    {
+        foreach (config('shipping.providers') as $definition) {
+            foreach ($definition['modes'] as $block) {
+                $map = $block['status_map'];
+
+                $this->assertNotEmpty((string) $map['version']);
+                $this->assertIsArray($map['statuses']);
+            }
+        }
+    }
 }

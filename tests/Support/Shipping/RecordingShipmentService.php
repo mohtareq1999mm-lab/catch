@@ -36,6 +36,16 @@ final class RecordingShipmentService extends ShipmentService
         return parent::dispatch($shipmentId, $notes);
     }
 
+    public function updateStatus(int $id, string $newStatus, ?string $notes = null): Shipment
+    {
+        $this->record('updateStatus', [
+            'shipment_id' => $id,
+            'status' => $newStatus,
+        ]);
+
+        return parent::updateStatus($id, $newStatus, $notes);
+    }
+
     public function markDelivered(int $shipmentId, ?string $notes = null): Shipment
     {
         $this->record('markDelivered', ['shipment_id' => $shipmentId]);
