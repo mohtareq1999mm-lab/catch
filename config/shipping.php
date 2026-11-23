@@ -34,6 +34,17 @@ return [
         'decay_seconds' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_DECAY_SECONDS', 60)),
     ],
 
+    // #160: carrier labels are private artifacts. They are stored on a
+    // private disk only, validated before acceptance, and exposed only via
+    // authorized short-lived links. Never place labels on a public disk.
+    'labels' => [
+        'disk' => env('SHIPPING_LABEL_DISK', 'private'),
+        'directory' => env('SHIPPING_LABEL_DIRECTORY', 'shipping-labels'),
+        'max_bytes' => max(1, (int) env('SHIPPING_LABEL_MAX_BYTES', 5 * 1024 * 1024)),
+        'allowed_formats' => ['pdf', 'png', 'zpl'],
+        'signed_url_ttl_minutes' => max(1, (int) env('SHIPPING_LABEL_SIGNED_TTL_MINUTES', 10)),
+    ],
+
     'providers' => [
         'null' => [
             // Local placeholder only: no outbound calls, no capabilities.

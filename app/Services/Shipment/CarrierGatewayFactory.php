@@ -138,7 +138,45 @@ class CarrierGatewayFactory
             'mode' => $mode,
             'enabled' => is_array($block) && ($block['enabled'] ?? false) === true,
             'verified_capabilities' => is_array($block) ? self::verifiedCapabilities($block) : [],
+            'mapping_version_present' => is_array($block) && $this->hasMappingVersion($block),
         ];
+    }
+
+    /**
+     * #160: assignment/config resolution must fail closed when required
+     * mapping version is absent for the resolved provider+mode.
+     */
+    public function resolveConfiguredMappingVersion(string $providerCode): string
+    {
+        $mode = $this->resolveMode($providerCode);
+        $this->assertProviderConfigResolvable($providerCode, $mode);
+        [$provider] = $this->providerWithValidatedMode($providerCode);
+        $block = $this->requireModeBlock($providerCode, is_array($provider['modes'] ?? null) ? $provider['modes'] : [], $mode);
+        $statusMap = is_array($block['status_map'] ?? null) ? $block['status_map'] : [];
+        $version = $statusMap['version'] ?? null;
+
+        return trim((string) $version);
+    }
+
+    /** #160: fail closed on missing credentials/mode/mapping version. */
+    public function assertProviderConfigResolvable(string $providerCode, string $mode): void
+    {
+        $provider = $this->requireProvider($providerCode);
+        $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
+        $this->assertSingleMode($providerCode, $modes);
+        $block = $this->requireModeBlock($providerCode, $modes, $mode);
+        $this->requireCredentials($providerCode, $block);
+        $this->requireCapabilityVerification($providerCode, $block, null);
+    }
+
+    /** @param array<string,mixed> $block */
+    private function hasMappingVersion(array $block): bool
+    {
+        $statusMap = is_array($block['status_map'] ?? null) ? $block['status_map'] : [];
+        $version = $statusMap['version'] ?? null;
+        $normalized = is_string($version) || is_int($version) ? trim((string) $version) : '';
+
+        return $normalized !== '';
     }
 
     /** @return list<array{provider:string,mode:string,enabled:bool,verified_capabilities:list<string>}> */
@@ -191,6 +229,11 @@ class CarrierGatewayFactory
 
         if (!is_array($block) || ($block['enabled'] ?? false) !== true) {
             throw CarrierConfigurationException::disabled($providerCode);
+        }
+
+        // #160: configuration resolution fails closed on missing mapping version.
+        if (!$this->hasMappingVersion($block)) {
+            throw CarrierConfigurationException::missingMappingVersion($providerCode, $mode);
         }
 
         return $block;
@@ -401,3 +444,6 @@ class CarrierGatewayFactory
         return is_int($value) ? $value : $fallback;
     }
 }
+
+
+

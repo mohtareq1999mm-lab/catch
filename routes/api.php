@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 use App\Http\Controllers\Api\General\BannerController;
 use App\Http\Controllers\Api\General\BrandController;
@@ -335,6 +335,11 @@ Route::prefix('v1/general/invoices')->middleware(['signed', 'throttle:30,1'])->g
         ->whereUuid('uuid')->name('general.invoices.view');
     Route::get('download/{uuid}', [\App\Http\Controllers\Api\InvoiceController::class, 'downloadByUuidSigned'])
         ->whereUuid('uuid')->name('general.invoices.download');
+});
+
+Route::prefix('v1/general/shipping/labels')->middleware(['signed', 'throttle:30,1'])->group(function () {
+    Route::get('{uuid}', [\App\Http\Controllers\Api\General\ShipmentLabelController::class, 'show'])
+        ->whereUuid('uuid')->name('general.shipping.labels.show');
 });
 
 // NOTE: the signed digital-download route lives inside the `v1/general` group
