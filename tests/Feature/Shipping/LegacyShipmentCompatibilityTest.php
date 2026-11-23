@@ -292,6 +292,98 @@ class LegacyShipmentCompatibilityTest extends TestCase
         $this->assertSame('in_transit', $calls[0]['status']);
     }
 
+    public function test_legacy_shipments_store_delegates_to_shipment_service_create(): void
+    {
+        $order = $this->createOrder();
+        Sanctum::actingAs($this->admin);
+        $returnedShipment = $this->createShipment(['order_id' => $order->id, 'tracking_number' => 'TRK-DELEGATE-CREATE-RETURN']);
+
+        $mock = $this->mock(ShipmentService::class);
+        $mock->shouldReceive('create')
+            ->once()
+            ->withArgs(function (array $data) use ($order): bool {
+                $this->assertSame($order->id, (int) $data['order_id']);
+                $this->assertSame('TRK-DELEGATE-CREATE', $data['tracking_number']);
+                return true;
+            })
+            ->andReturn($returnedShipment);
+
+        $response = $this->postJson('/api/v1/shipments', [
+            'order_id' => $order->id,
+            'tracking_number' => 'TRK-DELEGATE-CREATE',
+            'courier' => 'DHL',
+            'notes' => 'delegation',
+        ]);
+
+        $response->assertCreated();
+        $response->assertJsonStructure(['status', 'message', 'success', 'data' => $this->shipmentResourceKeys()]);
+        $this->assertSame(true, $response->json('success'));
+        $this->assertSame(201, $response->json('status'));
+        $this->assertSame($returnedShipment->id, $response->json('data.id'));
+    }
+
+    public function test_legacy_shipments_update_status_delegates_to_shipment_service_update_status(): void
+    {
+        $shipment = $this->createShipment(['status' => 'pending']);
+        Sanctum::actingAs($this->admin);
+        $updatedShipment = $shipment->fresh();
+        $updatedShipment->status = 'label_created';
+        $updatedShipment->notes = 'delegation-status';
+
+        $mock = $this->mock(ShipmentService::class);
+        $mock->shouldReceive('updateStatus')
+            ->once()
+            ->withArgs(function (int $id, string $status, ?string $notes) use ($shipment): bool {
+                $this->assertSame($shipment->id, $id);
+                $this->assertSame('label_created', $status);
+                $this->assertSame('delegation-status', $notes);
+                return true;
+            })
+            ->andReturn($updatedShipment);
+
+        $response = $this->putJson('/api/v1/shipments/' . $shipment->id . '/status', [
+            'status' => 'label_created',
+            'notes' => 'delegation-status',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonStructure(['status', 'message', 'success', 'data' => $this->shipmentResourceKeys()]);
+        $this->assertSame(true, $response->json('success'));
+        $this->assertSame(200, $response->json('status'));
+        $this->assertSame('label_created', $response->json('data.status'));
+    }
+
+    public function test_legacy_shipments_update_delegates_to_shipment_service_update(): void
+    {
+        $shipment = $this->createShipment(['courier' => 'old']);
+        Sanctum::actingAs($this->admin);
+        $updatedShipment = $shipment->fresh();
+        $updatedShipment->courier = 'new-courier';
+        $updatedShipment->notes = 'delegation-update';
+
+        $mock = $this->mock(ShipmentService::class);
+        $mock->shouldReceive('update')
+            ->once()
+            ->withArgs(function (int $id, array $data) use ($shipment): bool {
+                $this->assertSame($shipment->id, $id);
+                $this->assertSame('new-courier', $data['courier'] ?? null);
+                $this->assertSame('delegation-update', $data['notes'] ?? null);
+                return true;
+            })
+            ->andReturn($updatedShipment);
+
+        $response = $this->putJson('/api/v1/shipments/' . $shipment->id, [
+            'courier' => 'new-courier',
+            'notes' => 'delegation-update',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonStructure(['status', 'message', 'success', 'data' => $this->shipmentResourceKeys()]);
+        $this->assertSame(true, $response->json('success'));
+        $this->assertSame(200, $response->json('status'));
+        $this->assertSame('new-courier', $response->json('data.courier'));
+    }
+
     private function shipmentResourceKeys(): array
     {
         return [
