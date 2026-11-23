@@ -22,6 +22,7 @@ class Shipment extends Model
         'courier',
         'provider_code',
         'provider_mode',
+        'mapping_version',
         'provider_service_level',
         'provider_override',
         'awb_created_at',
@@ -57,6 +58,7 @@ class Shipment extends Model
         'awb_created_at' => 'datetime',
         'provider_override' => 'bool',
         'provider_mode' => 'string',
+        'mapping_version' => 'string',
         'shipping_cost' => 'float',
         'total_weight' => 'float',
     ];

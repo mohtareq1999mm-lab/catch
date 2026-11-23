@@ -554,7 +554,7 @@ class ShipmentService
      * fulfillment path already establishes AWB evidence; generic creation
      * does not. Client input can never forge either value.
      *
-     * @param  array{provider_code:string,service_level:string,provider_mode:string}  $assignment
+     * @param  array{provider_code:string,service_level:string,mapping_version:string,provider_mode:string}  $assignment
      * @return array<string,mixed>
      */
     private function assignmentAttributes(array $assignment, ?string $awbCreatedAt = null): array
@@ -562,6 +562,7 @@ class ShipmentService
         return [
             'provider_code' => $assignment['provider_code'],
             'provider_mode' => $assignment['provider_mode'],
+            'mapping_version' => $assignment['mapping_version'],
             'provider_service_level' => $assignment['service_level'],
             'provider_override' => false,
             'awb_created_at' => $awbCreatedAt,

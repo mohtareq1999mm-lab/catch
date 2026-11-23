@@ -26,9 +26,10 @@ final class ProviderAssignmentService
     public function __construct(
         private readonly Repository $config,
         private readonly CarrierGatewayFactory $factories,
+        private readonly CarrierStatusMapper $mappings,
     ) {}
 
-    /** @return array{provider_code:string,service_level:string,provider_mode:string} */
+    /** @return array{provider_code:string,service_level:string,mapping_version:string,provider_mode:string} */
     public function resolve(): array
     {
         $code = $this->config->get('shipping.default_provider');
@@ -39,7 +40,7 @@ final class ProviderAssignmentService
         return $this->forProvider($code);
     }
 
-    /** @return array{provider_code:string,service_level:string,provider_mode:string} */
+    /** @return array{provider_code:string,service_level:string,mapping_version:string,provider_mode:string} */
     public function forProvider(string $providerCode): array
     {
         $code = trim($providerCode);
@@ -63,7 +64,20 @@ final class ProviderAssignmentService
             throw CarrierConfigurationException::missingServiceLevel($code);
         }
 
-        return ['provider_code' => $code, 'service_level' => trim($level), 'provider_mode' => $mode];
+        // #172: the mapping version belongs to the same configured provider
+        // and mode. Without a valid version the assignment fails closed; no
+        // default, client value or historical guess is ever substituted.
+        $mappingVersion = $this->mappings->mappingVersion($code, $mode);
+        if ($mappingVersion === null || $mappingVersion === '') {
+            throw CarrierConfigurationException::missingMappingVersion($code, $mode);
+        }
+
+        return [
+            'provider_code' => $code,
+            'service_level' => trim($level),
+            'mapping_version' => $mappingVersion,
+            'provider_mode' => $mode,
+        ];
     }
 
     public function override(Shipment $shipment, string $providerCode, string $reason): Shipment
@@ -90,12 +104,14 @@ final class ProviderAssignmentService
             $old = [
                 'provider_code' => $locked->provider_code,
                 'provider_mode' => $snapshot,
+                'mapping_version' => $locked->mapping_version,
                 'service_level' => $locked->provider_service_level,
                 'provider_override' => (bool) $locked->provider_override,
             ];
             $new = [
                 'provider_code' => $assignment['provider_code'],
                 'provider_mode' => $mode,
+                'mapping_version' => $assignment['mapping_version'],
                 'service_level' => $assignment['service_level'],
                 'provider_override' => true,
             ];
@@ -103,6 +119,7 @@ final class ProviderAssignmentService
             $locked->update([
                 'provider_code' => $new['provider_code'],
                 'provider_mode' => $mode,
+                'mapping_version' => $new['mapping_version'],
                 'provider_service_level' => $new['service_level'],
                 'provider_override' => true,
             ]);

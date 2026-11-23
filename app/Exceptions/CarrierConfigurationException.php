@@ -53,6 +53,12 @@ class CarrierConfigurationException extends RuntimeException
         return new self("Shipment [{$shipmentId}] has no provider mode snapshot");
     }
 
+    /** #172: never snapshot a guessed mapping version. */
+    public static function missingMappingVersion(string $providerCode, string $mode): self
+    {
+        return new self("Carrier provider [{$providerCode}] mode [{$mode}] has no valid mapping version");
+    }
+
     public static function unverifiedCapability(string $providerCode, string $capability): self
     {
         return new self("Carrier provider [{$providerCode}] has no verification for capability [{$capability}]");
