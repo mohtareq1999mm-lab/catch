@@ -2,6 +2,7 @@
 
 namespace App\Services\Shipment;
 
+use App\Enums\ShipmentStatus;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\FulfillmentItem;
 use App\Models\Fulfillment\Package;
@@ -23,6 +24,7 @@ class ShipmentService
         private FulfillmentTransition $fulfillmentTransitions,
         private OrderTransitionService $orderTransitions,
         private DeliveryCompletionInvariant $deliveryCompletion,
+        private ProviderAssignmentService $providerAssignment,
     ) {}
 
     public function list(array $filters = [], int $perPage = 15)
@@ -72,9 +74,12 @@ class ShipmentService
                 Order::whereKey((int) $data['order_id'])->lockForUpdate()->first();
             }
 
-            $data['status'] = 'pending';
+            $assignment = $this->providerAssignment->resolve();
+            $data['status'] = ShipmentStatus::PENDING->value;
             unset($data['idempotency_key']);
-            $shipment = Shipment::create($data);
+            // Assignment is config-owned: client-supplied courier, provider,
+            // override and AWB values never select a gateway or lock this row.
+            $shipment = Shipment::create(array_merge($data, $this->assignmentAttributes($assignment)));
 
             $this->syncOrderMirror($shipment->fresh());
 
@@ -148,12 +153,14 @@ class ShipmentService
 
             $this->assertNoActiveShipment($locked->id);
 
+            $assignment = $this->providerAssignment->resolve();
             $shipment = Shipment::create(array_merge([
                 'order_id' => $locked->order_id,
                 'fulfillment_id' => $locked->id,
-                'status' => 'label_created',
+            ], $data, $this->assignmentAttributes($assignment, now()->toDateTimeString()), [
+                'status' => ShipmentStatus::LABEL_CREATED->value,
                 'idempotency_key' => $idempotencyKey,
-            ], $data, ['status' => 'label_created', 'idempotency_key' => $idempotencyKey]));
+            ]));
 
             Log::info('Shipment created for fulfillment', [
                 'shipment_id' => $shipment->id,
@@ -540,6 +547,24 @@ class ShipmentService
         }
 
         Order::withoutGlobalScopes()->whereKey((int) $shipment->order_id)->update($payload);
+    }
+
+    /**
+     * #148: server-owned assignment attributes. A label created through the
+     * fulfillment path already establishes AWB evidence; generic creation
+     * does not. Client input can never forge either value.
+     *
+     * @param  array{provider_code:string,service_level:string}  $assignment
+     * @return array<string,mixed>
+     */
+    private function assignmentAttributes(array $assignment, ?string $awbCreatedAt = null): array
+    {
+        return [
+            'provider_code' => $assignment['provider_code'],
+            'provider_service_level' => $assignment['service_level'],
+            'provider_override' => false,
+            'awb_created_at' => $awbCreatedAt,
+        ];
     }
 
     /**
