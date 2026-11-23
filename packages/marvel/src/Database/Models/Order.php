@@ -82,6 +82,8 @@ class Order extends Model
         'current_status_id',
         'expected_delivery_at',
         'fast_shipping_fee',
+        'cod_fee',
+        'shipping_breakdown',
         'fulfillment_type',
         'payment_method',
         'payment_gateway',
@@ -145,6 +147,8 @@ class Order extends Model
         'currency_rate' => 'string',
         'currency_rate_date' => 'date',
         'fast_shipping_fee' => 'float',
+        'cod_fee' => 'float',
+        'shipping_breakdown' => 'array',
         'coupon_consumed' => 'boolean',
         'promotion_consumed' => 'boolean',
         'paid_at' => 'datetime',
@@ -214,6 +218,39 @@ class Order extends Model
                 'flow_id' => $flow->id,
                 'current_status_id' => $statusId,
             ]);
+        });
+
+        static::saving(function (self $order) {
+            if ($order->cod_fee !== null) {
+                throw new \InvalidArgumentException('orders.cod_fee is disabled.');
+            }
+
+            $breakdown = $order->shipping_breakdown;
+            if ($breakdown === null) {
+                return;
+            }
+            if (is_string($breakdown)) {
+                $decoded = json_decode($breakdown, true);
+                $breakdown = is_array($decoded) ? $decoded : null;
+            }
+            if (!is_array($breakdown)) {
+                throw new \InvalidArgumentException('shipping_breakdown must be an object.');
+            }
+
+            $currency = (string) ($order->currency_code ?? $order->base_currency_code ?? $order->catalog_currency_code ?? $breakdown['currency'] ?? '');
+            $service = app(\App\Services\Shipping\ShippingBreakdownService::class);
+            $normalized = $service->build(
+                array_merge($breakdown, ['currency' => $breakdown['currency'] ?? $currency]),
+                allowCodFee: false
+            );
+            $service->validateAgainstOrder(
+                $normalized,
+                (float) ($order->shipping_price ?? 0),
+                $order->cod_fee !== null ? (float) $order->cod_fee : null,
+                (float) ($order->fast_shipping_fee ?? 0),
+                $currency
+            );
+            $order->setAttribute('shipping_breakdown', $normalized);
         });
 
         static::created(function (self $order) {

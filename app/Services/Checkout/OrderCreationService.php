@@ -41,9 +41,10 @@ class OrderCreationService
             ->first();
     }
 
-    public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?string $shippingType = null, ?int $flowId = null, ?string $flowCode = null): ?Order
+    public function createOrder(array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?string $shippingType = null, ?int $flowId = null, ?string $flowCode = null, ?array $shippingBreakdownComponents = null): ?Order
     {
-        $shippingPrice = $shippingPrice ?? 0;
+        $shippingPrice = (float) ($shippingPrice ?? 0);
+        $fastShippingFee = (float) ($fastShippingFee ?? 0);
         // Authoritative formula: net total + taxes + shipping + fast shipping.
         // Rounded to the CATALOG currency exponent (3dp for KWD/BHD/OMR/JOD/TND).
         $totalPrice = \App\Services\Payment\CurrencyPrecision::roundForCurrency(
@@ -51,12 +52,12 @@ class OrderCreationService
             + $checkoutTotals->productTaxAmount()
             + $checkoutTotals->orderTaxAmount()
             + $shippingPrice
-            + ($fastShippingFee ?? 0),
+            + $fastShippingFee,
             $this->currencyService->getCatalogCode()
         );
 
         $currencySnapshot = $this->resolveCurrencySnapshot($totalPrice);
-
+        $shippingBreakdown = $this->buildShippingBreakdown($currencySnapshot['currency_code'] ?? $this->currencyService->getCatalogCode(), $shippingPrice, $fastShippingFee, $shippingBreakdownComponents);
         $pickupLocationId = $orderData['pickup_location_id'] ?? null;
         $pickupSnapshot = $this->resolvePickupLocationSnapshot($pickupLocationId);
 
@@ -71,6 +72,8 @@ class OrderCreationService
 'shipping_method' => $shippingMethod ?? 'SCHEDULED',
             'expected_delivery_at' => $eta,
             'fast_shipping_fee' => $this->convertToEffective($fastShippingFee ?? 0),
+            'cod_fee' => $shippingBreakdown['cod_fee'] ?? null,
+            'shipping_breakdown' => $shippingBreakdown ?? null,
             'fulfillment_type' => $orderData['fulfillment_type'] ?? 'delivery',
             'payment_method' => $orderData['payment_method'] ?? 'online',
             'payment_gateway' => $orderData['payment_gateway'] ?? null,
@@ -197,9 +200,18 @@ class OrderCreationService
         return $order;
     }
 
-    public function updateOrder(Order $order, array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null): Order
+    public function updateOrder(Order $order, array $orderData, Cart $cart, CheckoutTotals $checkoutTotals, ?string $shippingMethod = null, ?\DateTime $eta = null, ?float $fastShippingFee = null, ?float $shippingPrice = null, ?int $governorateId = null, ?array $shippingBreakdownComponents = null): Order
     {
-        $shippingPrice = $shippingPrice ?? 0;
+        $shippingPrice = (float) ($shippingPrice ?? 0);
+        $storedEffectiveFastShippingFee = (float) ($order->fast_shipping_fee ?? 0);
+        $orderCurrencyCode = $order->currency_code ?? $this->currencyService->getCatalogCode();
+        $catalogFastShippingFee = $fastShippingFee !== null
+            ? (float) $fastShippingFee
+            : $this->convertEffectiveToCatalog($storedEffectiveFastShippingFee, $orderCurrencyCode);
+        $effectiveFastShippingFee = $fastShippingFee !== null
+            ? (float) ($this->convertToEffective((float) $fastShippingFee) ?? 0.0)
+            : $storedEffectiveFastShippingFee;
+
         // Authoritative formula: net total + taxes + shipping + fast shipping.
         // Rounded to the CATALOG currency exponent (3dp for KWD/BHD/OMR/JOD/TND).
         $totalPrice = \App\Services\Payment\CurrencyPrecision::roundForCurrency(
@@ -207,11 +219,12 @@ class OrderCreationService
             + $checkoutTotals->productTaxAmount()
             + $checkoutTotals->orderTaxAmount()
             + $shippingPrice
-            + ($fastShippingFee ?? 0),
+            + $catalogFastShippingFee,
             $this->currencyService->getCatalogCode()
         );
 
         $currencySnapshot = $this->resolveCurrencySnapshot($totalPrice);
+        $shippingBreakdown = $this->buildShippingBreakdown($currencySnapshot['currency_code'] ?? $this->currencyService->getCatalogCode(), $shippingPrice, $catalogFastShippingFee, $shippingBreakdownComponents);
 
         $pickupLocationId = $orderData['pickup_location_id'] ?? $order->pickup_location_id;
         $pickupSnapshot = $this->resolvePickupLocationSnapshot($pickupLocationId);
@@ -225,9 +238,9 @@ class OrderCreationService
             'notes' => $orderData['notes'] ?? $order->notes,
             'shipping_method' => $shippingMethod ?? $order->shipping_method,
 'expected_delivery_at' => $eta ?? $order->expected_delivery_at,
-            'fast_shipping_fee' => $fastShippingFee !== null
-                ? $this->convertToEffective($fastShippingFee)
-                : $order->fast_shipping_fee,
+            'fast_shipping_fee' => $effectiveFastShippingFee,
+            'cod_fee' => $shippingBreakdown['cod_fee'] ?? null,
+            'shipping_breakdown' => $shippingBreakdown ?? null,
             'fulfillment_type' => $orderData['fulfillment_type'] ?? $order->fulfillment_type,
             'payment_method' => $orderData['payment_method'] ?? $order->payment_method,
             'payment_gateway' => $orderData['payment_gateway'] ?? $order->payment_gateway,
@@ -465,7 +478,48 @@ $quantity = max(1, (int) ($item->quantity ?? 0));
         }
     }
 
-private function resolveCurrencySnapshot(float $totalPrice): array
+    /**
+     * @param array<string, mixed>|null $components
+     * @return array<string, mixed>
+     */
+    private function buildShippingBreakdown(string $currencyCode, float $shippingPrice, float $fastShippingFee, ?array $components = null): array
+    {
+        if (is_array($components) && array_key_exists('cod_fee', $components) && $components['cod_fee'] !== null) {
+            throw new \InvalidArgumentException('shipping_breakdown.cod_fee is disabled.');
+        }
+
+        $baseShipping = (float) ($components['base_shipping'] ?? $shippingPrice);
+        $thresholdWaiver = (float) ($components['threshold_waiver'] ?? 0.0);
+        $couponWaiver = (float) ($components['coupon_waiver'] ?? 0.0);
+
+        // Components must reconcile to persisted shipping scalar; when they do not,
+        // fall back to the scalar as the authoritative net/base to avoid inventing waivers.
+        $netFromComponents = round($baseShipping - $thresholdWaiver - $couponWaiver, 3);
+        if (abs($netFromComponents - round($shippingPrice, 3)) > 0.0005) {
+            \Illuminate\Support\Facades\Log::warning('Shipping breakdown components did not reconcile to shipping scalar; falling back to scalar.', [
+                'currency' => $currencyCode,
+                'shipping_price' => $shippingPrice,
+                'base_shipping' => $baseShipping,
+                'threshold_waiver' => $thresholdWaiver,
+                'coupon_waiver' => $couponWaiver,
+                'net_from_components' => $netFromComponents,
+            ]);
+            $baseShipping = $shippingPrice;
+            $thresholdWaiver = 0.0;
+            $couponWaiver = 0.0;
+        }
+
+        return app(\App\Services\Shipping\ShippingBreakdownService::class)->build([
+            'currency' => $currencyCode,
+            'base_shipping' => $baseShipping,
+            'threshold_waiver' => $thresholdWaiver,
+            'coupon_waiver' => $couponWaiver,
+            'cod_fee' => null,
+            'fast_shipping_fee' => $fastShippingFee,
+        ], allowCodFee: false);
+    }
+
+    private function resolveCurrencySnapshot(float $totalPrice): array
     {
         if (!Schema::hasColumn('orders', 'currency_code')) {
             return [
@@ -530,6 +584,32 @@ $catalogCode = $this->currencyService->getCatalogCode();
                 $e
             );
         }
+    }
+
+    private function convertEffectiveToCatalog(float|string|null $effectiveAmount, ?string $fromCode = null): float
+    {
+        if ($effectiveAmount === null || $effectiveAmount === '') {
+            return 0.0;
+        }
+
+        $fromCode = strtoupper($fromCode ?? $this->currencyService->getCatalogCode());
+        $catalogCode = $this->currencyService->getCatalogCode();
+
+        try {
+            $converted = $this->currencyService->convertPrice(
+                (string) $effectiveAmount,
+                $fromCode,
+                $catalogCode
+            );
+        } catch (CurrencyRateNotFoundException $e) {
+            throw new \InvalidArgumentException(
+                __('message.' . CURRENCY_RATE_UNAVAILABLE_AT_CHECKOUT, ['currency' => $fromCode]),
+                0,
+                $e
+            );
+        }
+
+        return (float) ($converted ?? 0.0);
     }
 
     private function snapshotTaxAmount(float $catalogAmount, ?string $effectiveCode): float

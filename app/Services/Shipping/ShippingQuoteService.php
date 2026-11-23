@@ -68,18 +68,25 @@ class ShippingQuoteService
     public function quote(?int $governorateId, float $subtotal, ?string $couponDiscountType = null): array
     {
         $info = $this->governorateShippingInfo($governorateId);
+        $baseShipping = (float) ($info['price'] ?? 0);
         $afterThreshold = $this->applyFreeShippingThreshold(
             $subtotal,
             $info['free_shipping_over'],
-            $info['price'],
+            $baseShipping,
         );
+        $thresholdWaiver = max(0.0, round($baseShipping - $afterThreshold, 3));
+        $shippingAmount = $this->applyCouponWaiver($couponDiscountType, $afterThreshold);
+        $couponWaiver = max(0.0, round($afterThreshold - $shippingAmount, 3));
 
         return [
-            'price' => $info['price'],
+            'price' => $baseShipping,
             'free_shipping_over' => $info['free_shipping_over'],
             'governorate_id' => $info['governorate_id'],
             'subtotal' => $subtotal,
-            'shipping_amount' => $this->applyCouponWaiver($couponDiscountType, $afterThreshold),
+            'base_shipping' => $baseShipping,
+            'threshold_waiver' => $thresholdWaiver,
+            'coupon_waiver' => $couponWaiver,
+            'shipping_amount' => $shippingAmount,
         ];
     }
 
@@ -92,6 +99,9 @@ class ShippingQuoteService
         // Digital-only carts have nothing to ship. Keep the authoritative
         // rate in the projection for traceability, but never charge it.
         if ($physicalSubtotal <= 0) {
+            $quote['base_shipping'] = 0.0;
+            $quote['threshold_waiver'] = 0.0;
+            $quote['coupon_waiver'] = 0.0;
             $quote['shipping_amount'] = 0.0;
         }
 
