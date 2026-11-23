@@ -34,6 +34,12 @@ class ProviderAssignmentOverrideTest extends TestCase
 
     private User $reader;
 
+    private User $warehouseScoped;
+
+    private Warehouse $homeWarehouse;
+
+    private Warehouse $otherWarehouse;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -54,8 +60,26 @@ class ProviderAssignmentOverrideTest extends TestCase
             'modes' => ['sandbox' => ['enabled' => true, 'credentials' => ['api_key' => 'x']]],
         ]);
 
+        $this->homeWarehouse = Warehouse::create([
+            'code' => 'WH-OVR-H-'.uniqid(),
+            'name' => 'Override home warehouse',
+            'status' => 'active',
+            'is_default' => false,
+        ]);
+        $this->otherWarehouse = Warehouse::create([
+            'code' => 'WH-OVR-O-'.uniqid(),
+            'name' => 'Override other warehouse',
+            'status' => 'active',
+            'is_default' => false,
+        ]);
+
         $this->admin = User::factory()->create(['type' => 'admin', 'is_active' => true]);
         $this->reader = User::factory()->create(['type' => 'admin', 'is_active' => true]);
+        $this->warehouseScoped = User::factory()->create([
+            'type' => 'staff',
+            'is_active' => true,
+            'warehouse_id' => $this->homeWarehouse->id,
+        ]);
 
         $permission = PermissionModel::firstOrCreate([
             'name' => Permission::SHIPPING_PROVIDER_OVERRIDE,
@@ -65,8 +89,13 @@ class ProviderAssignmentOverrideTest extends TestCase
             'name' => Permission::VIEW_SHIPMENT,
             'guard_name' => 'api',
         ]);
-        $this->admin->syncPermissions([$permission, $view]);
+        $manage = PermissionModel::firstOrCreate([
+            'name' => Permission::MANAGE_WAREHOUSE,
+            'guard_name' => 'api',
+        ]);
+        $this->admin->syncPermissions([$permission, $view, $manage]);
         $this->reader->syncPermissions([$view]);
+        $this->warehouseScoped->syncPermissions([$permission]);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
@@ -281,6 +310,53 @@ class ProviderAssignmentOverrideTest extends TestCase
         $this->assertSame('internal', $shipment->fresh()->provider_code);
     }
 
+    public function test_warehouse_scoped_actor_can_override_shipment_in_home_warehouse(): void
+    {
+        $shipment = $this->createFulfillmentShipment($this->homeWarehouse);
+
+        Sanctum::actingAs($this->warehouseScoped);
+        $response = $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'home warehouse capacity incident',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('alternate', $shipment->fresh()->provider_code);
+
+        $activity = Activity::where('event', 'provider_override')->latest()->first();
+        $this->assertNotNull($activity);
+        $this->assertSame($this->warehouseScoped->id, (int) $activity->causer_id);
+    }
+
+    public function test_warehouse_scoped_actor_cannot_override_shipment_in_another_warehouse(): void
+    {
+        $shipment = $this->createFulfillmentShipment($this->otherWarehouse);
+
+        Sanctum::actingAs($this->warehouseScoped);
+        $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'cross-warehouse attempt',
+        ])->assertForbidden();
+
+        $this->assertSame(0, Activity::where('event', 'provider_override')->count());
+        $this->assertSame('internal', $shipment->fresh()->provider_code);
+        $this->assertFalse((bool) $shipment->fresh()->provider_override);
+    }
+
+    public function test_warehouse_scoped_actor_cannot_override_order_only_shipment(): void
+    {
+        $shipment = $this->createShipment();
+
+        Sanctum::actingAs($this->warehouseScoped);
+        $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'order-only label has no warehouse scope',
+        ])->assertForbidden();
+
+        $this->assertSame(0, Activity::where('event', 'provider_override')->count());
+        $this->assertSame('internal', $shipment->fresh()->provider_code);
+    }
+
     public function test_override_requires_authentication(): void
     {
         $shipment = $this->createShipment();
@@ -303,6 +379,21 @@ class ProviderAssignmentOverrideTest extends TestCase
     private function createShipment(array $extra = []): Shipment
     {
         return app(ShipmentService::class)->create(array_merge(['order_id' => $this->createOrder()->id], $extra));
+    }
+
+    private function createFulfillmentShipment(Warehouse $warehouse): Shipment
+    {
+        $fulfillment = Fulfillment::create([
+            'order_id' => $this->createOrder()->id,
+            'warehouse_id' => $warehouse->id,
+            'fulfillment_number' => 'F-OVR-'.uniqid(),
+            'status' => 'ready_to_ship',
+        ]);
+
+        return app(ShipmentService::class)->create([
+            'order_id' => $fulfillment->order_id,
+            'fulfillment_id' => $fulfillment->id,
+        ]);
     }
 
     private function createOrder(): Order
