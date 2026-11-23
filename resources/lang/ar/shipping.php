@@ -1,6 +1,10 @@
 <?php
 
 return [
+    'audit' => [
+        'override_reason_required' => 'يتطلب تغيير مزود الشحن سبباً لا يتجاوز 500 حرف.',
+        'provider_overridden' => 'تم تغيير مزود الشحن بواسطة المدير',
+    ],
     'webhook_accepted' => 'تم استقبال إشعار الشحن بنجاح.',
     'webhook_duplicate' => 'تم تسجيل إشعار الشحن مسبقاً.',
     'webhook_invalid_signature' => 'توقيع إشعار الشحن غير صالح.',

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Shipping\ShipmentExceptionStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -19,7 +20,7 @@ return new class extends Migration
             $table->foreignId('provider_event_id')->nullable()->constrained('shipping_provider_events')->nullOnDelete();
             $table->string('type', 32);
             $table->string('severity', 16);
-            $table->string('status', 16)->default('open');
+            $table->string('status', 16)->default(ShipmentExceptionStatus::OPEN->value);
             $table->text('notes')->nullable();
             $table->foreignId('owner_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('sla_due_at')->nullable();

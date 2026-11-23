@@ -1,6 +1,10 @@
 <?php
 
 return [
+    'audit' => [
+        'override_reason_required' => 'A provider override requires a reason of at most 500 characters.',
+        'provider_overridden' => 'Shipping provider overridden by administrator',
+    ],
     'webhook_accepted' => 'Shipping webhook accepted.',
     'webhook_duplicate' => 'Shipping webhook already recorded.',
     'webhook_invalid_signature' => 'Shipping webhook signature is invalid.',

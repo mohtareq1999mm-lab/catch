@@ -6,6 +6,8 @@ namespace App\Services\Shipment;
 
 use App\DTOs\Shipping\ProviderStatusMapping;
 use App\Enums\Shipping\ProviderEventExceptionType;
+use App\Enums\Shipping\ShipmentExceptionSeverity;
+use App\Enums\Shipping\ShipmentExceptionStatus;
 use App\Models\Shipping\ShipmentException;
 use App\Models\Shipping\ShippingProviderEvent;
 use App\Models\Shipping\ShippingWebhookEvent;
@@ -17,6 +19,10 @@ use Illuminate\Support\Facades\DB;
  * only for a known unambiguous versioned mapping, a canonical shipment
  * transition through ShipmentService. The inbox ingest boundary never calls
  * this service; processing is a separate, replay-safe step.
+ *
+ * Evidence is committed before the transition attempt. A configured map that
+ * targets a shipment-state the authority refuses therefore leaves the raw
+ * event and an internal exception behind instead of rolling both back.
  */
 final class ShippingProviderEventProcessor
 {
@@ -35,16 +41,24 @@ final class ShippingProviderEventProcessor
         $rawStatus = $this->rawStatusFrom($webhook);
         $mapping = $this->mapper->map($webhook->provider_code, $webhook->mode, $rawStatus);
 
-        return DB::transaction(function () use ($webhook, $rawStatus, $mapping): ShippingProviderEvent {
+        $event = DB::transaction(function () use ($webhook, $rawStatus, $mapping): ?ShippingProviderEvent {
             $event = $this->storeProviderEvent($webhook, $rawStatus, $mapping);
             if ($event === null) {
-                return ShippingProviderEvent::query()->where('webhook_event_id', $webhook->id)->firstOrFail();
+                return null;
             }
 
-            $this->recordOutcome($event, $webhook, $rawStatus, $mapping);
+            $this->recordMappingException($event, $webhook, $rawStatus, $mapping);
 
-            return $event->fresh();
+            return $event;
         });
+
+        if ($event === null) {
+            return ShippingProviderEvent::query()->where('webhook_event_id', $webhook->id)->firstOrFail();
+        }
+
+        $this->applyTransition($event, $webhook, $rawStatus, $mapping);
+
+        return $event->fresh();
     }
 
     private function rawStatusFrom(ShippingWebhookEvent $webhook): ?string
@@ -88,7 +102,7 @@ final class ShippingProviderEventProcessor
         }
     }
 
-    private function recordOutcome(
+    private function recordMappingException(
         ShippingProviderEvent $event,
         ShippingWebhookEvent $webhook,
         ?string $rawStatus,
@@ -98,8 +112,7 @@ final class ShippingProviderEventProcessor
             $this->raiseException(
                 $event,
                 $mapping->exceptionType ?? ProviderEventExceptionType::UNKNOWN_STATUS,
-                $rawStatus,
-                $mapping->mappingVersion,
+                $this->exceptionNotes($rawStatus, $mapping->mappingVersion),
             );
 
             return;
@@ -110,37 +123,70 @@ final class ShippingProviderEventProcessor
             $this->raiseException(
                 $event,
                 ProviderEventExceptionType::UNMATCHED_SHIPMENT,
-                $rawStatus,
-                $mapping->mappingVersion,
+                $this->exceptionNotes($rawStatus, $mapping->mappingVersion),
             );
+        }
+    }
 
+    private function applyTransition(
+        ShippingProviderEvent $event,
+        ShippingWebhookEvent $webhook,
+        ?string $rawStatus,
+        ProviderStatusMapping $mapping,
+    ): void {
+        if (!$mapping->canTransition() || $webhook->shipment_id === null) {
             return;
         }
 
-        $this->shipments->updateStatus(
-            (int) $webhook->shipment_id,
-            (string) $mapping->mappedStatus,
-            'provider_status_map_version:'.$mapping->mappingVersion,
-        );
-        $event->update(['applied_at' => now()]);
+        try {
+            $this->shipments->updateStatus(
+                (int) $webhook->shipment_id,
+                (string) $mapping->mappedStatus,
+                'provider_status_map_version:'.$mapping->mappingVersion,
+            );
+            $event->update(['applied_at' => now()]);
+        } catch (\RuntimeException $exception) {
+            // The event row was already committed. Keep it, mark the mapping
+            // unusable for this shipment, and surface the failure internally.
+            $event->update([
+                'exception_classification' => ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value,
+            ]);
+            $this->raiseException(
+                $event,
+                ProviderEventExceptionType::INVALID_MAPPING_CONFIG,
+                $this->exceptionNotes($rawStatus, $mapping->mappingVersion, $exception->getMessage()),
+            );
+        }
     }
 
     private function raiseException(
         ShippingProviderEvent $event,
         ProviderEventExceptionType $type,
-        ?string $rawStatus,
-        string $mappingVersion,
+        string $notes,
     ): void {
         ShipmentException::firstOrCreate(
             ['provider_event_id' => $event->id],
             [
                 'shipment_id' => $event->shipment_id,
                 'type' => $type->value,
-                'severity' => 'high',
-                'status' => 'open',
-                'notes' => 'raw_status='.($rawStatus ?? '<missing>').'; mapping_version='.($mappingVersion !== '' ? $mappingVersion : '<none>'),
+                'severity' => ShipmentExceptionSeverity::HIGH->value,
+                'status' => ShipmentExceptionStatus::OPEN->value,
+                'notes' => $notes,
                 'opened_at' => now(),
             ],
         );
+    }
+
+    private function exceptionNotes(
+        ?string $rawStatus,
+        string $mappingVersion,
+        ?string $transitionError = null,
+    ): string {
+        $notes = 'raw_status='.($rawStatus ?? '<missing>').'; mapping_version='.($mappingVersion !== '' ? $mappingVersion : '<none>');
+        if ($transitionError !== null && $transitionError !== '') {
+            $notes .= '; transition_error='.$transitionError;
+        }
+
+        return $notes;
     }
 }

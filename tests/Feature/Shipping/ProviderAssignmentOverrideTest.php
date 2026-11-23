@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\Shipping;
 
 use App\Exceptions\CarrierConfigurationException;
+use App\Models\Fulfillment\Fulfillment;
+use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
 use App\Services\Shipment\ProviderAssignmentService;
 use App\Services\Shipment\ShipmentService;
@@ -101,6 +103,28 @@ class ProviderAssignmentOverrideTest extends TestCase
         }
     }
 
+    public function test_malformed_provider_code_is_rejected_by_the_assignment_authority(): void
+    {
+        $this->expectException(CarrierConfigurationException::class);
+
+        app(ProviderAssignmentService::class)->forProvider('Bad Code');
+    }
+
+    public function test_audit_text_is_translated_in_both_locales(): void
+    {
+        foreach (['en', 'ar'] as $locale) {
+            app()->setLocale($locale);
+            foreach ([
+                'shipping.audit.override_reason_required',
+                'shipping.audit.provider_overridden',
+            ] as $key) {
+                $this->assertNotSame($key, __($key));
+            }
+        }
+
+        app()->setLocale('en');
+    }
+
     public function test_override_to_a_disabled_provider_is_rejected_without_audit(): void
     {
         config(['shipping.providers.alternate.modes.sandbox.enabled' => false]);
@@ -118,18 +142,19 @@ class ProviderAssignmentOverrideTest extends TestCase
         $this->assertSame('internal', $shipment->fresh()->provider_code);
     }
 
-    public function test_customer_surface_exposes_service_level_without_carrier_brand(): void
+    public function test_legacy_shipment_response_exposes_service_level_and_courier_for_compatibility(): void
     {
-        $shipment = $this->createShipment(['courier' => 'visible-carrier-name']);
+        $shipment = $this->createShipment(['courier' => 'legacy-courier']);
         Sanctum::actingAs($this->reader);
 
         $response = $this->getJson('/api/v1/shipments/' . $shipment->id);
 
         $response->assertOk();
+        // #166 will split the legacy compatibility shape from the customer
+        // service-level representation; until then both fields are required.
         $this->assertSame('standard', $response->json('data.service_level'));
-        $this->assertArrayNotHasKey('courier', $response->json('data'));
+        $this->assertSame('legacy-courier', $response->json('data.courier'));
         $this->assertArrayNotHasKey('provider_code', $response->json('data'));
-        $this->assertStringNotContainsString('visible-carrier-name', $response->getContent());
     }
 
     public function test_override_requires_permission_reason_and_writes_audited_actor(): void
@@ -190,6 +215,65 @@ class ProviderAssignmentOverrideTest extends TestCase
         $this->assertSame(0, Activity::where('event', 'provider_override')->count());
     }
 
+    public function test_override_is_refused_when_tracking_number_establishes_awb(): void
+    {
+        $shipment = $this->createShipment();
+        $shipment->forceFill(['tracking_number' => 'AWB-EVIDENCE-148'])->save();
+
+        Sanctum::actingAs($this->admin);
+
+        $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'tracking number already issued',
+        ])->assertStatus(409);
+
+        $this->assertSame('internal', $shipment->fresh()->provider_code);
+        $this->assertSame(0, Activity::where('event', 'provider_override')->count());
+    }
+
+    public function test_label_creation_establishes_awb_evidence_and_blocks_override(): void
+    {
+        $order = $this->createOrder();
+        $warehouse = Warehouse::create([
+            'code' => 'WH-148',
+            'name' => 'Override warehouse',
+            'status' => 'active',
+            'is_default' => false,
+        ]);
+        $fulfillment = Fulfillment::create([
+            'order_id' => $order->id,
+            'warehouse_id' => $warehouse->id,
+            'fulfillment_number' => 'F-148-'.uniqid(),
+            'status' => 'ready_to_ship',
+        ]);
+
+        $shipment = app(ShipmentService::class)->createForFulfillment($fulfillment);
+
+        $this->assertSame('label_created', $shipment->status);
+        $this->assertNotNull($shipment->awb_created_at);
+
+        Sanctum::actingAs($this->admin);
+        $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'label already established',
+        ])->assertStatus(409);
+
+        $this->assertSame('internal', $shipment->fresh()->provider_code);
+    }
+
+    public function test_override_requires_authentication(): void
+    {
+        $shipment = $this->createShipment();
+
+        $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'anonymous attempt',
+        ])->assertUnauthorized();
+
+        $this->assertSame('internal', $shipment->fresh()->provider_code);
+        $this->assertSame(0, Activity::where('event', 'provider_override')->count());
+    }
+
     private function overrideUrl(Shipment $shipment): string
     {
         return '/api/v1/admin/shipments/' . $shipment->id . '/provider-override';
@@ -198,8 +282,14 @@ class ProviderAssignmentOverrideTest extends TestCase
     /** @param array<string,mixed> $extra */
     private function createShipment(array $extra = []): Shipment
     {
+        return app(ShipmentService::class)->create(array_merge(['order_id' => $this->createOrder()->id], $extra));
+    }
+
+    private function createOrder(): Order
+    {
         $user = User::factory()->create(['type' => 'customer']);
-        $order = Order::create([
+
+        return Order::create([
             'user_id' => $user->id,
             'name' => 'Provider order',
             'user_email' => $user->email,
@@ -216,7 +306,5 @@ class ProviderAssignmentOverrideTest extends TestCase
             'payment_method' => 'online',
             'address' => ['city' => 'Cairo'],
         ]);
-
-        return app(ShipmentService::class)->create(array_merge(['order_id' => $order->id], $extra));
     }
 }
