@@ -49,7 +49,7 @@ class ShipmentController extends WmsAdminController
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_DISPATCH, ['only' => ['dispatchShipment']]);
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_DELIVER, ['only' => ['markDelivered']]);
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_CANCEL, ['only' => ['cancelShipment']]);
-        $this->middleware('permission:wms-shipments.manual-correct', ['only' => ['manualCorrection']]);
+        $this->middleware('permission:' . Permission::WMS_SHIPMENTS_MANUAL_CORRECT, ['only' => ['manualCorrection']]);
     }
 
     private function shipmentWarehouseId(Shipment $shipment): int
@@ -319,12 +319,13 @@ class ShipmentController extends WmsAdminController
         );
     }
 
-        public function manualCorrection(ManualShipmentCorrectionRequest $request, int $id): JsonResponse
+    public function manualCorrection(ManualShipmentCorrectionRequest $request, int $id): JsonResponse
     {
         $shipment = Shipment::whereKey($id)->firstOrFail();
-        if ($shipment->fulfillment_id !== null) {
-            $this->authorizeWarehouseScope($this->shipmentWarehouseId($shipment), 'update-shipment');
+        if ($shipment->fulfillment_id === null) {
+            throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException('Resource Not Found');
         }
+        $this->authorizeWarehouseScope($this->shipmentWarehouseId($shipment), 'update-shipment');
 
         try {
             $correction = $this->manualCorrections->correct(

@@ -425,6 +425,7 @@ class PermissionSeeder extends Seeder
             'wms-shipments.dispatch',
             'wms-shipments.deliver',
             'wms-shipments.cancel',
+            'wms-shipments.manual-correct',
 
             // 📊 Inventory Operations Granular Permissions
             'inventory.receive',
@@ -1051,6 +1052,7 @@ class PermissionSeeder extends Seeder
             'wms-shipments.dispatch',
             'wms-shipments.deliver',
             'wms-shipments.cancel',
+            'wms-shipments.manual-correct',
 
             // Granular Inventory Operations
             'inventory.receive',

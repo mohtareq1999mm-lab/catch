@@ -540,6 +540,91 @@ Schema::create('categories', function (Blueprint $table) {
             $table->unique(['timeline_event_id', 'channel', 'recipient_type', 'recipient_id'], 'shipment_notifications_dedupe_unique');
         });
 
+        if (!Schema::hasTable('shipment_manual_corrections')) {
+            Schema::create('shipment_manual_corrections', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('shipment_id')->constrained('shipments')->cascadeOnDelete();
+                $table->foreignId('order_id')->constrained('orders')->cascadeOnDelete();
+                $table->foreignId('actor_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('timeline_event_id')->nullable()->constrained('order_tracking_events')->nullOnDelete();
+                $table->string('old_status', 32);
+                $table->string('new_status', 32);
+                $table->text('reason');
+                $table->json('metadata')->nullable();
+                $table->timestamps();
+                $table->index(['shipment_id', 'created_at'], 'idx_shipment_manual_correction_shipment');
+                $table->index(['actor_id', 'created_at'], 'idx_shipment_manual_correction_actor');
+            });
+        }
+
+        if (!Schema::hasTable('cod_settlement_statements')) {
+            Schema::create('cod_settlement_statements', function (Blueprint $table) {
+                $table->id();
+                $table->string('statement_key', 191)->unique('uq_cod_settlement_statement_key');
+                $table->string('provider_code', 32);
+                $table->string('mode', 16);
+                $table->string('account_code', 64);
+                $table->date('period_start');
+                $table->date('period_end');
+                $table->char('currency_code', 3);
+                $table->unsignedTinyInteger('decimal_places');
+                $table->bigInteger('expected_minor');
+                $table->bigInteger('received_minor');
+                $table->bigInteger('variance_minor');
+                $table->json('metadata')->nullable();
+                $table->timestamps();
+                $table->index(['provider_code', 'mode', 'account_code'], 'idx_cod_settlement_identity');
+                $table->index(['period_start', 'period_end'], 'idx_cod_settlement_period');
+                $table->index('currency_code', 'idx_cod_settlement_currency');
+            });
+        }
+
+        if (!Schema::hasTable('cod_settlement_lines')) {
+            Schema::create('cod_settlement_lines', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('statement_id')->constrained('cod_settlement_statements')->cascadeOnDelete();
+                $table->string('line_key', 191);
+                $table->unsignedBigInteger('order_id');
+                $table->string('provider_code', 32);
+                $table->string('mode', 16);
+                $table->string('account_code', 64);
+                $table->date('period_start');
+                $table->date('period_end');
+                $table->char('currency_code', 3);
+                $table->unsignedTinyInteger('decimal_places');
+                $table->bigInteger('expected_minor');
+                $table->bigInteger('received_minor');
+                $table->bigInteger('variance_minor');
+                $table->timestamps();
+                $table->unique(['statement_id', 'line_key'], 'uq_cod_settlement_line_key');
+                $table->index('order_id', 'idx_cod_settlement_line_order');
+            });
+        }
+
+        if (!Schema::hasTable('shipment_cod_adjustments')) {
+            Schema::create('shipment_cod_adjustments', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('statement_id')->nullable()->constrained('cod_settlement_statements')->nullOnDelete();
+                $table->unsignedBigInteger('order_id');
+                $table->char('currency_code', 3);
+                $table->unsignedTinyInteger('decimal_places');
+                $table->bigInteger('original_collectible_minor');
+                $table->bigInteger('old_collectible_minor');
+                $table->bigInteger('new_collectible_minor');
+                $table->string('reason', 255);
+                $table->foreignId('actor_id')->constrained('users');
+                $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->timestamp('approved_at')->nullable();
+                $table->string('status', 32)->default('pending_approval');
+                $table->string('idempotency_key', 191);
+                $table->json('metadata')->nullable();
+                $table->timestamps();
+                $table->unique('idempotency_key', 'uq_shipment_cod_adjustment_idempotency');
+                $table->index(['order_id', 'status'], 'idx_shipment_cod_adjustment_order_status');
+                $table->index(['statement_id', 'status'], 'idx_shipment_cod_adjustment_statement');
+            });
+        }
+
         // Mirrors 2026_09_12_000003 production migration. Push listeners query
         // active unexpired tokens on every order event; absence breaks them.
         Schema::create('user_device_tokens', function (Blueprint $table) {

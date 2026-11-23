@@ -184,4 +184,42 @@ class ShipmentCodAdjustmentTest extends CurrencyTestCase
         $this->assertSame(Order::PAYMENT_STATUS_PENDING, $fresh->payment_status);
         $this->assertSame(Order::ORDER_STATUS_PENDING, $fresh->status);
     }
+
+    public function test_adjustment_rejects_statement_not_owned_by_order_currency_or_context(): void
+    {
+        $this->seedCurrencyData();
+        $order = $this->order(['currency_code' => 'USD', 'total_price' => 100]);
+        $otherOrder = $this->order(['currency_code' => 'USD', 'total_price' => 50]);
+        $actor = $this->createCustomer();
+
+        $statement = app(CodSettlementService::class)->createStatement([
+            'provider_code' => 'carrier_a',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-1',
+            'period_start' => '2026-11-01',
+            'period_end' => '2026-11-30',
+            'statement_key' => 'stmt-other-order',
+            'lines' => [[
+                'order_id' => $otherOrder->id,
+                'expected' => '50.00',
+                'received' => '50.00',
+            ]],
+        ]);
+
+        $service = app(ShipmentCodAdjustmentService::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid statement_id.');
+        $service->record([
+            'statement_id' => $statement->id,
+            'order_id' => $order->id,
+            'currency_code' => 'USD',
+            'original_collectible_minor' => 10000,
+            'old_collectible_minor' => 10000,
+            'new_collectible_minor' => 9000,
+            'reason' => 'Wrong statement',
+            'actor_id' => $actor->id,
+            'idempotency_key' => 'adj-wrong-statement',
+        ]);
+    }
 }

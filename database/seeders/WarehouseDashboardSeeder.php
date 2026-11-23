@@ -144,6 +144,7 @@ class WarehouseDashboardSeeder extends Seeder
             MarvelPermission::WMS_SHIPMENTS_DISPATCH,
             MarvelPermission::WMS_SHIPMENTS_DELIVER,
             MarvelPermission::WMS_SHIPMENTS_CANCEL,
+            MarvelPermission::WMS_SHIPMENTS_MANUAL_CORRECT,
             'view-shipment',
             'view-all-shipments',
 
