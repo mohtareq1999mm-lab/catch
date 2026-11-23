@@ -23,6 +23,7 @@ class ShipmentService
         private FulfillmentTransition $fulfillmentTransitions,
         private OrderTransitionService $orderTransitions,
         private DeliveryCompletionInvariant $deliveryCompletion,
+        private ProviderAssignmentService $providerAssignment,
     ) {}
 
     public function list(array $filters = [], int $perPage = 15)
@@ -72,9 +73,17 @@ class ShipmentService
                 Order::whereKey((int) $data['order_id'])->lockForUpdate()->first();
             }
 
+            $assignment = $this->providerAssignment->resolve();
             $data['status'] = 'pending';
             unset($data['idempotency_key']);
-            $shipment = Shipment::create($data);
+            // Assignment is config-owned: client-supplied courier, provider,
+            // override and AWB values never select a gateway or lock this row.
+            $shipment = Shipment::create(array_merge($data, [
+                'provider_code' => $assignment['provider_code'],
+                'provider_service_level' => $assignment['service_level'],
+                'provider_override' => false,
+                'awb_created_at' => null,
+            ], ['status' => 'pending']));
 
             $this->syncOrderMirror($shipment->fresh());
 
@@ -148,12 +157,19 @@ class ShipmentService
 
             $this->assertNoActiveShipment($locked->id);
 
+            $assignment = $this->providerAssignment->resolve();
             $shipment = Shipment::create(array_merge([
                 'order_id' => $locked->order_id,
                 'fulfillment_id' => $locked->id,
+            ], $data, [
+                'provider_code' => $assignment['provider_code'],
+                'provider_service_level' => $assignment['service_level'],
+                'provider_override' => false,
+                'awb_created_at' => null,
+            ], [
                 'status' => 'label_created',
                 'idempotency_key' => $idempotencyKey,
-            ], $data, ['status' => 'label_created', 'idempotency_key' => $idempotencyKey]));
+            ]));
 
             Log::info('Shipment created for fulfillment', [
                 'shipment_id' => $shipment->id,

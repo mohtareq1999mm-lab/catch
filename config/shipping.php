@@ -20,6 +20,13 @@ declare(strict_types=1);
 return [
     'default_mode' => env('SHIPPING_DEFAULT_MODE', 'sandbox'),
 
+    /*
+     * #148: provider choice is a deployment decision. Callers never supply a
+     * provider code for initial assignment; only an authorized, audited admin
+     * override may select a different configured provider.
+     */
+    'default_provider' => env('SHIPPING_DEFAULT_PROVIDER', 'internal'),
+
     // #143: fail-closed limiter for provider -> trusted source IP. Backend
     // failure returns 503 (no verification/DB work); a real limit returns 429.
     'webhook_rate_limit' => [
@@ -34,6 +41,8 @@ return [
             'mode' => env('SHIPPING_NULL_MODE', 'sandbox'),
             // Non-secret identity, stable across credential rotation.
             'account_code' => env('SHIPPING_NULL_ACCOUNT_CODE', 'null-local'),
+            // Customer-facing service level only; never a carrier brand.
+            'service_level' => 'standard',
             'channels' => ['web', 'mobile'],
             'geographies' => ['EG'],
             'modes' => [
@@ -103,6 +112,8 @@ return [
             'adapter' => App\Services\Shipment\Providers\InternalDeliveryGateway::class,
             'mode' => 'internal',
             'account_code' => 'internal-local',
+            // Customer-facing service level only; never a carrier brand.
+            'service_level' => 'standard',
             'channels' => ['web', 'mobile'],
             'geographies' => ['EG'],
             'modes' => [
