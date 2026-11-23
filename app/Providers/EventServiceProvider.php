@@ -37,12 +37,8 @@ use App\Events\UserRolesUpdated;
 use App\Events\OrderShipped;
 use App\Events\RefundApproved;
 use App\Events\Refund\RefundProcessed;
-use App\Events\Shipment\EstimatedDeliveryChanged;
-use App\Events\Shipment\ShipmentStatusChanged;
 use App\Listeners\RevokePendingDigitalEntitlements;
 use App\Listeners\SendUserFlashSaleAvailableNotification;
-use App\Listeners\Shipment\RecordETAChangeInTimeline;
-use App\Listeners\Shipment\RecordShipmentStatusInTimeline;
 use App\Listeners\SendUserPromotionAvailableNotification;
 use App\Listeners\SendUserDigitalProductsAvailableNotification;
 use App\Listeners\FulfillDigitalProducts;
@@ -200,12 +196,9 @@ class EventServiceProvider extends ServiceProvider
         RefundProcessed::class => [
             \App\Listeners\Refund\RecordRefundInTimeline::class,
         ],
-        ShipmentStatusChanged::class => [
-            RecordShipmentStatusInTimeline::class,
-        ],
-        EstimatedDeliveryChanged::class => [
-            RecordETAChangeInTimeline::class,
-        ],
+        // #137: shipment status/timeline/mirror writes live only in
+        // ShipmentService. No listener writes those aggregates any more; the
+        // status event is dispatched after commit for read-side consumers.
         DigitalProductsDelivered::class => [
             SendUserDigitalProductsAvailableNotification::class,
         ],

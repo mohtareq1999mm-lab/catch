@@ -109,6 +109,8 @@ class TranslationCatalogueTest extends TestCase
                 'tracking.shipment.label_created',
                 'tracking.shipment.eta_updated',
                 'tracking.shipment.eta_delayed',
+                'tracking.shipment.delayed',
+                'tracking.shipment.delayed_description',
             ] as $key) {
                 $resolved = __($key, ['tracking_number' => 'X', 'new_eta' => 'Y', 'delay_days' => 1, 'courier_name' => 'C']);
                 $this->assertNotSame($key, $resolved, "[{$locale}] {$key} must resolve");

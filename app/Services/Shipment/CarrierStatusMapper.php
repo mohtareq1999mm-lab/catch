@@ -21,6 +21,17 @@ final class CarrierStatusMapper
 {
     public function __construct(private readonly Repository $config) {}
 
+    /**
+     * #172: the configured map version for a provider+mode, or null when the
+     * map is absent/invalid. Assignment uses this before snapshotting it.
+     */
+    public function mappingVersion(string $providerCode, string $mode): ?string
+    {
+        $map = $this->resolveMap($providerCode, $mode);
+
+        return $map['error'] === null ? $map['version'] : null;
+    }
+
     public function map(string $providerCode, string $mode, ?string $rawStatus): ProviderStatusMapping
     {
         $map = $this->resolveMap($providerCode, $mode);
