@@ -214,6 +214,11 @@ class FastShippingService
                     );
                     $validatedFastValues = $fastFlowService->validateFlowValues($fastFlow, $fastFlowValues, 'checkout');
                 }
+                $shippingBreakdownComponents = [
+                    'base_shipping' => (float) ($shippingPrice ?? 0),
+                    'threshold_waiver' => 0.0,
+                    'coupon_waiver' => 0.0,
+                ];
                 $order = $this->orderCreationService->createOrder(
                     $orderData,
                     $cart,
@@ -224,6 +229,9 @@ class FastShippingService
                     $shippingPrice,
                     $governorateId,
                     \App\Services\OrderFlow\OrderFlowService::SHIPPING_LOCAL,
+                    null,
+                    null,
+                    $shippingBreakdownComponents,
                 );
 
                 if (!$order) {

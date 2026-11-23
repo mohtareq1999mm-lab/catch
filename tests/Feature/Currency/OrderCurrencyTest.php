@@ -68,7 +68,7 @@ $order = $service->createOrder(
         $this->assertSame('USD', $order->currency_code);
         $this->assertSame('KWD', $order->base_currency_code);
         $this->assertSame('USD', $order->catalog_currency_code);
-        $this->assertSame('0.221000', $order->currency_rate);
+        $this->assertSame('0.2210000000', $order->currency_rate);
         $this->assertEquals(now()->toDateString(), $order->currency_rate_date->toDateString());
         $this->assertSame(22.1, $order->converted_total_price);
         $this->assertSame(100.0, $order->total_price);
@@ -86,7 +86,7 @@ $order = $service->createOrder(
         $this->assertSame('USD', $order->currency_code);
         $this->assertSame('USD', $order->base_currency_code);
         $this->assertSame('USD', $order->catalog_currency_code);
-        $this->assertSame('1', $order->currency_rate);
+        $this->assertSame('1.0000000000', $order->currency_rate);
         $this->assertSame(100.0, $order->converted_total_price);
         $this->assertSame(100.0, $order->total_price);
     }
@@ -135,7 +135,7 @@ $order = $service->createOrder(
         $this->assertSame('USD', $order->currency_code);
         $this->assertSame('KWD', $order->base_currency_code);
         $this->assertSame('USD', $order->catalog_currency_code);
-        $this->assertSame('0.221000', $order->currency_rate);
+        $this->assertSame('0.2210000000', $order->currency_rate);
         $this->assertSame(0.0, $order->converted_total_price);
         $this->assertSame(0.0, $order->total_price);
     }
@@ -156,7 +156,7 @@ $order = $service->createOrder(
         $this->assertSame('USD', $data['currency']);
         $this->assertSame('KWD', $data['base_currency']);
         $this->assertSame('USD', $data['catalog_currency']);
-        $this->assertSame('0.221000', $data['exchange_rate']);
+        $this->assertSame('0.2210000000', $data['exchange_rate']);
         $this->assertSame(22.1, $data['converted_total']);
         $this->assertSame(100.0, $data['total']);
     }
