@@ -27,7 +27,7 @@ final class ProviderAssignmentService
         private readonly CarrierGatewayFactory $factories,
     ) {}
 
-    /** @return array{provider_code:string,service_level:string} */
+    /** @return array{provider_code:string,service_level:string,provider_mode:string} */
     public function resolve(): array
     {
         $code = $this->config->get('shipping.default_provider');
@@ -38,7 +38,7 @@ final class ProviderAssignmentService
         return $this->forProvider($code);
     }
 
-    /** @return array{provider_code:string,service_level:string} */
+    /** @return array{provider_code:string,service_level:string,provider_mode:string} */
     public function forProvider(string $providerCode): array
     {
         $code = trim($providerCode);
@@ -48,6 +48,11 @@ final class ProviderAssignmentService
         if (!$this->factories->hasProvider($code)) {
             throw CarrierConfigurationException::unknownProvider($code);
         }
+
+        // #149: mixed or invalid mode configuration must fail before an
+        // assignment (and therefore a mode snapshot) can be produced.
+        $mode = $this->factories->resolveMode($code);
+
         if (!$this->factories->status($code)['enabled']) {
             throw CarrierConfigurationException::disabled($code);
         }
@@ -57,7 +62,7 @@ final class ProviderAssignmentService
             throw CarrierConfigurationException::missingServiceLevel($code);
         }
 
-        return ['provider_code' => $code, 'service_level' => trim($level)];
+        return ['provider_code' => $code, 'service_level' => trim($level), 'provider_mode' => $mode];
     }
 
     public function override(Shipment $shipment, string $providerCode, string $reason): Shipment
@@ -78,19 +83,25 @@ final class ProviderAssignmentService
                 throw ProviderOverrideConflictException::awbAlreadyCreated((int) $locked->id);
             }
 
+            $snapshot = (string) $locked->provider_mode;
+            $mode = $this->overrideMode($assignment['provider_code'], $snapshot, $assignment['provider_mode']);
+
             $old = [
                 'provider_code' => $locked->provider_code,
+                'provider_mode' => $snapshot,
                 'service_level' => $locked->provider_service_level,
                 'provider_override' => (bool) $locked->provider_override,
             ];
             $new = [
                 'provider_code' => $assignment['provider_code'],
+                'provider_mode' => $mode,
                 'service_level' => $assignment['service_level'],
                 'provider_override' => true,
             ];
 
             $locked->update([
                 'provider_code' => $new['provider_code'],
+                'provider_mode' => $mode,
                 'provider_service_level' => $new['service_level'],
                 'provider_override' => true,
             ]);
@@ -108,6 +119,24 @@ final class ProviderAssignmentService
 
             return $locked->fresh();
         });
+    }
+
+    /**
+     * #149: `internal` is a local provider with no external environment. The
+     * first explicit override to a carrier may establish its sandbox or
+     * production mode; once established, the snapshot is immutable and a
+     * cross-environment override fails closed without audit or retry.
+     */
+    private function overrideMode(string $providerCode, string $snapshot, string $target): string
+    {
+        if ($snapshot === $target) {
+            return $snapshot;
+        }
+        if ($snapshot === 'internal') {
+            return $target;
+        }
+
+        throw CarrierConfigurationException::modeMismatch($providerCode, $snapshot, $target);
     }
 
     /**

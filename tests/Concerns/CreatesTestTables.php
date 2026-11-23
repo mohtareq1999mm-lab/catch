@@ -15,6 +15,15 @@ trait CreatesTestTables
         // untouched; DatabaseTransactions still isolates each test).
         $this->dropLegacySingleFlowUniqueIndex();
 
+        // #149: the migrated schema already has users (and therefore skips
+        // the table-creation path below); heal the mode column before that
+        // early return so both fresh and migrated verification databases work.
+        if (Schema::hasTable('shipments') && !Schema::hasColumn('shipments', 'provider_mode')) {
+            Schema::table('shipments', function (Blueprint $table) {
+                $table->string('provider_mode', 20)->nullable()->after('provider_code');
+            });
+        }
+
         if (!Schema::hasTable('heroes')) {
             Schema::create('heroes', function (Blueprint $table) {
                 $table->id();
@@ -1153,6 +1162,7 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->string('tracking_number', 100)->nullable();
                 $table->string('courier', 100)->nullable();
                 $table->string('provider_code', 50)->nullable();
+                $table->string('provider_mode', 20)->nullable();
                 $table->string('provider_service_level', 50)->nullable();
                 $table->boolean('provider_override')->default(false);
                 $table->timestamp('awb_created_at')->nullable();

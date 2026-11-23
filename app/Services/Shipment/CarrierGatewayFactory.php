@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\DTOs\Shipping\CarrierGatewayContext;
+use App\Enums\SettlementMode;
 use App\Enums\Shipping\CarrierCapability;
 use App\Exceptions\CarrierConfigurationException;
+use App\Models\Shipment;
 use App\Services\Shipment\Contracts\CarrierGatewayContract;
 use Illuminate\Contracts\Config\Repository;
 
@@ -30,7 +32,7 @@ class CarrierGatewayFactory
         $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
         $this->assertSingleMode($providerCode, $modes);
 
-        $mode = is_string($provider['mode'] ?? null) ? $provider['mode'] : 'sandbox';
+        $mode = $this->validatedMode($providerCode, $provider);
         $block = $this->requireModeBlock($providerCode, $modes, $mode);
         $this->requireCredentials($providerCode, $block);
         $this->requireCapabilityVerification($providerCode, $block, $capability);
@@ -48,6 +50,65 @@ class CarrierGatewayFactory
         $providers = $this->config->get('shipping.providers', []);
 
         return is_array($providers) && array_key_exists($providerCode, $providers);
+    }
+
+    /**
+     * #149: the single, validated mode a provider may operate in. Mixed
+     * sandbox/production configuration fails closed before any mode is used.
+     */
+    public function resolveMode(string $providerCode): string
+    {
+        $provider = $this->requireProvider($providerCode);
+        $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
+        $this->assertSingleMode($providerCode, $modes);
+
+        return $this->validatedMode($providerCode, $provider);
+    }
+
+    /**
+     * #149: every later operation must use the mode snapshotted on the
+     * shipment, never a current config flag or a caller-supplied mode.
+     */
+    public function assertShipmentMode(Shipment $shipment, string $mode): void
+    {
+        $snapshot = $shipment->provider_mode;
+
+        if (!is_string($snapshot) || $snapshot === '') {
+            throw CarrierConfigurationException::modeSnapshotMissing((int) $shipment->id);
+        }
+        if ($snapshot !== $mode) {
+            throw CarrierConfigurationException::modeMismatch(
+                is_string($shipment->provider_code) ? $shipment->provider_code : '',
+                $snapshot,
+                $mode,
+            );
+        }
+    }
+
+    public function makeForShipment(
+        Shipment $shipment,
+        ?CarrierCapability $capability = null,
+        ?string $channel = null,
+        ?string $geography = null,
+    ): CarrierGatewayContract {
+        $providerCode = is_string($shipment->provider_code) ? $shipment->provider_code : '';
+
+        $this->assertShipmentMode($shipment, $this->resolveMode($providerCode));
+
+        return $this->make($providerCode, $capability, $channel, $geography);
+    }
+
+    /** @param array<string,mixed> $provider */
+    private function validatedMode(string $providerCode, array $provider): string
+    {
+        $configured = $provider['mode'] ?? $this->config->get('shipping.default_mode', 'sandbox');
+        $mode = is_string($configured) ? trim($configured) : '';
+
+        if ($mode === '' || (SettlementMode::tryFrom($mode) === null && $mode !== 'internal')) {
+            throw CarrierConfigurationException::invalidMode($providerCode, $mode);
+        }
+
+        return $mode;
     }
 
     /**

@@ -37,6 +37,22 @@ class CarrierConfigurationException extends RuntimeException
         return new self("Carrier provider [{$providerCode}] has mixed sandbox/production configuration");
     }
 
+    /** #149: mode values are validated without ever including secret values. */
+    public static function invalidMode(string $providerCode, string $mode): self
+    {
+        return new self("Carrier provider [{$providerCode}] has invalid mode [{$mode}]");
+    }
+
+    public static function modeMismatch(string $providerCode, string $snapshot, string $observed): self
+    {
+        return new self("Carrier provider [{$providerCode}] mode mismatch: shipment [{$snapshot}], observed [{$observed}]");
+    }
+
+    public static function modeSnapshotMissing(int $shipmentId): self
+    {
+        return new self("Shipment [{$shipmentId}] has no provider mode snapshot");
+    }
+
     public static function unverifiedCapability(string $providerCode, string $capability): self
     {
         return new self("Carrier provider [{$providerCode}] has no verification for capability [{$capability}]");

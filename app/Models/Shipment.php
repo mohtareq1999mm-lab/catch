@@ -21,6 +21,7 @@ class Shipment extends Model
         'idempotency_key',
         'courier',
         'provider_code',
+        'provider_mode',
         'provider_service_level',
         'provider_override',
         'awb_created_at',
@@ -55,6 +56,7 @@ class Shipment extends Model
         'cancelled_at' => 'datetime',
         'awb_created_at' => 'datetime',
         'provider_override' => 'bool',
+        'provider_mode' => 'string',
         'shipping_cost' => 'float',
         'total_weight' => 'float',
     ];

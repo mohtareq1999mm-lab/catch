@@ -214,6 +214,84 @@ class ShippingProviderEventProcessorTest extends TestCase
         $this->assertCount(1, $recorder->calls);
     }
 
+    public function test_production_event_cannot_transition_a_sandbox_shipment_when_only_the_production_flag_is_enabled(): void
+    {
+        config(['shipping.providers.test_carrier.modes.production' => [
+            // A flag without credentials, capability verification or webhook
+            // evidence is not proof that the two environments are isolated.
+            'enabled' => true,
+            'credentials' => [],
+            'capability_verification' => [],
+            'webhook' => ['version' => 'v1', 'secret' => null],
+            'status_map' => [
+                'version' => 7,
+                'statuses' => ['in_transit' => ShipmentStatus::IN_TRANSIT->value],
+            ],
+        ]]);
+        $shipment = $this->createShipment('sandbox');
+        $webhook = $this->createInboxRow($shipment, 'in_transit', 'evt_production_to_sandbox_149', 'test_carrier', 'production');
+        $recorder = $this->bindRecordingService();
+
+        $event = $this->processor()->process($webhook);
+
+        $this->assertSame('production', $event->mode);
+        $this->assertSame(ProviderEventExceptionType::MODE_MISMATCH->value, $event->exception_classification);
+        $this->assertNull($event->applied_at);
+        $this->assertSame('pending', $shipment->fresh()->status);
+        $this->assertSame([], $recorder->calls);
+
+        $exception = ShipmentException::where('provider_event_id', $event->id)->firstOrFail();
+        $this->assertStringContainsString('sandbox', $exception->notes);
+        $this->assertStringContainsString('production', $exception->notes);
+
+        // Replay of the stored evidence never retries the refused transition.
+        $again = $this->processor()->process($webhook->fresh());
+        $this->assertSame($event->id, $again->id);
+        $this->assertSame(1, ShippingProviderEvent::count());
+        $this->assertSame([], $recorder->calls);
+    }
+
+    public function test_sandbox_event_cannot_transition_a_production_shipment_when_only_the_sandbox_flag_is_enabled(): void
+    {
+        config([
+            'shipping.providers.test_carrier.mode' => 'production',
+            'shipping.providers.test_carrier.modes.sandbox.enabled' => true,
+            'shipping.providers.test_carrier.modes.sandbox.credentials' => [],
+            'shipping.providers.test_carrier.modes.sandbox.capability_verification' => [],
+            'shipping.providers.test_carrier.modes.sandbox.webhook' => ['version' => 'v1', 'secret' => null],
+        ]);
+        $shipment = $this->createShipment('production');
+        $webhook = $this->createInboxRow($shipment, 'in_transit', 'evt_sandbox_to_production_149', 'test_carrier', 'sandbox');
+        $recorder = $this->bindRecordingService();
+
+        $event = $this->processor()->process($webhook);
+
+        $this->assertSame('sandbox', $event->mode);
+        $this->assertSame(ProviderEventExceptionType::MODE_MISMATCH->value, $event->exception_classification);
+        $this->assertNull($event->applied_at);
+        $this->assertSame('pending', $shipment->fresh()->status);
+        $this->assertSame([], $recorder->calls);
+        $this->assertSame(1, ShipmentException::count());
+    }
+
+    public function test_event_without_a_mode_snapshot_fails_closed_without_transition(): void
+    {
+        $shipment = $this->createShipment('');
+        $webhook = $this->createInboxRow($shipment, 'in_transit', 'evt_no_snapshot_149');
+        $recorder = $this->bindRecordingService();
+
+        $event = $this->processor()->process($webhook);
+
+        $this->assertSame(ProviderEventExceptionType::MODE_MISMATCH->value, $event->exception_classification);
+        $this->assertNull($event->applied_at);
+        $this->assertSame('pending', $shipment->fresh()->status);
+        $this->assertSame([], $recorder->calls);
+        $this->assertStringContainsString(
+            'no provider mode snapshot',
+            ShipmentException::where('provider_event_id', $event->id)->firstOrFail()->notes,
+        );
+    }
+
     public function test_evidence_models_link_shipment_webhook_and_exception(): void
     {
         $shipment = $this->createShipment();
@@ -241,7 +319,7 @@ class ShippingProviderEventProcessorTest extends TestCase
         return $recorder;
     }
 
-    private function createShipment(): Shipment
+    private function createShipment(string $mode = 'sandbox', string $providerCode = 'test_carrier'): Shipment
     {
         $user = User::create([
             'name' => 'Provider Event User',
@@ -266,6 +344,8 @@ class ShippingProviderEventProcessorTest extends TestCase
         return Shipment::create([
             'order_id' => $order->id,
             'status' => 'pending',
+            'provider_code' => $providerCode,
+            'provider_mode' => $mode,
         ]);
     }
 
@@ -274,10 +354,11 @@ class ShippingProviderEventProcessorTest extends TestCase
         string $rawStatus,
         string $eventKey,
         string $providerCode = 'test_carrier',
+        string $mode = 'sandbox',
     ): ShippingWebhookEvent {
         return ShippingWebhookEvent::create([
             'provider_code' => $providerCode,
-            'mode' => 'sandbox',
+            'mode' => $mode,
             'account_code' => 'test-account',
             'webhook_version' => 'v1',
             'event_key' => $eventKey,
