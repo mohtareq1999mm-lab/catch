@@ -17,4 +17,5 @@ enum ProviderEventExceptionType: string
     case INVALID_MAPPING_CONFIG = 'invalid_mapping_config';
     case UNREGISTERED_PROVIDER = 'unregistered_provider';
     case UNMATCHED_SHIPMENT = 'unmatched_shipment';
+    case MODE_MISMATCH = 'mode_mismatch';
 }

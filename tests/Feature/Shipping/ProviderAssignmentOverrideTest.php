@@ -102,7 +102,7 @@ class ProviderAssignmentOverrideTest extends TestCase
     public function test_default_provider_is_resolved_from_config_and_client_provider_input_is_ignored(): void
     {
         $this->assertSame(
-            ['provider_code' => 'internal', 'service_level' => 'standard'],
+            ['provider_code' => 'internal', 'service_level' => 'standard', 'provider_mode' => 'internal'],
             app(ProviderAssignmentService::class)->resolve(),
         );
 
@@ -118,6 +118,40 @@ class ProviderAssignmentOverrideTest extends TestCase
         $this->assertSame('standard', $shipment->provider_service_level);
         $this->assertFalse((bool) $shipment->provider_override);
         $this->assertNull($shipment->awb_created_at);
+    }
+
+    public function test_shipment_snapshots_the_validated_provider_mode_and_ignores_client_mode(): void
+    {
+        $assignment = app(ProviderAssignmentService::class)->resolve();
+
+        $this->assertSame('internal', $assignment['provider_mode']);
+
+        $shipment = $this->createShipment(['provider_mode' => 'production']);
+
+        $this->assertSame('internal', $shipment->provider_mode);
+
+        config(['shipping.providers.production_carrier' => $this->providerConfig('production')]);
+
+        $this->assertSame(
+            'production',
+            app(ProviderAssignmentService::class)->forProvider('production_carrier')['provider_mode'],
+        );
+    }
+
+    public function test_mixed_mode_configuration_is_refused_by_the_assignment_authority(): void
+    {
+        config(['shipping.providers.production_carrier' => $this->providerConfig('production')]);
+        config(['shipping.providers.production_carrier.modes.sandbox' => [
+            'enabled' => true,
+            'credentials' => ['api_key' => 'sandbox-key'],
+        ]]);
+
+        try {
+            app(ProviderAssignmentService::class)->forProvider('production_carrier');
+            $this->fail('A provider with both modes active must not be assignable.');
+        } catch (CarrierConfigurationException $exception) {
+            $this->assertStringContainsString('mixed sandbox/production', $exception->getMessage());
+        }
     }
 
     public function test_unconfigured_default_provider_fails_closed(): void
@@ -231,6 +265,50 @@ class ProviderAssignmentOverrideTest extends TestCase
         $this->assertSame('carrier capacity incident', $activity->properties['reason']);
         $this->assertSame('internal', $activity->properties['old']['provider_code']);
         $this->assertSame('alternate', $activity->properties['new']['provider_code']);
+    }
+
+    public function test_override_establishes_the_first_external_mode_and_audits_it(): void
+    {
+        $shipment = $this->createShipment();
+
+        Sanctum::actingAs($this->admin);
+        $this->postJson($this->overrideUrl($shipment), [
+            'provider' => 'alternate',
+            'reason' => 'first external carrier assignment',
+        ])->assertOk();
+
+        $updated = $shipment->fresh();
+        $this->assertSame('sandbox', $updated->provider_mode);
+
+        $activity = Activity::where('event', 'provider_override')->latest()->firstOrFail();
+        $this->assertSame('internal', $activity->properties['old']['provider_mode']);
+        $this->assertSame('sandbox', $activity->properties['new']['provider_mode']);
+    }
+
+    public function test_override_cannot_cross_between_sandbox_and_production_in_either_direction(): void
+    {
+        config([
+            'shipping.providers.sandbox_carrier' => $this->providerConfig('sandbox'),
+            'shipping.providers.production_carrier' => $this->providerConfig('production'),
+        ]);
+
+        foreach (['sandbox_carrier' => 'production_carrier', 'production_carrier' => 'sandbox_carrier'] as $from => $to) {
+            config(['shipping.default_provider' => $from]);
+            $shipment = $this->createShipment();
+
+            try {
+                app(ProviderAssignmentService::class)->override($shipment, $to, 'cross-environment attempt');
+                $this->fail("Override from [{$from}] to [{$to}] must fail closed.");
+            } catch (CarrierConfigurationException $exception) {
+                $this->assertStringContainsString('mode mismatch', $exception->getMessage());
+            }
+
+            $fresh = $shipment->fresh();
+            $this->assertSame($from, $fresh->provider_code);
+            $this->assertSame($from === 'sandbox_carrier' ? 'sandbox' : 'production', $fresh->provider_mode);
+        }
+
+        $this->assertSame(0, Activity::where('event', 'provider_override')->count());
     }
 
     public function test_whitespace_only_reason_is_rejected_by_the_assignment_authority(): void
@@ -394,6 +472,29 @@ class ProviderAssignmentOverrideTest extends TestCase
             'order_id' => $fulfillment->order_id,
             'fulfillment_id' => $fulfillment->id,
         ]);
+    }
+
+    /** @return array<string,mixed> */
+    private function providerConfig(string $mode): array
+    {
+        return [
+            'adapter' => \App\Services\Shipment\Providers\NullCarrierGateway::class,
+            'mode' => $mode,
+            'account_code' => 'test-account',
+            'service_level' => 'express',
+            'channels' => ['web'],
+            'geographies' => ['EG'],
+            'modes' => [
+                'sandbox' => [
+                    'enabled' => $mode === 'sandbox',
+                    'credentials' => $mode === 'sandbox' ? ['api_key' => 'sandbox-key'] : [],
+                ],
+                'production' => [
+                    'enabled' => $mode === 'production',
+                    'credentials' => $mode === 'production' ? ['api_key' => 'production-key'] : [],
+                ],
+            ],
+        ];
     }
 
     private function createOrder(): Order
