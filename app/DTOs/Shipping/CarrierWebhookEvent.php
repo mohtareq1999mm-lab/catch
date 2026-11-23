@@ -30,6 +30,7 @@ final class CarrierWebhookEvent extends CarrierResult
         public readonly ?CarbonImmutable $occurredAt,
         public readonly array $redactedPayload,
         public readonly ?string $shipmentUuid = null,
+        public readonly ?string $rawStatus = null,
     ) {
         parent::__construct($providerCode, $mode, $externalIds, $amount, $redactedPayloadReference);
 
@@ -47,6 +48,9 @@ final class CarrierWebhookEvent extends CarrierResult
         }
         if ($providerShipmentRef !== null && strlen($providerShipmentRef) > 191) {
             throw new InvalidArgumentException('Carrier webhook shipment reference is too long.');
+        }
+        if ($rawStatus !== null && strlen($rawStatus) > 191) {
+            throw new InvalidArgumentException('Carrier webhook raw status is too long.');
         }
         foreach ($redactedPayload as $name => $value) {
             if (!is_string($name) || trim($name) === '' || (!is_scalar($value) && $value !== null)) {

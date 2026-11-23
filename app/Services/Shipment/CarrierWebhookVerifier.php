@@ -149,6 +149,7 @@ final class CarrierWebhookVerifier
             $identity['occurred_at'],
             $this->redactedPayload($context, $identity, $eventKey),
             $identity['shipment_uuid'],
+            $identity['status'],
         );
     }
 
