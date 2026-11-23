@@ -95,6 +95,8 @@ return [
         'eta_updated_description' => 'الوصول المتوقع: :new_eta',
         'eta_delayed' => 'تأخر موعد التوصيل',
         'eta_delayed_description' => 'تأخر التوصيل بمقدار :delay_days أيام. الموعد الجديد: :new_eta',
+        'delayed' => 'تأخر التوصيل',
+        'delayed_description' => 'تأخر توصيل طردك.',
     ],
 
     // Refund Events
