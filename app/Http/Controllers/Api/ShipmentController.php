@@ -14,7 +14,14 @@ use Illuminate\Http\Request;
 use Marvel\Enums\Permission;
 use Marvel\Traits\ApiResponse;
 
-class       ShipmentController extends Controller
+/**
+ * #166: Legacy shipment compatibility shim.
+ *
+ * Response shapes are preserved for current consumers. All writes delegate to
+ * ShipmentService; this controller must not mutate shipment status directly.
+ * Removal criteria: docs/shipping/legacy-shipment-compatibility.md.
+ */
+class ShipmentController extends Controller
 {
     use ApiResponse;
 

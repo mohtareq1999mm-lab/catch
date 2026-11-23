@@ -15,8 +15,9 @@ class ShipmentResource extends JsonResource
             'order_id' => $this->order_id,
             'tracking_number' => $this->tracking_number,
             // #148: customers see the service level, never the carrier brand.
-            // #166 will split this legacy compatibility field from the
-            // customer service-level representation; both stay until then.
+            // #166: legacy compatibility keeps `service_level` and `courier`
+            // in this shape. Split/removal requires meeting criteria in
+            // docs/shipping/legacy-shipment-compatibility.md.
             'service_level' => $this->provider_service_level,
             'courier' => $this->courier,
             'status' => $this->status,
