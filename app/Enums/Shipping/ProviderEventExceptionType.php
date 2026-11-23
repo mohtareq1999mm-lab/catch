@@ -18,4 +18,6 @@ enum ProviderEventExceptionType: string
     case UNREGISTERED_PROVIDER = 'unregistered_provider';
     case UNMATCHED_SHIPMENT = 'unmatched_shipment';
     case MODE_MISMATCH = 'mode_mismatch';
+    case TERMINAL_STATE_REVERSAL = 'terminal_state_reversal';
+    case OUT_OF_ORDER_EVENT = 'out_of_order_event';
 }
