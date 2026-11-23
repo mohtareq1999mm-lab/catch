@@ -26,6 +26,6 @@ class CodSettlementPrecisionException extends InvalidArgumentException
 
     public static function forMixedCurrency(): self
     {
-        return new self(__('cod_settlement.precision_unavailable'));
+        return new self(__('cod_settlement.currency_conflict'));
     }
 }

@@ -576,6 +576,10 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->index(['provider_code', 'mode', 'account_code'], 'idx_cod_settlement_identity');
                 $table->index(['period_start', 'period_end'], 'idx_cod_settlement_period');
                 $table->index('currency_code', 'idx_cod_settlement_currency');
+                $table->unique(
+                    ['provider_code', 'mode', 'account_code', 'period_start', 'period_end', 'currency_code'],
+                    'uq_cod_settlement_statement_identity'
+                );
             });
         }
 
