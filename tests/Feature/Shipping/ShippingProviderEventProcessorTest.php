@@ -6,6 +6,8 @@ namespace Tests\Feature\Shipping;
 
 use App\Enums\ShipmentStatus;
 use App\Enums\Shipping\ProviderEventExceptionType;
+use App\Enums\Shipping\ShipmentExceptionSeverity;
+use App\Enums\Shipping\ShipmentExceptionStatus;
 use App\Models\Shipment;
 use App\Models\Shipping\ShipmentException;
 use App\Models\Shipping\ShippingProviderEvent;
@@ -103,8 +105,8 @@ class ShippingProviderEventProcessorTest extends TestCase
 
         $exception = ShipmentException::firstOrFail();
         $this->assertSame(ProviderEventExceptionType::UNKNOWN_STATUS->value, $exception->type);
-        $this->assertSame('high', $exception->severity);
-        $this->assertSame('open', $exception->status);
+        $this->assertSame(ShipmentExceptionSeverity::HIGH->value, $exception->severity);
+        $this->assertSame(ShipmentExceptionStatus::OPEN->value, $exception->status);
         $this->assertSame($event->id, $exception->provider_event_id);
         $this->assertSame($shipment->id, $exception->shipment_id);
 
@@ -146,6 +148,53 @@ class ShippingProviderEventProcessorTest extends TestCase
         $this->assertSame(ProviderEventExceptionType::UNREGISTERED_PROVIDER->value, $event->exception_classification);
         $this->assertSame('pending', $shipment->fresh()->status);
         $this->assertSame([], $recorder->calls);
+    }
+
+    public function test_configured_but_illegal_transition_keeps_raw_evidence_and_records_exception(): void
+    {
+        config([
+            'shipping.providers.test_carrier.modes.sandbox.status_map.statuses.in_transit'
+                => ShipmentStatus::DELIVERED->value,
+        ]);
+        $shipment = $this->createShipment();
+        $webhook = $this->createInboxRow($shipment, 'in_transit', 'evt_illegal_151');
+        $recorder = $this->bindRecordingService();
+
+        $event = $this->processor()->process($webhook);
+
+        $this->assertSame('in_transit', $event->raw_status);
+        $this->assertSame(ShipmentStatus::DELIVERED->value, $event->mapped_status);
+        $this->assertNull($event->applied_at);
+        $this->assertSame(
+            ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value,
+            $event->fresh()->exception_classification,
+        );
+        $this->assertSame(ShipmentStatus::PENDING->value, $shipment->fresh()->status);
+        $this->assertSame(1, ShippingProviderEvent::count());
+
+        $exception = ShipmentException::where('provider_event_id', $event->id)->firstOrFail();
+        $this->assertSame(ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value, $exception->type);
+        $this->assertStringContainsString('transition_error=', $exception->notes);
+        $this->assertSame([
+            ['method' => 'updateStatus', 'args' => [
+                'shipment_id' => $shipment->id,
+                'status' => ShipmentStatus::DELIVERED->value,
+            ]],
+        ], $recorder->calls);
+    }
+
+    public function test_evidence_models_link_shipment_webhook_and_exception(): void
+    {
+        $shipment = $this->createShipment();
+        $webhook = $this->createInboxRow($shipment, 'carrier_invents_a_new_state', 'evt_relations_151');
+
+        $event = $this->processor()->process($webhook);
+        $exception = ShipmentException::where('provider_event_id', $event->id)->firstOrFail();
+
+        $this->assertTrue($event->shipment()->first()->is($shipment));
+        $this->assertTrue($event->webhookEvent()->first()->is($webhook));
+        $this->assertTrue($exception->shipment()->first()->is($shipment));
+        $this->assertTrue($exception->providerEvent()->first()->is($event));
     }
 
     private function processor(): ShippingProviderEventProcessor

@@ -8,6 +8,7 @@ use App\Audit\ActivityAuditService;
 use App\Exceptions\CarrierConfigurationException;
 use App\Exceptions\ProviderOverrideConflictException;
 use App\Models\Shipment;
+use App\Support\ProviderCode;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -30,7 +31,7 @@ final class ProviderAssignmentService
     public function resolve(): array
     {
         $code = $this->config->get('shipping.default_provider');
-        if (!is_string($code) || preg_match('/^[A-Za-z0-9_-]+$/', $code) !== 1) {
+        if (!is_string($code) || !ProviderCode::isValid($code)) {
             throw CarrierConfigurationException::unknownProvider(is_string($code) ? $code : '');
         }
 
@@ -41,7 +42,7 @@ final class ProviderAssignmentService
     public function forProvider(string $providerCode): array
     {
         $code = trim($providerCode);
-        if (preg_match('/^[A-Za-z0-9_-]+$/', $code) !== 1) {
+        if (!ProviderCode::isValid($code)) {
             throw CarrierConfigurationException::unknownProvider($providerCode);
         }
         if (!$this->factories->hasProvider($code)) {
@@ -63,7 +64,7 @@ final class ProviderAssignmentService
     {
         $reason = trim($reason);
         if ($reason === '' || mb_strlen($reason) > 500) {
-            throw new InvalidArgumentException('A provider override requires a reason of at most 500 characters.');
+            throw new InvalidArgumentException(__('shipping.audit.override_reason_required'));
         }
 
         $assignment = $this->forProvider($providerCode);
@@ -71,7 +72,7 @@ final class ProviderAssignmentService
         return DB::transaction(function () use ($shipment, $assignment, $reason): Shipment {
             $locked = Shipment::whereKey($shipment->getKey())->lockForUpdate()->firstOrFail();
 
-            if ($locked->awb_created_at !== null) {
+            if ($this->hasAwbEvidence($locked)) {
                 throw ProviderOverrideConflictException::awbAlreadyCreated((int) $locked->id);
             }
 
@@ -96,7 +97,7 @@ final class ProviderAssignmentService
                 $locked,
                 'provider_override',
                 'shipping',
-                'Shipping provider overridden by administrator',
+                __('shipping.audit.provider_overridden'),
                 $old,
                 $new,
                 ['shipment_uuid' => $locked->uuid],
@@ -105,5 +106,17 @@ final class ProviderAssignmentService
 
             return $locked->fresh();
         });
+    }
+
+    /**
+     * #148: AWB evidence is either an explicit timestamp or an issued tracking
+     * number. Both mean the physical label may already be with a carrier.
+     */
+    private function hasAwbEvidence(Shipment $shipment): bool
+    {
+        $trackingNumber = $shipment->tracking_number;
+
+        return $shipment->awb_created_at !== null
+            || (is_string($trackingNumber) && trim($trackingNumber) !== '');
     }
 }
