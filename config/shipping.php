@@ -34,6 +34,17 @@ return [
         'decay_seconds' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_DECAY_SECONDS', 60)),
     ],
 
+    // #159: versioned HMAC fallback fingerprints. Secrets are deployment-owned;
+    // never persisted. Retained versions keep dedupe effective across rotation.
+    'webhook_fingerprints' => [
+        'current_version' => env('SHIPPING_WEBHOOK_FINGERPRINT_VERSION', 'v1'),
+        'keys' => array_filter([
+            'v1' => env('SHIPPING_WEBHOOK_FINGERPRINT_KEY_V1', env('APP_KEY')),
+            'v2' => env('SHIPPING_WEBHOOK_FINGERPRINT_KEY_V2'),
+            'v3' => env('SHIPPING_WEBHOOK_FINGERPRINT_KEY_V3'),
+        ], static fn ($value): bool => is_string($value) && trim($value) !== ''),
+    ],
+
     'providers' => [
         'null' => [
             // Local placeholder only: no outbound calls, no capabilities.
