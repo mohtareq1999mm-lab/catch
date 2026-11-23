@@ -445,6 +445,101 @@ Schema::create('categories', function (Blueprint $table) {
             $table->index(['order_id', 'channel', 'event_type']);
         });
 
+        Schema::create('order_tracking_events', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id');
+            $table->string('event_type', 64);
+            $table->string('old_status', 64)->nullable();
+            $table->string('new_status', 64)->nullable();
+            $table->string('source', 64)->nullable();
+            $table->string('actor_type', 32)->nullable();
+            $table->unsignedBigInteger('actor_id')->nullable();
+            $table->json('metadata')->nullable();
+            $table->boolean('customer_visible')->default(true);
+            $table->json('label_keys')->nullable();
+            $table->timestamp('timestamp')->nullable();
+            $table->timestamps();
+            $table->index('order_id');
+        });
+
+        Schema::create('delivery_representatives', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('phone', 32)->nullable();
+            $table->string('email')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('shipment_assignments', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('shipment_id')->constrained('shipments')->cascadeOnDelete();
+            $table->foreignId('delivery_representative_id')->constrained('delivery_representatives')->cascadeOnDelete();
+            $table->string('status', 32)->default('active');
+            $table->timestamp('assigned_at')->nullable();
+            $table->timestamp('unassigned_at')->nullable();
+            $table->unsignedBigInteger('assigned_by')->nullable();
+            $table->text('notes')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            $table->index(['shipment_id', 'status']);
+        });
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            \Illuminate\Support\Facades\DB::statement("ALTER TABLE `shipment_assignments` ADD COLUMN `active_shipment_id` BIGINT UNSIGNED GENERATED ALWAYS AS (CASE WHEN `status` = 'active' THEN `shipment_id` ELSE NULL END) VIRTUAL");
+            \Illuminate\Support\Facades\DB::statement("CREATE UNIQUE INDEX `shipment_assignments_one_active_per_shipment` ON `shipment_assignments` (`active_shipment_id`)");
+        }
+
+        Schema::create('shipment_delivery_attempts', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('shipment_id')->constrained('shipments')->cascadeOnDelete();
+            $table->foreignId('shipment_assignment_id')->nullable()->constrained('shipment_assignments')->nullOnDelete();
+            $table->unsignedSmallInteger('attempt_number');
+            $table->string('status', 32);
+            $table->timestamp('attempted_at')->nullable();
+            $table->text('failure_reason')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            $table->unique(['shipment_id', 'attempt_number'], 'shipment_attempts_shipment_number_unique');
+        });
+
+        Schema::create('shipment_pods', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('shipment_id')->constrained('shipments')->cascadeOnDelete();
+            $table->foreignId('shipment_assignment_id')->nullable()->constrained('shipment_assignments')->nullOnDelete();
+            $table->foreignId('shipment_delivery_attempt_id')->nullable()->constrained('shipment_delivery_attempts')->nullOnDelete();
+            $table->string('status', 32)->default('successful');
+            $table->string('recipient_name')->nullable();
+            $table->timestamp('captured_at')->nullable();
+            $table->string('file_reference', 1024);
+            $table->string('signature_reference', 1024)->nullable();
+            $table->string('otp_reference', 191)->nullable();
+            $table->unsignedBigInteger('uploaded_by')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+        });
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            \Illuminate\Support\Facades\DB::statement("ALTER TABLE `shipment_pods` ADD COLUMN `successful_shipment_id` BIGINT UNSIGNED GENERATED ALWAYS AS (CASE WHEN `status` = 'successful' THEN `shipment_id` ELSE NULL END) VIRTUAL");
+            \Illuminate\Support\Facades\DB::statement("CREATE UNIQUE INDEX `shipment_pods_one_successful_per_shipment` ON `shipment_pods` (`successful_shipment_id`)");
+        }
+
+        Schema::create('shipment_notifications', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('shipment_id')->nullable()->constrained('shipments')->nullOnDelete();
+            $table->unsignedBigInteger('timeline_event_id');
+            $table->string('channel', 32);
+            $table->string('recipient_type', 32);
+            $table->string('recipient_id', 191);
+            $table->string('status', 32)->default('pending');
+            $table->string('dedupe_key', 191)->nullable();
+            $table->json('payload')->nullable();
+            $table->timestamp('sent_at')->nullable();
+            $table->timestamp('failed_at')->nullable();
+            $table->text('failure_reason')->nullable();
+            $table->timestamps();
+            $table->unique(['timeline_event_id', 'channel', 'recipient_type', 'recipient_id'], 'shipment_notifications_dedupe_unique');
+        });
+
         // Mirrors 2026_09_12_000003 production migration. Push listeners query
         // active unexpired tokens on every order event; absence breaks them.
         Schema::create('user_device_tokens', function (Blueprint $table) {

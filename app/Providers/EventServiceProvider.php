@@ -199,6 +199,9 @@ class EventServiceProvider extends ServiceProvider
         // #137: shipment status/timeline/mirror writes live only in
         // ShipmentService. No listener writes those aggregates any more; the
         // status event is dispatched after commit for read-side consumers.
+        \App\Events\Shipment\ShipmentStatusChanged::class => [
+            \App\Listeners\RecordShipmentNotification::class,
+        ],
         DigitalProductsDelivered::class => [
             SendUserDigitalProductsAvailableNotification::class,
         ],
