@@ -353,7 +353,7 @@ class CustomerLifecycleContractTest extends TestCase
         $this->checkoutAs($this->user)->assertStatus(200);
         $order = $this->latestOrderFor($this->user);
 
-        foreach (['view-shipment', 'update-shipment'] as $name) {
+        foreach (['view-shipment', 'update-shipment', 'orders.shipment.show', 'orders.shipment.update-status'] as $name) {
             $perm = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
             $this->admin->givePermissionTo($perm);
         }
@@ -367,5 +367,12 @@ class CustomerLifecycleContractTest extends TestCase
         ])->assertOk();
         $this->assertSame('in_transit', $this->latestOrderFor($this->user)->shipment_status);
         $this->assertSame('TRK-1', $this->latestOrderFor($this->user)->tracking_number);
+        // #137: mirror update and canonical timeline row come from ShipmentService.
+        $this->assertDatabaseHas('order_tracking_events', [
+            'order_id' => $order->id,
+            'event_type' => 'shipment.status_changed',
+            'new_status' => 'in_transit',
+            'source' => 'admin',
+        ]);
     }
 }

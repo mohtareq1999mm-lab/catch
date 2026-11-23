@@ -8,7 +8,9 @@ use App\Models\Fulfillment\FulfillmentItem;
 use App\Models\Fulfillment\Package;
 use App\Models\Fulfillment\PackageItem;
 use App\Models\Fulfillment\PackingTask;
+use App\Models\OrderTrackingEvent;
 use App\Models\Shipment;
+use App\Events\Shipment\ShipmentStatusChanged;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Order\DeliveryCompletionInvariant;
 use App\Services\Order\OrderTransitionService;
@@ -371,13 +373,17 @@ class ShipmentService
                 }
             }
 
-            $shipment->update([
-                'status' => 'cancelled',
+            $cancelSource = (string) ($context['cancel_source'] ?? 'direct');
+            $cancelledBy = $context['cancelled_by'] ?? (auth()->check() ? auth()->id() : null);
+
+            $this->writeStatus($shipment, 'cancelled', $shipment->notes, [
                 'cancelled_at' => now(),
                 'cancel_reason' => trim($reason),
-                'cancelled_by' => $context['cancelled_by'] ?? (auth()->check() ? auth()->id() : null),
-                'cancel_source' => $context['cancel_source'] ?? 'direct',
-                'notes' => $shipment->notes,
+                'cancelled_by' => $cancelledBy,
+                'cancel_source' => $cancelSource,
+            ], [
+                'source' => $cancelSource,
+                'actor_id' => $cancelledBy,
             ]);
 
             Log::warning('Shipment cancelled', [
@@ -546,7 +552,56 @@ class ShipmentService
             $payload['actual_delivery_at'] = now();
         }
 
-        Order::withoutGlobalScopes()->whereKey((int) $shipment->order_id)->update($payload);
+        $this->applyOrderMirror((int) $shipment->order_id, $payload);
+    }
+
+    /**
+     * #137: legacy admin endpoint adapter. It has no canonical shipment row
+     * (order-only labels remain valid), so this path writes the canonical
+     * timeline row and the order mirror through the same authority, in the
+     * same transaction, without inventing a shipment lifecycle step.
+     *
+     * @param  array{tracking_number?:string|null,courier_name?:string|null,location_data?:array|null,estimated_delivery_at?:mixed,notes?:string|null}  $details
+     */
+    public function recordOrderStatusChange(int $orderId, string $newStatus, array $details = []): void
+    {
+        DB::transaction(function () use ($orderId, $newStatus, $details) {
+            $order = Order::withoutGlobalScopes()->whereKey($orderId)->lockForUpdate()->firstOrFail();
+            $oldStatus = (string) ($order->shipment_status ?? 'pending');
+            $shipment = Shipment::where('order_id', $orderId)->latest('id')->first();
+
+            $context = $this->transitionContext(array_merge($details, ['source' => 'admin']));
+            $timeline = $this->writeStatusTimeline($shipment, $oldStatus, $newStatus, $context, [
+                'order_id' => (int) $order->id,
+            ] + $details);
+
+            $payload = ['shipment_status' => $newStatus];
+            if (($details['tracking_number'] ?? null) !== null) {
+                $payload['tracking_number'] = (string) $details['tracking_number'];
+            }
+            if (($details['courier_name'] ?? null) !== null) {
+                $payload['courier_name'] = (string) $details['courier_name'];
+            }
+            if (($details['estimated_delivery_at'] ?? null) !== null) {
+                $payload['estimated_delivery_at'] = $details['estimated_delivery_at'];
+            }
+            if ($newStatus === 'delivered') {
+                $payload['actual_delivery_at'] = now();
+            }
+            $this->applyOrderMirror((int) $order->id, $payload);
+
+            event(ShipmentStatusChanged::forTransition($order, $timeline, $shipment, $details + $context));
+        });
+    }
+
+    /** Single persistence point for the legacy orders shipment mirror. */
+    private function applyOrderMirror(int $orderId, array $payload): void
+    {
+        if (!Schema::hasTable('orders') || !Schema::hasColumn('orders', 'shipment_status')) {
+            return;
+        }
+
+        Order::withoutGlobalScopes()->whereKey($orderId)->update($payload);
     }
 
     /**
@@ -644,19 +699,30 @@ class ShipmentService
      * Locked-row status writer shared by the transition authority. The row
      * MUST already be locked by the caller; validates the DAG defensively so
      * a programming error can never skip it.
+     *
+     * #137: status, canonical timeline row and order mirror belong to ONE
+     * transaction (the caller's transaction). A timeline failure propagates
+     * and rolls back the status write; the event is deferred until commit by
+     * ShipmentStatusChanged's ShouldDispatchAfterCommit contract.
      */
-    private function writeStatus(Shipment $shipment, string $newStatus, ?string $notes): void
-    {
+    private function writeStatus(
+        Shipment $shipment,
+        string $newStatus,
+        ?string $notes,
+        array $extraPayload = [],
+        array $transitionContext = [],
+    ): OrderTrackingEvent {
         if (!$shipment->canTransitionTo($newStatus)) {
             throw new \RuntimeException(
                 __('wms.shipment.transition', ['shipment' => $shipment->id, 'from' => $shipment->status, 'to' => $newStatus])
             );
         }
 
-        $payload = [
+        $oldStatus = (string) $shipment->status;
+        $payload = array_merge([
             'status' => $newStatus,
             'notes' => $notes ?? $shipment->notes,
-        ];
+        ], $extraPayload);
 
         if ($newStatus === 'picked_up') {
             $payload['shipped_at'] = $shipment->shipped_at ?? now();
@@ -666,6 +732,91 @@ class ShipmentService
         }
 
         $shipment->update($payload);
+
+        $context = $this->transitionContext($transitionContext);
+        $timeline = $this->writeStatusTimeline($shipment, $oldStatus, $newStatus, $context);
+        $order = Order::withoutGlobalScopes()->whereKey((int) $shipment->order_id)->firstOrFail();
+
+        event(ShipmentStatusChanged::forTransition($order, $timeline, $shipment, array_merge($context, [
+            'tracking_number' => $shipment->tracking_number,
+            'courier_name' => $shipment->courier,
+            'estimated_delivery_at' => $shipment->estimated_delivery_at,
+        ])));
+
+        return $timeline;
+    }
+
+    /**
+     * #137: the canonical shipment timeline writer. No try/catch by design —
+     * a failure here must abort the enclosing transition transaction.
+     *
+     * @param  array{actor_type:string,actor_id:?int,actor_name:string,source:string}  $context
+     */
+    private function writeStatusTimeline(
+        ?Shipment $shipment,
+        string $oldStatus,
+        string $newStatus,
+        array $context,
+        array $details = [],
+    ): OrderTrackingEvent {
+        $orderId = (int) ($details['order_id'] ?? $shipment?->order_id ?? 0);
+        $estimated = $details['estimated_delivery_at'] ?? $shipment?->estimated_delivery_at;
+        $metadata = [
+            'old_status' => $oldStatus,
+            'new_status' => $newStatus,
+            'tracking_number' => $details['tracking_number'] ?? $shipment?->tracking_number,
+            'courier_name' => $details['courier_name'] ?? $shipment?->courier,
+            'location_data' => $details['location_data'] ?? null,
+            'estimated_delivery' => $estimated instanceof \DateTimeInterface
+                ? (method_exists($estimated, 'toIso8601String') ? $estimated->toIso8601String() : $estimated->format(\DateTimeInterface::ATOM))
+                : null,
+            'changed_at' => now()->toIso8601String(),
+        ];
+
+        return OrderTrackingEvent::create([
+            'order_id' => $orderId,
+            'event_type' => 'shipment.status_changed',
+            'event_timestamp' => now(),
+            'actor_type' => $context['actor_type'],
+            'actor_id' => $context['actor_id'],
+            'actor_name' => $context['actor_name'],
+            'old_status' => $oldStatus,
+            'new_status' => $newStatus,
+            'metadata' => $metadata,
+            'customer_visible' => $this->timelineCustomerVisible($newStatus),
+            'customer_label_key' => "tracking.shipment.{$newStatus}",
+            'customer_description_key' => "tracking.shipment.{$newStatus}_description",
+            'admin_notes' => null,
+            'source' => $context['source'],
+            'ip_address' => request()->ip(),
+        ]);
+    }
+
+    /**
+     * Single actor/source derivation for every canonical transition. Explicit
+     * context wins; ambient auth is consulted once at the authority boundary,
+     * never in a controller, listener or resource.
+     *
+     * @param  array{actor_type?:string,actor_id?:int|null,actor_name?:string,source?:string}  $context
+     * @return array{actor_type:string,actor_id:?int,actor_name:string,source:string}
+     */
+    private function transitionContext(array $context = []): array
+    {
+        $user = auth()->user();
+
+        return [
+            'actor_type' => $context['actor_type'] ?? ($user ? TransitionActor::user($user)->historyActorType() : TransitionActor::KIND_SYSTEM),
+            'actor_id' => array_key_exists('actor_id', $context)
+                ? ($context['actor_id'] !== null ? (int) $context['actor_id'] : null)
+                : ($user?->getAuthIdentifier() !== null ? (int) $user->getAuthIdentifier() : null),
+            'actor_name' => $context['actor_name'] ?? ($user?->name ?? 'System'),
+            'source' => $context['source'] ?? 'direct',
+        ];
+    }
+
+    private function timelineCustomerVisible(string $status): bool
+    {
+        return !in_array($status, ['pending', 'label_created'], true);
     }
 
     /**
