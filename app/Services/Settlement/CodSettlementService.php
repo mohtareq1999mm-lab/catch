@@ -65,6 +65,10 @@ class CodSettlementService
                 throw $this->duplicateStatementException();
             }
 
+            if ($this->isStatementKeyViolation($e, $identity)) {
+                throw $this->duplicateStatementKeyException();
+            }
+
             throw $e;
         } finally {
             if ($lockAcquired) {
@@ -410,6 +414,13 @@ class CodSettlementService
         ]);
     }
 
+    private function duplicateStatementKeyException(): ValidationException
+    {
+        return ValidationException::withMessages([
+            'statement_key' => [__('cod_settlement.duplicate_statement_key')],
+        ]);
+    }
+
     private function isDuplicateStatementViolation(QueryException $e, array $identity): bool
     {
         if (! UniqueViolation::detect($e)) {
@@ -423,7 +434,38 @@ class CodSettlementService
 
         // SQLite and some drivers omit index names; confirm against the
         // deterministic statement identity before mapping to domain error.
+        if ($this->isStatementKeyViolation($e, $identity)) {
+            return false;
+        }
+
         return $this->duplicateStatementQuery($identity)->exists();
+    }
+
+    private function isStatementKeyViolation(QueryException $e, array $identity): bool
+    {
+        if (! UniqueViolation::detect($e)) {
+            return false;
+        }
+
+        $message = $e->getMessage();
+        if (
+            str_contains($message, 'uq_cod_settlement_statement_key')
+            || str_contains($message, 'cod_settlement_statements.statement_key')
+            || str_contains($message, 'cod_settlement_statements_statement_key_unique')
+        ) {
+            return true;
+        }
+
+        // SQLite and some drivers omit index names; confirm against the
+        // statement key before mapping to a deterministic domain error.
+        $statementKey = trim((string) ($identity['statement_key'] ?? ''));
+        if ($statementKey === '') {
+            return false;
+        }
+
+        return CodSettlementStatement::query()
+            ->where('statement_key', $statementKey)
+            ->exists();
     }
 
     private function statementScopeLockName(array $identity): string
