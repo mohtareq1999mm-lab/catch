@@ -78,7 +78,16 @@ class ShippingProviderEventProcessorTest extends TestCase
                 'status' => ShipmentStatus::LABEL_CREATED->value,
             ]],
         ], $recorder->calls);
-        $this->assertSame($timelineBefore, DB::table('order_tracking_events')->count());
+        // #137: the canonical authority persists one timeline row for every
+        // accepted status change; the processor itself never writes timeline.
+        $this->assertSame($timelineBefore + 1, DB::table('order_tracking_events')->count());
+        $this->assertDatabaseHas('order_tracking_events', [
+            'order_id' => $shipment->order_id,
+            'event_type' => 'shipment.status_changed',
+            'old_status' => 'pending',
+            'new_status' => ShipmentStatus::LABEL_CREATED->value,
+            'source' => 'direct',
+        ]);
         $this->assertSame(0, ShipmentException::count());
 
         // Replaying the same accepted delivery never creates a second event
