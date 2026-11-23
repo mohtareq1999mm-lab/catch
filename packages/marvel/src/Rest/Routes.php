@@ -716,6 +716,7 @@ Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_DISPATCH)->name('api.admin.shipments.dispatch');
     Route::post('{id}/deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'markDelivered'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_DELIVER)->name('api.admin.shipments.deliver');
     Route::post('{id}/cancel', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'cancelShipment'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_CANCEL)->name('api.admin.shipments.cancel');
+    Route::post('{id}/manual-correction', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'manualCorrection'])->whereNumber('id')->middleware('permission:wms-shipments.manual-correct')->name('api.admin.shipments.manual-correction');
 });
 // Inventory intake + relocation surface.
 Route::prefix('admin/locations')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
