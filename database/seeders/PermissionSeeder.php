@@ -412,6 +412,9 @@ class PermissionSeeder extends Seeder
             // 🚚 Shipping Provider Status (read-only)
             'shipping-provider-status.view',
 
+            // 🚚 Shipping Provider Override (#148)
+            'shipping-provider.override',
+
             // 🚚 WMS Shipments Granular Permissions
             'wms-shipments.index',
             'wms-shipments.show',

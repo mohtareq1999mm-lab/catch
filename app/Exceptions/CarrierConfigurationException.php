@@ -16,6 +16,12 @@ class CarrierConfigurationException extends RuntimeException
         return new self("Unknown carrier provider [{$providerCode}]");
     }
 
+    /** #148: customer-facing service level must be configured, never inferred. */
+    public static function missingServiceLevel(string $providerCode): self
+    {
+        return new self("Carrier provider [{$providerCode}] has no configured service level");
+    }
+
     public static function disabled(string $providerCode): self
     {
         return new self("Carrier provider [{$providerCode}] is disabled");

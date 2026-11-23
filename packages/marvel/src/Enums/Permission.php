@@ -515,4 +515,7 @@ final class Permission extends Enum
 
     // 🚚 Shipping Provider Status (read-only)
     public const SHIPPING_PROVIDER_STATUS_VIEW = 'shipping-provider-status.view';
+
+    // 🚚 Shipping Provider Override (#148: explicit, audited admin action)
+    public const SHIPPING_PROVIDER_OVERRIDE = 'shipping-provider.override';
 }

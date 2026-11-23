@@ -1152,6 +1152,10 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->foreignId('order_id')->constrained('orders')->cascadeOnDelete();
                 $table->string('tracking_number', 100)->nullable();
                 $table->string('courier', 100)->nullable();
+                $table->string('provider_code', 50)->nullable();
+                $table->string('provider_service_level', 50)->nullable();
+                $table->boolean('provider_override')->default(false);
+                $table->timestamp('awb_created_at')->nullable();
                 $table->string('status', 30)->default('pending');
                 $table->string('shipping_method', 30)->nullable();
                 $table->decimal('shipping_cost', 10, 2)->default(0);
@@ -1170,6 +1174,15 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->index('order_id');
                 $table->index('status');
                 $table->index('tracking_number');
+            });
+        }
+
+        if (Schema::hasTable('shipments') && !Schema::hasColumn('shipments', 'provider_code')) {
+            Schema::table('shipments', function (Blueprint $table) {
+                $table->string('provider_code', 50)->nullable()->after('courier');
+                $table->string('provider_service_level', 50)->nullable()->after('provider_code');
+                $table->boolean('provider_override')->default(false)->after('provider_service_level');
+                $table->timestamp('awb_created_at')->nullable()->after('provider_override');
             });
         }
 

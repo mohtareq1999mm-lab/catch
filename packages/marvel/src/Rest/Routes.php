@@ -708,6 +708,9 @@ Route::prefix('admin/fulfillments')->middleware(['api', 'auth:sanctum', 'throttl
 Route::prefix('admin/shipments')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_INDEX)->name('api.admin.shipments.index');
     Route::get('{id}', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_SHOW)->name('api.admin.shipments.show');
+    // #148: audited provider override. Deliberately outside the read-only
+    // admin/shipping/providers surface; an AWB cannot be reassigned in place.
+    Route::post('{id}/provider-override', [\App\Http\Controllers\Api\Admin\ShippingProviderOverrideController::class, 'override'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::SHIPPING_PROVIDER_OVERRIDE)->name('api.admin.shipments.provider-override');
     Route::post('bulk-dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDispatch'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_BULK_DISPATCH)->name('api.admin.shipments.bulk-dispatch');
     Route::post('bulk-deliver', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'bulkDeliver'])->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_BULK_DELIVER)->name('api.admin.shipments.bulk-deliver');
     Route::post('{id}/dispatch', [\App\Http\Controllers\Api\Admin\Wms\ShipmentController::class, 'dispatchShipment'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::WMS_SHIPMENTS_DISPATCH)->name('api.admin.shipments.dispatch');

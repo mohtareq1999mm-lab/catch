@@ -14,7 +14,8 @@ class ShipmentResource extends JsonResource
             'uuid' => $this->uuid,
             'order_id' => $this->order_id,
             'tracking_number' => $this->tracking_number,
-            'courier' => $this->courier,
+            // #148: customers see the service level, never the carrier brand.
+            'service_level' => $this->provider_service_level,
             'status' => $this->status,
             'shipping_method' => $this->shipping_method,
             'shipping_cost' => (float) $this->shipping_cost,
