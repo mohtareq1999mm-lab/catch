@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\Audit\ActivityAuditService;
+use App\Enums\Shipping\ProviderMode;
 use App\Exceptions\CarrierConfigurationException;
 use App\Exceptions\ProviderOverrideConflictException;
 use App\Models\Shipment;
@@ -132,7 +133,7 @@ final class ProviderAssignmentService
         if ($snapshot === $target) {
             return $snapshot;
         }
-        if ($snapshot === 'internal') {
+        if ($snapshot === ProviderMode::INTERNAL->value) {
             return $target;
         }
 
