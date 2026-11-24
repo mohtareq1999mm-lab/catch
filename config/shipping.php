@@ -17,6 +17,9 @@ declare(strict_types=1);
  * a provider callback is unavailable, dropped, or parked for replay. The
  * durable inbox plus stable event identity make webhook replay safe.
  */
+$pollingTimeBudget = max(1, (int) env('SHIPPING_POLLING_TIME_BUDGET_SECONDS', 300));
+$pollingCallTimeout = max(1, (int) env('SHIPPING_POLLING_CALL_TIMEOUT_SECONDS', 30));
+
 return [
     'default_mode' => env('SHIPPING_DEFAULT_MODE', 'sandbox'),
 
@@ -70,9 +73,16 @@ return [
     'outbox_unknown_max_age_seconds' => max(60, (int) env('SHIPPING_OUTBOX_UNKNOWN_MAX_AGE_SECONDS', 86400)),
 
     // #169: hard bounds for provider polling so a broken cursor cannot spin.
+    // The lock must outlive the full worst-case run (time budget + one call
+    // timeout); a shorter configured value is clamped by the service too.
     'polling' => [
         'max_pages' => max(1, (int) env('SHIPPING_POLLING_MAX_PAGES', 1000)),
-        'time_budget_seconds' => max(1, (int) env('SHIPPING_POLLING_TIME_BUDGET_SECONDS', 300)),
+        'time_budget_seconds' => $pollingTimeBudget,
+        'provider_call_timeout_seconds' => $pollingCallTimeout,
+        'lock_ttl_seconds' => max(
+            $pollingTimeBudget + $pollingCallTimeout + 1,
+            (int) env('SHIPPING_POLLING_LOCK_TTL_SECONDS', $pollingTimeBudget + $pollingCallTimeout + 60)
+        ),
     ],
 
     'providers' => [

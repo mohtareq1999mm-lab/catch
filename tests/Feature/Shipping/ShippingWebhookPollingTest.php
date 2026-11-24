@@ -235,10 +235,11 @@ class ShippingWebhookPollingTest extends TestCase
         $this->assertNotNull($cursorRow->last_error);
     }
 
-    public function test_polling_rejects_event_with_drifted_account_identity(): void
+    /** @dataProvider driftedIdentityProvider */
+    public function test_polling_rejects_event_with_drifted_canonical_identity(string $provider, string $mode, string $account): void
     {
         $poller = new FakePoller([
-            ['events' => [$this->event('evt_drifted_account', 'drifted-acct')], 'next_cursor' => 'cursor-drift', 'has_more' => false],
+            ['events' => [$this->event('evt_drifted_identity', $account, $mode, $provider)], 'next_cursor' => 'cursor-drift', 'has_more' => false],
         ]);
         $this->app->instance(ShippingProviderPoller::class, $poller);
 
@@ -248,13 +249,25 @@ class ShippingWebhookPollingTest extends TestCase
         $this->assertSame(1, $result->errors);
         $this->assertNull($result->cursor);
         $this->assertSame(0, ShippingWebhookEvent::count());
-        $this->assertDatabaseMissing('shipping_webhook_events', ['account_code' => 'drifted-acct']);
-        $this->assertNull(ShippingPollCursor::query()->firstOrFail()->cursor);
+        $this->assertDatabaseMissing('shipping_webhook_events', ['event_key' => 'evt_drifted_identity']);
+        $cursor = ShippingPollCursor::query()->firstOrFail();
+        $this->assertNull($cursor->cursor);
+        $this->assertNotNull($cursor->last_error);
+    }
+
+    /** @return array<string,array{string,string,string}> */
+    public static function driftedIdentityProvider(): array
+    {
+        return [
+            'provider' => ['other-null', 'sandbox', 'null-local'],
+            'mode' => ['null', 'production', 'null-local'],
+            'account' => ['null', 'sandbox', 'drifted-acct'],
+        ];
     }
 
     public function test_polling_skips_target_when_lock_is_held(): void
     {
-        $lock = Cache::lock('shipping-poll:null:sandbox:null-local', 300);
+        $lock = Cache::lock('shipping-poll:null:sandbox:null-local', (int) config('shipping.polling.lock_ttl_seconds'));
         $this->assertTrue($lock->get());
 
         $poller = new FakePoller([]);
@@ -344,10 +357,151 @@ class ShippingWebhookPollingTest extends TestCase
         $this->assertSame(2, ShippingWebhookEvent::count());
     }
 
-    private function event(string $id, string $accountCode = 'null-local', string $mode = 'sandbox'): CarrierWebhookEvent
+    public function test_command_fails_closed_when_no_production_poller_is_bound(): void
+    {
+        config(['shipping.providers' => ['null' => config('shipping.providers.null')]]);
+
+        $exit = Artisan::call('shipping:poll-webhooks');
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('target(s) failed', Artisan::output());
+        $this->assertSame(0, ShippingWebhookEvent::count());
+
+        $cursors = ShippingPollCursor::query()->get();
+        $this->assertNotEmpty($cursors);
+        foreach ($cursors as $cursor) {
+            $this->assertNull($cursor->cursor);
+            $this->assertNull($cursor->last_success_at);
+            $this->assertStringContainsString('No production ShippingProviderPoller is bound', (string) $cursor->last_error);
+        }
+    }
+
+    public function test_polling_lock_ttl_is_strictly_greater_than_the_worst_case_budget(): void
+    {
+        $polling = config('shipping.polling');
+
+        $this->assertGreaterThan(
+            $polling['time_budget_seconds'] + $polling['provider_call_timeout_seconds'],
+            $polling['lock_ttl_seconds'],
+        );
+        $this->assertLessThan($polling['lock_ttl_seconds'], $polling['provider_call_timeout_seconds']);
+    }
+
+    public function test_expired_poll_lock_is_reacquired_and_does_not_block_a_later_run(): void
+    {
+        $name = 'shipping-poll:null:sandbox:null-local';
+        Carbon::setTestNow(Carbon::parse('2026-11-24T00:00:00Z'));
+        $heldLock = Cache::lock($name, 2);
+        $this->assertTrue($heldLock->get());
+
+        $poller = new FakePoller([
+            ['events' => [], 'next_cursor' => null, 'has_more' => false],
+        ]);
+        $this->app->instance(ShippingProviderPoller::class, $poller);
+
+        try {
+            $blocked = app(ShippingProviderPollingService::class)->poll('null', 'sandbox', 'null-local');
+            $this->assertSame([], $poller->calls);
+            $this->assertSame(0, $blocked->errors);
+
+            Carbon::setTestNow(Carbon::now()->addSeconds(3));
+
+            $result = app(ShippingProviderPollingService::class)->poll('null', 'sandbox', 'null-local');
+            $this->assertCount(1, $poller->calls);
+            $this->assertSame(0, $result->errors);
+        } finally {
+            Carbon::setTestNow(null);
+        }
+    }
+
+    public function test_provider_call_timeout_fails_closed_before_ingesting_the_page(): void
+    {
+        config(['shipping.polling.provider_call_timeout_seconds' => 1]);
+        Carbon::setTestNow(Carbon::parse('2026-11-24T00:00:00Z'));
+
+        $poller = new EndlessPoller(
+            fn (int $page) => $this->event('evt_timeout_'.$page),
+            function (): void {
+                Carbon::setTestNow(Carbon::now()->addSeconds(2));
+            },
+        );
+        $this->app->instance(ShippingProviderPoller::class, $poller);
+
+        try {
+            $result = app(ShippingProviderPollingService::class)->poll('null', 'sandbox', 'null-local');
+        } finally {
+            Carbon::setTestNow(null);
+        }
+
+        $this->assertSame(1, $poller->calls);
+        $this->assertSame(0, $result->accepted);
+        $this->assertSame(1, $result->errors);
+        $this->assertNull($result->cursor);
+        $this->assertSame(0, ShippingWebhookEvent::count());
+        $cursor = ShippingPollCursor::query()->firstOrFail();
+        $this->assertNull($cursor->cursor);
+        $this->assertSame('provider_call_timeout', $cursor->last_error);
+    }
+
+    public function test_final_page_without_a_concrete_cursor_preserves_the_durable_cursor(): void
+    {
+        ShippingPollCursor::query()->create([
+            'provider_code' => 'null',
+            'mode' => 'sandbox',
+            'account_code' => 'null-local',
+            'cursor' => 'durable-cursor',
+        ]);
+
+        $poller = new FakePoller([
+            ['events' => [$this->event('evt_final_null_cursor')], 'next_cursor' => null, 'has_more' => false],
+        ]);
+        $this->app->instance(ShippingProviderPoller::class, $poller);
+
+        $result = app(ShippingProviderPollingService::class)->poll('null', 'sandbox', 'null-local');
+
+        $this->assertSame(1, $result->accepted);
+        $this->assertSame(0, $result->errors);
+        $this->assertSame('durable-cursor', $result->cursor);
+        $cursor = ShippingPollCursor::query()->firstOrFail();
+        $this->assertSame('durable-cursor', $cursor->cursor);
+        $this->assertNotNull($cursor->last_success_at);
+        $this->assertNull($cursor->last_error);
+    }
+
+    /** @dataProvider malformedResponseProvider */
+    public function test_malformed_poller_response_fails_closed(mixed $response): void
+    {
+        $poller = new FixedResponsePoller($response);
+        $this->app->instance(ShippingProviderPoller::class, $poller);
+
+        $result = app(ShippingProviderPollingService::class)->poll('null', 'sandbox', 'null-local');
+
+        $this->assertSame(1, $poller->calls);
+        $this->assertSame(0, $result->accepted);
+        $this->assertSame(1, $result->errors);
+        $this->assertNull($result->cursor);
+        $this->assertSame(0, ShippingWebhookEvent::count());
+        $cursor = ShippingPollCursor::query()->firstOrFail();
+        $this->assertNull($cursor->cursor);
+        $this->assertStringContainsString('Poller response', (string) $cursor->last_error);
+    }
+
+    /** @return array<string,array{mixed}> */
+    public static function malformedResponseProvider(): array
+    {
+        return [
+            'non-object' => [['events' => [], 'nextCursor' => null, 'hasMore' => false]],
+            'missing-events' => [(object) ['nextCursor' => null, 'hasMore' => false]],
+            'events-not-array' => [(object) ['events' => 'bad', 'nextCursor' => null, 'hasMore' => false]],
+            'cursor-not-scalar' => [(object) ['events' => [], 'nextCursor' => ['bad'], 'hasMore' => false]],
+            'has-more-not-bool' => [(object) ['events' => [], 'nextCursor' => null, 'hasMore' => 'false']],
+        ];
+    }
+
+    private function event(string $id, string $accountCode = 'null-local', string $mode = 'sandbox', string $providerCode = 'null'): CarrierWebhookEvent
     {
         return new CarrierWebhookEvent(
-            'null',
+            $providerCode,
             $mode,
             ['event' => $id],
             null,
@@ -415,5 +569,19 @@ final class EndlessPoller implements ShippingProviderPoller
             /** @param list<CarrierWebhookEvent> $events */
             public function __construct(public array $events, public ?string $nextCursor, public bool $hasMore) {}
         };
+    }
+}
+
+final class FixedResponsePoller implements ShippingProviderPoller
+{
+    public int $calls = 0;
+
+    public function __construct(private readonly mixed $response) {}
+
+    public function poll(string $providerCode, string $mode, string $accountCode, ?string $cursor): mixed
+    {
+        $this->calls++;
+
+        return $this->response;
     }
 }
