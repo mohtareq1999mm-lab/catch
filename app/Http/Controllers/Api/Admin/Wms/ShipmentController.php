@@ -135,11 +135,12 @@ class ShipmentController extends WmsAdminController
     /**
      * POST /api/v1/admin/fulfillments/{id}/shipments
      *
-     * One active shipment per fulfillment (D8-1): an unkeyed duplicate
-     * refuses with 409; a keyed replay for the same fulfillment returns
-     * the same row (200 + existing id); the same key for a different
-     * fulfillment refuses loudly (409). Cancelled / non-ready fulfillments
-     * refuse with 422.
+     * #147: repeating creation for the same fulfillment returns the canonical
+     * active shipment (200 replay, no duplicate active row). Keyed replay for
+     * the same fulfillment returns the same row. The same key for a different
+     * fulfillment is refused loudly (409). Unknown external booking state on
+     * the canonical shipment is a reconciliation boundary and refuses retry.
+     * Cancelled / non-ready fulfillments refuse with 422.
      */
     public function store(CreateShipmentRequest $request, int $id): JsonResponse
     {
@@ -154,10 +155,13 @@ class ShipmentController extends WmsAdminController
         ], fn ($v) => $v !== null);
 
         $key = $request->validated('idempotency_key');
-        // Response-code hint only: the service remains the replay authority
-        // (fresh() clears wasRecentlyCreated, so the model cannot tell us).
-        $replay = $key !== null
-            && Shipment::where('idempotency_key', $key)->where('fulfillment_id', $fulfillment->id)->exists();
+        // Response-code hint only: the service remains the replay authority.
+        // #147 makes same-fulfillment repeats idempotent (keyed and unkeyed).
+        $replay = ($key !== null
+            && Shipment::where('idempotency_key', $key)->where('fulfillment_id', $fulfillment->id)->exists())
+            || Shipment::where('fulfillment_id', $fulfillment->id)
+                ->whereNotIn('status', Shipment::TERMINAL_STATUSES)
+                ->exists();
 
         try {
             $shipment = $this->shipments->createForFulfillment(
@@ -166,15 +170,16 @@ class ShipmentController extends WmsAdminController
                 $key
             );
         } catch (\App\Exceptions\WmsConflictException $e) {
-            // One-active-shipment / key-reuse contention → 409 (typed).
+            // Key-reuse contention / reconciliation boundary → 409 (typed).
             $this->conflict($e->getMessage());
         } catch (\RuntimeException $e) {
             $this->unprocessable($e->getMessage());
         }
 
+        $wasReplay = $replay || !$shipment->wasRecentlyCreated;
         return $this->apiResponse(
-            $replay ? __('wms.shipment.replay_exists') : __('wms.shipment.created'),
-            $replay ? 200 : 201,
+            $wasReplay ? __('wms.shipment.replay_exists') : __('wms.shipment.created'),
+            $wasReplay ? 200 : 201,
             true,
             ShipmentDetailResource::make($shipment->fresh())
         );

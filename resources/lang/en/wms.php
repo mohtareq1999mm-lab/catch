@@ -214,6 +214,9 @@ return [
         'field_locked' => "Shipment field ':field' is transition-authority owned and cannot be mass-updated",
         'active_exists' => 'Cannot create shipment: fulfillment #:id already has an active shipment',
         'dispatch_quantities' => 'Cannot dispatch shipment: fulfillment item #:item picked :picked, packed :packed',
+        'external_booking_reconciliation_required' => 'Shipment #:shipment has an unknown external booking result and must be reconciled before retry',
+        'external_booking_reconciliation_outcome_invalid' => 'External booking reconciliation outcome must be confirmed, reconciled, or failed',
+        'external_booking_not_unknown' => 'Shipment #:shipment external booking state is not unknown and cannot be reconciled as unknown-result',
     ],
 
     // Stock / inventory

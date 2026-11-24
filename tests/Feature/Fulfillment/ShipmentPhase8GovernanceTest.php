@@ -38,6 +38,12 @@ class ShipmentPhase8GovernanceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // #147 test isolation only: forced-pusher events must not use network.
+        config([
+            'broadcasting.default' => 'log',
+            'broadcasting.connections.pusher.driver' => 'log',
+            'queue.default' => 'sync',
+        ]);
         // Message assertions are English (production default is Arabic).
         app()->setLocale('en');
 
@@ -446,25 +452,18 @@ class ShipmentPhase8GovernanceTest extends TestCase
         $this->assertEquals(Order::PAYMENT_STATUS_SUCCESS, $order->refresh()->payment_status);
     }
 
-    public function test_sequential_double_create_second_loses(): void
+    public function test_sequential_double_create_replays_canonical_active_shipment(): void
     {
-        // Single-process approximation of the creation race: the second
-        // sequential attempt loses loudly at the application invariant
-        // (a true lost race would additionally hit UNIQUE backstop).
+        // #147: repeated same-fulfillment creation returns the canonical active
+        // shipment (deterministic replay), even when the retry carries a key.
         $order = $this->makeCompletedOrder();
         $fulfillment = $this->makeReadyFulfillment($order, 'p89-b');
         $service = app(ShipmentService::class);
 
-        $service->createForFulfillment($fulfillment, [], null);
+        $first = $service->createForFulfillment($fulfillment, [], null);
+        $again = $service->createForFulfillment($fulfillment, [], 'late-key');
 
-        try {
-            $service->createForFulfillment($fulfillment, [], 'late-key');
-            $this->fail('second create must lose');
-        } catch (\RuntimeException $e) {
-            if ($e instanceof \PHPUnit\Framework\Exception) {
-                throw $e;
-            }
-            $this->assertStringContainsString('active shipment', $e->getMessage());
-        }
+        $this->assertEquals($first->id, $again->id);
+        $this->assertEquals(1, Shipment::where('fulfillment_id', $fulfillment->id)->count());
     }
 }
