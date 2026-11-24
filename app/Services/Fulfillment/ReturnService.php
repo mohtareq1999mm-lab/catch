@@ -15,6 +15,73 @@ use Illuminate\Support\Facades\Log;
 
 class ReturnService
 {
+    /**
+     * Link carrier-return evidence to an existing suitable return request.
+     * ReturnService remains lifecycle authority; this never creates or advances
+     * a parallel return lifecycle.
+     *
+     * @param array<string,mixed> $providerMetadata
+     */
+    public function linkCarrierReturn(\App\Models\Shipment $shipment, array $providerMetadata = []): ?ReturnRequest
+    {
+        return DB::transaction(function () use ($shipment, $providerMetadata): ?ReturnRequest {
+            $query = ReturnRequest::query()
+                ->where('order_id', (int) $shipment->order_id)
+                ->whereNotIn('status', ['cancelled', 'completed', 'rejected']);
+
+            if ($shipment->fulfillment_id !== null) {
+                $query->where(function ($q) use ($shipment): void {
+                    $q->where('fulfillment_id', (int) $shipment->fulfillment_id)
+                        ->orWhereNull('fulfillment_id');
+                });
+            }
+
+            $candidate = $query
+                ->orderByRaw('CASE WHEN shipment_id = ? THEN 0 WHEN shipment_id IS NULL THEN 1 ELSE 2 END', [(int) $shipment->id])
+                ->orderByRaw('CASE WHEN fulfillment_id = ? THEN 0 ELSE 1 END', [(int) ($shipment->fulfillment_id ?? 0)])
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
+
+            if ($candidate === null) {
+                return null;
+            }
+
+            $locked = ReturnRequest::whereKey($candidate->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return null;
+            }
+
+            $metadata = is_array($locked->provider_return_metadata) ? $locked->provider_return_metadata : [];
+            foreach ($providerMetadata as $key => $value) {
+                if (is_string($key) && $key !== '' && $value !== null) {
+                    $metadata[$key] = $value;
+                }
+            }
+
+            $updates = [];
+            if ($locked->shipment_id === null || (int) $locked->shipment_id === (int) $shipment->id) {
+                $updates['shipment_id'] = $shipment->id;
+            }
+            $existingMetadata = is_array($locked->provider_return_metadata) ? $locked->provider_return_metadata : [];
+            if ($metadata !== $existingMetadata) {
+                $updates['provider_return_metadata'] = $metadata;
+            }
+
+            if ($updates !== []) {
+                $locked->forceFill($updates)->save();
+            }
+
+            Log::info('Carrier return linked to existing return request', [
+                'shipment_id' => $shipment->id,
+                'return_request_id' => $locked->id,
+                'order_id' => $shipment->order_id,
+                'fulfillment_id' => $shipment->fulfillment_id,
+            ]);
+
+            return $locked->fresh();
+        });
+    }
     public function __construct(
         private ProductLocationService $productLocationService
     ) {}
