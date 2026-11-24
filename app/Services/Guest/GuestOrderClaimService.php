@@ -41,6 +41,7 @@ class GuestOrderClaimService
         private GuestPhoneVerificationContract $verifier,
         private GuestIdentityService $identities,
         private GuestCredentialService $credentials,
+        private ?\App\Services\Notification\RecipientIdentityService $recipientIdentities = null,
     ) {
     }
 
@@ -258,6 +259,13 @@ class GuestOrderClaimService
                 ->where('order_id', $order->id)
                 ->whereNull('user_id')
                 ->update(['user_id' => $user->id]);
+
+            // #176: link existing guest notification recipient identities to the
+            // authenticated user. Preserves recipient IDs/fingerprints and must
+            // not resend notifications or mutate order/payment/shipment state.
+            if ($this->recipientIdentities) {
+                $this->recipientIdentities->linkGuestRecipientsToUser($guest, $user);
+            }
 
             $consumed = GuestOrderClaimToken::query()
                 ->whereKey($token->id)
