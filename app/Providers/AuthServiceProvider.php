@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\Shipping\ShipmentAssignment;
+use App\Policies\ShipmentAssignmentPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
 
@@ -14,6 +16,7 @@ class AuthServiceProvider extends ServiceProvider
      */
     protected $policies = [
         \Marvel\Database\Models\Import::class => \App\Policies\ImportPolicy::class,
+        ShipmentAssignment::class => ShipmentAssignmentPolicy::class,
     ];
 
     /**

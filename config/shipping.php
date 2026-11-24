@@ -34,6 +34,11 @@ return [
         'decay_seconds' => max(1, (int) env('SHIPPING_WEBHOOK_RATE_LIMIT_DECAY_SECONDS', 60)),
     ],
 
+    // #164: hard ceiling for recorded delivery attempts per shipment.
+    'delivery' => [
+        'max_attempts' => max(1, (int) env('SHIPPING_DELIVERY_MAX_ATTEMPTS', 3)),
+    ],
+
     'providers' => [
         'null' => [
             // Local placeholder only: no outbound calls, no capabilities.

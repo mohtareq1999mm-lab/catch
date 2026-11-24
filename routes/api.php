@@ -383,3 +383,8 @@ Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authentic
 //Expiry: أي تاريخ مستقبلي
 //CVC: أي 3 أرقام
 //ZIP: أي قيمة مناسبة
+Route::prefix('v1/representative')->middleware(['api', 'auth:sanctum'])->group(function () {
+    Route::get('assignments', [\App\Http\Controllers\Api\Representative\AssignmentController::class, 'index'])->name('api.representative.assignments.index');
+    Route::get('assignments/{assignment}', [\App\Http\Controllers\Api\Representative\AssignmentController::class, 'show'])->whereNumber('assignment')->name('api.representative.assignments.show');
+    Route::post('assignments/{assignment}/attempts', [\App\Http\Controllers\Api\Representative\AssignmentController::class, 'storeAttempt'])->whereNumber('assignment')->name('api.representative.assignments.attempts.store');
+});
