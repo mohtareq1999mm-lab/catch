@@ -12,6 +12,7 @@ use App\Services\Notification\RecipientIdentityService;
 use App\Models\GuestIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
 use Tests\TestCase;
@@ -66,18 +67,20 @@ class RecipientFingerprintAliasClaimTest extends TestCase
         $result = $service->resolveRecipient([
             ['key_version' => 'v1', 'fingerprint_hash' => str_repeat('a', 64)],
             ['key_version' => 'v2', 'fingerprint_hash' => str_repeat('b', 64)],
-        ], 'guest_contact', ['channel' => 'email']);
+        ], 'guest_contact', ['channel' => 'email', 'email' => 'secret@example.test']);
 
         $this->assertSame('ambiguous', $result['status']);
         $this->assertDatabaseHas('notification_identity_conflicts', ['status' => 'open']);
         $conflict = NotificationIdentityConflict::query()->firstOrFail();
         $this->assertEqualsCanonicalizing([$r1->id, $r2->id], $conflict->candidate_recipient_ids);
+        $this->assertArrayNotHasKey('email', $conflict->metadata['context'] ?? []);
 
         $resolver = User::create(['name' => 'Resolver', 'email' => 'resolver@example.test', 'password' => bcrypt('password'), 'type' => 'user', 'is_active' => true]);
-        $service->resolveConflict($conflict, 'link', $resolver->id, 'same recipient');
+        $service->resolveConflict($conflict, 'link', $resolver->id, 'same recipient', $r1->id);
         $this->assertSame('linked', $conflict->fresh()->status);
         $this->assertSame($resolver->id, $conflict->fresh()->resolved_by);
         $this->assertNotNull($conflict->fresh()->resolved_at);
+        $this->assertSame($r1->id, $conflict->fresh()->metadata['resolution']['target_recipient_id']);
 
         $conflict2 = NotificationIdentityConflict::query()->create([
             'channel' => 'sms', 'key_version' => 'v1', 'fingerprint_hash' => str_repeat('c', 64),
@@ -93,6 +96,95 @@ class RecipientFingerprintAliasClaimTest extends TestCase
         $service->resolveConflict($conflict3, 'dismiss', $resolver->id, 'noise');
         $this->assertSame('dismissed', $conflict3->fresh()->status);
     }
+
+    public function test_duplicate_conflict_detection_is_deduped_for_same_open_candidate_set(): void
+    {
+        $r1 = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact']);
+        $r2 = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact']);
+        NotificationRecipientFingerprint::query()->create(['recipient_id' => $r1->id, 'key_version' => 'v1', 'fingerprint_hash' => str_repeat('a', 64)]);
+        NotificationRecipientFingerprint::query()->create(['recipient_id' => $r2->id, 'key_version' => 'v2', 'fingerprint_hash' => str_repeat('b', 64)]);
+        $service = app(RecipientIdentityService::class);
+        $aliases = [
+            ['key_version' => 'v1', 'fingerprint_hash' => str_repeat('a', 64)],
+            ['key_version' => 'v2', 'fingerprint_hash' => str_repeat('b', 64)],
+        ];
+        $a = $service->resolveRecipient($aliases, 'guest_contact', ['channel' => 'sms']);
+        $b = $service->resolveRecipient($aliases, 'guest_contact', ['channel' => 'sms']);
+        $this->assertSame('ambiguous', $a['status']);
+        $this->assertSame($a['conflict']->id, $b['conflict']->id);
+        $this->assertSame(1, NotificationIdentityConflict::query()->where('status', 'open')->count());
+    }
+
+    public function test_resolve_conflict_rejects_invalid_transition_and_is_idempotent_for_equivalent_request(): void
+    {
+        $r1 = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact']);
+        $r2 = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact']);
+        $conflict = NotificationIdentityConflict::query()->create([
+            'channel' => 'email', 'key_version' => 'v1', 'fingerprint_hash' => str_repeat('e', 64),
+            'candidate_recipient_ids' => [$r1->id, $r2->id], 'status' => 'open', 'metadata' => [],
+        ]);
+        $service = app(RecipientIdentityService::class);
+        $resolver = User::create(['name' => 'R', 'email' => 'r@example.test', 'password' => bcrypt('password'), 'type' => 'user', 'is_active' => true]);
+
+        $resolved = $service->resolveConflict($conflict, 'dismiss', $resolver->id, 'x');
+        $same = $service->resolveConflict($resolved, 'dismiss', $resolver->id, 'x');
+        $this->assertSame($resolved->id, $same->id);
+
+        $this->expectException(ValidationException::class);
+        $service->resolveConflict($resolved->fresh(), 'link', $resolver->id, 'different', $r1->id);
+    }
+
+    public function test_conflict_resolution_requires_active_resolver_and_honors_authorization_hook(): void
+    {
+        $conflict = NotificationIdentityConflict::query()->create([
+            'channel' => 'email', 'key_version' => 'v1', 'fingerprint_hash' => str_repeat('a', 64),
+            'candidate_recipient_ids' => [1, 2], 'status' => 'open', 'metadata' => [],
+        ]);
+        $resolver = User::create(['name' => 'R', 'email' => 'resolver2@example.test', 'password' => bcrypt('password'), 'type' => 'user', 'is_active' => true]);
+
+        try {
+            app(RecipientIdentityService::class)->resolveConflict($conflict->fresh(), 'dismiss', null, 'x');
+            $this->fail('Missing resolver was accepted.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('resolved_by', $e->errors());
+        }
+
+        $denied = new RecipientIdentityService(function () {
+            throw ValidationException::withMessages(['resolved_by' => 'Forbidden.']);
+        });
+        try {
+            $denied->resolveConflict($conflict->fresh(), 'dismiss', $resolver->id, 'x');
+            $this->fail('Authorization hook was bypassed.');
+        } catch (ValidationException $e) {
+            $this->assertSame('Forbidden.', $e->errors()['resolved_by'][0]);
+        }
+        $this->assertSame('open', $conflict->fresh()->status);
+    }
+
+    public function test_ambiguity_does_not_create_orphan_recipient_or_partial_aliases(): void
+    {
+        $existingA = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact']);
+        $existingB = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact']);
+        NotificationRecipientFingerprint::query()->create([
+            'recipient_id' => $existingA->id, 'key_version' => 'v1', 'fingerprint_hash' => str_repeat('1', 64),
+        ]);
+        NotificationRecipientFingerprint::query()->create([
+            'recipient_id' => $existingB->id, 'key_version' => 'v2', 'fingerprint_hash' => str_repeat('2', 64),
+        ]);
+
+        $service = app(RecipientIdentityService::class);
+        $result = $service->resolveRecipient([
+            ['key_version' => 'v1', 'fingerprint_hash' => str_repeat('1', 64)],
+            ['key_version' => 'v2', 'fingerprint_hash' => str_repeat('2', 64)],
+            ['key_version' => 'v3', 'fingerprint_hash' => str_repeat('3', 64)],
+        ], 'guest_contact', ['channel' => 'push']);
+
+        $this->assertSame('ambiguous', $result['status']);
+        $this->assertSame(2, NotificationRecipient::query()->count());
+        $this->assertDatabaseMissing('notification_recipient_fingerprints', ['key_version' => 'v3', 'fingerprint_hash' => str_repeat('3', 64)]);
+        $this->assertDatabaseHas('notification_identity_conflicts', ['status' => 'open']);
+    }
+
 
     public function test_claiming_guest_order_preserves_existing_recipient_identity_and_no_resend(): void
     {
@@ -157,5 +249,21 @@ class RecipientFingerprintAliasClaimTest extends TestCase
         $afterShipment = (array) DB::table('shipments')->where('id', $shipmentId)->first();
         $this->assertSame($beforeOrder, $order->only(['user_id', 'payment_status', 'shipment_status', 'status']));
         $this->assertEquals($beforeShipment, $afterShipment);
+    }
+
+    public function test_recipient_already_linked_to_different_user_creates_conflict_and_does_not_relink(): void
+    {
+        $user = User::create(['name' => 'U3', 'email' => 'u3@example.test', 'password' => bcrypt('password'), 'type' => 'user', 'is_active' => true]);
+        $other = User::create(['name' => 'U4', 'email' => 'u4@example.test', 'password' => bcrypt('password'), 'type' => 'user', 'is_active' => true]);
+        $guest = GuestIdentity::query()->create(['token_hash' => hash('sha256', 'g3'), 'expires_at' => now()->addDay()]);
+        $recipient = NotificationRecipient::query()->create(['recipient_type' => 'guest_contact', 'guest_id' => $guest->id, 'user_id' => $other->id]);
+
+        $updated = app(RecipientIdentityService::class)->linkGuestRecipientsToUser($guest, $user);
+
+        $this->assertSame(0, $updated);
+        $this->assertSame($other->id, $recipient->fresh()->user_id);
+        $this->assertDatabaseHas('notification_identity_conflicts', ['status' => 'open']);
+        $conflict = NotificationIdentityConflict::query()->latest('id')->firstOrFail();
+        $this->assertSame('guest_claim_user_mismatch', $conflict->metadata['context']['reason'] ?? null);
     }
 }

@@ -20,6 +20,7 @@ return new class extends Migration
             $table->index(['recipient_type', 'status']);
             $table->index(['user_id', 'recipient_type']);
             $table->index(['guest_id', 'recipient_type']);
+            $table->index(['guest_id', 'user_id', 'recipient_type'], 'nr_guest_user_type_idx');
         });
     }
 

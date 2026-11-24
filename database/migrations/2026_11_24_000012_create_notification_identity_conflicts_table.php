@@ -22,6 +22,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['status', 'created_at']);
+            $table->index(['status', 'key_version', 'fingerprint_hash'], 'nic_open_lookup_idx');
         });
     }
 
