@@ -775,6 +775,7 @@ class ShipmentService
 
         return OrderTrackingEvent::create([
             'order_id' => $orderId,
+            'shipment_id' => $shipment?->id ? (int) $shipment->id : null,
             'event_type' => 'shipment.status_changed',
             'event_timestamp' => now(),
             'actor_type' => $context['actor_type'],

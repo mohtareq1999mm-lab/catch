@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrderTrackingEvent extends Model
 {
@@ -11,6 +12,7 @@ class OrderTrackingEvent extends Model
 
     protected $fillable = [
         'order_id',
+        'shipment_id',
         'event_type',
         'event_timestamp',
         'actor_type',
@@ -39,6 +41,11 @@ class OrderTrackingEvent extends Model
     public function order()
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function shipment(): BelongsTo
+    {
+        return $this->belongsTo(Shipment::class);
     }
 
     /**

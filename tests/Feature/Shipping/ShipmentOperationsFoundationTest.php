@@ -152,11 +152,15 @@ class ShipmentOperationsFoundationTest extends TestCase
         $shipment = $this->createShipment();
         $timelineEventId = DB::table('order_tracking_events')->insertGetId([
             'order_id' => $shipment->order_id,
+            'shipment_id' => $shipment->id,
             'event_type' => 'shipment.status_changed',
+            'event_timestamp' => now(),
+            'actor_type' => 'system',
             'old_status' => 'pending',
             'new_status' => 'in_transit',
+            'customer_visible' => true,
+            'customer_label_key' => 'tracking.shipment.in_transit',
             'source' => 'direct',
-            'actor_type' => 'system',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -187,11 +191,15 @@ class ShipmentOperationsFoundationTest extends TestCase
         $shipment = $this->createShipment();
         $timelineEventId = DB::table('order_tracking_events')->insertGetId([
             'order_id' => $shipment->order_id,
+            'shipment_id' => $shipment->id,
             'event_type' => 'shipment.status_changed',
+            'event_timestamp' => now(),
+            'actor_type' => 'system',
             'old_status' => 'pending',
             'new_status' => 'in_transit',
+            'customer_visible' => true,
+            'customer_label_key' => 'tracking.shipment.in_transit',
             'source' => 'direct',
-            'actor_type' => 'system',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -232,11 +240,15 @@ class ShipmentOperationsFoundationTest extends TestCase
 
         $timelineEventId = DB::table('order_tracking_events')->insertGetId([
             'order_id' => $order->id,
+            'shipment_id' => $shipment->id,
             'event_type' => 'shipment.status_changed',
+            'event_timestamp' => now(),
+            'actor_type' => 'system',
             'old_status' => 'pending',
             'new_status' => 'in_transit',
+            'customer_visible' => true,
+            'customer_label_key' => 'tracking.shipment.in_transit',
             'source' => 'direct',
-            'actor_type' => 'system',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
