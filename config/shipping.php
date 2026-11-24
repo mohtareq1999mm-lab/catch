@@ -69,6 +69,12 @@ return [
     'outbox_unknown_max_attempts' => max(1, (int) env('SHIPPING_OUTBOX_UNKNOWN_MAX_ATTEMPTS', 10)),
     'outbox_unknown_max_age_seconds' => max(60, (int) env('SHIPPING_OUTBOX_UNKNOWN_MAX_AGE_SECONDS', 86400)),
 
+    // #169: hard bounds for provider polling so a broken cursor cannot spin.
+    'polling' => [
+        'max_pages' => max(1, (int) env('SHIPPING_POLLING_MAX_PAGES', 1000)),
+        'time_budget_seconds' => max(1, (int) env('SHIPPING_POLLING_TIME_BUDGET_SECONDS', 300)),
+    ],
+
     'providers' => [
         'null' => [
             // Local placeholder only: no outbound calls, no capabilities.

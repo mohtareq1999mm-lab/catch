@@ -22,9 +22,10 @@ enum ShippingWebhookIngestOutcome: string
     public function httpStatus(): int
     {
         return match ($this) {
-            self::ACCEPTED, self::DUPLICATE => 200,
+            self::ACCEPTED => 202,
+            self::DUPLICATE => 200,
             self::INVALID_SIGNATURE => 401,
-            self::INVALID_PAYLOAD => 400,
+            self::INVALID_PAYLOAD => 422,
             self::UNAVAILABLE => 503,
             self::RATE_LIMITED => 429,
         };

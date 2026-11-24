@@ -28,6 +28,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\ReleaseReadyFulfillments::class,
         \App\Console\Commands\SyncCurrencyRates::class,
         \App\Console\Commands\SweepExpiredPickingClaims::class,
+        \App\Console\Commands\PollShippingProviders::class,
     ];
 
     protected function schedule(Schedule $schedule)
@@ -94,6 +95,8 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(60)
             ->onOneServer()
             ->when(fn () => (bool) config('currency.exchange_api.enabled', false));
+
+        $schedule->command('shipping:poll-webhooks')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
 
         $schedule->call(function () {
             \App\Services\Metrics\OrderTrackingMetrics::reset();
