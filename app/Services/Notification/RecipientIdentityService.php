@@ -598,7 +598,11 @@ class RecipientIdentityService
         string $reason = 'fingerprint_alias_divergence'
     ): NotificationIdentityConflict {
         $normalizedAliases = $this->normalizeAliasSet($aliases);
-        $primary = $normalizedAliases[0];
+        // Stable-key-only resolution (no fingerprint aliases) can also be
+        // ambiguous, e.g. when the stored recipient belongs to another user.
+        // Such a conflict has no alias to anchor on; the candidate set and the
+        // reason identify it instead.
+        $primary = $normalizedAliases[0] ?? null;
         $metadata = $this->sanitizeConflictMetadata([
             'reason' => $reason,
             'recipient_type' => $recipientType,
@@ -610,15 +614,25 @@ class RecipientIdentityService
         // caller's alias order must reuse the same open conflict case.
         $existing = NotificationIdentityConflict::query()
             ->where('status', 'open')
-            ->where(function ($q) use ($normalizedAliases) {
-                $q->whereIn('key_version', array_column($normalizedAliases, 'key_version'))
-                    ->orWhereIn('fingerprint_hash', array_column($normalizedAliases, 'fingerprint_hash'));
+            ->when($normalizedAliases !== [], function ($q) use ($normalizedAliases) {
+                $q->where(function ($sub) use ($normalizedAliases) {
+                    $sub->whereIn('key_version', array_column($normalizedAliases, 'key_version'))
+                        ->orWhereIn('fingerprint_hash', array_column($normalizedAliases, 'fingerprint_hash'));
+                });
+            }, function ($q) {
+                // No alias lookup keys: only stable-key conflicts are relevant,
+                // and those are already narrow because they key on one owner.
+                $q->whereNotNull('candidate_recipient_ids');
             })
             ->lockForUpdate()
             ->get()
-            ->first(function (NotificationIdentityConflict $c) use ($candidateIds, $normalizedAliases) {
+            ->first(function (NotificationIdentityConflict $c) use ($candidateIds, $normalizedAliases, $reason) {
                 $ids = array_map('intval', $c->candidate_recipient_ids ?? []);
                 sort($ids);
+
+                if ($normalizedAliases === [] && ($c->metadata['reason'] ?? null) !== $reason) {
+                    return false;
+                }
 
                 return $ids === $candidateIds
                     && $this->normalizeAliasSet($c->metadata['aliases'] ?? []) === $normalizedAliases;
@@ -631,8 +645,8 @@ class RecipientIdentityService
 
         return NotificationIdentityConflict::query()->create([
             'channel' => $context['channel'] ?? null,
-            'key_version' => $primary['key_version'],
-            'fingerprint_hash' => $primary['fingerprint_hash'],
+            'key_version' => $primary['key_version'] ?? null,
+            'fingerprint_hash' => $primary['fingerprint_hash'] ?? null,
             'candidate_recipient_ids' => $candidateIds,
             'status' => 'open',
             'metadata' => $metadata,

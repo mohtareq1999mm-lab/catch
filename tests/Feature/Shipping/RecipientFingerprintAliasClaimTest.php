@@ -545,4 +545,50 @@ class RecipientFingerprintAliasClaimTest extends TestCase
         $this->assertStringNotContainsString('+201000000001', $encoded);
         $this->assertStringContainsString('[REDACTED]', $encoded);
     }
+
+    /**
+     * Regression: stable-key-only resolution has no fingerprint alias to
+     * anchor a conflict on. It must still record the ambiguity (instead of
+     * crashing) and must reuse the open conflict on repeat lookups.
+     */
+    public function test_stable_key_only_ambiguity_is_recorded_without_fingerprint_aliases(): void
+    {
+        $requested = $this->activeUser('key-only-requested@example.test');
+        $storedOwner = $this->activeUser('key-only-stored@example.test');
+
+        $recipient = NotificationRecipient::query()->create([
+            'recipient_type' => 'user',
+            'recipient_key' => 'user:' . $requested->id,
+            'user_id' => $storedOwner->id,
+            'status' => 'active',
+        ]);
+
+        $service = app(RecipientIdentityService::class);
+        $result = $service->resolveForRecipientKey(
+            'user',
+            'user:' . $requested->id,
+            [],
+            null,
+            ['user' => $requested]
+        );
+
+        $this->assertSame('ambiguous', $result['status']);
+        $conflict = $result['conflict'];
+        $this->assertSame([(int) $recipient->id], array_map('intval', $conflict->candidate_recipient_ids));
+        $this->assertNull($conflict->key_version);
+        $this->assertNull($conflict->fingerprint_hash);
+        $this->assertSame('recipient_ownership_mismatch', $conflict->metadata['reason'] ?? null);
+
+        $again = $service->resolveForRecipientKey(
+            'user',
+            'user:' . $requested->id,
+            [],
+            null,
+            ['user' => $requested]
+        );
+
+        $this->assertSame('ambiguous', $again['status']);
+        $this->assertSame((int) $conflict->id, (int) $again['conflict']->id);
+        $this->assertSame(1, NotificationIdentityConflict::query()->where('status', 'open')->count());
+    }
 }
