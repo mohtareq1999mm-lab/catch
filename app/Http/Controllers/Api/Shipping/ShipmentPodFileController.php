@@ -9,6 +9,7 @@ use App\Models\Shipping\ShipmentPod;
 use App\Services\Shipping\ProofOfDeliveryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\URL;
+use Marvel\Enums\Permission;
 use Symfony\Component\HttpFoundation\Response;
 
 class ShipmentPodFileController extends Controller
@@ -23,6 +24,33 @@ class ShipmentPodFileController extends Controller
             abort(403);
         }
 
+        $user = $request->user();
+        $signedUid = $request->query('uid');
+        if (! $user || $signedUid === null || (string) $user->getAuthIdentifier() !== (string) $signedUid) {
+            abort(403);
+        }
+
+        if (! $this->canAccessPod($user, $pod)) {
+            abort(403);
+        }
+
         return $this->proofOfDeliveryService->fileResponse($pod);
+    }
+
+    private function canAccessPod($user, ShipmentPod $pod): bool
+    {
+        if ((int) $pod->uploaded_by === (int) $user->getAuthIdentifier()) {
+            return true;
+        }
+
+        if ($user->can(Permission::VIEW_SHIPMENTS)) {
+            return true;
+        }
+
+        $pod->loadMissing('shipment.order');
+        $order = $pod->shipment?->order;
+        $ownerId = $order?->customer_id ?? $order?->user_id ?? null;
+
+        return $ownerId !== null && (int) $ownerId === (int) $user->getAuthIdentifier();
     }
 }

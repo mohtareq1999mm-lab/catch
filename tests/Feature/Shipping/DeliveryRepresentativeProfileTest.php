@@ -6,7 +6,9 @@ namespace Tests\Feature\Shipping;
 
 use App\Models\Shipping\DeliveryRepresentative;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Gate;
 use Marvel\Database\Models\User;
+use Marvel\Enums\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -60,5 +62,7 @@ class DeliveryRepresentativeProfileTest extends TestCase
         $this->assertCount(0, $user->roles);
         $this->assertCount(0, $user->getAllPermissions());
         $this->assertCount(0, $user->warehouses()->get());
+        $this->assertFalse($user->can(Permission::VIEW_SHIPMENTS));
+        $this->assertTrue(Gate::forUser($user)->denies(Permission::VIEW_SHIPMENTS));
     }
 }
