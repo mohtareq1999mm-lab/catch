@@ -139,6 +139,12 @@ class ProviderMappingVersionSnapshotTest extends TestCase
             'service_level' => 'express',
             'channels' => ['web'],
             'geographies' => ['EG'],
+            'polling' => [
+                'supported' => false,
+                'cursor_type' => null,
+                'pagination' => null,
+                'overlap_window_seconds' => 0,
+            ],
             'modes' => [
                 $mode => [
                     'enabled' => true,
