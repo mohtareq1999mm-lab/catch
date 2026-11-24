@@ -15,6 +15,16 @@ class StoreDeliveryAttemptRequest extends FormRequest
         return $this->user() !== null;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $normalized = DeliveryAttemptStatus::normalizeAttempt($this->all());
+
+        $this->merge([
+            'status' => $normalized['status'],
+            'failure_reason' => $normalized['failure_reason'],
+        ]);
+    }
+
     public function rules(): array
     {
         return [
@@ -22,6 +32,15 @@ class StoreDeliveryAttemptRequest extends FormRequest
             'failure_reason' => ['nullable', 'string', 'max:2000', 'required_if:status,' . DeliveryAttemptStatus::OTHER->value],
             'attempted_at' => ['nullable', 'date'],
             'metadata' => ['nullable', 'array'],
+        ];
+    }
+
+    /** @return array<string,string> */
+    public function messages(): array
+    {
+        return [
+            'status.in' => __('shipping.delivery_attempt.invalid_status'),
+            'failure_reason.required_if' => __('shipping.delivery_attempt.reason_required'),
         ];
     }
 }
