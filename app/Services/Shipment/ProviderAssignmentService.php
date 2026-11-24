@@ -8,8 +8,10 @@ use App\Audit\ActivityAuditService;
 use App\Enums\Shipping\ProviderMode;
 use App\Exceptions\CarrierConfigurationException;
 use App\Exceptions\ProviderOverrideConflictException;
+use App\Models\OrderTrackingEvent;
 use App\Models\Shipment;
 use App\Support\ProviderCode;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -135,6 +137,32 @@ final class ProviderAssignmentService
                 ['shipment_uuid' => $locked->uuid],
                 $reason,
             );
+
+            // #162: override is audit-only. Record a non-customer-visible timeline
+            // event with actor and notes, and never dispatch a status-change event.
+            $actor = auth()->user();
+            OrderTrackingEvent::create([
+                'order_id' => (int) $locked->order_id,
+                'event_type' => 'shipment.provider_overridden',
+                'event_timestamp' => now(),
+                'actor_type' => $actor ? TransitionActor::user($actor)->historyActorType() : TransitionActor::KIND_SYSTEM,
+                'actor_id' => $actor?->getAuthIdentifier() !== null ? (int) $actor->getAuthIdentifier() : null,
+                'actor_name' => $actor?->name ?? 'System',
+                'old_status' => null,
+                'new_status' => null,
+                'metadata' => [
+                    'shipment_id' => (int) $locked->id,
+                    'shipment_uuid' => $locked->uuid,
+                    'old' => $old,
+                    'new' => $new,
+                ],
+                'customer_visible' => false,
+                'customer_label_key' => 'tracking.shipment.provider_overridden',
+                'customer_description_key' => 'tracking.shipment.provider_overridden_description',
+                'admin_notes' => $reason,
+                'source' => 'admin',
+                'ip_address' => request()->ip(),
+            ]);
 
             return $locked->fresh();
         });

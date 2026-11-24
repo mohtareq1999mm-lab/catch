@@ -16,6 +16,7 @@ class CodSettlementStatement extends Model
 
     protected $fillable = [
         'statement_key',
+        'file_hash',
         'provider_code',
         'mode',
         'account_code',

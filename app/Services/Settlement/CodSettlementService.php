@@ -77,6 +77,54 @@ class CodSettlementService
         }
     }
 
+    /**
+     * #162: idempotent import by provider + mode + file hash.
+     * Re-importing the same file returns the existing statement without
+     * duplicating statement/line rows.
+     */
+    public function importStatement(array $payload): CodSettlementStatement
+    {
+        $identity = $this->validateIdentity($payload, true);
+        $fileHash = $identity['file_hash'];
+
+        $existing = $this->findImportByFileHash($identity['provider_code'], $identity['mode'], $fileHash);
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $lines = $this->resolveLines($this->normalizeLines($payload['lines'] ?? null), $identity);
+
+        return DB::transaction(function () use ($identity, $lines, $fileHash): CodSettlementStatement {
+            $locked = $this->findImportByFileHash(
+                $identity['provider_code'],
+                $identity['mode'],
+                $fileHash,
+                true
+            );
+            if ($locked !== null) {
+                return $locked;
+            }
+
+            return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
+        });
+    }
+
+    private function findImportByFileHash(string $providerCode, string $mode, string $fileHash, bool $lock = false): ?CodSettlementStatement
+    {
+        $query = CodSettlementStatement::query()
+            ->with('lines')
+            ->where('provider_code', $providerCode)
+            ->where('mode', $mode)
+            ->where('file_hash', $fileHash)
+            ->orderBy('id');
+
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        return $query->first();
+    }
+
     public function findStatement(int $id): CodSettlementStatement
     {
         return CodSettlementStatement::query()->with('lines')->findOrFail($id);
@@ -215,7 +263,7 @@ class CodSettlementService
         ];
     }
 
-    private function validateIdentity(array $payload): array
+    private function validateIdentity(array $payload, bool $requireFileHash = false): array
     {
         $mode = $payload['mode'] ?? null;
         $mode = $mode instanceof SettlementMode ? $mode : SettlementMode::tryFrom((string) $mode);
@@ -234,7 +282,7 @@ class CodSettlementService
             throw $this->invalidPayload('metadata');
         }
 
-        return [
+        $identity = [
             'statement_key' => $this->stringField($payload['statement_key'] ?? null, 'statement_key', 191),
             'provider_code' => $this->stringField($payload['provider_code'] ?? null, 'provider_code', 32),
             'mode' => $mode->value,
@@ -244,6 +292,17 @@ class CodSettlementService
             'currency_code' => $this->optionalCurrencyCode($payload['currency_code'] ?? null),
             'metadata' => $metadata,
         ];
+
+        $fileHash = $payload['file_hash'] ?? null;
+        if ($fileHash !== null || $requireFileHash) {
+            $fileHash = $this->stringField($fileHash, 'file_hash', 64);
+            if (!preg_match('/^[A-Fa-f0-9]{64}$/', $fileHash)) {
+                throw $this->invalidPayload('file_hash');
+            }
+            $identity['file_hash'] = strtolower($fileHash);
+        }
+
+        return $identity;
     }
 
     private function normalizeLines(mixed $lines): array
