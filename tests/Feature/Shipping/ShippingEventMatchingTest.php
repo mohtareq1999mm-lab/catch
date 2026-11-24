@@ -13,6 +13,7 @@ use App\Services\Shipment\ShippingProviderEventProcessor;
 use App\Services\Shipment\ShippingWebhookInbox;
 use App\Services\Shipment\ShippingWebhookMatchCorrectionService;
 use Carbon\CarbonImmutable;
+use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Order;
@@ -175,6 +176,44 @@ class ShippingEventMatchingTest extends TestCase
 
         $this->assertNull($row->fresh()->shipment_id);
         $this->assertSame(ProviderEventExceptionType::UNMATCHED_SHIPMENT->value, $processed->exception_classification);
+    }
+
+    public function test_manual_correction_rejects_a_shipment_from_another_provider(): void
+    {
+        [$shipment] = $this->createTwoShipments();
+        $shipment->update(['provider_code' => 'other-provider']);
+
+        $row = app(ShippingWebhookInbox::class)->store($this->carrierEvent([
+            'providerShipmentRef' => 'NOPE',
+            'redactedPayload' => ['order_number' => 'ORD-MISSING-161'],
+        ]));
+        $this->assertSame('null', $row->provider_code);
+
+        $manager = User::create([
+            'name' => 'Cross Provider Corrector',
+            'email' => 'cross-'.Str::lower(Str::random(8)).'@example.test',
+            'password' => bcrypt('password'),
+        ]);
+        foreach (['update-shipment', 'manage-warehouse'] as $permission) {
+            $manager->givePermissionTo(Permission::findOrCreate($permission, 'api'));
+        }
+
+        try {
+            app(ShippingWebhookMatchCorrectionService::class)->attachShipment(
+                $row,
+                $shipment,
+                $manager,
+                'wrong carrier',
+            );
+            $this->fail('Cross-provider manual correction must be rejected.');
+        } catch (DomainException $e) {
+            $this->assertStringContainsString('provider does not match', $e->getMessage());
+        }
+
+        $row->refresh();
+        $this->assertNull($row->shipment_id);
+        $this->assertSame('unmatched', $row->match_status);
+        $this->assertSame(0, ShippingProviderEvent::query()->where('webhook_event_id', $row->id)->count());
     }
 
     private function createTwoShipments(): array

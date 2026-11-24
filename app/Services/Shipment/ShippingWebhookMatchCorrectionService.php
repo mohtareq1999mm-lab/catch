@@ -69,6 +69,18 @@ final class ShippingWebhookMatchCorrectionService
                 throw new AuthorizationException('Forbidden manual webhook match correction.');
             }
 
+            // A manual link must not cross carrier boundaries: replaying a
+            // provider's event against another provider's shipment would apply
+            // that provider's status to the wrong lifecycle. Null provider
+            // codes (legacy shipments) remain attachable.
+            if (
+                $row->provider_code !== null
+                && $target->provider_code !== null
+                && (string) $row->provider_code !== (string) $target->provider_code
+            ) {
+                throw new DomainException('Webhook provider does not match the target shipment provider.');
+            }
+
             if (!in_array((string) $row->match_status, self::CORRECTABLE_STATUSES, true)) {
                 throw new DomainException('Only unresolved webhook matches can be corrected.');
             }
