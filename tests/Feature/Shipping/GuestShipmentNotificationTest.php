@@ -87,21 +87,26 @@ class GuestShipmentNotificationTest extends TestCase
         $timelineEventId = $this->timelineEvent($order->id, 'pending', 'picked_up');
         $event = $this->event($order, $shipment, $timelineEventId, 'pending', 'picked_up');
 
-        app(ShipmentNotificationRecorder::class)->record($event);
+        $recorder = app(ShipmentNotificationRecorder::class);
+        $recorder->record($event);
 
-        $row = ShipmentNotification::query()->where('channel', 'email')->firstOrFail();
-        $this->assertNotSame('guest@example.test', $row->recipient_id);
-        $this->assertStringNotContainsString('guest@example.test', (string) $row->recipient_id);
-        $this->assertSame(64, strlen((string) $row->recipient_id));
-
+        // Same order, timeline event and contact: only the secret changes.
         Config::set('services.shipment_notifications.recipient_secret', 'different-secret');
-        $order2 = $this->createGuestOrder(['user_email' => 'guest@example.test', 'user_phone' => '']);
-        $shipment2 = Shipment::query()->create(['order_id' => $order2->id, 'status' => 'pending']);
-        $timelineEventId2 = $this->timelineEvent($order2->id, 'pending', 'picked_up');
-        $event2 = $this->event($order2, $shipment2, $timelineEventId2, 'pending', 'picked_up');
-        app(ShipmentNotificationRecorder::class)->record($event2);
-        $row2 = ShipmentNotification::query()->where('timeline_event_id', $timelineEventId2)->where('channel', 'email')->firstOrFail();
-        $this->assertNotSame($row->recipient_id, $row2->recipient_id);
+        $recorder->record($event);
+
+        $rows = ShipmentNotification::query()
+            ->where('timeline_event_id', $timelineEventId)
+            ->where('channel', 'email')
+            ->orderBy('id')
+            ->get();
+
+        $this->assertSame(2, $rows->count(), 'Changing only the secret must yield a distinct fingerprint row');
+        foreach ($rows as $row) {
+            $this->assertNotSame('guest@example.test', $row->recipient_id);
+            $this->assertStringNotContainsString('guest@example.test', (string) $row->recipient_id);
+            $this->assertSame(64, strlen((string) $row->recipient_id));
+        }
+        $this->assertNotSame($rows[0]->recipient_id, $rows[1]->recipient_id);
     }
 
     public function test_plaintext_contacts_never_appear_in_notification_payload_or_failure_reason(): void
