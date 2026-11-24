@@ -20,6 +20,10 @@ class ReturnService
      * ReturnService remains lifecycle authority; this never creates or advances
      * a parallel return lifecycle.
      *
+     * Metadata semantics: existing provider metadata keys are preserved; incoming
+     * keys fill only missing entries. A request already attached to a different
+     * shipment is unsuitable and is never mutated/logged as linked.
+     *
      * @param array<string,mixed> $providerMetadata
      */
     public function linkCarrierReturn(\App\Models\Shipment $shipment, array $providerMetadata = []): ?ReturnRequest
@@ -52,18 +56,22 @@ class ReturnService
                 return null;
             }
 
-            $metadata = is_array($locked->provider_return_metadata) ? $locked->provider_return_metadata : [];
+            if ($locked->shipment_id !== null && (int) $locked->shipment_id !== (int) $shipment->id) {
+                return null;
+            }
+
+            $existingMetadata = is_array($locked->provider_return_metadata) ? $locked->provider_return_metadata : [];
+            $metadata = $existingMetadata;
             foreach ($providerMetadata as $key => $value) {
-                if (is_string($key) && $key !== '' && $value !== null) {
+                if (is_string($key) && $key !== '' && $value !== null && !array_key_exists($key, $metadata)) {
                     $metadata[$key] = $value;
                 }
             }
 
             $updates = [];
-            if ($locked->shipment_id === null || (int) $locked->shipment_id === (int) $shipment->id) {
+            if ($locked->shipment_id === null) {
                 $updates['shipment_id'] = $shipment->id;
             }
-            $existingMetadata = is_array($locked->provider_return_metadata) ? $locked->provider_return_metadata : [];
             if ($metadata !== $existingMetadata) {
                 $updates['provider_return_metadata'] = $metadata;
             }

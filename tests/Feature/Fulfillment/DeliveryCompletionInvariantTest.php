@@ -31,6 +31,8 @@ class DeliveryCompletionInvariantTest extends TestCase
     {
         parent::setUp();
         app()->setLocale('en');
+        // OrderStatusChanged broadcasts on the named `pusher` connection.
+        config(['broadcasting.connections.pusher.driver' => 'log']);
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-INV', 'name' => 'Invariant WH', 'status' => 'active', 'is_default' => true,

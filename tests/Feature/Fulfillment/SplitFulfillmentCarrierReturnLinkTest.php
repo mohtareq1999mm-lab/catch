@@ -4,17 +4,23 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Fulfillment;
 
+use App\Enums\ShipmentStatus;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Fulfillment\Location;
 use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\ReturnRequest;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\Shipment;
+use App\Models\Shipping\ShippingWebhookEvent;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Fulfillment\ReturnService;
+use App\Services\Shipment\CarrierReturnLinkService;
+use App\Services\Shipment\Contracts\LinksCarrierReturns;
 use App\Services\Shipment\ShipmentService;
+use App\Services\Shipment\ShippingProviderEventProcessor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\User;
@@ -31,6 +37,9 @@ class SplitFulfillmentCarrierReturnLinkTest extends TestCase
     {
         parent::setUp();
         app()->setLocale('en');
+        // OrderStatusChanged forces the `pusher` connection even when the
+        // default broadcaster is log; make that connection log-based in tests.
+        config(['broadcasting.connections.pusher.driver' => 'log']);
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-174', 'name' => 'WH 174', 'status' => 'active', 'is_default' => true,
@@ -71,14 +80,40 @@ class SplitFulfillmentCarrierReturnLinkTest extends TestCase
 
         $this->assertSame('delivered', $f1->fresh()->status);
         $this->assertNotSame('delivered', $f2->fresh()->status);
-        $this->assertNotSame('delivered', $order->fresh()->status);
+        // A split order remains `completed` until EVERY fulfillment is delivered.
         $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_all_fulfillments_delivered_completes_split_order(): void
+    {
+        $order = $this->makeCompletedOrder(4);
+        $f1 = $this->makeReadyFulfillment($order, '174-a-all');
+        $f2 = $this->makeReadyFulfillment($order, '174-b-all');
+        $service = app(ShipmentService::class);
+
+        foreach ([$f1, $f2] as $fulfillment) {
+            $shipment = $service->createForFulfillment($fulfillment, [], null);
+            $service->dispatch($shipment->id);
+            $service->markDelivered($shipment->id);
+        }
+
+        $this->assertSame('delivered', $f1->fresh()->status);
+        $this->assertSame('delivered', $f2->fresh()->status);
+        $this->assertSame('delivered', $order->fresh()->status);
     }
 
     public function test_one_active_shipment_per_fulfillment_is_enforced_at_persistence_boundary(): void
     {
         $order = $this->makeCompletedOrder();
         $fulfillment = $this->makeReadyFulfillment($order, '174-c');
+        // Service guard raises the conflict; the UNIQUE generated-column index
+        // below is the persistence backstop for a concurrent race.
+        $this->assertNotNull(DB::selectOne(
+            "SELECT 1 FROM information_schema.statistics " .
+            "WHERE table_schema = DATABASE() AND table_name = 'shipments' " .
+            "AND index_name = 'shipments_active_fulfillment_unique'"
+        ));
+
         $service = app(ShipmentService::class);
 
         $service->createForFulfillment($fulfillment, [], null);
@@ -150,6 +185,132 @@ class SplitFulfillmentCarrierReturnLinkTest extends TestCase
 
         $this->assertSame($return->id, $linked?->id);
         $this->assertSame('approved', $linked?->fresh()->status);
+        $this->assertSame($beforeShipments, Shipment::count());
+        $this->assertSame($beforeReturns, ReturnRequest::count());
+    }
+
+    public function test_carrier_return_is_scoped_to_fulfillment_and_accepts_order_level_return(): void
+    {
+        $order = $this->makeCompletedOrder(4);
+        $f1 = $this->makeReadyFulfillment($order, '174-scope-a');
+        $f2 = $this->makeReadyFulfillment($order, '174-scope-b');
+        $service = app(ShipmentService::class);
+        $s1 = $service->createForFulfillment($f1, [], null);
+        $service->createForFulfillment($f2, [], null);
+        $user = User::factory()->create(['type' => 'customer']);
+
+        $otherFulfillmentReturn = ReturnRequest::create([
+            'return_number' => 'RET-174-SCOPE-OTHER-' . uniqid(),
+            'order_id' => $order->id,
+            'fulfillment_id' => $f2->id,
+            'warehouse_id' => $this->warehouse->id,
+            'customer_id' => $user->id,
+            'status' => 'pending',
+            'reason' => 'damaged',
+            'requested_by' => $user->id,
+            'requested_at' => now(),
+        ]);
+
+        $this->assertNull(app(ReturnService::class)->linkCarrierReturn($s1->fresh(), [
+            'carrier_reference' => 'MUST-NOT-LINK',
+        ]));
+        $this->assertNull($otherFulfillmentReturn->fresh()->shipment_id);
+        $this->assertNull($otherFulfillmentReturn->fresh()->provider_return_metadata);
+
+        $orderLevelReturn = ReturnRequest::create([
+            'return_number' => 'RET-174-SCOPE-ORDER-' . uniqid(),
+            'order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'customer_id' => $user->id,
+            'status' => 'pending',
+            'reason' => 'damaged',
+            'requested_by' => $user->id,
+            'requested_at' => now(),
+        ]);
+
+        $linked = app(ReturnService::class)->linkCarrierReturn($s1->fresh(), [
+            'carrier_reference' => 'SCOPE-174',
+        ]);
+
+        $this->assertSame($orderLevelReturn->id, $linked?->id);
+        $this->assertSame((int) $s1->id, (int) $linked->fresh()->shipment_id);
+        $this->assertSame('SCOPE-174', $linked->fresh()->provider_return_metadata['carrier_reference'] ?? null);
+        $this->assertNull($otherFulfillmentReturn->fresh()->shipment_id);
+    }
+
+    public function test_provider_returned_webhook_links_through_carrier_contract_without_new_rows(): void
+    {
+        config([
+            'broadcasting.connections.pusher.driver' => 'log',
+            'shipping.providers.test_carrier.mode' => 'sandbox',
+            'shipping.providers.test_carrier.modes.sandbox.status_map' => [
+                'version' => 174,
+                'status_map_owner' => 'shipping-platform',
+                'statuses' => [
+                    'returned' => ShipmentStatus::RETURNED->value,
+                ],
+            ],
+        ]);
+
+        $this->assertInstanceOf(CarrierReturnLinkService::class, app(LinksCarrierReturns::class));
+
+        $order = $this->makeCompletedOrder();
+        $fulfillment = $this->makeReadyFulfillment($order, '174-webhook');
+        $shipment = Shipment::create([
+            'order_id' => $order->id,
+            'fulfillment_id' => $fulfillment->id,
+            'status' => ShipmentStatus::FAILED_DELIVERY->value,
+            'provider_code' => 'test_carrier',
+            'provider_mode' => 'sandbox',
+        ]);
+        $user = User::factory()->create(['type' => 'customer']);
+
+        $return = ReturnRequest::create([
+            'return_number' => 'RET-174-WEBHOOK-' . uniqid(),
+            'order_id' => $order->id,
+            'fulfillment_id' => $fulfillment->id,
+            'warehouse_id' => $this->warehouse->id,
+            'customer_id' => $user->id,
+            'status' => 'pending',
+            'reason' => 'damaged',
+            'requested_by' => $user->id,
+            'requested_at' => now(),
+            'provider_return_metadata' => ['existing' => 'keep'],
+        ]);
+
+        $webhook = ShippingWebhookEvent::create([
+            'provider_code' => 'test_carrier',
+            'mode' => 'sandbox',
+            'account_code' => 'test-account',
+            'webhook_version' => 'v1',
+            'event_key' => 'evt-174-webhook',
+            'event_type' => 'shipment.status_changed',
+            'provider_shipment_ref' => 'carrier-ref-174',
+            'shipment_id' => $shipment->id,
+            'redacted_payload' => ['status' => 'returned'],
+            'raw_status' => 'returned',
+            'status' => 'received',
+            'received_at' => now(),
+            'occurred_at' => now(),
+        ]);
+
+        $beforeShipments = Shipment::count();
+        $beforeReturns = ReturnRequest::count();
+
+        $event = app(ShippingProviderEventProcessor::class)->process($webhook);
+
+        $this->assertNotNull($event->applied_at);
+        $this->assertSame('returned', $shipment->fresh()->status);
+
+        $linked = $return->fresh();
+        $this->assertSame((int) $shipment->id, (int) $linked->shipment_id);
+        $this->assertSame('keep', $linked->provider_return_metadata['existing'] ?? null);
+        $this->assertSame('test_carrier', $linked->provider_return_metadata['provider_code'] ?? null);
+        $this->assertSame('evt-174-webhook', $linked->provider_return_metadata['provider_event_key'] ?? null);
+        $this->assertSame(
+            'shipping_webhook_event:' . $webhook->id,
+            $linked->provider_return_metadata['redacted_payload_reference'] ?? null
+        );
         $this->assertSame($beforeShipments, Shipment::count());
         $this->assertSame($beforeReturns, ReturnRequest::count());
     }
