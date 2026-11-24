@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use App\Http\Controllers\Api\General\BannerController;
 use App\Http\Controllers\Api\General\BrandController;

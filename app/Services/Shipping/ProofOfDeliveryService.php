@@ -21,6 +21,9 @@ class ProofOfDeliveryService
     private const ALLOWED_PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
     private const ALLOWED_PHOTO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
     private const MAX_PHOTO_KILOBYTES = 10240;
+    private const MAX_SIGNATURE_REFERENCE_CHARS = 1024;
+    private const MAX_OTP_REFERENCE_CHARS = 191;
+    private const MAX_METADATA_BYTES = 65536;
 
     public function store(Shipment $shipment, array $data, Authenticatable $actor): ShipmentPod
     {
@@ -49,10 +52,10 @@ class ProofOfDeliveryService
                     'recipient_name' => $validated['recipient_name'],
                     'captured_at' => $validated['captured_at'],
                     'file_reference' => $path,
-                    'signature_reference' => $validated['signature_reference'] ?? null,
-                    'otp_reference' => $validated['otp_reference'] ?? null,
+                    'signature_reference' => $validated['signature_reference'],
+                    'otp_reference' => $validated['otp_reference'],
                     'uploaded_by' => $actor->getAuthIdentifier(),
-                    'metadata' => $validated['metadata'] ?? null,
+                    'metadata' => $validated['metadata'],
                 ]);
             }, 1); // No retries: a retried closure could leave an orphaned upload.
         } catch (QueryException $e) {
@@ -130,6 +133,19 @@ class ProofOfDeliveryService
 
         $assignmentId = $this->normalizeNullableInt($data['shipment_assignment_id'] ?? null, 'shipment_assignment_id', $errors);
         $attemptId = $this->normalizeNullableInt($data['shipment_delivery_attempt_id'] ?? null, 'shipment_delivery_attempt_id', $errors);
+        $signatureReference = $this->normalizeOptionalString(
+            $data['signature_reference'] ?? null,
+            'signature_reference',
+            self::MAX_SIGNATURE_REFERENCE_CHARS,
+            $errors
+        );
+        $otpReference = $this->normalizeOptionalString(
+            $data['otp_reference'] ?? null,
+            'otp_reference',
+            self::MAX_OTP_REFERENCE_CHARS,
+            $errors
+        );
+        $metadata = $this->normalizeOptionalMetadata($data['metadata'] ?? null, $errors);
 
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
@@ -139,6 +155,9 @@ class ProofOfDeliveryService
         $data['captured_at'] = $normalizedCapturedAt;
         $data['shipment_assignment_id'] = $assignmentId;
         $data['shipment_delivery_attempt_id'] = $attemptId;
+        $data['signature_reference'] = $signatureReference;
+        $data['otp_reference'] = $otpReference;
+        $data['metadata'] = $metadata;
         $data['shipment_id'] = $shipment->id;
 
         return $data;
@@ -195,6 +214,85 @@ class ProofOfDeliveryService
 
         $errors[$field] = [__('validation.integer', ['attribute' => $field])];
         return null;
+    }
+
+    /**
+     * @param array<string, list<string>> $errors
+     */
+    private function normalizeOptionalString(mixed $referenceValue, string $field, int $maxChars, array &$errors): ?string
+    {
+        if ($referenceValue === null || $referenceValue === '' || (is_string($referenceValue) && trim($referenceValue) === '')) {
+            return null;
+        }
+        if (! is_string($referenceValue) || ! mb_check_encoding($referenceValue, 'UTF-8')) {
+            $errors[$field] = [__('validation.string', ['attribute' => $field])];
+            return null;
+        }
+        if (mb_strlen($referenceValue, 'UTF-8') > $maxChars) {
+            $errors[$field] = [__('validation.max.string', ['attribute' => $field, 'max' => $maxChars])];
+            return null;
+        }
+
+        return $referenceValue;
+    }
+
+    /**
+     * @param array<string, list<string>> $errors
+     * @return array<mixed>|null
+     */
+    private function normalizeOptionalMetadata(mixed $metadata, array &$errors): ?array
+    {
+        if ($metadata === null || $metadata === '' || (is_string($metadata) && trim($metadata) === '')) {
+            return null;
+        }
+
+        if (is_string($metadata)) {
+            $metadata = $this->decodeMetadataJson($metadata);
+        }
+
+        if (! is_array($metadata)) {
+            $errors['metadata'] = [__('validation.json', ['attribute' => 'metadata'])];
+            return null;
+        }
+
+        if (! $this->validateMetadataEncoding($metadata, $errors)) {
+            return null;
+        }
+
+        return $metadata;
+    }
+
+    /** @return array<mixed>|null */
+    private function decodeMetadataJson(string $json): ?array
+    {
+        try {
+            $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @param array<mixed> $metadata
+     * @param array<string, list<string>> $errors
+     */
+    private function validateMetadataEncoding(array $metadata, array &$errors): bool
+    {
+        try {
+            $encoded = json_encode($metadata, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $errors['metadata'] = [__('validation.json', ['attribute' => 'metadata'])];
+            return false;
+        }
+
+        if (strlen($encoded) > self::MAX_METADATA_BYTES) {
+            $errors['metadata'] = [__('validation.max.string', ['attribute' => 'metadata', 'max' => self::MAX_METADATA_BYTES])];
+            return false;
+        }
+
+        return true;
     }
 
     /**

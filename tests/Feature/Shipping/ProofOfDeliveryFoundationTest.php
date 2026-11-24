@@ -120,6 +120,59 @@ class ProofOfDeliveryFoundationTest extends TestCase
         }
     }
 
+    public function test_proof_of_delivery_validates_optional_fields_before_writing_a_file(): void
+    {
+        Storage::fake('private');
+        $shipment = $this->createShipment();
+        $user = User::factory()->create();
+
+        // Column limits: signature_reference(1024), otp_reference(191), metadata(json).
+        $invalidPayloads = [
+            ['signature_reference', ['signature_reference' => str_repeat('s', 1025)]],
+            ['otp_reference', ['otp_reference' => str_repeat('o', 192)]],
+            ['metadata', ['metadata' => 'not-json']],
+            ['metadata', ['metadata' => 123]],
+            ['metadata', ['metadata' => ['blob' => str_repeat('x', 65537)]]],
+        ];
+
+        foreach ($invalidPayloads as [$field, $extra]) {
+            try {
+                app(ProofOfDeliveryService::class)->store($shipment, array_merge([
+                    'photo' => UploadedFile::fake()->image('pod.jpg'),
+                    'recipient_name' => 'Recipient',
+                    'captured_at' => now()->toIso8601String(),
+                ], $extra), $user);
+                $this->fail('Expected validation exception for ' . $field . '.');
+            } catch (ValidationException $e) {
+                $this->assertArrayHasKey($field, $e->errors());
+            }
+
+            $this->assertSame(0, ShipmentPod::query()->count());
+            $this->assertSame([], Storage::disk('private')->allFiles());
+        }
+    }
+
+    public function test_proof_of_delivery_persists_valid_optional_fields(): void
+    {
+        Storage::fake('private');
+        $shipment = $this->createShipment();
+        $user = User::factory()->create();
+        $metadata = ['channel' => 'app', 'witnessed' => true];
+
+        $pod = app(ProofOfDeliveryService::class)->store($shipment, [
+            'photo' => UploadedFile::fake()->image('pod.jpg'),
+            'recipient_name' => 'Recipient',
+            'captured_at' => now()->toIso8601String(),
+            'signature_reference' => 'sig-123',
+            'otp_reference' => '482910',
+            'metadata' => json_encode($metadata, JSON_THROW_ON_ERROR),
+        ], $user);
+
+        $this->assertSame('sig-123', $pod->signature_reference);
+        $this->assertSame('482910', $pod->otp_reference);
+        $this->assertSame($metadata, $pod->metadata);
+    }
+
     public function test_proof_of_delivery_file_is_private_and_served_only_through_authorized_short_lived_links(): void
     {
         Storage::fake('private');
@@ -194,6 +247,7 @@ class ProofOfDeliveryFoundationTest extends TestCase
             $this->fail('Expected duplicate POD validation exception.');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('shipment_id', $e->errors());
+            $this->assertSame(__('validation.custom.shipment_pod.duplicate_successful'), $e->errors()['shipment_id'][0]);
         }
 
         $this->assertSame(1, ShipmentPod::query()->where('shipment_id', $shipment->id)->where('status', 'successful')->count());
@@ -229,6 +283,7 @@ class ProofOfDeliveryFoundationTest extends TestCase
             $this->fail('Expected duplicate POD validation exception.');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('shipment_id', $e->errors());
+            $this->assertSame(__('validation.custom.shipment_pod.duplicate_successful'), $e->errors()['shipment_id'][0]);
         } finally {
             ShipmentPod::getEventDispatcher()->forget('eloquent.creating: ' . ShipmentPod::class, $listener);
         }
