@@ -20,7 +20,10 @@ use Illuminate\Contracts\Config\Repository;
  */
 class CarrierGatewayFactory
 {
-    public function __construct(private readonly Repository $config) {}
+    public function __construct(
+        private readonly Repository $config,
+        private readonly ProviderPollingCapabilityResolver $polling,
+    ) {}
 
     public function make(
         string $providerCode,
@@ -101,8 +104,13 @@ class CarrierGatewayFactory
         $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
 
         $this->assertSingleMode($providerCode, $modes);
+        $mode = $this->validatedMode($providerCode, $provider);
 
-        return [$provider, $this->validatedMode($providerCode, $provider)];
+        // #175: validate a declared polling capability wherever carrier config
+        // is read. Providers that predate #175 may omit the declaration.
+        $this->polling->forProviderIfDeclared($providerCode, $mode);
+
+        return [$provider, $mode];
     }
 
     /** @param array<string,mixed> $provider */
@@ -110,9 +118,12 @@ class CarrierGatewayFactory
     {
         $configured = $provider['mode'] ?? $this->config->get('shipping.default_mode', ProviderMode::SANDBOX->value);
         $mode = is_string($configured) ? trim($configured) : '';
+        $parsed = ProviderMode::tryFrom($mode);
 
-        if ($mode === '' || ProviderMode::tryFrom($mode) === null) {
-            throw CarrierConfigurationException::invalidMode($providerCode, $mode);
+        if ($parsed === null || !$parsed->isAllowedFor($providerCode)) {
+            throw $parsed === ProviderMode::INTERNAL
+                ? CarrierConfigurationException::internalModeReserved($providerCode)
+                : CarrierConfigurationException::invalidMode($providerCode, $mode);
         }
 
         return $mode;
@@ -126,11 +137,8 @@ class CarrierGatewayFactory
      */
     public function status(string $providerCode): array
     {
-        $provider = $this->config->get("shipping.providers.{$providerCode}");
-        $mode = is_array($provider) && is_string($provider['mode'] ?? null)
-            ? $provider['mode']
-            : ProviderMode::SANDBOX->value;
-        $modes = is_array($provider) && is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
+        [$provider, $mode] = $this->providerWithValidatedMode($providerCode);
+        $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
         $block = $modes[$mode] ?? null;
 
         return [

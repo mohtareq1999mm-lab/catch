@@ -32,6 +32,7 @@ final class CarrierWebhookVerifier
     public function __construct(
         private readonly Repository $config,
         private readonly ShippingWebhookFingerprint $fingerprints,
+        private readonly CarrierGatewayFactory $factories,
     ) {}
 
     public function signatureHeader(string $providerCode): string
@@ -115,11 +116,11 @@ final class CarrierWebhookVerifier
             throw CarrierConfigurationException::unknownProvider($providerCode);
         }
 
-        $mode = $provider['mode'] ?? $this->config->get('shipping.default_mode', 'sandbox');
-        $block = is_string($mode) && is_array($provider['modes'] ?? null)
-            ? ($provider['modes'][$mode] ?? null)
-            : null;
-        if (! is_array($block) || ($block['enabled'] ?? false) !== true) {
+        // #175: reuse the factory's validated mode so internal mode rules and
+        // declared polling capability checks apply to webhook config reads too.
+        $mode = $this->factories->resolveMode($providerCode);
+        $block = is_array($provider['modes'] ?? null) ? ($provider['modes'][$mode] ?? null) : null;
+        if (!is_array($block) || ($block['enabled'] ?? false) !== true) {
             throw CarrierConfigurationException::disabled($providerCode);
         }
 
