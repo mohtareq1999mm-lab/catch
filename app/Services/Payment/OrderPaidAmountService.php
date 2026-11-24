@@ -13,7 +13,13 @@ use Marvel\Database\Models\Refund;
 use Marvel\Database\Models\Transaction;
 
 /**
- * #150/#124: shared read-only authority for collectible COD money.
+ * #150/#168: shared read-only authority for collectible COD money.
+ *
+ * #168 eligibility gate: COD collectible is computed only when
+ * payment_method is exactly 'cod'. Ineligible methods (online,
+ * pay_at_cashier, legacy null/unknown) snapshot zero and never reach the
+ * COD formula. The gate runs before any amount/currency/precision/evidence
+ * calculation so ineligible rows cannot fail on missing evidence.
  *
  * Evidence is restricted to the Marvel order (grand total and currency),
  * captured Marvel transactions, and canonical approved refunds. Legacy
@@ -38,7 +44,7 @@ final class OrderPaidAmountService
         Order::PAYMENT_STATUS_REFUNDED,
     ];
 
-    /** #124: exact, case-sensitive COD allowlist. */
+    /** #124/#168: exact COD allowlist. */
     private const COD_PAYMENT_METHOD = 'cod';
 
     public function forOrder(Order|int $order): CollectibleCodAmount
@@ -48,15 +54,7 @@ final class OrderPaidAmountService
         // #124/#168: eligibility is an exact-match gate and runs before any
         // currency, precision, evidence, or collectible-formula work.
         if (! $this->isCodPaymentMethod($order)) {
-            return new CollectibleCodAmount(
-                orderId: (int) $order->getKey(),
-                currencyCode: is_string($order->currency_code) ? $order->currency_code : '',
-                decimalPlaces: 0,
-                orderTotalMinor: 0,
-                capturedMinor: 0,
-                refundedMinor: 0,
-                collectibleMinor: 0,
-            );
+            return $this->ineligibleSnapshot($order);
         }
 
         $currencyCode = $this->currencyCode($order);
@@ -78,6 +76,40 @@ final class OrderPaidAmountService
             capturedMinor: $capturedMinor,
             refundedMinor: $refundedMinor,
             collectibleMinor: $orderTotalMinor - $capturedMinor + $refundedMinor,
+        );
+    }
+
+    private function isCodEligible(Order $order): bool
+    {
+        $method = strtolower(trim((string) ($order->payment_method ?? '')));
+
+        return $method === self::COD_PAYMENT_METHOD;
+    }
+
+    private function ineligibleSnapshot(Order $order): CollectibleCodAmount
+    {
+        $currencyCode = strtoupper(trim((string) ($order->currency_code ?? '')));
+        $decimalPlaces = 0;
+        if (preg_match('/^[A-Z]{3}$/', $currencyCode)) {
+            $currency = Currency::query()->where('code', $currencyCode)->first();
+            if ($currency !== null && $currency->decimal_places !== null) {
+                $candidate = (int) $currency->decimal_places;
+                if ($candidate >= 0 && $candidate <= 4) {
+                    $decimalPlaces = $candidate;
+                }
+            }
+        } else {
+            $currencyCode = '';
+        }
+
+        return new CollectibleCodAmount(
+            orderId: (int) $order->getKey(),
+            currencyCode: $currencyCode,
+            decimalPlaces: $decimalPlaces,
+            orderTotalMinor: 0,
+            capturedMinor: 0,
+            refundedMinor: 0,
+            collectibleMinor: 0,
         );
     }
 

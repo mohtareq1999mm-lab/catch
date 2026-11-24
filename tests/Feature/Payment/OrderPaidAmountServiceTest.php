@@ -330,6 +330,84 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
         $this->assertSame(60125, $amount->collectibleMinor);
     }
 
+    public function test_ineligible_payment_methods_snapshot_zero_and_never_reach_cod_formula(): void
+    {
+        $this->usd();
+        $order = $this->order([
+            'payment_method' => 'online',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            'total_price' => 100,
+        ]);
+
+        // Poison evidence that would fail/alter a COD calculation if reached.
+        $order->transactions()->create([
+            'user_id' => $order->user_id,
+            'payment_method' => 'myfatoorah',
+            'status' => 'paid',
+            'amount' => null,
+            'currency' => 'EGP',
+            'capture_state' => 'succeeded',
+        ]);
+        $this->refund($order, 999, 'approved', 'EGP');
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame($order->id, $amount->orderId);
+        $this->assertSame('USD', $amount->currencyCode);
+        $this->assertSame(2, $amount->decimalPlaces);
+        $this->assertSame(0, $amount->orderTotalMinor);
+        $this->assertSame(0, $amount->capturedMinor);
+        $this->assertSame(0, $amount->refundedMinor);
+        $this->assertSame(0, $amount->collectibleMinor);
+    }
+
+    public function test_pay_at_cashier_is_ineligible_and_snapshots_zero(): void
+    {
+        $this->usd();
+        $order = $this->order([
+            'payment_method' => 'pay_at_cashier',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ]);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(0, $amount->collectibleMinor);
+        $this->assertSame(0, $amount->capturedMinor);
+        $this->assertSame(0, $amount->refundedMinor);
+    }
+
+    public function test_legacy_null_payment_method_is_ineligible_and_compatible(): void
+    {
+        $this->usd();
+        $order = $this->order([
+            'payment_method' => null,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            'total_price' => 55.50,
+        ]);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(0, $amount->collectibleMinor);
+        $this->assertSame('USD', $amount->currencyCode);
+        $this->assertSame(0, $amount->orderTotalMinor);
+    }
+
+    public function test_eligibility_gate_runs_before_amount_calculation_for_ineligible_orders(): void
+    {
+        $this->usd();
+        $order = $this->order([
+            'payment_method' => 'online',
+            'currency_code' => null, // would fail currency resolution in COD formula
+            'total_price' => 10,
+        ]);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(0, $amount->collectibleMinor);
+        $this->assertSame('', $amount->currencyCode);
+        $this->assertSame(0, $amount->decimalPlaces);
+    }
+
     /**
      * @return array<string, array{0: callable, 1: class-string<CodAmountEvidenceException>, 2: string}>
      */

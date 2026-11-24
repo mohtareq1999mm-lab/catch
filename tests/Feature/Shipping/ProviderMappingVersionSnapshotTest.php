@@ -88,12 +88,18 @@ class ProviderMappingVersionSnapshotTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $this->assertNull(DB::table('shipments')->where('id', $legacyId)->value('mapping_version'));
+        $legacy = DB::table('shipments')->where('id', $legacyId)->first();
+        $this->assertNull($legacy->mapping_version);
+        $this->assertNull($legacy->provider_code);
+        $this->assertNull($legacy->provider_mode);
 
         $new = app(ShipmentService::class)->create(['order_id' => $this->createOrder()->id]);
 
         $this->assertSame('v172-internal', $new->mapping_version);
-        $this->assertNull(DB::table('shipments')->where('id', $legacyId)->value('mapping_version'));
+        $legacy = DB::table('shipments')->where('id', $legacyId)->first();
+        $this->assertNull($legacy->mapping_version);
+        $this->assertNull($legacy->provider_code);
+        $this->assertNull($legacy->provider_mode);
     }
 
     public function test_override_updates_mapping_version_consistently_and_audits_both_values(): void
