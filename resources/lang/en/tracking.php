@@ -97,6 +97,8 @@ return [
         'eta_delayed_description' => 'Delivery delayed by :delay_days days. New estimated delivery: :new_eta',
         'delayed' => 'Delivery Delayed',
         'delayed_description' => 'Your package delivery is delayed.',
+        'provider_overridden' => 'Carrier Reassigned',
+        'provider_overridden_description' => 'The carrier handling your shipment was changed by the store.',
     ],
 
     // Refund Events

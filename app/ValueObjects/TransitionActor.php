@@ -55,6 +55,21 @@ final class TransitionActor
     }
 
     /**
+     * An actor whose authority was established at an admin-only boundary
+     * (route permission + object scope), not by the legacy order-status
+     * permission heuristic used by user(). Use when the caller already proved
+     * override authority, so history rows do not record an admin as a user.
+     */
+    public static function admin(?Authenticatable $user = null): self
+    {
+        if ($user === null) {
+            return self::system();
+        }
+
+        return new self(self::KIND_ADMIN, $user);
+    }
+
+    /**
      * The authenticated/anonymous user actor. Anonymous resolves to the
      * system actor, preserving the legacy "no user session" history row;
      * authenticated users resolve to `admin` when they hold

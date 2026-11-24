@@ -17,6 +17,7 @@ use Laravel\Sanctum\Sanctum;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
 use Marvel\Enums\Permission;
+use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Permission as PermissionModel;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -114,8 +115,57 @@ class ProviderOverrideAuditTest extends TestCase
 
         $this->assertNotNull($event, 'Override should create a timeline event');
         $this->assertFalse((bool) $event->customer_visible);
+        // This admin has override authority but none of the legacy order-status
+        // permissions: actor type must come from the authority boundary.
+        $this->assertSame('admin', $event->actor_type);
+        $this->assertSame('admin', $event->source);
         $this->assertSame($this->admin->id, (int) $event->actor_id);
-        $this->assertStringContainsString('carrier outage - reroute', (string) ($event->admin_notes ?? json_encode($event->metadata)));
+        $this->assertSame($this->admin->name, $event->actor_name);
+        $this->assertNull($event->old_status);
+        $this->assertNull($event->new_status);
+        $this->assertSame('carrier outage - reroute', $event->admin_notes);
+        $this->assertSame('tracking.shipment.provider_overridden', $event->customer_label_key);
+        $this->assertSame('tracking.shipment.provider_overridden_description', $event->customer_description_key);
+        $this->assertSame($shipment->id, (int) $event->metadata['shipment_id']);
+        $this->assertSame('internal', $event->metadata['old']['provider_code']);
+        $this->assertSame('alternate', $event->metadata['new']['provider_code']);
+
+        $activity = Activity::query()->where('event', 'provider_override')->latest('id')->firstOrFail();
+        $this->assertSame($this->admin->id, (int) $activity->causer_id);
+        $this->assertSame(get_class($this->admin), $activity->causer_type);
+        $this->assertSame('human', $activity->properties['context']['actor']['type']);
+        $this->assertSame($this->admin->id, (int) $activity->properties['context']['actor']['user_id']);
+    }
+
+    public function test_override_translation_keys_exist_in_english_and_arabic(): void
+    {
+        $this->assertSame('Carrier Reassigned', __('tracking.shipment.provider_overridden', [], 'en'));
+        $this->assertSame(
+            'The carrier handling your shipment was changed by the store.',
+            __('tracking.shipment.provider_overridden_description', [], 'en')
+        );
+        $this->assertSame('تغيير شركة الشحن', __('tracking.shipment.provider_overridden', [], 'ar'));
+        $this->assertSame(
+            'قام المتجر بتغيير شركة الشحن المسؤولة عن طردك.',
+            __('tracking.shipment.provider_overridden_description', [], 'ar')
+        );
+    }
+
+    public function test_service_override_without_actor_records_system_actor(): void
+    {
+        $shipment = $this->shipment();
+
+        app(ProviderAssignmentService::class)->override($shipment, 'alternate', 'automated reroute');
+
+        $event = OrderTrackingEvent::query()
+            ->where('order_id', $shipment->order_id)
+            ->where('event_type', 'shipment.provider_overridden')
+            ->firstOrFail();
+
+        $this->assertSame('system', $event->actor_type);
+        $this->assertSame('system', $event->source);
+        $this->assertNull($event->actor_id);
+        $this->assertSame('System', $event->actor_name);
     }
 
     public function test_override_never_dispatches_status_change_event(): void

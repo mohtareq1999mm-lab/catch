@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Shipping;
 
 use App\Enums\Shipping\ProviderEventExceptionType;
+use App\Models\OrderTrackingEvent;
 use App\Models\Shipment;
 use App\Models\Shipping\ShipmentException;
 use App\Models\Shipping\ShippingProviderEvent;
@@ -98,6 +99,7 @@ class StatusMapVersioningTest extends TestCase
     {
         $shipment = $this->createShipment();
         $webhook = $this->inbox($shipment, 'brand_new_unknown_status');
+        $timelineBefore = OrderTrackingEvent::where('order_id', $shipment->order_id)->count();
 
         $event = app(ShippingProviderEventProcessor::class)->process($webhook);
 
@@ -106,6 +108,10 @@ class StatusMapVersioningTest extends TestCase
         $this->assertSame('v9', $event->mapping_version);
         $this->assertNull($event->applied_at);
         $this->assertSame('pending', $shipment->fresh()->status);
+        $this->assertSame('brand_new_unknown_status', $event->raw_status);
+        $this->assertSame('brand_new_unknown_status', $webhook->fresh()->raw_status);
+        $this->assertSame($timelineBefore, OrderTrackingEvent::where('order_id', $shipment->order_id)->count());
+        $this->assertSame(0, OrderTrackingEvent::where('new_status', 'brand_new_unknown_status')->count());
 
         $exception = ShipmentException::where('provider_event_id', $event->id)->first();
         $this->assertNotNull($exception);
@@ -122,6 +128,8 @@ class StatusMapVersioningTest extends TestCase
 
         $this->assertSame('v9', $event->mapping_version);
         $this->assertSame('label_created', $event->mapped_status);
+        $this->assertSame('label_created', $event->raw_status);
+        $this->assertSame('label_created', $webhook->fresh()->raw_status);
         $this->assertSame('v9', $shipment->fresh()->mapping_version);
     }
 }

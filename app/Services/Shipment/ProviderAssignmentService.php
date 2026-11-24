@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\Audit\ActivityAuditService;
+use App\Audit\ActivityContext;
+use App\Audit\ActivitySnapshot;
 use App\Enums\Shipping\ProviderMode;
 use App\Exceptions\CarrierConfigurationException;
 use App\Exceptions\ProviderOverrideConflictException;
@@ -83,7 +85,12 @@ final class ProviderAssignmentService
         ];
     }
 
-    public function override(Shipment $shipment, string $providerCode, string $reason): Shipment
+    /**
+     * #162: the authority boundary passes the actor explicitly. Ambient auth
+     * is never consulted here; a missing actor is an unauthenticated/system
+     * override, not an implied admin.
+     */
+    public function override(Shipment $shipment, string $providerCode, string $reason, ?TransitionActor $actor = null): Shipment
     {
         // The FormRequest owns required/string/max:500; only whitespace-only
         // input survives it and needs a translated rejection here.
@@ -94,7 +101,7 @@ final class ProviderAssignmentService
 
         $assignment = $this->forProvider($providerCode);
 
-        return DB::transaction(function () use ($shipment, $assignment, $reason): Shipment {
+        return DB::transaction(function () use ($shipment, $assignment, $reason, $actor): Shipment {
             $locked = Shipment::whereKey($shipment->getKey())->lockForUpdate()->firstOrFail();
 
             if ($this->hasAwbEvidence($locked)) {
@@ -127,27 +134,47 @@ final class ProviderAssignmentService
                 'provider_override' => true,
             ]);
 
-            ActivityAuditService::recordModel(
-                $locked,
-                'provider_override',
-                'shipping',
-                __('shipping.audit.provider_overridden'),
-                $old,
-                $new,
-                ['shipment_uuid' => $locked->uuid],
-                $reason,
-            );
+            $actor ??= TransitionActor::system();
+            $actorUser = $actor->user;
+            $source = match ($actor->kind) {
+                TransitionActor::KIND_ADMIN => 'admin',
+                TransitionActor::KIND_SYSTEM => 'system',
+                TransitionActor::KIND_GATEWAY => 'gateway',
+                TransitionActor::KIND_GUEST => 'guest',
+                default => 'user',
+            };
+
+            // The activity causer and the timeline actor come from the same
+            // explicit context, so neither can disagree with the audit source.
+            // A fully-formed snapshot avoids ActorResolver's ambient auth read.
+            ActivityAuditService::record(new ActivitySnapshot(
+                logName: 'shipping',
+                event: 'provider_override',
+                description: __('shipping.audit.provider_overridden'),
+                subjectType: Shipment::class,
+                subjectId: (int) $locked->id,
+                causerType: $actorUser !== null ? get_class($actorUser) : null,
+                causerId: $actor->historyActorId(),
+                old: $old,
+                new: $new,
+                context: array_merge(ActivityContext::capture(), [
+                    'shipment_uuid' => $locked->uuid,
+                    'actor' => $actorUser !== null
+                        ? ['type' => 'human', 'user_id' => $actor->historyActorId(), 'user_type' => get_class($actorUser)]
+                        : ['type' => 'system'],
+                ]),
+                reason: $reason,
+            ));
 
             // #162: override is audit-only. Record a non-customer-visible timeline
             // event with actor and notes, and never dispatch a status-change event.
-            $actor = auth()->user();
             OrderTrackingEvent::create([
                 'order_id' => (int) $locked->order_id,
                 'event_type' => 'shipment.provider_overridden',
                 'event_timestamp' => now(),
-                'actor_type' => $actor ? TransitionActor::user($actor)->historyActorType() : TransitionActor::KIND_SYSTEM,
-                'actor_id' => $actor?->getAuthIdentifier() !== null ? (int) $actor->getAuthIdentifier() : null,
-                'actor_name' => $actor?->name ?? 'System',
+                'actor_type' => $actor->historyActorType(),
+                'actor_id' => $actor->historyActorId(),
+                'actor_name' => $actorUser?->name ?? 'System',
                 'old_status' => null,
                 'new_status' => null,
                 'metadata' => [
@@ -160,7 +187,7 @@ final class ProviderAssignmentService
                 'customer_label_key' => 'tracking.shipment.provider_overridden',
                 'customer_description_key' => 'tracking.shipment.provider_overridden_description',
                 'admin_notes' => $reason,
-                'source' => 'admin',
+                'source' => $source,
                 'ip_address' => request()->ip(),
             ]);
 

@@ -115,5 +115,117 @@ class CodSettlementImportIdempotencyTest extends TestCase
         $this->assertSame(1, CodSettlementStatement::query()->count());
         $this->assertSame(1, CodSettlementLine::query()->count());
     }
+
+    public function test_provider_mode_or_hash_differences_create_separate_statements(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order();
+        $service = app(CodSettlementService::class);
+        $base = $this->payload($order);
+
+        $imports = [
+            $service->importStatement($base),
+            $service->importStatement($this->payload($order, [
+                'statement_key' => 'other-provider',
+                'provider_code' => 'carrier_b',
+            ])),
+            $service->importStatement($this->payload($order, [
+                'statement_key' => 'other-mode',
+                'mode' => SettlementMode::PRODUCTION->value,
+            ])),
+            $service->importStatement($this->payload($order, [
+                'statement_key' => 'other-hash',
+                'file_hash' => hash('sha256', 'different-bytes'),
+            ])),
+        ];
+
+        $this->assertCount(4, array_unique(array_map(static fn ($statement): int => (int) $statement->id, $imports)));
+        $this->assertSame(4, CodSettlementStatement::query()->count());
+        $this->assertSame(4, CodSettlementLine::query()->count());
+    }
+
+    public function test_invalid_file_hash_is_rejected_and_mixed_case_hash_is_normalized(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order();
+        $service = app(CodSettlementService::class);
+        $hash = hash('sha256', 'mixed-case-file');
+
+        foreach ([
+            'deadbeef',
+            str_repeat('g', 64),
+            $hash . '0',
+            123,
+        ] as $invalidHash) {
+            try {
+                $service->importStatement($this->payload($order, ['file_hash' => $invalidHash]));
+                $this->fail('Invalid file_hash must be rejected before any write.');
+            } catch (\InvalidArgumentException $exception) {
+                $this->assertSame(__('cod_settlement.invalid_payload', ['field' => 'file_hash']), $exception->getMessage());
+            }
+        }
+
+        $this->assertSame(0, CodSettlementStatement::query()->count());
+
+        $upper = $service->importStatement($this->payload($order, [
+            'statement_key' => 'upper',
+            'file_hash' => strtoupper($hash),
+        ]));
+        $lower = $service->importStatement($this->payload($order, [
+            'statement_key' => 'lower',
+            'file_hash' => $hash,
+        ]));
+
+        $this->assertSame($upper->id, $lower->id);
+        $this->assertSame($hash, $upper->fresh()->file_hash);
+        $this->assertSame(1, CodSettlementStatement::query()->count());
+    }
+
+    public function test_create_statement_with_file_hash_uses_the_idempotent_import_path(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order();
+        $service = app(CodSettlementService::class);
+        $payload = $this->payload($order);
+
+        $first = $service->createStatement($payload);
+        $second = $service->createStatement($this->payload($order, ['statement_key' => 'stmt-import-2']));
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, CodSettlementStatement::query()->count());
+        $this->assertSame(1, CodSettlementLine::query()->count());
+    }
+
+    public function test_database_unique_index_rejects_a_duplicate_import_identity(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order();
+        $statement = app(CodSettlementService::class)->importStatement($this->payload($order));
+
+        $duplicate = $statement->only([
+            'statement_key', 'file_hash', 'provider_code', 'mode', 'account_code',
+            'period_start', 'period_end', 'currency_code', 'decimal_places',
+            'expected_minor', 'received_minor', 'variance_minor',
+        ]);
+        $duplicate['statement_key'] = 'duplicate-must-be-rejected';
+
+        try {
+            CodSettlementStatement::query()->create($duplicate);
+            $this->fail('The DB unique index must reject a duplicate provider+mode+file_hash.');
+        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
+            $this->assertSame(1, CodSettlementStatement::query()->count());
+        }
+
+        // NULL hashes are ordinary/manual statements: MySQL allows many of them.
+        foreach (['manual-a', 'manual-b'] as $key) {
+            CodSettlementStatement::query()->create(array_merge($duplicate, [
+                'statement_key' => $key,
+                'file_hash' => null,
+            ]));
+        }
+
+        $this->assertSame(3, CodSettlementStatement::query()->count());
+        $this->assertSame(2, CodSettlementStatement::query()->whereNull('file_hash')->count());
+    }
 }
 

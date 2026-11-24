@@ -13,6 +13,7 @@ use App\Models\Fulfillment\Fulfillment;
 use App\Models\Shipment;
 use App\Services\Shipment\ProviderAssignmentService;
 use App\Services\Shipment\ShipmentService;
+use App\ValueObjects\TransitionActor;
 use Illuminate\Http\JsonResponse;
 use Marvel\Enums\Permission;
 
@@ -41,6 +42,10 @@ final class ShippingProviderOverrideController extends WmsAdminController
                 $shipment,
                 (string) $request->validated('provider'),
                 (string) $request->validated('reason'),
+                // Authority was already proven by the route permission and
+                // warehouse scope above; the service must not re-derive it
+                // from ambient auth or legacy order-status permissions.
+                TransitionActor::admin($request->user()),
             );
         } catch (ProviderOverrideConflictException) {
             return $this->apiResponse(

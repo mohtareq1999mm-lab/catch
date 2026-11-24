@@ -9,6 +9,7 @@ use App\Models\Settlement\CodSettlementStatement;
 use App\Support\UniqueViolation;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,6 +28,13 @@ class CodSettlementService
 {
     public function createStatement(array $payload): CodSettlementStatement
     {
+        // #162: a statement carrying a source-file hash is an import. Route it
+        // through the idempotent path so no caller can bypass deduplication by
+        // using the older service entry point.
+        if (array_key_exists('file_hash', $payload) && $payload['file_hash'] !== null) {
+            return $this->importStatement($payload);
+        }
+
         $identity = $this->validateIdentity($payload);
         $overlapRule = $this->validateOverlapRule($payload['overlap_rule'] ?? null);
         $lines = $this->resolveLines(
@@ -105,7 +113,19 @@ class CodSettlementService
                 return $locked;
             }
 
-            return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
+            try {
+                return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
+            } catch (UniqueConstraintViolationException $exception) {
+                // The DB unique index is the final concurrency authority. A
+                // racing import may win after our pre-check/gap lock; return
+                // its statement with lines instead of surfacing a duplicate.
+                $winner = $this->findImportByFileHash($identity['provider_code'], $identity['mode'], $fileHash);
+                if ($winner !== null) {
+                    return $winner;
+                }
+
+                throw $exception;
+            }
         });
     }
 
