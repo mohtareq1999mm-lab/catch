@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShipmentAssignment extends Model
 {
+    public const STATUS_ACTIVE = 'active';
+
     protected $table = 'shipment_assignments';
 
     protected $fillable = [

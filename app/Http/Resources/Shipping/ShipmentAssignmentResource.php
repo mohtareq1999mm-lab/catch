@@ -19,6 +19,7 @@ class ShipmentAssignmentResource extends JsonResource
             'status' => $this->status,
             'assigned_at' => optional($this->assigned_at)->toISOString(),
             'unassigned_at' => optional($this->unassigned_at)->toISOString(),
+            'notes' => $this->notes,
             'shipment' => $this->whenLoaded('shipment', fn () => [
                 'id' => $this->shipment?->id,
                 'status' => $this->shipment?->status,
