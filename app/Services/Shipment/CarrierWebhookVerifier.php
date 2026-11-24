@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\DTOs\Shipping\CarrierWebhookEvent;
+use App\Enums\Shipping\ProviderMode;
 use App\Exceptions\CarrierConfigurationException;
 use App\Exceptions\InvalidCarrierWebhookPayload;
 use App\Exceptions\InvalidCarrierWebhookSignature;
@@ -29,10 +30,14 @@ final class CarrierWebhookVerifier
 
     private const SUPPORTED_VERSIONS = ['v1'];
 
+    /**
+     * #169 compatibility: the factory is optional so existing one-argument
+     * construction still works; the container injects it when available.
+     */
     public function __construct(
         private readonly Repository $config,
         private readonly ShippingWebhookFingerprint $fingerprints,
-        private readonly CarrierGatewayFactory $factories,
+        private readonly ?CarrierGatewayFactory $factories = null,
     ) {}
 
     public function signatureHeader(string $providerCode): string
@@ -51,6 +56,19 @@ final class CarrierWebhookVerifier
         }
 
         return $this->normalize($providerCode, $context, $body);
+    }
+
+    private function factory(): CarrierGatewayFactory
+    {
+        return $this->factories ?? app(CarrierGatewayFactory::class);
+    }
+
+    /** @param array<string,mixed> $provider */
+    private function isInternalMode(array $provider): bool
+    {
+        $configured = $provider['mode'] ?? $this->config->get('shipping.default_mode', ProviderMode::SANDBOX->value);
+
+        return is_string($configured) && trim($configured) === ProviderMode::INTERNAL->value;
     }
 
     /**
@@ -107,18 +125,24 @@ final class CarrierWebhookVerifier
         }
 
         $scheme = self::SCHEMES[$providerCode] ?? null;
+        $provider = $this->config->get("shipping.providers.{$providerCode}");
+
+        // #175: internal mode is never a webhook surface, even when a scheme
+        // or allowlist would otherwise resolve the provider.
+        if (is_array($provider) && $this->isInternalMode($provider)) {
+            throw CarrierConfigurationException::internalWebhookNotResolved($providerCode);
+        }
+
         if ($scheme === null) {
             throw CarrierConfigurationException::webhookNotConfigured($providerCode);
         }
-
-        $provider = $this->config->get("shipping.providers.{$providerCode}");
-        if (! is_array($provider)) {
+        if (!is_array($provider)) {
             throw CarrierConfigurationException::unknownProvider($providerCode);
         }
 
-        // #175: reuse the factory's validated mode so internal mode rules and
-        // declared polling capability checks apply to webhook config reads too.
-        $mode = $this->factories->resolveMode($providerCode);
+        // #175: reuse the factory's validated mode so polling capability is
+        // authoritative for webhook config reads too.
+        $mode = $this->factory()->resolveMode($providerCode);
         $block = is_array($provider['modes'] ?? null) ? ($provider['modes'][$mode] ?? null) : null;
         if (!is_array($block) || ($block['enabled'] ?? false) !== true) {
             throw CarrierConfigurationException::disabled($providerCode);

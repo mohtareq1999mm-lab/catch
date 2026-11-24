@@ -111,4 +111,16 @@ class CarrierConfigurationException extends RuntimeException
     {
         return new self("Carrier provider [{$providerCode}] cannot use internal mode");
     }
+
+    /** #175: internal mode is a local gateway mode, never a webhook surface. */
+    public static function internalWebhookNotResolved(string $providerCode): self
+    {
+        return new self("Carrier provider [{$providerCode}] in internal mode cannot resolve webhooks");
+    }
+
+    /** #175: internal mode is a local gateway mode, never a polling surface. */
+    public static function internalPollingNotResolved(string $providerCode): self
+    {
+        return new self("Carrier provider [{$providerCode}] in internal mode cannot resolve polling");
+    }
 }

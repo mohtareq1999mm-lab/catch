@@ -18,8 +18,9 @@ final class ProviderPollingCapabilityResolver
     public function __construct(private readonly Repository $config) {}
 
     /**
-     * Strict polling-consumer boundary: a provider without an explicit
-     * declaration fails closed.
+     * Authoritative polling boundary: a configured provider without an
+     * explicit declaration fails closed. Internal mode never resolves polling,
+     * regardless of scheme, allowlist, or declared capability.
      *
      * @return array{supported:bool,cursor_type:?string,pagination:?string,overlap_window_seconds:int}
      */
@@ -28,6 +29,11 @@ final class ProviderPollingCapabilityResolver
         $code = trim($providerCode);
         if (!ProviderCode::isValid($code)) {
             throw CarrierConfigurationException::unknownProvider($providerCode);
+        }
+
+        $mode = trim($mode);
+        if ($mode === ProviderMode::INTERNAL->value) {
+            throw CarrierConfigurationException::internalPollingNotResolved($code);
         }
 
         $mode = $this->validatedMode($code, $mode);
@@ -76,6 +82,11 @@ final class ProviderPollingCapabilityResolver
         if (!is_string($pagination) || !in_array($pagination, self::PAGINATION_TYPES, true)) {
             throw CarrierConfigurationException::invalidPollingCapability($code);
         }
+        // A provider without a resumable cursor needs an explicit recovery
+        // contract: enumerable pagination plus a positive replay overlap.
+        if ($cursorType === 'none' && ($pagination === 'none' || $overlapSeconds === 0)) {
+            throw CarrierConfigurationException::invalidPollingCapability($code);
+        }
 
         return [
             'supported' => true,
@@ -83,34 +94,6 @@ final class ProviderPollingCapabilityResolver
             'pagination' => $pagination,
             'overlap_window_seconds' => $overlapSeconds,
         ];
-    }
-
-    /**
-     * Config-read boundary for surfaces that do not require polling (status,
-     * assignment, gateway creation). A missing declaration is tolerated for
-     * backwards compatibility; a present but invalid declaration fails closed.
-     *
-     * @return array{supported:bool,cursor_type:?string,pagination:?string,overlap_window_seconds:int}|null
-     */
-    public function forProviderIfDeclared(string $providerCode, string $mode): ?array
-    {
-        $code = trim($providerCode);
-        $mode = $this->validatedMode($code, $mode);
-        $provider = $this->config->get("shipping.providers.{$code}");
-        if (!is_array($provider)) {
-            return null;
-        }
-
-        $declared = array_key_exists('polling', $provider);
-        $block = is_array($provider['modes'] ?? null) ? ($provider['modes'][$mode] ?? null) : null;
-        if (is_array($block) && array_key_exists('polling', $block)) {
-            $declared = true;
-        }
-        if (!$declared) {
-            return null;
-        }
-
-        return $this->forProvider($code, $mode);
     }
 
     private function validatedMode(string $providerCode, string $mode): string

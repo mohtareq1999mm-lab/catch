@@ -106,9 +106,12 @@ class CarrierGatewayFactory
         $this->assertSingleMode($providerCode, $modes);
         $mode = $this->validatedMode($providerCode, $provider);
 
-        // #175: validate a declared polling capability wherever carrier config
-        // is read. Providers that predate #175 may omit the declaration.
-        $this->polling->forProviderIfDeclared($providerCode, $mode);
+        // #175: polling capability is authoritative for every configured
+        // external provider. Internal mode is a local gateway mode with no
+        // polling surface, so the resolver is deliberately not invoked there.
+        if ($mode !== ProviderMode::INTERNAL->value) {
+            $this->polling->forProvider($providerCode, $mode);
+        }
 
         return [$provider, $mode];
     }

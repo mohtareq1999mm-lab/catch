@@ -14,6 +14,7 @@ use App\Services\Shipment\CarrierWebhookVerifier;
 use App\Services\Shipment\LabelContentValidator;
 use App\Services\Shipment\Providers\NullCarrierGateway;
 use App\Services\Shipment\ProviderPollingCapabilityResolver;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -56,9 +57,11 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
         unset($config['polling']);
         config(['shipping.providers.missing_polling' => $config]);
 
-        $this->expectException(CarrierConfigurationException::class);
-        app(ProviderPollingCapabilityResolver::class)
-            ->forProvider('missing_polling', ProviderMode::SANDBOX->value);
+        $this->assertSame(
+            CarrierConfigurationException::invalidPollingCapability('missing_polling')->getMessage(),
+            $this->exceptionMessage(fn () => app(ProviderPollingCapabilityResolver::class)
+                ->forProvider('missing_polling', ProviderMode::SANDBOX->value)),
+        );
     }
 
     #[Test]
@@ -68,12 +71,14 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
         $resolver = app(ProviderPollingCapabilityResolver::class);
 
         foreach (['unknown-mode', '', ProviderMode::INTERNAL->value] as $mode) {
-            try {
-                $resolver->forProvider('polling_test', $mode);
-                $this->fail("Mode [{$mode}] must fail closed.");
-            } catch (CarrierConfigurationException) {
-                $this->addToAssertionCount(1);
-            }
+            $expected = $mode === ProviderMode::INTERNAL->value
+                ? CarrierConfigurationException::internalPollingNotResolved('polling_test')
+                : CarrierConfigurationException::invalidMode('polling_test', $mode);
+
+            $this->assertSame(
+                $expected->getMessage(),
+                $this->exceptionMessage(fn () => $resolver->forProvider('polling_test', $mode)),
+            );
         }
     }
 
@@ -110,20 +115,89 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
     }
 
     #[Test]
-    public function factory_validates_declared_polling_but_tolerates_legacy_undeclared_providers(): void
+    public function polling_capability_rejects_none_cursor_without_a_recovery_contract(): void
     {
+        $this->assertInvalidPolling([
+            'supported' => true,
+            'cursor_type' => 'none',
+            'pagination' => 'none',
+            'overlap_window_seconds' => 0,
+        ]);
+        $this->assertInvalidPolling([
+            'supported' => true,
+            'cursor_type' => 'none',
+            'pagination' => 'page',
+            'overlap_window_seconds' => 0,
+        ]);
+        $this->assertInvalidPolling([
+            'supported' => true,
+            'cursor_type' => 'none',
+            'pagination' => 'none',
+            'overlap_window_seconds' => 300,
+        ]);
+
+        $config = $this->providerConfig([
+            'polling' => [
+                'supported' => true,
+                'cursor_type' => 'none',
+                'pagination' => 'page',
+                'overlap_window_seconds' => 300,
+            ],
+        ]);
+        config(['shipping.providers.recovery_contract' => $config]);
+
+        $this->assertTrue(app(ProviderPollingCapabilityResolver::class)
+            ->forProvider('recovery_contract', ProviderMode::SANDBOX->value)['supported']);
+    }
+
+    #[Test]
+    public function polling_capability_mode_level_override_is_authoritative(): void
+    {
+        $config = $this->providerConfig([
+            'polling' => [
+                'supported' => true,
+                'cursor_type' => 'timestamp',
+                'pagination' => 'page',
+                'overlap_window_seconds' => 300,
+            ],
+        ]);
+        $config['modes'][ProviderMode::SANDBOX->value]['polling'] = [
+            'supported' => false,
+            'cursor_type' => null,
+            'pagination' => null,
+            'overlap_window_seconds' => 0,
+        ];
+        config(['shipping.providers.mode_override' => $config]);
+
+        $this->assertSame([
+            'supported' => false,
+            'cursor_type' => null,
+            'pagination' => null,
+            'overlap_window_seconds' => 0,
+        ], app(ProviderPollingCapabilityResolver::class)
+            ->forProvider('mode_override', ProviderMode::SANDBOX->value));
+    }
+
+    #[Test]
+    public function runtime_config_readers_fail_closed_without_an_explicit_polling_declaration(): void
+    {
+        $missing = $this->providerConfig();
+        unset($missing['polling']);
+        config(['shipping.providers.missing_polling' => $missing]);
+
+        $this->assertSame(
+            CarrierConfigurationException::invalidPollingCapability('missing_polling')->getMessage(),
+            $this->exceptionMessage(fn () => app(CarrierGatewayFactory::class)->status('missing_polling')),
+        );
+
         config(['shipping.providers.polling_status' => $this->providerConfig(['polling' => null])]);
+        $this->assertSame(
+            CarrierConfigurationException::invalidPollingCapability('polling_status')->getMessage(),
+            $this->exceptionMessage(fn () => app(CarrierGatewayFactory::class)->status('polling_status')),
+        );
 
-        try {
-            app(CarrierGatewayFactory::class)->status('polling_status');
-            $this->fail('A declared but invalid polling capability must fail closed.');
-        } catch (CarrierConfigurationException) {
-        }
-
-        $legacy = $this->providerConfig();
-        unset($legacy['polling']);
-        config(['shipping.providers.legacy_provider' => $legacy]);
-
+        // Explicit supported=false is the only approved legacy compatibility.
+        config(['shipping.providers.legacy_provider' => $this->providerConfig()]);
         $this->assertTrue(app(CarrierGatewayFactory::class)->status('legacy_provider')['enabled']);
     }
 
@@ -167,10 +241,23 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
     }
 
     #[Test]
+    public function label_assert_valid_returns_typed_success_metadata(): void
+    {
+        $this->assertSame(
+            ['valid' => true, 'detected_mime' => 'application/pdf', 'reason' => null],
+            app(LabelContentValidator::class)->assertValid($this->pdf(), 'application/pdf'),
+        );
+    }
+
+    #[Test]
     public function label_assert_valid_fails_closed_for_callers(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        app(LabelContentValidator::class)->assertValid('garbage', 'application/pdf');
+        try {
+            app(LabelContentValidator::class)->assertValid('garbage', 'application/pdf');
+            $this->fail('assertValid() must fail closed.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertSame('Invalid label content: unknown_format', $exception->getMessage());
+        }
     }
 
     #[Test]
@@ -221,11 +308,61 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
     }
 
     #[Test]
-    public function internal_mode_is_enforced_in_webhook_config_reader(): void
+    public function webhook_verifier_keeps_one_argument_construction_from_number_169(): void
     {
-        config(['shipping.providers.null.mode' => ProviderMode::INTERNAL->value]);
-        $this->expectException(CarrierConfigurationException::class);
-        app(CarrierWebhookVerifier::class)->signatureHeader('null');
+        config([
+            'shipping.providers.null.modes.sandbox.enabled' => true,
+            'shipping.providers.null.modes.sandbox.webhook.secret' => 'whsec-169',
+        ]);
+
+        $verifier = new CarrierWebhookVerifier(config());
+
+        $this->assertSame('X-Shipping-Signature', $verifier->signatureHeader('null'));
+    }
+
+    #[Test]
+    public function internal_mode_never_resolves_webhooks_without_relying_on_schemes(): void
+    {
+        config([
+            'shipping.providers.null.mode' => ProviderMode::INTERNAL->value,
+            'shipping.providers.internal.mode' => ProviderMode::INTERNAL->value,
+        ]);
+
+        // 'null' has a scheme; 'internal' does not. Both must fail with the
+        // explicit internal-mode guard before any allowlist decision.
+        foreach (['null', 'internal'] as $providerCode) {
+            $this->assertSame(
+                CarrierConfigurationException::internalWebhookNotResolved($providerCode)->getMessage(),
+                $this->exceptionMessage(fn () => app(CarrierWebhookVerifier::class)
+                    ->signatureHeader($providerCode)),
+            );
+        }
+    }
+
+    #[Test]
+    public function internal_mode_never_resolves_polling(): void
+    {
+        $this->assertSame(
+            CarrierConfigurationException::internalPollingNotResolved('internal')->getMessage(),
+            $this->exceptionMessage(fn () => app(ProviderPollingCapabilityResolver::class)
+                ->forProvider('internal', ProviderMode::INTERNAL->value)),
+        );
+    }
+
+    #[Test]
+    public function invalid_polling_capability_fails_webhook_config_reader(): void
+    {
+        $config = $this->providerConfig(['polling' => null]);
+        $config['modes'][ProviderMode::SANDBOX->value]['webhook'] = [
+            'secret' => 'whsec-175',
+            'version' => 'v1',
+        ];
+        config(['shipping.providers.null' => $config]);
+
+        $this->assertSame(
+            CarrierConfigurationException::invalidPollingCapability('null')->getMessage(),
+            $this->exceptionMessage(fn () => app(CarrierWebhookVerifier::class)->signatureHeader('null')),
+        );
     }
 
     #[Test]
@@ -279,21 +416,59 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
     }
 
     #[Test]
-    public function snapshot_guards_document_save_quietly_and_query_builder_bypass(): void
+    public function database_triggers_reject_snapshot_writes_that_bypass_model_events(): void
     {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            $this->markTestSkipped('Snapshot immutability triggers are MySQL-only.');
+        }
+
         $webhook = $this->createWebhook('evt-175-bypass');
         $event = $this->createProviderEvent($webhook);
 
         $event->account_code = 'quiet-bypass';
-        $event->saveQuietly();
+        try {
+            $event->saveQuietly();
+            $this->fail('saveQuietly() must not rewrite a provider-event snapshot.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString(
+                'shipping_provider_events snapshot fields are immutable (#175)',
+                $exception->getMessage(),
+            );
+        }
+
+        try {
+            DB::table('shipping_webhook_events')
+                ->where('id', $webhook->id)
+                ->update(['provider_code' => 'query-bypass']);
+            $this->fail('Query-builder writes must not rewrite a webhook snapshot.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString(
+                'shipping_webhook_events snapshot fields are immutable (#175)',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertSame('internal-local', $event->fresh()->account_code);
+        $this->assertSame('internal', DB::table('shipping_webhook_events')->where('id', $webhook->id)->value('provider_code'));
+    }
+
+    #[Test]
+    public function operational_fields_remain_mutable_under_database_triggers(): void
+    {
+        $webhook = $this->createWebhook('evt-175-operational');
+        $event = $this->createProviderEvent($webhook);
+
         DB::table('shipping_webhook_events')
             ->where('id', $webhook->id)
-            ->update(['provider_code' => 'query-bypass']);
+            ->update(['status' => 'processed', 'last_error' => null]);
 
-        // Model events do not cover saveQuietly()/upsert/query-builder writes.
-        // Full AC4 immutability would require database-level enforcement.
-        $this->assertSame('quiet-bypass', $event->fresh()->account_code);
-        $this->assertSame('query-bypass', DB::table('shipping_webhook_events')->where('id', $webhook->id)->value('provider_code'));
+        $event->mapped_status = 'in_transit';
+        $event->applied_at = now();
+        $event->saveQuietly();
+
+        $this->assertSame('processed', $webhook->fresh()->status);
+        $this->assertSame('in_transit', $event->fresh()->mapped_status);
+        $this->assertNotNull($event->fresh()->applied_at);
     }
 
     /**
@@ -303,13 +478,11 @@ class ProviderPollingCapabilityAndLabelValidationTest extends TestCase
     {
         config(['shipping.providers.polling_invalid' => $this->providerConfig(['polling' => $polling])]);
 
-        try {
-            app(ProviderPollingCapabilityResolver::class)
-                ->forProvider('polling_invalid', ProviderMode::SANDBOX->value);
-            $this->fail('Invalid polling capability must fail closed.');
-        } catch (CarrierConfigurationException) {
-            $this->addToAssertionCount(1);
-        }
+        $this->assertSame(
+            CarrierConfigurationException::invalidPollingCapability('polling_invalid')->getMessage(),
+            $this->exceptionMessage(fn () => app(ProviderPollingCapabilityResolver::class)
+                ->forProvider('polling_invalid', ProviderMode::SANDBOX->value)),
+        );
     }
 
     private function createWebhook(string $eventKey): ShippingWebhookEvent

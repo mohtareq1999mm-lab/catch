@@ -11,9 +11,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * #143: immutable inbox evidence with no shipment lifecycle-write authority.
  *
- * #175: identity and payload snapshots are restored on Eloquent updates.
- * Query-builder writes, upserts and saveQuietly() bypass model events; DB-level
- * enforcement would be required for complete immutability.
+ * #175: identity and payload snapshots are restored on Eloquent updates and
+ * enforced by a MySQL BEFORE UPDATE trigger (see the #175 migration). The
+ * model guard is defense-in-depth on non-MySQL connections; DELETE/TRUNCATE
+ * and DDL are outside the trigger's scope.
  */
 class ShippingWebhookEvent extends Model
 {
