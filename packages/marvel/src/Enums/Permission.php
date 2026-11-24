@@ -500,6 +500,8 @@ final class Permission extends Enum
 
     // 🧾 COD settlement evidence (finance read-only)
     public const COD_SETTLEMENT_VIEW = 'cod-settlement.view';
+    public const COD_SETTLEMENT_MATCH = 'cod-settlement.match';
+    public const COD_SETTLEMENT_CLOSE = 'cod-settlement.close';
 
     // 👥 Admin Users Granular Permissions
     public const ADMIN_USERS_CREATE = 'admin-users.create';

@@ -106,6 +106,8 @@ class PermissionSeeder extends Seeder
 
             // 🧾 COD settlement evidence (finance read-only)
             'cod-settlement.view',
+            'cod-settlement.match',
+            'cod-settlement.close',
 
             // 👤 Customer
             'view-profile',

@@ -3,7 +3,9 @@
 namespace App\Models\Settlement;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Marvel\Database\Models\User;
 
 /**
  * #135: read-only financial evidence header.
@@ -28,6 +30,10 @@ class CodSettlementStatement extends Model
         'received_minor',
         'variance_minor',
         'metadata',
+        'status',
+        'closed_by',
+        'closed_at',
+        'close_reason',
     ];
 
     protected $casts = [
@@ -38,10 +44,21 @@ class CodSettlementStatement extends Model
         'received_minor' => 'integer',
         'variance_minor' => 'integer',
         'metadata' => 'array',
+        'closed_at' => 'datetime',
     ];
 
     public function lines(): HasMany
     {
         return $this->hasMany(CodSettlementLine::class, 'statement_id');
+    }
+
+    public function closer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'closed_by');
+    }
+
+    public function matchAudits(): HasMany
+    {
+        return $this->hasMany(CodSettlementMatchAudit::class, 'statement_id');
     }
 }

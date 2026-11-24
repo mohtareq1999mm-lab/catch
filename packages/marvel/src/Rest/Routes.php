@@ -745,6 +745,8 @@ Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:a
 Route::prefix('admin/cod-settlements')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('statements', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.index');
     Route::get('statements/{id}', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.show');
+    Route::post('statements/{id}/lines/{lineId}/match', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'manualMatch'])->whereNumber(['id','lineId'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_MATCH)->name('api.admin.cod-settlements.statements.lines.match');
+    Route::post('statements/{id}/close', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'close'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_CLOSE)->name('api.admin.cod-settlements.statements.close');
 });
 
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without

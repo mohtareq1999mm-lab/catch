@@ -10,4 +10,6 @@ return [
     'duplicate_statement_key' => 'A COD settlement statement with this statement key already exists.',
     'overlapping_statement' => 'A COD settlement statement overlaps an existing statement for this provider, mode, account, and currency.',
     'lock_timeout' => 'Could not acquire settlement scope lock; please retry.',
+    'line_matched' => 'COD settlement line matched successfully.',
+    'closed' => 'COD settlement statement closed successfully.',
 ];

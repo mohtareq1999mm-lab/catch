@@ -5,7 +5,10 @@ namespace App\Services\Settlement;
 use App\Enums\SettlementMode;
 use App\Exceptions\CodSettlementPrecisionException;
 use App\Models\Currency;
+use App\Models\Settlement\CodSettlementLine;
+use App\Models\Settlement\CodSettlementMatchAudit;
 use App\Models\Settlement\CodSettlementStatement;
+use App\Models\Shipment;
 use App\Support\UniqueViolation;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
@@ -189,9 +192,93 @@ class CodSettlementService
         return $query->paginate(max(1, min((int) ($filters['limit'] ?? 15), 100)));
     }
 
+    public function manualMatch(int $statementId, int $lineId, int $orderId, int $actorId, string $reason): CodSettlementLine
+    {
+        $reason = $this->stringField($reason, 'reason', 1000);
+
+        return DB::transaction(function () use ($statementId, $lineId, $orderId, $actorId, $reason): CodSettlementLine {
+            $statement = CodSettlementStatement::query()->lockForUpdate()->findOrFail($statementId);
+            if (($statement->status ?? 'open') === 'closed') {
+                throw $this->invalidPayload('statement_closed');
+            }
+
+            $line = CodSettlementLine::query()->where('statement_id', $statement->id)->lockForUpdate()->findOrFail($lineId);
+            $order = Order::query()->find($orderId);
+            if ($order === null) {
+                throw $this->invalidPayload('order_id');
+            }
+
+            $currencyCode = strtoupper(trim((string) $order->currency_code));
+            if ($currencyCode === '' || $currencyCode !== strtoupper((string) $statement->currency_code)) {
+                throw $this->invalidPayload('order_id');
+            }
+
+            $lineDecimalPlaces = $this->decimalPlacesFor($currencyCode);
+            if ($lineDecimalPlaces !== (int) $statement->decimal_places) {
+                throw CodSettlementPrecisionException::forMixedCurrency();
+            }
+
+            $previousStatus = (string) ($line->match_status ?? 'unmatched');
+            $line->forceFill([
+                'order_id' => $order->id,
+                'match_status' => 'matched',
+                'match_method' => 'manual',
+                'matched_by' => $actorId,
+                'matched_at' => now(),
+                'match_reason' => $reason,
+            ])->save();
+
+            CodSettlementMatchAudit::create([
+                'statement_id' => $statement->id,
+                'line_id' => $line->id,
+                'actor_id' => $actorId,
+                'order_id' => $order->id,
+                'previous_match_status' => $previousStatus,
+                'new_match_status' => 'matched',
+                'match_method' => 'manual',
+                'reason' => $reason,
+                'metadata' => ['awb' => $line->awb, 'provider_shipment_id' => $line->provider_shipment_id, 'order_number' => $line->order_number],
+            ]);
+
+            return $line->fresh();
+        });
+    }
+
+    public function closeStatement(int $statementId, int $actorId, ?string $reason = null): CodSettlementStatement
+    {
+        $reason = $reason !== null ? $this->stringField($reason, 'reason', 1000) : null;
+
+        return DB::transaction(function () use ($statementId, $actorId, $reason): CodSettlementStatement {
+            $statement = CodSettlementStatement::query()->with('lines')->lockForUpdate()->findOrFail($statementId);
+            if (($statement->status ?? 'open') === 'closed') {
+                return $statement;
+            }
+
+            $unmatched = $statement->lines->first(fn ($line) => ($line->match_status ?? 'matched') !== 'matched' || $line->order_id === null);
+            if ($unmatched !== null) {
+                throw $this->invalidPayload('unmatched_lines');
+            }
+
+            $variance = $statement->lines->first(fn ($line) => (int) $line->variance_minor !== 0);
+            if ($variance !== null) {
+                throw $this->invalidPayload('unresolved_variances');
+            }
+
+            $statement->forceFill([
+                'status' => 'closed',
+                'closed_by' => $actorId,
+                'closed_at' => now(),
+                'close_reason' => $reason,
+            ])->save();
+
+            return $statement->fresh('lines');
+        });
+    }
+
     private function persistStatement(array $identity, array $lines, array $totals): CodSettlementStatement
     {
-        $statement = CodSettlementStatement::create($identity + $totals);
+        unset($identity['currency_code']);
+        $statement = CodSettlementStatement::create($identity + $totals + ['status' => 'open']);
 
         foreach ($lines as $line) {
             $statement->lines()->create($line);
@@ -202,34 +289,96 @@ class CodSettlementService
 
     private function resolveLines(array $normalizedLines, array $identity, ?string $headerCurrencyCode): array
     {
-        $orders = Order::query()
-            ->whereIn('id', array_values(array_unique(array_column($normalizedLines, 'order_id'))))
-            ->get()
-            ->keyBy('id');
-
-        $currencyCode = $headerCurrencyCode;
-        $decimalPlaces = $currencyCode !== null ? $this->decimalPlacesFor($currencyCode) : null;
         $lineIdentity = array_intersect_key($identity, array_flip([
             'provider_code', 'mode', 'account_code', 'period_start', 'period_end',
         ]));
-        $resolved = [];
 
+        $matches = [];
+        $currencyCode = isset($identity['currency_code']) && $identity['currency_code'] !== null
+            ? strtoupper((string) $identity['currency_code'])
+            : null;
+        $decimalPlaces = $currencyCode !== null ? $this->decimalPlacesFor($currencyCode) : null;
         foreach ($normalizedLines as $line) {
-            [$currencyCode, $decimalPlaces] = $this->linePrecision($line, $orders, $currencyCode, $decimalPlaces);
-            $resolved[] = $this->resolveLine($line, $lineIdentity, $currencyCode, $decimalPlaces);
+            [$matchedOrder, $matchMethod, $matchStatus] = $this->matchOrder($line);
+            $matches[] = [$line, $matchedOrder, $matchMethod, $matchStatus];
+            if ($matchedOrder !== null && $currencyCode === null) {
+                $currencyCode = strtoupper(trim((string) $matchedOrder->currency_code));
+                if ($currencyCode === '') {
+                    throw CodSettlementPrecisionException::forCurrency();
+                }
+                $decimalPlaces = $this->decimalPlacesFor($currencyCode);
+            }
+        }
+
+        $resolved = [];
+        foreach ($matches as [$line, $matchedOrder, $matchMethod, $matchStatus]) {
+            [$currencyCode, $decimalPlaces] = $this->linePrecision($line, $matchedOrder, $currencyCode, $decimalPlaces);
+            $resolved[] = $this->resolveLine($line, $lineIdentity, $currencyCode, $decimalPlaces, $matchedOrder, $matchMethod, $matchStatus);
         }
 
         return $resolved;
     }
 
     /**
+     * @return array{0: ?Order, 1: ?string, 2: string}
+     */
+    private function matchOrder(array $line): array
+    {
+        $awb = $line['awb'] ?? null;
+        if ($awb !== null) {
+            $shipment = Shipment::query()->with('order')->where('tracking_number', $awb)->first();
+            if ($shipment?->order) {
+                return [$shipment->order, 'awb', 'matched'];
+            }
+        }
+
+        $providerShipmentId = $line['provider_shipment_id'] ?? null;
+        if ($providerShipmentId !== null) {
+            $shipment = Shipment::query()->with('order')->where('provider_shipment_id', $providerShipmentId)->first();
+            if ($shipment?->order) {
+                return [$shipment->order, 'provider_shipment_id', 'matched'];
+            }
+        }
+
+        $orderNumber = $line['order_number'] ?? null;
+        if ($orderNumber !== null) {
+            $matches = Order::query()->where('order_number', $orderNumber)->limit(2)->get();
+            if ($matches->count() === 1) {
+                return [$matches->first(), 'order_number', 'matched'];
+            }
+            if ($matches->count() > 1) {
+                throw $this->invalidPayload('order_number_ambiguous');
+            }
+        }
+
+        if (isset($line['order_id'])) {
+            $order = Order::query()->find($line['order_id']);
+            if ($order !== null) {
+                return [$order, 'order_id', 'matched'];
+            }
+        }
+
+        $hasAnyIdentifier = $awb !== null || $providerShipmentId !== null || $orderNumber !== null || isset($line['order_id']);
+        if (!$hasAnyIdentifier) {
+            throw $this->invalidPayload('order_id');
+        }
+
+        return [null, null, 'unmatched'];
+    }
+
+    /**
      * @return array{0: string, 1: int}
      */
-    private function linePrecision(array $line, Collection $orders, ?string $currencyCode, ?int $decimalPlaces): array
+    private function linePrecision(array $line, ?Order $order, ?string $currencyCode, ?int $decimalPlaces): array
     {
-        $order = $orders->get($line['order_id']);
         if ($order === null) {
-            throw $this->invalidPayload('order_id');
+            $lineCurrency = $currencyCode;
+            $lineDecimalPlaces = $decimalPlaces;
+            if ($lineCurrency === null) {
+                // fallback: infer from any known order in DB? no - fail closed without currency identity.
+                throw CodSettlementPrecisionException::forCurrency();
+            }
+            return [$lineCurrency, (int) $lineDecimalPlaces];
         }
 
         $lineCurrency = strtoupper(trim((string) $order->currency_code));
@@ -238,7 +387,11 @@ class CodSettlementService
         }
 
         if ($currencyCode !== null && $lineCurrency !== $currencyCode) {
-            throw CodSettlementPrecisionException::forMixedCurrency();
+            if ($order === null) {
+                throw CodSettlementPrecisionException::forMixedCurrency();
+            }
+            // Line matched to an order whose currency conflicts with the statement/caller identity.
+            throw $this->invalidPayload('order_id');
         }
 
         $lineDecimalPlaces = $this->decimalPlacesFor($lineCurrency);
@@ -253,14 +406,23 @@ class CodSettlementService
         array $line,
         array $lineIdentity,
         string $currencyCode,
-        int $decimalPlaces
+        int $decimalPlaces,
+        ?Order $order,
+        ?string $matchMethod,
+        string $matchStatus
     ): array {
         $expectedMinor = $this->toMinorUnits($line['expected'], $decimalPlaces);
         $receivedMinor = $this->toMinorUnits($line['received'], $decimalPlaces);
 
         return $lineIdentity + [
             'line_key' => $line['line_key'],
-            'order_id' => $line['order_id'],
+            'order_id' => $order?->id,
+            'awb' => $line['awb'] ?? null,
+            'provider_shipment_id' => $line['provider_shipment_id'] ?? null,
+            'order_number' => $line['order_number'] ?? null,
+            'match_status' => $matchStatus,
+            'match_method' => $matchMethod,
+            'matched_at' => $matchStatus === 'matched' ? now() : null,
             'currency_code' => $currencyCode,
             'decimal_places' => $decimalPlaces,
             'expected_minor' => $expectedMinor,
@@ -307,7 +469,7 @@ class CodSettlementService
             throw $this->invalidPayload('metadata');
         }
 
-        $identity = [
+    $identity = [
             'statement_key' => $this->stringField($payload['statement_key'] ?? null, 'statement_key', 191),
             'provider_code' => $this->stringField($payload['provider_code'] ?? null, 'provider_code', 32),
             'mode' => $mode->value,
@@ -343,15 +505,25 @@ class CodSettlementService
             }
 
             $orderId = $line['order_id'] ?? null;
-            if (!is_int($orderId) && !(is_string($orderId) && ctype_digit($orderId))) {
-                throw $this->invalidPayload('order_id');
+            if ($orderId !== null) {
+                if (!is_int($orderId) && !(is_string($orderId) && ctype_digit($orderId))) {
+                    throw $this->invalidPayload('order_id');
+                }
+                $orderId = (int) $orderId;
+                if ($orderId <= 0) {
+                    throw $this->invalidPayload('order_id');
+                }
             }
-            $orderId = (int) $orderId;
-            if ($orderId <= 0) {
+
+            $awb = $this->optionalString($line['awb'] ?? ($line['tracking_number'] ?? null), 'awb', 191);
+            $providerShipmentId = $this->optionalString($line['provider_shipment_id'] ?? null, 'provider_shipment_id', 191);
+            $orderNumber = $this->optionalString($line['order_number'] ?? null, 'order_number', 191);
+
+            if ($orderId === null && $awb === null && $providerShipmentId === null && $orderNumber === null) {
                 throw $this->invalidPayload('order_id');
             }
 
-            $lineKey = $line['line_key'] ?? (string) $orderId;
+            $lineKey = $line['line_key'] ?? ($awb ?? $providerShipmentId ?? $orderNumber ?? (string) $orderId);
             if (!is_int($lineKey) && !is_string($lineKey)) {
                 throw $this->invalidPayload('line_key');
             }
@@ -359,6 +531,9 @@ class CodSettlementService
             $normalized[] = [
                 'line_key' => $this->stringField((string) $lineKey, 'line_key', 191),
                 'order_id' => $orderId,
+                'awb' => $awb,
+                'provider_shipment_id' => $providerShipmentId,
+                'order_number' => $orderNumber,
                 'expected' => $line['expected'] ?? null,
                 'received' => $line['received'] ?? null,
             ];
@@ -426,6 +601,14 @@ class CodSettlementService
         }
 
         return $value;
+    }
+
+    private function optionalString(mixed $value, string $field, int $maxLength): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        return $this->stringField($value, $field, $maxLength);
     }
 
     private function dateField(mixed $value, string $field): string
