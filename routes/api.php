@@ -396,3 +396,10 @@ Route::prefix('v1/user')->middleware(['api', 'auth:sanctum', 'throttle:authentic
 //Expiry: أي تاريخ مستقبلي
 //CVC: أي 3 أرقام
 //ZIP: أي قيمة مناسبة
+Route::prefix('v1/representative')->middleware(['api', 'auth:sanctum', 'representative'])->group(function () {
+    Route::get('me', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'me'])->name('api.representative.me');
+    Route::get('assignments', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'assignments'])->name('api.representative.assignments.index');
+    Route::get('assignments/{assignment}', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'showAssignment'])->whereNumber('assignment')->name('api.representative.assignments.show');
+    Route::get('attempts/{attempt}', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'showAttempt'])->whereNumber('attempt')->name('api.representative.attempts.show');
+    Route::get('pods/{pod}', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'showPod'])->whereNumber('pod')->name('api.representative.pods.show');
+});
