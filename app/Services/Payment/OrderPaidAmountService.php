@@ -13,7 +13,7 @@ use Marvel\Database\Models\Refund;
 use Marvel\Database\Models\Transaction;
 
 /**
- * #150: shared read-only authority for collectible COD money.
+ * #150/#124: shared read-only authority for collectible COD money.
  *
  * Evidence is restricted to the Marvel order (grand total and currency),
  * captured Marvel transactions, and canonical approved refunds. Legacy
@@ -38,11 +38,30 @@ final class OrderPaidAmountService
         Order::PAYMENT_STATUS_REFUNDED,
     ];
 
+    /** #124: exact, case-sensitive COD allowlist. */
+    private const COD_PAYMENT_METHOD = 'cod';
+
     public function forOrder(Order|int $order): CollectibleCodAmount
     {
         $order = $this->resolveOrder($order);
+
+        // #124/#168: eligibility is an exact-match gate and runs before any
+        // currency, precision, evidence, or collectible-formula work.
+        if (! $this->isCodPaymentMethod($order)) {
+            return new CollectibleCodAmount(
+                orderId: (int) $order->getKey(),
+                currencyCode: is_string($order->currency_code) ? $order->currency_code : '',
+                decimalPlaces: 0,
+                orderTotalMinor: 0,
+                capturedMinor: 0,
+                refundedMinor: 0,
+                collectibleMinor: 0,
+            );
+        }
+
         $currencyCode = $this->currencyCode($order);
         $decimalPlaces = $this->decimalPlaces($currencyCode);
+
         $orderTotalMinor = $this->toMinorUnits($this->rawAmount($order, 'total_price'), $decimalPlaces);
         $capturedMinor = $this->capturedMinor($order, $currencyCode, $decimalPlaces);
         $refundedMinor = $this->refundedMinor($order, $currencyCode, $decimalPlaces);
@@ -94,6 +113,11 @@ final class OrderPaidAmountService
         return $code;
     }
 
+    private function isCodPaymentMethod(Order $order): bool
+    {
+        return is_string($order->payment_method) && $order->payment_method === self::COD_PAYMENT_METHOD;
+    }
+
     private function decimalPlaces(string $currencyCode): int
     {
         $currency = Currency::query()->where('code', $currencyCode)->first();
@@ -111,41 +135,108 @@ final class OrderPaidAmountService
 
     private function capturedMinor(Order $order, string $currencyCode, int $decimalPlaces): int
     {
-        $capturedMinor = 0;
-        $capturedRows = 0;
+        $captured = $this->qualifyingCapturedTransactions($order, $currencyCode, $decimalPlaces);
+
+        if ($captured === [] && in_array((string) $order->payment_status, self::PAID_CLAIM_STATUSES, true)) {
+            throw CodAmountEvidenceException::missingPaidEvidence();
+        }
+
+        $total = 0;
+        foreach ($captured as $row) {
+            $total += $row['minor'];
+        }
+
+        return $total;
+    }
+
+    /**
+     * Qualifying captured transactions, deduped by capture identity so duplicate
+     * rows do not inflate collectible COD. Distinct legitimate captures (different
+     * gateway/idempotency identity) are summed; this preserves partial-capture
+     * correctness while preventing duplicate-row inflation.
+     *
+     * Identity key: gateway_transaction_id, then idempotency_key. Captures
+     * lacking both stable identities cannot be proven distinct; any ambiguous
+     * no-identity duplicate evidence fails closed (AC2/AC4).
+     *
+     * @return array<string, array{id: int, minor: int}>
+     */
+    private function qualifyingCapturedTransactions(Order $order, string $currencyCode, int $decimalPlaces): array
+    {
+        $captured = [];
+        $ambiguousNoIdentity = 0;
 
         Transaction::query()
             ->where('order_id', $order->getKey())
             ->whereIn('status', self::CAPTURED_STATUSES)
             ->orderBy('id')
-            ->each(function (Transaction $transaction) use (
-                $currencyCode,
-                $decimalPlaces,
-                &$capturedMinor,
-                &$capturedRows
-            ): void {
+            ->each(function (Transaction $transaction) use ($order, $currencyCode, $decimalPlaces, &$captured, &$ambiguousNoIdentity): void {
                 $state = strtolower(trim((string) ($transaction->capture_state ?? '')));
                 if ($state !== '' && !in_array($state, self::SUCCESSFUL_CAPTURE_STATES, true)) {
                     return;
                 }
 
-                $capturedRows++;
+                $this->assertTransactionEvidenceBelongsToOrder($transaction, $order, $currencyCode);
 
-                if (strtoupper(trim((string) ($transaction->currency ?? ''))) !== $currencyCode) {
-                    throw CodAmountEvidenceException::mixedCurrency();
-                }
-
-                $capturedMinor += $this->toMinorUnits(
+                $minor = $this->toMinorUnits(
                     $this->rawAmount($transaction, 'amount'),
                     $decimalPlaces
                 );
+
+                $identity = $this->captureIdentity($transaction);
+                if ($identity === null) {
+                    $ambiguousNoIdentity++;
+                    if ($ambiguousNoIdentity > 1) {
+                        throw CodAmountEvidenceException::inconsistentEvidence();
+                    }
+
+                    $identity = 'transaction:'.(int) $transaction->getKey();
+                }
+
+                if (isset($captured[$identity])) {
+                    if ($captured[$identity]['minor'] !== $minor) {
+                        throw CodAmountEvidenceException::inconsistentEvidence();
+                    }
+
+                    // Duplicate evidence row for same capture identity: ignore, do not inflate.
+                    return;
+                }
+
+                $captured[$identity] = [
+                    'id' => (int) $transaction->getKey(),
+                    'minor' => $minor,
+                ];
             });
 
-        if ($capturedRows === 0 && in_array((string) $order->payment_status, self::PAID_CLAIM_STATUSES, true)) {
-            throw CodAmountEvidenceException::missingPaidEvidence();
+        return $captured;
+    }
+
+    private function captureIdentity(Transaction $transaction): ?string
+    {
+        $gatewayId = trim((string) ($transaction->gateway_transaction_id ?? ''));
+        if ($gatewayId !== '') {
+            return 'gateway:'.$gatewayId;
         }
 
-        return $capturedMinor;
+        $idempotencyKey = trim((string) ($transaction->idempotency_key ?? ''));
+        if ($idempotencyKey !== '') {
+            return 'idempotency:'.$idempotencyKey;
+        }
+
+        return null;
+    }
+
+    private function assertTransactionEvidenceBelongsToOrder(Transaction $transaction, Order $order, string $currencyCode): void
+    {
+        $transactionOrderId = (int) ($transaction->order_id ?? 0);
+        if ($transactionOrderId !== (int) $order->getKey()) {
+            throw CodAmountEvidenceException::inconsistentEvidence();
+        }
+
+        $transactionCurrency = strtoupper(trim((string) ($transaction->currency ?? '')));
+        if ($transactionCurrency !== $currencyCode) {
+            throw CodAmountEvidenceException::mixedCurrency();
+        }
     }
 
     /**

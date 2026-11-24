@@ -92,9 +92,9 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
         $this->assertSame(6000, $amount->collectibleMinor);
     }
 
-    private function capture(Order $order, float $amount, array $gatewayResponse = []): void
+    private function capture(Order $order, float $amount, array $gatewayResponse = [], array $overrides = []): void
     {
-        $order->transactions()->create([
+        $order->transactions()->create(array_merge([
             'user_id' => $order->user_id,
             'payment_method' => 'myfatoorah',
             'status' => 'paid',
@@ -103,7 +103,7 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
             'capture_state' => 'succeeded',
             'gateway_transaction_id' => 'capture-'.uniqid(),
             'gateway_response' => $gatewayResponse === [] ? null : $gatewayResponse,
-        ]);
+        ], $overrides));
     }
 
     private function refund(Order $order, float $amount, string $status = 'approved', ?string $currency = 'USD'): Refund
@@ -116,6 +116,162 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
             'status' => $status,
             'title' => 'Test refund',
         ]);
+    }
+
+    public function test_only_exact_cod_payment_method_can_produce_a_collectible_amount(): void
+    {
+        $this->usd();
+        $cod = $this->order(['payment_method' => 'cod', 'payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+        $this->capture($cod, 40);
+
+        $codAmount = app(OrderPaidAmountService::class)->forOrder($cod);
+
+        $this->assertSame(4000, $codAmount->capturedMinor);
+        $this->assertSame(6000, $codAmount->collectibleMinor);
+    }
+
+    public function test_non_cod_payment_methods_always_snapshot_zero(): void
+    {
+        $this->usd();
+
+        foreach (['cash_on_delivery', 'online', 'pay_at_cashier', 'stripe', 'myfatoorah', 'bank_transfer', 'unknown_gateway', null, ''] as $method) {
+            $order = $this->order([
+                'payment_method' => $method,
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            ]);
+            $this->capture($order, 100);
+
+            $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+            $label = $method ?? 'null';
+            $this->assertSame(0, $amount->orderTotalMinor, $label);
+            $this->assertSame(0, $amount->capturedMinor, $label);
+            $this->assertSame(0, $amount->refundedMinor, $label);
+            $this->assertSame(0, $amount->collectibleMinor, $label);
+            $this->assertSame('USD', $amount->currencyCode, $label);
+        }
+    }
+
+    public function test_non_exact_cod_spellings_snapshot_zero_without_cod_formula(): void
+    {
+        foreach ([' COD ', 'Cod', 'cod '] as $method) {
+            $order = $this->order([
+                'payment_method' => $method,
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            ]);
+            $this->capture($order, 40);
+
+            $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+            $this->assertSame('USD', $amount->currencyCode, $method);
+            $this->assertSame(0, $amount->decimalPlaces, $method);
+            $this->assertSame(0, $amount->orderTotalMinor, $method);
+            $this->assertSame(0, $amount->capturedMinor, $method);
+            $this->assertSame(0, $amount->refundedMinor, $method);
+            $this->assertSame(0, $amount->collectibleMinor, $method);
+        }
+    }
+
+    public function test_non_cod_paid_order_with_missing_evidence_still_snapshots_zero(): void
+    {
+        $this->usd();
+        $order = $this->order([
+            'payment_method' => 'stripe',
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+        ]);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(0, $amount->capturedMinor);
+        $this->assertSame(0, $amount->collectibleMinor);
+    }
+
+    public function test_duplicate_capture_evidence_does_not_inflate_captured_amount(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 30, [], ['gateway_transaction_id' => 'capture-same']);
+        $this->capture($order, 30, [], ['gateway_transaction_id' => 'capture-same']);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(3000, $amount->capturedMinor);
+        $this->assertSame(0, $amount->refundedMinor);
+        $this->assertSame(7000, $amount->collectibleMinor);
+    }
+
+    public function test_distinct_legitimate_captures_are_summed(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 20, [], ['gateway_transaction_id' => 'capture-1']);
+        $this->capture($order, 30, [], ['gateway_transaction_id' => 'capture-2']);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(5000, $amount->capturedMinor);
+        $this->assertSame(0, $amount->refundedMinor);
+        $this->assertSame(5000, $amount->collectibleMinor);
+    }
+
+    public function test_duplicate_capture_identity_with_conflicting_amount_fails_closed(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 20, [], ['gateway_transaction_id' => 'capture-same']);
+        $this->capture($order, 30, [], ['gateway_transaction_id' => 'capture-same']);
+
+        $this->expectException(CodAmountEvidenceException::class);
+        $this->expectExceptionMessage(__('cod_amount.inconsistent_evidence'));
+
+        app(OrderPaidAmountService::class)->forOrder($order);
+    }
+
+    public function test_missing_gateway_and_idempotency_identity_ambiguous_duplicates_fail_closed(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 30, [], ['gateway_transaction_id' => null, 'idempotency_key' => null]);
+        $this->capture($order, 30, [], ['gateway_transaction_id' => null, 'idempotency_key' => null]);
+
+        $this->expectException(CodAmountEvidenceException::class);
+        $this->expectExceptionMessage(__('cod_amount.inconsistent_evidence'));
+
+        app(OrderPaidAmountService::class)->forOrder($order);
+    }
+
+    public function test_distinct_legitimate_captures_with_stable_distinct_identities_still_sum(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 20, [], ['gateway_transaction_id' => 'gateway-capture-1']);
+        $this->capture($order, 30, [], ['gateway_transaction_id' => null, 'idempotency_key' => 'idem-capture-2']);
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(5000, $amount->capturedMinor);
+        $this->assertSame(5000, $amount->collectibleMinor);
+    }
+
+    public function test_approval_records_alone_never_reduce_the_captured_amount(): void
+    {
+        $this->usd();
+        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
+
+        $this->capture($order, 100);
+        $this->refund($order, 30, 'pending');
+        $this->refund($order, 20, 'rejected');
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(10000, $amount->capturedMinor);
+        $this->assertSame(0, $amount->refundedMinor);
+        $this->assertSame(0, $amount->collectibleMinor);
     }
 
     public function test_executed_refund_is_added_once_and_legacy_gateway_ledger_is_not_counted_again(): void
@@ -152,21 +308,6 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
 
         $this->assertSame(2000, $amount->refundedMinor);
         $this->assertSame(2000, $amount->collectibleMinor);
-    }
-
-    public function test_unexecuted_refunds_do_not_change_the_collectible_amount(): void
-    {
-        $this->usd();
-        $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
-
-        $this->capture($order, 100);
-        $this->refund($order, 30, 'pending');
-        $this->refund($order, 20, 'rejected');
-
-        $amount = app(OrderPaidAmountService::class)->forOrder($order);
-
-        $this->assertSame(0, $amount->refundedMinor);
-        $this->assertSame(0, $amount->collectibleMinor);
     }
 
     public function test_currency_and_precision_come_from_the_order_currency_metadata(): void
@@ -351,13 +492,13 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
         app(OrderPaidAmountService::class)->forOrder($order);
     }
 
-    public function test_it_sums_all_captured_transactions_and_reads_without_mutating_evidence(): void
+    public function test_it_sums_distinct_qualifying_captured_transactions_and_reads_without_mutating_evidence(): void
     {
         $this->usd();
         $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_SUCCESS]);
 
-        $this->capture($order, 20);
-        $this->capture($order, 30);
+        $this->capture($order, 20, [], ['gateway_transaction_id' => 'capture-1']);
+        $this->capture($order, 30, [], ['gateway_transaction_id' => 'capture-2']);
         $this->refund($order, 10);
 
         $tables = ['orders', 'transactions', 'refunds', 'currencies'];
@@ -375,6 +516,26 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
         foreach ($tables as $table) {
             $after = DB::table($table)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
             $this->assertSame($before[$table], $after, "{$table} was mutated by a read-only calculation");
+        }
+    }
+
+    public function test_non_cod_zero_snapshot_does_not_require_currency_metadata(): void
+    {
+        foreach (['stripe', 'pay_at_cashier'] as $method) {
+            $order = $this->order([
+                'payment_method' => $method,
+                'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            ]);
+            $this->capture($order, 100);
+
+            $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+            $this->assertSame('USD', $amount->currencyCode, $method);
+            $this->assertSame(0, $amount->decimalPlaces, $method);
+            $this->assertSame(0, $amount->orderTotalMinor, $method);
+            $this->assertSame(0, $amount->capturedMinor, $method);
+            $this->assertSame(0, $amount->refundedMinor, $method);
+            $this->assertSame(0, $amount->collectibleMinor, $method);
         }
     }
 }
