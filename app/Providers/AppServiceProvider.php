@@ -104,6 +104,15 @@ class AppServiceProvider extends ServiceProvider
             )
         );
 
+        $this->app->bind(
+            \App\Services\Shipment\Outbox\ShippingOutboxProcessor::class,
+            \App\Services\Shipment\Outbox\DefaultShippingOutboxProcessor::class
+        );
+        $this->app->bind(
+            \App\Services\Shipment\Outbox\ShippingOutboxReconciler::class,
+            \App\Services\Shipment\Outbox\DefaultShippingOutboxReconciler::class
+        );
+
         // StripeGateway lazy-builds its SDK client from config on first use.
         // The container must NOT auto-resolve the nullable StripeClient
         // constructor arg: it would inject an empty-key instance and every

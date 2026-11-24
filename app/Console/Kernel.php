@@ -108,6 +108,11 @@ class Kernel extends ConsoleKernel
         $schedule->command('coupons:detect-expiry')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('coupons:detect-public')->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
         $schedule->command('coupons:prune-events --days=90')->monthly()->withoutOverlapping()->onOneServer();
+
+        // #152 shipping durable outbox: immediate after-commit job carries fresh
+        // rows; sweep recovers lost queue messages and stale leases, and
+        // reconciles UNKNOWN rows through provider lookup before any retry.
+        $schedule->command('shipping:publish-outbox --batch=100')->everyMinute()->withoutOverlapping()->onOneServer();
     }
 
     /**
