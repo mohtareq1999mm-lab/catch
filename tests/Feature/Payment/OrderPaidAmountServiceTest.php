@@ -392,6 +392,45 @@ class OrderPaidAmountServiceTest extends CurrencyTestCase
         $this->assertSame(0, $amount->orderTotalMinor);
     }
 
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function nonCanonicalPaymentMethodProvider(): array
+    {
+        return [
+            'uppercase' => ['COD'],
+            'mixed case' => ['Cod'],
+            'leading whitespace' => [' cod'],
+            'trailing whitespace' => ['cod '],
+            'padded mixed case' => [' COD '],
+            'unknown method' => ['cash_on_delivery'],
+            'empty string' => [''],
+            'whitespace only' => ['   '],
+        ];
+    }
+
+    /** @dataProvider nonCanonicalPaymentMethodProvider */
+    public function test_non_canonical_payment_methods_are_ineligible_and_snapshot_zero(string $paymentMethod): void
+    {
+        $this->usd();
+        $order = $this->order([
+            'payment_method' => $paymentMethod,
+            'payment_status' => Order::PAYMENT_STATUS_SUCCESS,
+            'total_price' => 100,
+        ]);
+
+        // Poison evidence that would throw or alter the amount if the gate were bypassed.
+        $this->capture($order, 40);
+        $this->refund($order, 10, 'approved', 'EGP');
+
+        $amount = app(OrderPaidAmountService::class)->forOrder($order);
+
+        $this->assertSame(0, $amount->orderTotalMinor);
+        $this->assertSame(0, $amount->capturedMinor);
+        $this->assertSame(0, $amount->refundedMinor);
+        $this->assertSame(0, $amount->collectibleMinor);
+    }
+
     public function test_eligibility_gate_runs_before_amount_calculation_for_ineligible_orders(): void
     {
         $this->usd();

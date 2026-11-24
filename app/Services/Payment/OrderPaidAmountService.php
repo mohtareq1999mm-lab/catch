@@ -18,8 +18,9 @@ use Marvel\Database\Models\Transaction;
  * #168 eligibility gate: COD collectible is computed only when
  * payment_method is exactly 'cod'. Ineligible methods (online,
  * pay_at_cashier, legacy null/unknown) snapshot zero and never reach the
- * COD formula. The gate runs before any amount/currency/precision/evidence
- * calculation so ineligible rows cannot fail on missing evidence.
+ * COD formula. The gate runs before the COD amount and evidence calculation,
+ * so ineligible rows cannot fail on missing capture/refund evidence. Snapshot
+ * currency/precision metadata is normalized separately and never calculates money.
  *
  * Evidence is restricted to the Marvel order (grand total and currency),
  * captured Marvel transactions, and canonical approved refunds. Legacy
@@ -81,11 +82,14 @@ final class OrderPaidAmountService
 
     private function isCodEligible(Order $order): bool
     {
-        $method = strtolower(trim((string) ($order->payment_method ?? '')));
-
-        return $method === self::COD_PAYMENT_METHOD;
+        // Exact canonical value only; normalization would admit legacy variants.
+        return $order->payment_method === self::COD_PAYMENT_METHOD;
     }
 
+    /**
+     * Metadata-only zero snapshot for ineligible methods. Currency and precision
+     * are normalized for display; no amount or evidence calculation is performed.
+     */
     private function ineligibleSnapshot(Order $order): CollectibleCodAmount
     {
         $currencyCode = strtoupper(trim((string) ($order->currency_code ?? '')));

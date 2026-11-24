@@ -78,28 +78,44 @@ class ProviderMappingVersionSnapshotTest extends TestCase
 
     public function test_historical_rows_keep_null_mapping_version_and_are_not_backfilled(): void
     {
+        $legacyOrder = $this->createOrder();
         $legacyId = DB::table('shipments')->insertGetId([
             'uuid' => 'legacy-172-'.uniqid(),
-            'order_id' => $this->createOrder()->id,
+            'order_id' => $legacyOrder->id,
             'status' => 'pending',
             'provider_code' => null,
             'provider_mode' => null,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        $timelineId = DB::table('order_tracking_events')->insertGetId([
+            'order_id' => $legacyOrder->id,
+            'shipment_id' => null,
+            'event_type' => 'order.created',
+            'event_timestamp' => now(),
+            'customer_label_key' => 'tracking.order.created',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-        $legacy = DB::table('shipments')->where('id', $legacyId)->first();
-        $this->assertNull($legacy->mapping_version);
-        $this->assertNull($legacy->provider_code);
-        $this->assertNull($legacy->provider_mode);
+        $assertLegacyRowsRemainUnlinked = function () use ($legacyId, $timelineId): void {
+            $legacy = DB::table('shipments')->where('id', $legacyId)->first();
+            $this->assertNotNull($legacy);
+            $this->assertNull($legacy->mapping_version);
+            $this->assertNull($legacy->provider_code);
+            $this->assertNull($legacy->provider_mode);
+
+            $timeline = DB::table('order_tracking_events')->where('id', $timelineId)->first();
+            $this->assertNotNull($timeline);
+            $this->assertNull($timeline->shipment_id);
+        };
+
+        $assertLegacyRowsRemainUnlinked();
 
         $new = app(ShipmentService::class)->create(['order_id' => $this->createOrder()->id]);
 
         $this->assertSame('v172-internal', $new->mapping_version);
-        $legacy = DB::table('shipments')->where('id', $legacyId)->first();
-        $this->assertNull($legacy->mapping_version);
-        $this->assertNull($legacy->provider_code);
-        $this->assertNull($legacy->provider_mode);
+        $assertLegacyRowsRemainUnlinked();
     }
 
     public function test_override_updates_mapping_version_consistently_and_audits_both_values(): void
