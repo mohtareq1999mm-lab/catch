@@ -7,7 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Marvel\Database\Models\User;
 
 /**
- * #135: per-order financial evidence line. Read-only by convention.
+ * #135/#156: per-order financial evidence line. Mutations belong to
+ * CodSettlementService only and always append a match audit.
  */
 class CodSettlementLine extends Model
 {

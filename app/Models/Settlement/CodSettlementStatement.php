@@ -8,7 +8,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Marvel\Database\Models\User;
 
 /**
- * #135: read-only financial evidence header.
+ * #135/#156: financial evidence header. Writes are limited to the audited
+ * manual-match and close workflows in CodSettlementService.
  *
  * No observers, events, or lifecycle hooks are intentionally registered.
  */

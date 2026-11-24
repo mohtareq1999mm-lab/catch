@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Settlement;
 
+use App\Enums\CodSettlementStatementStatus;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class CodSettlementStatementResource extends JsonResource
@@ -22,7 +23,7 @@ class CodSettlementStatementResource extends JsonResource
             'expected_minor' => (int) $this->expected_minor,
             'received_minor' => (int) $this->received_minor,
             'variance_minor' => (int) $this->variance_minor,
-            'status' => $this->status ?? 'open',
+            'status' => $this->status ?? CodSettlementStatementStatus::OPEN->value,
             'closed_by' => $this->closed_by !== null ? (int) $this->closed_by : null,
             'closed_at' => $this->closed_at?->toISOString(),
             'close_reason' => $this->close_reason,

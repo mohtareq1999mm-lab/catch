@@ -5,6 +5,8 @@ return [
         'override_reason_required' => 'A provider override requires a reason of at most 500 characters.',
         'provider_overridden' => 'Shipping provider overridden by administrator',
     ],
+    'provider_shipment_id_invalid' => 'The carrier shipment id must be a non-empty string of at most 191 characters.',
+    'provider_shipment_id_duplicate' => 'The carrier shipment id is already used in this provider and mode scope.',
     'webhook_accepted' => 'Shipping webhook accepted.',
     'webhook_duplicate' => 'Shipping webhook already recorded.',
     'webhook_invalid_signature' => 'Shipping webhook signature is invalid.',

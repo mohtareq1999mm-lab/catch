@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Settlement;
 
+use App\Enums\CodSettlementMatchStatus;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class CodSettlementLineResource extends JsonResource
@@ -14,7 +15,7 @@ class CodSettlementLineResource extends JsonResource
             'awb' => $this->awb,
             'provider_shipment_id' => $this->provider_shipment_id,
             'order_number' => $this->order_number,
-            'match_status' => $this->match_status ?? 'matched',
+            'match_status' => $this->match_status ?? CodSettlementMatchStatus::MATCHED->value,
             'match_method' => $this->match_method,
             'matched_by' => $this->matched_by !== null ? (int) $this->matched_by : null,
             'matched_at' => $this->matched_at?->toISOString(),

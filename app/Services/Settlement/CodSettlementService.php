@@ -2,6 +2,9 @@
 
 namespace App\Services\Settlement;
 
+use App\Enums\CodSettlementMatchMethod;
+use App\Enums\CodSettlementMatchStatus;
+use App\Enums\CodSettlementStatementStatus;
 use App\Enums\SettlementMode;
 use App\Exceptions\CodSettlementPrecisionException;
 use App\Models\Currency;
@@ -9,23 +12,27 @@ use App\Models\Settlement\CodSettlementLine;
 use App\Models\Settlement\CodSettlementMatchAudit;
 use App\Models\Settlement\CodSettlementStatement;
 use App\Models\Shipment;
+use App\Models\Shipping\ShippingProviderEvent;
 use App\Support\UniqueViolation;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Marvel\Database\Models\Order;
+use Marvel\Database\Models\User;
 
 /**
- * #135: COD settlement bookkeeping.
+ * #135/#156: COD settlement evidence and audited matching.
  *
- * Reads orders only to establish currency identity. It writes settlement
- * evidence rows and nothing else: no payment, order, shipment, fulfillment,
- * inventory mutation, lifecycle event, queued job, rate lookup, fee rule,
- * tax rule, or currency conversion.
+ * This service never mutates payment, order, shipment, fulfillment,
+ * inventory, lifecycle event or queue state. It reads orders/shipments only
+ * to validate a settlement's provider/mode/account/period/currency identity,
+ * then writes evidence rows. No rate lookup, fee rule, tax rule or currency
+ * conversion occurs here.
  */
 class CodSettlementService
 {
@@ -198,47 +205,50 @@ class CodSettlementService
 
         return DB::transaction(function () use ($statementId, $lineId, $orderId, $actorId, $reason): CodSettlementLine {
             $statement = CodSettlementStatement::query()->lockForUpdate()->findOrFail($statementId);
-            if (($statement->status ?? 'open') === 'closed') {
+            if (($statement->status ?? CodSettlementStatementStatus::OPEN->value) === CodSettlementStatementStatus::CLOSED->value) {
                 throw $this->invalidPayload('statement_closed');
             }
 
             $line = CodSettlementLine::query()->where('statement_id', $statement->id)->lockForUpdate()->findOrFail($lineId);
+            $identity = $this->statementIdentity($statement);
             $order = Order::query()->find($orderId);
             if ($order === null) {
                 throw $this->invalidPayload('order_id');
             }
 
-            $currencyCode = strtoupper(trim((string) $order->currency_code));
-            if ($currencyCode === '' || $currencyCode !== strtoupper((string) $statement->currency_code)) {
-                throw $this->invalidPayload('order_id');
-            }
-
-            $lineDecimalPlaces = $this->decimalPlacesFor($currencyCode);
-            if ($lineDecimalPlaces !== (int) $statement->decimal_places) {
+            $this->assertOrderCurrency($order, $identity);
+            if ($this->decimalPlacesFor($identity['currency_code']) !== (int) $statement->decimal_places) {
                 throw CodSettlementPrecisionException::forMixedCurrency();
             }
 
-            $previousStatus = (string) ($line->match_status ?? 'unmatched');
+            $allShipments = Shipment::query()->where('order_id', $order->id)->get();
+            if ($allShipments->isNotEmpty()) {
+                $this->assertOrderInScope($order, $identity, $this->scopedShipmentsForOrderIds([$order->id], $identity));
+            }
+            $this->assertLineReferenceUnique($statement, $line, $order);
+
+            $previousStatus = (string) ($line->match_status ?? CodSettlementMatchStatus::UNMATCHED->value);
+            $previousOrderId = $line->order_id !== null ? (int) $line->order_id : null;
+            $previousMethod = $line->match_method !== null ? (string) $line->match_method : null;
+
             $line->forceFill([
                 'order_id' => $order->id,
-                'match_status' => 'matched',
-                'match_method' => 'manual',
+                'match_status' => CodSettlementMatchStatus::MATCHED->value,
+                'match_method' => CodSettlementMatchMethod::MANUAL->value,
                 'matched_by' => $actorId,
                 'matched_at' => now(),
                 'match_reason' => $reason,
             ])->save();
 
-            CodSettlementMatchAudit::create([
-                'statement_id' => $statement->id,
-                'line_id' => $line->id,
+            CodSettlementMatchAudit::create($this->auditAttributes($statement, $line, $order, [
                 'actor_id' => $actorId,
-                'order_id' => $order->id,
-                'previous_match_status' => $previousStatus,
-                'new_match_status' => 'matched',
-                'match_method' => 'manual',
                 'reason' => $reason,
-                'metadata' => ['awb' => $line->awb, 'provider_shipment_id' => $line->provider_shipment_id, 'order_number' => $line->order_number],
-            ]);
+                'match_method' => CodSettlementMatchMethod::MANUAL->value,
+                'new_match_status' => CodSettlementMatchStatus::MATCHED->value,
+                'previous_match_status' => $previousStatus,
+                'previous_order_id' => $previousOrderId,
+                'previous_match_method' => $previousMethod,
+            ]));
 
             return $line->fresh();
         });
@@ -250,22 +260,54 @@ class CodSettlementService
 
         return DB::transaction(function () use ($statementId, $actorId, $reason): CodSettlementStatement {
             $statement = CodSettlementStatement::query()->with('lines')->lockForUpdate()->findOrFail($statementId);
-            if (($statement->status ?? 'open') === 'closed') {
+            if (($statement->status ?? CodSettlementStatementStatus::OPEN->value) === CodSettlementStatementStatus::CLOSED->value) {
                 return $statement;
             }
 
-            $unmatched = $statement->lines->first(fn ($line) => ($line->match_status ?? 'matched') !== 'matched' || $line->order_id === null);
+            $unmatched = $statement->lines->first(fn ($line) =>
+                ($line->match_status ?? CodSettlementMatchStatus::UNMATCHED->value) !== CodSettlementMatchStatus::MATCHED->value
+                || $line->order_id === null
+            );
             if ($unmatched !== null) {
                 throw $this->invalidPayload('unmatched_lines');
             }
 
-            $variance = $statement->lines->first(fn ($line) => (int) $line->variance_minor !== 0);
-            if ($variance !== null) {
+            if ((int) $statement->variance_minor !== 0) {
+                throw $this->invalidPayload('unresolved_variances');
+            }
+            $lineVariance = $statement->lines->first(fn ($line) => (int) $line->variance_minor !== 0);
+            if ($lineVariance !== null) {
                 throw $this->invalidPayload('unresolved_variances');
             }
 
+            $identity = $this->statementIdentity($statement);
+            $matchedIds = $statement->lines->pluck('order_id')->filter()->map(fn ($id) => (int) $id)->all();
+            $orders = Order::query()->whereIn('id', $matchedIds)->get()->keyBy('id');
+            $allShipments = Shipment::query()
+                ->whereIn('order_id', $matchedIds)
+                ->get()
+                ->groupBy(fn (Shipment $shipment) => (string) $shipment->order_id);
+            $scopedShipments = $this->scopedShipmentsForOrderIds($matchedIds, $identity)->groupBy('order_id');
+
+            foreach ($statement->lines as $line) {
+                $order = $orders->get((int) $line->order_id);
+                if ($order === null) {
+                    // Orphan matched orders are never allowed to close.
+                    throw $this->invalidPayload('orphan_order');
+                }
+                $this->assertOrderCurrency($order, $identity);
+                $allForOrder = $allShipments->get((string) $line->order_id, new Collection());
+                if ($allForOrder->isNotEmpty()) {
+                    $this->assertOrderInScope(
+                        $order,
+                        $identity,
+                        $scopedShipments->get((string) $line->order_id, new Collection()),
+                    );
+                }
+            }
+
             $statement->forceFill([
-                'status' => 'closed',
+                'status' => CodSettlementStatementStatus::CLOSED->value,
                 'closed_by' => $actorId,
                 'closed_at' => now(),
                 'close_reason' => $reason,
@@ -278,7 +320,7 @@ class CodSettlementService
     private function persistStatement(array $identity, array $lines, array $totals): CodSettlementStatement
     {
         unset($identity['currency_code']);
-        $statement = CodSettlementStatement::create($identity + $totals + ['status' => 'open']);
+        $statement = CodSettlementStatement::create($identity + $totals + ['status' => CodSettlementStatementStatus::OPEN->value]);
 
         foreach ($lines as $line) {
             $statement->lines()->create($line);
@@ -289,31 +331,47 @@ class CodSettlementService
 
     private function resolveLines(array $normalizedLines, array $identity, ?string $headerCurrencyCode): array
     {
-        $lineIdentity = array_intersect_key($identity, array_flip([
-            'provider_code', 'mode', 'account_code', 'period_start', 'period_end',
-        ]));
+        $this->assertDistinctLineIdentifiers($normalizedLines);
+        $candidates = $this->loadCandidates($normalizedLines, $identity);
 
         $matches = [];
-        $currencyCode = isset($identity['currency_code']) && $identity['currency_code'] !== null
-            ? strtoupper((string) $identity['currency_code'])
-            : null;
-        $decimalPlaces = $currencyCode !== null ? $this->decimalPlacesFor($currencyCode) : null;
+        $matchedOrders = [];
         foreach ($normalizedLines as $line) {
-            [$matchedOrder, $matchMethod, $matchStatus] = $this->matchOrder($line);
-            $matches[] = [$line, $matchedOrder, $matchMethod, $matchStatus];
-            if ($matchedOrder !== null && $currencyCode === null) {
-                $currencyCode = strtoupper(trim((string) $matchedOrder->currency_code));
-                if ($currencyCode === '') {
-                    throw CodSettlementPrecisionException::forCurrency();
+            [$matchedOrder, $matchMethod, $matchStatus] = $this->matchLine($line, $identity, $candidates);
+            if ($matchedOrder !== null) {
+                if (isset($matchedOrders[$matchedOrder->id])) {
+                    throw $this->invalidPayload('order_ambiguous');
                 }
-                $decimalPlaces = $this->decimalPlacesFor($currencyCode);
+                $matchedOrders[$matchedOrder->id] = true;
             }
+            $matches[] = [$line, $matchedOrder, $matchMethod, $matchStatus];
+        }
+
+        $currencyCode = $identity['currency_code'] ?? null;
+        $decimalPlaces = $currencyCode !== null ? $this->decimalPlacesFor($currencyCode) : null;
+        foreach ($matches as [, $matchedOrder]) {
+            if ($matchedOrder === null || $currencyCode !== null) {
+                continue;
+            }
+            $currencyCode = strtoupper(trim((string) $matchedOrder->currency_code));
+            if ($currencyCode === '') {
+                throw CodSettlementPrecisionException::forCurrency();
+            }
+            $decimalPlaces = $this->decimalPlacesFor($currencyCode);
+        }
+        if ($currencyCode === null) {
+            throw CodSettlementPrecisionException::forCurrency();
         }
 
         $resolved = [];
         foreach ($matches as [$line, $matchedOrder, $matchMethod, $matchStatus]) {
             [$currencyCode, $decimalPlaces] = $this->linePrecision($line, $matchedOrder, $currencyCode, $decimalPlaces);
-            $resolved[] = $this->resolveLine($line, $lineIdentity, $currencyCode, $decimalPlaces, $matchedOrder, $matchMethod, $matchStatus);
+            $resolved[] = $this->resolveLine(
+                $line,
+                $this->lineIdentity($identity),
+                ['currency_code' => $currencyCode, 'decimal_places' => $decimalPlaces],
+                ['order' => $matchedOrder, 'method' => $matchMethod, 'status' => $matchStatus],
+            );
         }
 
         return $resolved;
@@ -322,75 +380,290 @@ class CodSettlementService
     /**
      * @return array{0: ?Order, 1: ?string, 2: string}
      */
-    private function matchOrder(array $line): array
+    private function matchLine(array $line, array $identity, array $candidates): array
     {
+        $matched = fn (Order $order, CodSettlementMatchMethod $method) => [
+            $order,
+            $method->value,
+            CodSettlementMatchStatus::MATCHED->value,
+        ];
+        $unmatched = [null, null, CodSettlementMatchStatus::UNMATCHED->value];
+
         $awb = $line['awb'] ?? null;
         if ($awb !== null) {
-            $shipment = Shipment::query()->with('order')->where('tracking_number', $awb)->first();
-            if ($shipment?->order) {
-                return [$shipment->order, 'awb', 'matched'];
-            }
+            return $this->matchFromShipments(
+                $candidates['shipments_by_awb']->get($awb, new Collection()),
+                $matched,
+                CodSettlementMatchMethod::AWB,
+                'awb_ambiguous',
+            );
         }
 
         $providerShipmentId = $line['provider_shipment_id'] ?? null;
         if ($providerShipmentId !== null) {
-            $shipment = Shipment::query()->with('order')->where('provider_shipment_id', $providerShipmentId)->first();
-            if ($shipment?->order) {
-                return [$shipment->order, 'provider_shipment_id', 'matched'];
-            }
+            return $this->matchFromShipments(
+                $candidates['shipments_by_provider_id']->get($providerShipmentId, new Collection()),
+                $matched,
+                CodSettlementMatchMethod::PROVIDER_SHIPMENT_ID,
+                'provider_shipment_id_ambiguous',
+            );
         }
 
         $orderNumber = $line['order_number'] ?? null;
         if ($orderNumber !== null) {
-            $matches = Order::query()->where('order_number', $orderNumber)->limit(2)->get();
-            if ($matches->count() === 1) {
-                return [$matches->first(), 'order_number', 'matched'];
-            }
-            if ($matches->count() > 1) {
+            $orders = $candidates['orders_by_number']->get($orderNumber, new Collection());
+            if ($orders->count() > 1) {
                 throw $this->invalidPayload('order_number_ambiguous');
             }
-        }
-
-        if (isset($line['order_id'])) {
-            $order = Order::query()->find($line['order_id']);
-            if ($order !== null) {
-                return [$order, 'order_id', 'matched'];
+            $order = $orders->first();
+            if (!$order instanceof Order) {
+                // No confident link: keep the line as evidence for manual review.
+                return $unmatched;
             }
+
+            return $this->matchFromShipments(
+                $candidates['shipments_by_order']->get((string) $order->id, new Collection()),
+                $matched,
+                CodSettlementMatchMethod::ORDER_NUMBER,
+                'order_number_ambiguous',
+            );
         }
 
-        $hasAnyIdentifier = $awb !== null || $providerShipmentId !== null || $orderNumber !== null || isset($line['order_id']);
-        if (!$hasAnyIdentifier) {
+        $orderId = $line['order_id'] ?? null;
+        if ($orderId !== null) {
+            $order = $candidates['orders_by_id']->get((int) $orderId);
+            if (!$order instanceof Order) {
+                throw $this->invalidPayload('order_id');
+            }
+            $this->assertOrderCurrency($order, $identity);
+
+            $allShipments = $candidates['all_shipments_by_order']->get((string) $order->id, new Collection());
+            $scoped = $candidates['shipments_by_order']->get((string) $order->id, new Collection());
+            if ($allShipments->isNotEmpty()) {
+                $this->assertOrderInScope($order, $identity, $scoped);
+            }
+
+            // Explicit order_id is #135 evidence, not a lower-priority
+            // fallback: it is only consulted when no other identifier was
+            // supplied, and any existing shipment must still be in scope.
+            return $matched($order, CodSettlementMatchMethod::ORDER_ID);
+        }
+
+        throw $this->invalidPayload('order_id');
+    }
+
+    /**
+     * @param  Collection<int, Shipment>  $shipments
+     * @param  callable(Order, CodSettlementMatchMethod): array{0: ?Order, 1: ?string, 2: string}  $matched
+     * @return array{0: ?Order, 1: ?string, 2: string}
+     */
+    private function matchFromShipments(
+        Collection $shipments,
+        callable $matched,
+        CodSettlementMatchMethod $method,
+        string $ambiguousField,
+    ): array {
+        if ($shipments->count() > 1) {
+            throw $this->invalidPayload($ambiguousField);
+        }
+
+        $shipment = $shipments->first();
+        if (!$shipment instanceof Shipment || !$shipment->order instanceof Order) {
+            return [null, null, CodSettlementMatchStatus::UNMATCHED->value];
+        }
+
+        return $matched($shipment->order, $method);
+    }
+
+    private function loadCandidates(array $lines, array $identity): array
+    {
+        $unique = fn (string $field): array => array_values(array_unique(array_filter(
+            array_column($lines, $field),
+            static fn ($value) => $value !== null && $value !== '',
+        )));
+
+        $awbs = $unique('awb');
+        $providerIds = $unique('provider_shipment_id');
+        $orderNumbers = $unique('order_number');
+        $explicitOrderIds = array_map('intval', $unique('order_id'));
+
+        $ordersByNumber = Order::query()->whereIn('order_number', $orderNumbers)->get()->groupBy('order_number');
+        $ordersById = Order::query()->whereIn('id', $explicitOrderIds)->get()->keyBy('id');
+
+        $orderIds = array_values(array_unique(array_merge(
+            $explicitOrderIds,
+            $ordersByNumber->flatten()->map(fn (Order $order) => (int) $order->id)->all(),
+        )));
+
+        $allShipmentsByOrder = Shipment::query()
+            ->whereIn('order_id', $orderIds)
+            ->get()
+            ->groupBy(fn (Shipment $shipment) => (string) $shipment->order_id);
+
+        $shipments = Shipment::query()->with('order')
+            ->where(function ($query) use ($awbs, $providerIds, $orderIds) {
+                $query->whereIn('tracking_number', $awbs)
+                    ->orWhereIn('provider_shipment_id', $providerIds)
+                    ->orWhereIn('order_id', $orderIds);
+            })
+            ->where('provider_code', $identity['provider_code'])
+            ->where('provider_mode', $identity['mode'])
+            ->whereBetween('created_at', [
+                $identity['period_start'] . ' 00:00:00',
+                $identity['period_end'] . ' 23:59:59',
+            ])
+            ->get();
+
+        $events = $this->providerEventsFor($shipments->pluck('id')->all());
+        $shipments = $shipments->filter(fn (Shipment $shipment) => $this->shipmentInIdentity(
+            $shipment,
+            $identity,
+            $events->get((int) $shipment->id, new Collection()),
+        ))->values();
+
+        return [
+            'orders_by_number' => $ordersByNumber,
+            'orders_by_id' => $ordersById,
+            'all_shipments_by_order' => $allShipmentsByOrder,
+            'shipments_by_order' => $shipments->groupBy(fn (Shipment $shipment) => (string) $shipment->order_id),
+            'shipments_by_awb' => $shipments->groupBy('tracking_number'),
+            'shipments_by_provider_id' => $shipments->groupBy('provider_shipment_id'),
+        ];
+    }
+
+    private function scopedShipmentsForOrderIds(array $orderIds, array $identity): Collection
+    {
+        if ($orderIds === []) {
+            return new Collection();
+        }
+
+        $shipments = Shipment::query()->with('order')
+            ->whereIn('order_id', $orderIds)
+            ->where('provider_code', $identity['provider_code'])
+            ->where('provider_mode', $identity['mode'])
+            ->whereBetween('created_at', [
+                $identity['period_start'] . ' 00:00:00',
+                $identity['period_end'] . ' 23:59:59',
+            ])
+            ->get();
+
+        $events = $this->providerEventsFor($shipments->pluck('id')->all());
+
+        return $shipments->filter(fn (Shipment $shipment) => $this->shipmentInIdentity(
+            $shipment,
+            $identity,
+            $events->get((int) $shipment->id, new Collection()),
+        ))->values();
+    }
+
+    private function providerEventsFor(array $shipmentIds): Collection
+    {
+        if ($shipmentIds === [] || !Schema::hasTable('shipping_provider_events')) {
+            return new Collection();
+        }
+
+        return ShippingProviderEvent::query()
+            ->whereIn('shipment_id', $shipmentIds)
+            ->get()
+            ->groupBy('shipment_id');
+    }
+
+    private function shipmentInIdentity(Shipment $shipment, array $identity, Collection $events): bool
+    {
+        $order = $shipment->order;
+        if (!$order instanceof Order) {
+            return false;
+        }
+
+        $currency = strtoupper(trim((string) $order->currency_code));
+        if ($currency === '') {
+            return false;
+        }
+        if (isset($identity['currency_code']) && $currency !== $identity['currency_code']) {
+            return false;
+        }
+
+        // The shipment table has no account column. When carrier event
+        // evidence exists it must agree with the statement account; absence
+        // of event evidence cannot contradict the statement identity.
+        if ($events->isNotEmpty() && !$events->every(fn (ShippingProviderEvent $event) =>
+            $event->provider_code === $identity['provider_code']
+            && $event->mode === $identity['mode']
+            && $event->account_code === $identity['account_code']
+        )) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function assertOrderInScope(Order $order, array $identity, Collection $scopedShipments): void
+    {
+        $this->assertOrderCurrency($order, $identity);
+
+        if ($scopedShipments->count() === 0) {
+            throw $this->invalidPayload('order_id_scope');
+        }
+        if ($scopedShipments->count() > 1) {
+            throw $this->invalidPayload('order_id_ambiguous');
+        }
+    }
+
+    private function assertOrderCurrency(Order $order, array $identity): void
+    {
+        $currency = strtoupper(trim((string) $order->currency_code));
+        if ($currency === '') {
             throw $this->invalidPayload('order_id');
         }
+        if (isset($identity['currency_code']) && $currency !== $identity['currency_code']) {
+            throw $this->invalidPayload('order_id');
+        }
+    }
 
-        return [null, null, 'unmatched'];
+    private function assertDistinctLineIdentifiers(array $lines): void
+    {
+        foreach (['awb', 'provider_shipment_id', 'order_number', 'order_id'] as $field) {
+            $values = array_filter(array_column($lines, $field), static fn ($value) => $value !== null);
+            if (count($values) !== count(array_unique(array_map('strval', $values)))) {
+                throw $this->invalidPayload($field . '_ambiguous');
+            }
+        }
+    }
+
+    private function assertLineReferenceUnique(CodSettlementStatement $statement, CodSettlementLine $line, Order $order): void
+    {
+        $duplicate = CodSettlementLine::query()
+            ->where('statement_id', $statement->id)
+            ->whereKeyNot($line->id)
+            ->where(function ($query) use ($order, $line) {
+                $query->where('order_id', $order->id);
+                foreach (['order_number', 'awb', 'provider_shipment_id'] as $field) {
+                    if ($line->{$field} !== null) {
+                        $query->orWhere($field, $line->{$field});
+                    }
+                }
+            })
+            ->exists();
+
+        if ($duplicate) {
+            throw $this->invalidPayload('order_ambiguous');
+        }
     }
 
     /**
      * @return array{0: string, 1: int}
      */
-    private function linePrecision(array $line, ?Order $order, ?string $currencyCode, ?int $decimalPlaces): array
+    private function linePrecision(array $line, ?Order $order, string $currencyCode, ?int $decimalPlaces): array
     {
-        if ($order === null) {
-            $lineCurrency = $currencyCode;
-            $lineDecimalPlaces = $decimalPlaces;
-            if ($lineCurrency === null) {
-                // fallback: infer from any known order in DB? no - fail closed without currency identity.
-                throw CodSettlementPrecisionException::forCurrency();
-            }
-            return [$lineCurrency, (int) $lineDecimalPlaces];
-        }
-
-        $lineCurrency = strtoupper(trim((string) $order->currency_code));
+        $lineCurrency = strtoupper(trim((string) $order?->currency_code));
         if ($lineCurrency === '') {
+            if ($order === null) {
+                return [$currencyCode, $this->decimalPlacesFor($currencyCode)];
+            }
             throw CodSettlementPrecisionException::forCurrency();
         }
 
-        if ($currencyCode !== null && $lineCurrency !== $currencyCode) {
-            if ($order === null) {
-                throw CodSettlementPrecisionException::forMixedCurrency();
-            }
-            // Line matched to an order whose currency conflicts with the statement/caller identity.
+        if ($lineCurrency !== $currencyCode) {
             throw $this->invalidPayload('order_id');
         }
 
@@ -402,15 +675,11 @@ class CodSettlementService
         return [$lineCurrency, $lineDecimalPlaces];
     }
 
-    private function resolveLine(
-        array $line,
-        array $lineIdentity,
-        string $currencyCode,
-        int $decimalPlaces,
-        ?Order $order,
-        ?string $matchMethod,
-        string $matchStatus
-    ): array {
+    private function resolveLine(array $line, array $lineIdentity, array $precision, array $match): array
+    {
+        $currencyCode = $precision['currency_code'];
+        $decimalPlaces = $precision['decimal_places'];
+        $order = $match['order'];
         $expectedMinor = $this->toMinorUnits($line['expected'], $decimalPlaces);
         $receivedMinor = $this->toMinorUnits($line['received'], $decimalPlaces);
 
@@ -420,9 +689,9 @@ class CodSettlementService
             'awb' => $line['awb'] ?? null,
             'provider_shipment_id' => $line['provider_shipment_id'] ?? null,
             'order_number' => $line['order_number'] ?? null,
-            'match_status' => $matchStatus,
-            'match_method' => $matchMethod,
-            'matched_at' => $matchStatus === 'matched' ? now() : null,
+            'match_status' => $match['status'],
+            'match_method' => $match['method'],
+            'matched_at' => $match['status'] === CodSettlementMatchStatus::MATCHED->value ? now() : null,
             'currency_code' => $currencyCode,
             'decimal_places' => $decimalPlaces,
             'expected_minor' => $expectedMinor,
@@ -447,6 +716,69 @@ class CodSettlementService
             'expected_minor' => $expectedMinor,
             'received_minor' => $receivedMinor,
             'variance_minor' => $receivedMinor - $expectedMinor,
+        ];
+    }
+
+    private function statementIdentity(CodSettlementStatement $statement): array
+    {
+        $currency = strtoupper(trim((string) $statement->currency_code));
+        if ($currency === '') {
+            throw CodSettlementPrecisionException::forCurrency();
+        }
+
+        return [
+            'provider_code' => (string) $statement->provider_code,
+            'mode' => (string) $statement->mode,
+            'account_code' => (string) $statement->account_code,
+            'period_start' => $statement->period_start?->toDateString() ?? (string) $statement->period_start,
+            'period_end' => $statement->period_end?->toDateString() ?? (string) $statement->period_end,
+            'currency_code' => $currency,
+        ];
+    }
+
+    private function lineIdentity(array $identity): array
+    {
+        return array_intersect_key($identity, array_flip([
+            'provider_code', 'mode', 'account_code', 'period_start', 'period_end',
+        ]));
+    }
+
+    private function auditAttributes(
+        CodSettlementStatement $statement,
+        CodSettlementLine $line,
+        Order $order,
+        array $auditContext,
+    ): array {
+        $identity = $this->statementIdentity($statement);
+        $actorId = (int) $auditContext['actor_id'];
+
+        return [
+            'statement_id' => $statement->id,
+            'line_id' => $line->id,
+            'actor_id' => $actorId,
+            'actor_name' => User::query()->whereKey($actorId)->value('name'),
+            'statement_key' => $statement->statement_key,
+            'line_key' => $line->line_key,
+            'order_id' => $order->id,
+            'previous_order_id' => $auditContext['previous_order_id'],
+            'previous_match_status' => $auditContext['previous_match_status'],
+            'previous_match_method' => $auditContext['previous_match_method'],
+            'new_match_status' => $auditContext['new_match_status'],
+            'match_method' => $auditContext['match_method'],
+            'reason' => $auditContext['reason'],
+            'metadata' => [
+                'awb' => $line->awb,
+                'provider_shipment_id' => $line->provider_shipment_id,
+                'order_number' => $line->order_number,
+            ],
+            'awb' => $line->awb,
+            'provider_shipment_id' => $line->provider_shipment_id,
+            'order_number' => $line->order_number,
+            'provider_code' => $identity['provider_code'],
+            'mode' => $identity['mode'],
+            'account_code' => $identity['account_code'],
+            'period_start' => $identity['period_start'],
+            'period_end' => $identity['period_end'],
         ];
     }
 

@@ -11,10 +11,12 @@ use App\Models\Fulfillment\PackingTask;
 use App\Models\OrderTrackingEvent;
 use App\Models\Shipment;
 use App\Events\Shipment\ShipmentStatusChanged;
+use App\Exceptions\ProviderShipmentIdConflictException;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Order\DeliveryCompletionInvariant;
 use App\Services\Order\OrderTransitionService;
 use App\ValueObjects\TransitionActor;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -93,11 +95,19 @@ class ShipmentService
             }
 
             $assignment = $this->providerAssignment->resolve();
+            $providerShipmentId = $this->normalizeProviderShipmentId($data['provider_shipment_id'] ?? null);
+            unset($data['provider_shipment_id']);
             $data['status'] = ShipmentStatus::PENDING->value;
             unset($data['idempotency_key']);
+            $this->assertProviderShipmentIdAvailable($providerShipmentId, $assignment);
             // Assignment is config-owned: client-supplied courier, provider,
             // override and AWB values never select a gateway or lock this row.
-            $shipment = Shipment::create(array_merge($data, $this->assignmentAttributes($assignment)));
+            // A carrier-issued shipment id is stored only when the assigning
+            // gateway supplies it; it is never inferred or backfilled.
+            $shipment = $this->createTrackedShipment(array_merge(
+                $data,
+                $this->assignmentAttributes($assignment, null, $providerShipmentId),
+            ));
 
             $this->syncOrderMirror($shipment->fresh());
 
@@ -183,16 +193,22 @@ class ShipmentService
             }
 
             $assignment = $this->providerAssignment->resolve();
+            $providerShipmentId = $this->normalizeProviderShipmentId($data['provider_shipment_id'] ?? null);
+            unset($data['provider_shipment_id']);
+            $this->assertProviderShipmentIdAvailable($providerShipmentId, $assignment);
+
             // Guardrail: shipment creation is a local DB mutation only.
             // External carrier booking/label generation must happen after
             // commit via a durable outbox/job with a stable provider
             // idempotency/reference key and unknown-result reconciliation.
             $this->assertNoExternalCarrierCallInTransaction();
 
-            $shipment = Shipment::create(array_merge([
+            // A carrier-issued shipment id is stored only when the assigning
+            // gateway supplies it; it is never inferred or backfilled.
+            $shipment = $this->createTrackedShipment(array_merge([
                 'order_id' => $locked->order_id,
                 'fulfillment_id' => $locked->id,
-            ], $data, $this->assignmentAttributes($assignment, now()->toDateTimeString()), [
+            ], $data, $this->assignmentAttributes($assignment, now()->toDateTimeString(), $providerShipmentId), [
                 'status' => ShipmentStatus::LABEL_CREATED->value,
                 'idempotency_key' => $idempotencyKey,
                 'external_booking_state' => Shipment::EXTERNAL_BOOKING_NONE,
@@ -755,8 +771,11 @@ class ShipmentService
      * @param  array{provider_code:string,service_level:string,mapping_version:string,provider_mode:string}  $assignment
      * @return array<string,mixed>
      */
-    private function assignmentAttributes(array $assignment, ?string $awbCreatedAt = null): array
-    {
+    private function assignmentAttributes(
+        array $assignment,
+        ?string $awbCreatedAt = null,
+        ?string $providerShipmentId = null,
+    ): array {
         return [
             'provider_code' => $assignment['provider_code'],
             'provider_mode' => $assignment['provider_mode'],
@@ -764,7 +783,55 @@ class ShipmentService
             'provider_service_level' => $assignment['service_level'],
             'provider_override' => false,
             'awb_created_at' => $awbCreatedAt,
+            'provider_shipment_id' => $providerShipmentId,
         ];
+    }
+
+    private function normalizeProviderShipmentId(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (!is_string($value)) {
+            throw new \InvalidArgumentException(__('shipping.provider_shipment_id_invalid'));
+        }
+
+        $value = trim($value);
+        if ($value === '' || strlen($value) > 191) {
+            throw new \InvalidArgumentException(__('shipping.provider_shipment_id_invalid'));
+        }
+
+        return $value;
+    }
+
+    private function assertProviderShipmentIdAvailable(?string $value, array $assignment): void
+    {
+        if ($value === null) {
+            return;
+        }
+
+        $exists = Shipment::query()
+            ->where('provider_code', $assignment['provider_code'])
+            ->where('provider_mode', $assignment['provider_mode'])
+            ->where('provider_shipment_id', $value)
+            ->exists();
+
+        if ($exists) {
+            throw new ProviderShipmentIdConflictException(__('shipping.provider_shipment_id_duplicate'));
+        }
+    }
+
+    private function createTrackedShipment(array $attributes): Shipment
+    {
+        try {
+            return Shipment::create($attributes);
+        } catch (QueryException $e) {
+            if (str_contains($e->getMessage(), 'uq_ship_provider_shipment_identity')) {
+                throw new ProviderShipmentIdConflictException(__('shipping.provider_shipment_id_duplicate'));
+            }
+
+            throw $e;
+        }
     }
 
     /**
