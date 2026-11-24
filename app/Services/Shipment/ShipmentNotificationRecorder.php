@@ -5,16 +5,23 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\Events\Shipment\ShipmentStatusChanged;
+use App\Models\Shipping\NotificationRecipient;
 use App\Models\Shipping\ShipmentNotification;
 use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
 
 class ShipmentNotificationRecorder
 {
+    public function __construct(private readonly NotificationRecipientResolver $recipientResolver)
+    {
+    }
+
     /**
-     * Record shipment notification intents for a canonical transition.
-     * Dedupe is enforced by DB unique (timeline_event_id, channel, recipient_type, recipient_id).
-     * Guest recipients are out of scope for #146; only registered order user is recorded.
+     * Record registered-user shipment notification intents for a canonical transition.
+     * Guest and other recipient types remain outside this recorder's scope; resolver
+     * failures propagate so no row is written with unresolved stable identity.
+     * Dedupe is enforced by DB unique (timeline_event_id, channel, recipient_type, recipient_id)
+     * and the stable recipient identity unique key.
      */
     public function record(ShipmentStatusChanged $event): void
     {
@@ -28,6 +35,8 @@ class ShipmentNotificationRecorder
         }
 
         foreach (['email', 'sms', 'push'] as $channel) {
+            $recipient = $this->resolveRecipient('user', (string) $userId);
+
             try {
                 ShipmentNotification::query()->create([
                     'shipment_id' => $event->shipmentId,
@@ -35,6 +44,7 @@ class ShipmentNotificationRecorder
                     'channel' => $channel,
                     'recipient_type' => 'user',
                     'recipient_id' => (string) $userId,
+                    'notification_recipient_id' => $recipient->id,
                     'status' => 'pending',
                     'payload' => [
                         'order_id' => $event->orderId,
@@ -44,7 +54,7 @@ class ShipmentNotificationRecorder
                     ],
                 ]);
             } catch (QueryException $e) {
-                if ($this->isDuplicateKey($e)) {
+                if (UniqueViolation::detect($e)) {
                     continue;
                 }
                 throw $e;
@@ -52,8 +62,13 @@ class ShipmentNotificationRecorder
         }
     }
 
-    private function isDuplicateKey(QueryException $e): bool
+    private function resolveRecipient(string $type, string $key): NotificationRecipient
     {
-        return UniqueViolation::detect($e);
+        return $this->recipientResolver->resolve([
+            'recipient_type' => $type,
+            'recipient_key' => $key,
+            'fingerprint' => hash('sha256', $type . ':' . $key),
+            'fingerprint_version' => 'v1',
+        ]);
     }
 }

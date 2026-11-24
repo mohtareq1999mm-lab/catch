@@ -523,6 +523,32 @@ Schema::create('categories', function (Blueprint $table) {
             \Illuminate\Support\Facades\DB::statement("CREATE UNIQUE INDEX `shipment_pods_one_successful_per_shipment` ON `shipment_pods` (`successful_shipment_id`)");
         }
 
+        if (!Schema::hasTable('notification_recipients')) {
+            Schema::create('notification_recipients', function (Blueprint $table) {
+                $table->id();
+                $table->string('recipient_type', 32);
+                $table->string('recipient_key', 191)->nullable();
+                $table->text('contact_encrypted')->nullable();
+                $table->json('metadata')->nullable();
+                $table->timestamps();
+                $table->unique(['recipient_type', 'recipient_key'], 'notification_recipients_type_key_unique');
+            });
+        }
+
+        if (!Schema::hasTable('notification_recipient_fingerprints')) {
+            Schema::create('notification_recipient_fingerprints', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('notification_recipient_id');
+                $table->foreign('notification_recipient_id','notif_recipient_fp_recipient_fk')->references('id')->on('notification_recipients')->cascadeOnDelete();
+                $table->string('version', 32);
+                $table->string('fingerprint', 191);
+                $table->json('metadata')->nullable();
+                $table->timestamps();
+                $table->unique(['version', 'fingerprint'], 'notification_recipient_fingerprint_unique');
+                $table->unique(['notification_recipient_id', 'version'], 'notification_recipient_version_unique');
+            });
+        }
+
         Schema::create('shipment_notifications', function (Blueprint $table) {
             $table->id();
             $table->foreignId('shipment_id')->nullable()->constrained('shipments')->nullOnDelete();
@@ -530,6 +556,8 @@ Schema::create('categories', function (Blueprint $table) {
             $table->string('channel', 32);
             $table->string('recipient_type', 32);
             $table->string('recipient_id', 191);
+            $table->unsignedBigInteger('notification_recipient_id')->nullable();
+            $table->foreign('notification_recipient_id','shipment_notifications_recipient_fk')->references('id')->on('notification_recipients')->restrictOnDelete();
             $table->string('status', 32)->default('pending');
             $table->string('dedupe_key', 191)->nullable();
             $table->json('payload')->nullable();
@@ -538,6 +566,7 @@ Schema::create('categories', function (Blueprint $table) {
             $table->text('failure_reason')->nullable();
             $table->timestamps();
             $table->unique(['timeline_event_id', 'channel', 'recipient_type', 'recipient_id'], 'shipment_notifications_dedupe_unique');
+            $table->unique(['timeline_event_id', 'channel', 'notification_recipient_id'], 'shipment_notifications_timeline_channel_recipient_unique');
         });
 
         if (!Schema::hasTable('shipment_manual_corrections')) {
@@ -1586,3 +1615,4 @@ Schema::create('categories', function (Blueprint $table) {
         }
     }
 }
+

@@ -19,6 +19,7 @@ class ShipmentNotification extends Model
         'channel',
         'recipient_type',
         'recipient_id',
+        'notification_recipient_id',
         'status',
         'dedupe_key',
         'payload',
@@ -41,5 +42,10 @@ class ShipmentNotification extends Model
     public function timelineEvent(): BelongsTo
     {
         return $this->belongsTo(OrderTrackingEvent::class, 'timeline_event_id');
+    }
+
+    public function notificationRecipient(): BelongsTo
+    {
+        return $this->belongsTo(NotificationRecipient::class, 'notification_recipient_id');
     }
 }
