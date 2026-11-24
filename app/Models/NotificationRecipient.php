@@ -13,10 +13,16 @@ class NotificationRecipient extends Model
 
     protected $fillable = [
         'recipient_type',
+        'recipient_key',
         'user_id',
         'guest_id',
         'status',
+        'contact_encrypted',
         'metadata',
+    ];
+
+    protected $hidden = [
+        'contact_encrypted',
     ];
 
     protected $casts = [

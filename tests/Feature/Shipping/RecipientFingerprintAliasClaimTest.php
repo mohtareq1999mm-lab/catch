@@ -12,6 +12,7 @@ use App\Services\Notification\RecipientIdentityService;
 use App\Models\GuestIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
@@ -536,7 +537,8 @@ class RecipientFingerprintAliasClaimTest extends TestCase
             ->where('subject_type', NotificationIdentityConflict::class)
             ->where('subject_id', $conflict->id)
             ->where('event', 'notification_identity_conflict_dismiss')
-            ->firstOrFail();
+            ->first();
+        $this->assertNotNull($audit);
 
         $encoded = json_encode(['metadata' => $conflict->fresh()->metadata, 'audit' => $audit->properties]);
         $this->assertStringNotContainsString('secret@example.test', $encoded);

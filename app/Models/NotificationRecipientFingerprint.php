@@ -15,6 +15,11 @@ class NotificationRecipientFingerprint extends Model
         'recipient_id',
         'key_version',
         'fingerprint_hash',
+        'metadata',
+    ];
+
+    protected $casts = [
+        'metadata' => 'array',
     ];
 
     public function recipient(): BelongsTo

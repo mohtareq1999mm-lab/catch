@@ -9,6 +9,8 @@ use App\Models\GuestIdentity;
 use App\Models\NotificationIdentityConflict;
 use App\Models\NotificationRecipient;
 use App\Models\NotificationRecipientFingerprint;
+use App\Support\UniqueViolation;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Marvel\Database\Models\User;
@@ -39,33 +41,12 @@ class RecipientIdentityService
      */
     public function resolveRecipient(array $aliases, string $recipientType = 'guest_contact', array $context = []): array
     {
-        $aliases = collect($aliases)
-            ->filter(fn ($a) => is_array($a) && !empty($a['key_version']) && !empty($a['fingerprint_hash']))
-            ->map(fn ($a) => [
-                'key_version' => trim((string) $a['key_version']),
-                'fingerprint_hash' => strtolower(trim((string) $a['fingerprint_hash'])),
-            ])
-            ->filter(fn ($a) => preg_match('/^[A-Za-z0-9_.:-]{1,32}$/', $a['key_version']) === 1
-                && preg_match('/^[a-f0-9]{64}$/', $a['fingerprint_hash']) === 1)
-            ->unique(fn ($a) => $a['key_version'] . ':' . $a['fingerprint_hash'])
-            ->values()
-            ->all();
-
+        $aliases = $this->normalizeAliasSet($aliases);
         if ($aliases === []) {
             throw ValidationException::withMessages(['fingerprints' => 'At least one valid fingerprint alias is required.']);
         }
 
-        // One hash per version is a hard input invariant: divergent hashes for
-        // the same version cannot both belong to one recipient.
-        $versionHashes = [];
-        foreach ($aliases as $alias) {
-            $version = $alias['key_version'];
-            if (array_key_exists($version, $versionHashes) && $versionHashes[$version] !== $alias['fingerprint_hash']) {
-                throw ValidationException::withMessages(['fingerprints' => 'Only one fingerprint hash is allowed per key version.']);
-            }
-            $versionHashes[$version] = $alias['fingerprint_hash'];
-        }
-
+        $versionHashes = $this->assertOneHashPerVersion($aliases);
         $identity = $this->authoritativeIdentity($context);
         $this->authorizeRecipientResolution($aliases, $recipientType, $context, $identity);
 
@@ -89,10 +70,17 @@ class RecipientIdentityService
             $createdRecipientId = null;
             $createdAliasIds = [];
 
+            $stableKey = $this->stableKeyForIdentity($recipientType, $identity);
+            $contactEncrypted = $this->normalizeContactEncrypted($context['contact_encrypted'] ?? null);
+            $recipientMetadata = $this->normalizeSmallMetadata($context['metadata'] ?? null);
+
             if ($candidateIds === []) {
                 $recipient = NotificationRecipient::query()->create([
                     'recipient_type' => $recipientType,
                     'status' => 'active',
+                    'recipient_key' => $stableKey,
+                    'contact_encrypted' => $contactEncrypted,
+                    'metadata' => $recipientMetadata,
                     'user_id' => $identity['user']?->id,
                     'guest_id' => $identity['guest']?->id,
                 ]);
@@ -110,6 +98,21 @@ class RecipientIdentityService
 
                 if ($divergent) {
                     return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context);
+                }
+
+                $keyConflict = $this->stableKeyConflict($recipient, $recipientType, $stableKey, $aliases, $context);
+                if ($keyConflict !== null) {
+                    return $keyConflict;
+                }
+
+                if ($stableKey !== null && $recipient->recipient_key === null) {
+                    $recipient->forceFill(['recipient_key' => $stableKey])->save();
+                }
+                if ($contactEncrypted !== null && $recipient->contact_encrypted === null) {
+                    $recipient->forceFill(['contact_encrypted' => $contactEncrypted])->save();
+                }
+                if ($recipientMetadata !== null && $recipient->metadata === null) {
+                    $recipient->forceFill(['metadata' => $recipientMetadata])->save();
                 }
             }
 
@@ -165,6 +168,291 @@ class RecipientIdentityService
     }
 
     /**
+     * Canonical stable-key resolver for #176/#167 consumers. It reuses the
+     * same conflict/audit semantics as resolveRecipient and never auto-merges
+     * two recipients: divergence always becomes an open conflict.
+     *
+     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @return array{status:'resolved'|'ambiguous', recipient?:NotificationRecipient, conflict?:NotificationIdentityConflict}
+     */
+    public function resolveForRecipientKey(
+        string $recipientType,
+        ?string $recipientKey,
+        array $aliases,
+        ?string $contactEncrypted,
+        array $context
+    ): array {
+        $type = trim($recipientType);
+        if ($type === '' || mb_strlen($type) > 32) {
+            throw ValidationException::withMessages(['recipient_type' => 'Invalid recipient type.']);
+        }
+
+        $aliases = $this->normalizeAliasSet($aliases);
+        $versionHashes = $this->assertOneHashPerVersion($aliases);
+        $identity = $this->authoritativeIdentity($context);
+        $key = $this->validateRecipientKey($type, $recipientKey, $identity);
+
+        if ($key === null && $aliases === []) {
+            throw ValidationException::withMessages(['fingerprints' => 'A stable key or fingerprint alias is required.']);
+        }
+
+        $contactEncrypted = $this->normalizeContactEncrypted($contactEncrypted);
+        $metadata = $this->normalizeSmallMetadata($context['metadata'] ?? null);
+        $this->authorizeRecipientResolution($aliases, $type, $context, $identity);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                return DB::transaction(function () use (
+                    $type,
+                    $key,
+                    $aliases,
+                    $versionHashes,
+                    $contactEncrypted,
+                    $metadata,
+                    $context,
+                    $identity
+                ) {
+                    return $this->resolveForRecipientKeyOnce(
+                        $type,
+                        $key,
+                        $aliases,
+                        $versionHashes,
+                        $contactEncrypted,
+                        $metadata,
+                        $context,
+                        $identity
+                    );
+                }, 3);
+            } catch (QueryException $e) {
+                // The canonical UniqueViolation detector drives retries. A
+                // losing key/alias write re-resolves and becomes a conflict if
+                // the winner is a different identity.
+                if (!UniqueViolation::detect($e) || $attempt === 3) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw new \LogicException('Recipient key resolution retry limit reached.');
+    }
+
+    /**
+     * Rotate one alias version to a new hash on the same recipient. A hash
+     * already owned by another recipient is rejected; no silent auto-merge.
+     *
+     * @return NotificationRecipient
+     */
+    public function rotateFingerprint(
+        NotificationRecipient $recipient,
+        string $version,
+        string $fingerprintHash,
+        ?array $metadata = null
+    ): NotificationRecipient {
+        $version = trim($version);
+        $hash = strtolower(trim($fingerprintHash));
+        if (preg_match('/^[A-Za-z0-9_.:-]{1,32}$/', $version) !== 1) {
+            throw ValidationException::withMessages(['key_version' => 'Invalid fingerprint version.']);
+        }
+        if (preg_match('/^[a-f0-9]{64}$/', $hash) !== 1) {
+            throw ValidationException::withMessages(['fingerprint_hash' => 'Invalid fingerprint hash.']);
+        }
+        $cleanMetadata = $this->normalizeSmallMetadata($metadata);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                return DB::transaction(function () use ($recipient, $version, $hash, $cleanMetadata) {
+                    $locked = NotificationRecipient::query()->lockForUpdate()->findOrFail($recipient->id);
+
+                    $owner = NotificationRecipientFingerprint::query()
+                        ->where('key_version', $version)
+                        ->where('fingerprint_hash', $hash)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($owner && (int) $owner->recipient_id !== (int) $locked->id) {
+                        throw ValidationException::withMessages([
+                            'fingerprint_hash' => 'Fingerprint hash belongs to another recipient.',
+                        ]);
+                    }
+
+                    $existing = NotificationRecipientFingerprint::query()
+                        ->where('recipient_id', $locked->id)
+                        ->where('key_version', $version)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($existing) {
+                        if ($existing->fingerprint_hash === $hash && $cleanMetadata === null) {
+                            return $locked->fresh();
+                        }
+                        $existing->forceFill([
+                            'fingerprint_hash' => $hash,
+                            'metadata' => $cleanMetadata ?? $existing->metadata,
+                        ])->save();
+
+                        return $locked->fresh();
+                    }
+
+                    NotificationRecipientFingerprint::query()->create([
+                        'recipient_id' => $locked->id,
+                        'key_version' => $version,
+                        'fingerprint_hash' => $hash,
+                        'metadata' => $cleanMetadata,
+                    ]);
+
+                    return $locked->fresh();
+                }, 3);
+            } catch (QueryException $e) {
+                if (!UniqueViolation::detect($e) || $attempt === 3) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw new \LogicException('Fingerprint rotation retry limit reached.');
+    }
+
+    /**
+     * @param array{user:?User,guest:?GuestIdentity} $identity
+     */
+    private function validateRecipientKey(string $recipientType, ?string $recipientKey, array $identity): ?string
+    {
+        if ($recipientKey === null || trim($recipientKey) === '') {
+            if ($recipientType === 'user') {
+                throw ValidationException::withMessages(['recipient_key' => 'User recipients require a stable key.']);
+            }
+
+            return null;
+        }
+
+        $key = trim($recipientKey);
+        if (mb_strlen($key) > 191 || $this->hasContactDetails($key)) {
+            throw ValidationException::withMessages(['recipient_key' => 'Recipient key must be non-PII and at most 191 characters.']);
+        }
+
+        if ($recipientType === 'guest_contact') {
+            throw ValidationException::withMessages(['recipient_key' => 'Fingerprint-only guests must not have a stable key.']);
+        }
+
+        if ($recipientType === 'user') {
+            if (
+                preg_match('/^user:(\d+)$/', $key, $matches) !== 1
+                || (int) $matches[1] <= 0
+                || $identity['user'] === null
+                || (int) $matches[1] !== (int) $identity['user']->id
+            ) {
+                throw ValidationException::withMessages(['recipient_key' => 'User stable key must match authenticated user context.']);
+            }
+        }
+
+        return $key;
+    }
+
+    /**
+     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<string,string> $versionHashes
+     * @param array{user:?User,guest:?GuestIdentity} $identity
+     * @return array{status:'resolved'|'ambiguous', recipient?:NotificationRecipient, conflict?:NotificationIdentityConflict}
+     */
+    private function resolveForRecipientKeyOnce(
+        string $recipientType,
+        ?string $recipientKey,
+        array $aliases,
+        array $versionHashes,
+        ?string $contactEncrypted,
+        ?array $metadata,
+        array $context,
+        array $identity
+    ): array {
+        $byKey = null;
+        if ($recipientKey !== null) {
+            $byKey = NotificationRecipient::query()
+                ->where('recipient_type', $recipientType)
+                ->where('recipient_key', $recipientKey)
+                ->lockForUpdate()
+                ->first();
+        }
+
+        $rows = NotificationRecipientFingerprint::query()
+            ->whereIn('key_version', array_keys($versionHashes))
+            ->lockForUpdate()
+            ->get();
+        $candidateIds = $rows->pluck('recipient_id')->unique()->values()->map(fn ($id) => (int) $id)->all();
+        if ($byKey) {
+            $candidateIds[] = (int) $byKey->id;
+        }
+        $candidateIds = array_values(array_unique($candidateIds));
+
+        if (count($candidateIds) > 1) {
+            return $this->ambiguousResult($candidateIds, $aliases, $recipientType, $context);
+        }
+
+        if ($candidateIds === []) {
+            $recipient = NotificationRecipient::query()->create([
+                'recipient_type' => $recipientType,
+                'status' => 'active',
+                'recipient_key' => $recipientKey,
+                'contact_encrypted' => $contactEncrypted,
+                'metadata' => $metadata,
+                'user_id' => $identity['user']?->id,
+                'guest_id' => $identity['guest']?->id,
+            ]);
+        } else {
+            $recipient = NotificationRecipient::query()->lockForUpdate()->findOrFail($candidateIds[0]);
+
+            if ($recipient->recipient_type !== $recipientType) {
+                return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context, 'recipient_type_mismatch');
+            }
+
+            $keyConflict = $this->stableKeyConflict($recipient, $recipientType, $recipientKey, $aliases, $context);
+            if ($keyConflict !== null) {
+                return $keyConflict;
+            }
+
+            if (!$this->identityMatchesRecipient($recipient, $identity)) {
+                return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context, 'recipient_ownership_mismatch');
+            }
+
+            $divergent = $rows->first(fn ($row) => (int) $row->recipient_id === (int) $recipient->id
+                && isset($versionHashes[$row->key_version])
+                && $versionHashes[$row->key_version] !== $row->fingerprint_hash);
+            if ($divergent) {
+                return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context);
+            }
+
+            $changes = [];
+            if ($recipientKey !== null && $recipient->recipient_key === null) {
+                $changes['recipient_key'] = $recipientKey;
+            }
+            if ($contactEncrypted !== null && $recipient->contact_encrypted === null) {
+                $changes['contact_encrypted'] = $contactEncrypted;
+            }
+            if ($metadata !== null && $recipient->metadata === null) {
+                $changes['metadata'] = $metadata;
+            }
+            if ($changes !== []) {
+                $recipient->forceFill($changes)->save();
+            }
+        }
+
+        foreach ($aliases as $alias) {
+            $stored = $rows->first(fn ($row) => $row->key_version === $alias['key_version']
+                && $row->fingerprint_hash === $alias['fingerprint_hash']);
+            if ($stored && (int) $stored->recipient_id === (int) $recipient->id) {
+                continue;
+            }
+
+            NotificationRecipientFingerprint::query()->create([
+                'recipient_id' => $recipient->id,
+                'key_version' => $alias['key_version'],
+                'fingerprint_hash' => $alias['fingerprint_hash'],
+                'metadata' => $metadata,
+            ]);
+        }
+
+        return ['status' => 'resolved', 'recipient' => $recipient->fresh()];
+    }
+
+    /**
      * Only model instances obtained from the auth/session layer can establish
      * recipient ownership. Raw scalar IDs in context are deliberately ignored.
      *
@@ -215,6 +503,50 @@ class RecipientIdentityService
 
         return ($user !== null && $recipient->user_id !== null && (int) $recipient->user_id === (int) $user->id)
             || ($guest !== null && $recipient->guest_id !== null && (int) $recipient->guest_id === (int) $guest->id);
+    }
+
+    /**
+     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @return array{status:'ambiguous',conflict:NotificationIdentityConflict}|null
+     */
+    private function stableKeyConflict(
+        NotificationRecipient $recipient,
+        string $recipientType,
+        ?string $stableKey,
+        array $aliases,
+        array $context
+    ): ?array {
+        if ($stableKey === null) {
+            return null;
+        }
+
+        if ($recipient->recipient_key !== null && $recipient->recipient_key !== $stableKey) {
+            return $this->ambiguousResult(
+                [(int) $recipient->id],
+                $aliases,
+                $recipientType,
+                $context,
+                'recipient_key_ownership_mismatch'
+            );
+        }
+
+        $owner = NotificationRecipient::query()
+            ->where('recipient_type', $recipientType)
+            ->where('recipient_key', $stableKey)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$owner || (int) $owner->id === (int) $recipient->id) {
+            return null;
+        }
+
+        return $this->ambiguousResult(
+            [(int) $recipient->id, (int) $owner->id],
+            $aliases,
+            $recipientType,
+            $context,
+            'recipient_key_ownership_mismatch'
+        );
     }
 
     /**
@@ -599,6 +931,85 @@ class RecipientIdentityService
             <=> [$b['key_version'], $b['fingerprint_hash']]);
 
         return $normalized;
+    }
+
+    /**
+     * One hash per version is a hard input invariant: divergent hashes for
+     * the same version cannot both belong to one recipient.
+     *
+     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @return array<string,string>
+     */
+    private function assertOneHashPerVersion(array $aliases): array
+    {
+        $versionHashes = [];
+        foreach ($aliases as $alias) {
+            $version = $alias['key_version'];
+            if (array_key_exists($version, $versionHashes) && $versionHashes[$version] !== $alias['fingerprint_hash']) {
+                throw ValidationException::withMessages(['fingerprints' => 'Only one fingerprint hash is allowed per key version.']);
+            }
+            $versionHashes[$version] = $alias['fingerprint_hash'];
+        }
+
+        return $versionHashes;
+    }
+
+    /**
+     * Stable keys are non-PII. Users are keyed by their authenticated ID;
+     * fingerprint-only guests deliberately have no stable key.
+     *
+     * @param array{user:?User,guest:?GuestIdentity} $identity
+     */
+    private function stableKeyForIdentity(string $recipientType, array $identity): ?string
+    {
+        if ($recipientType !== 'user' || $identity['user'] === null) {
+            return null;
+        }
+
+        return 'user:' . (int) $identity['user']->id;
+    }
+
+    private function normalizeContactEncrypted(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (!is_string($value)) {
+            throw ValidationException::withMessages(['contact_encrypted' => 'Encrypted contact must be a string.']);
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        if (mb_strlen($value) > 8192) {
+            throw ValidationException::withMessages(['contact_encrypted' => 'Encrypted contact is too long.']);
+        }
+
+        return $value;
+    }
+
+    private function normalizeSmallMetadata(mixed $metadata): ?array
+    {
+        if ($metadata === null) {
+            return null;
+        }
+        if (!is_array($metadata)) {
+            throw ValidationException::withMessages(['metadata' => 'Metadata must be an array.']);
+        }
+
+        $clean = [];
+        foreach ($metadata as $key => $value) {
+            if (!is_string($key) || strlen($key) > 64 || !is_scalar($value)) {
+                continue;
+            }
+            $text = (string) $value;
+            $clean[$key] = $this->hasContactDetails($text)
+                ? '[REDACTED]'
+                : (mb_strlen($text) > 500 ? mb_substr($text, 0, 500) . '…' : $text);
+        }
+
+        return $clean === [] ? null : $clean;
     }
 
     private function sanitizeAuditText(string $field, mixed $value): ?string
