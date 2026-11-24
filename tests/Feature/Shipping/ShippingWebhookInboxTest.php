@@ -96,6 +96,49 @@ class ShippingWebhookInboxTest extends TestCase
         $this->assertArrayNotHasKey('raw_payload', $event->redacted_payload);
     }
 
+    public function test_verified_awb_identity_reaches_inbox_matcher(): void
+    {
+        $shipment = $this->createShipment(['tracking_number' => 'AWB-E2E-161']);
+        $payload = $this->payload([
+            'id' => 'evt_awb_e2e_161',
+            'awb' => 'AWB-E2E-161',
+            'data' => ['shipment' => ['id' => 'carrier-ref-with-no-shipment']],
+        ]);
+
+        $this->postWebhook($payload)
+            ->assertStatus(200)
+            ->assertJsonPath('data.status', 'accepted');
+
+        $event = ShippingWebhookEvent::where('event_key', 'evt_awb_e2e_161')->firstOrFail();
+        $this->assertSame($shipment->id, $event->shipment_id);
+        $this->assertSame('matched', $event->match_status);
+        $this->assertSame('matched by awb', $event->match_notes);
+        $this->assertSame('AWB-E2E-161', $event->redacted_payload['awb'] ?? null);
+        $this->assertStringNotContainsString(self::SECRET, json_encode($event->redacted_payload, JSON_THROW_ON_ERROR));
+        $this->assertArrayNotHasKey('raw_payload', $event->redacted_payload);
+    }
+
+    public function test_verified_order_number_identity_reaches_inbox_matcher(): void
+    {
+        $shipment = $this->createShipment([], ['order_number' => 'ORD-E2E-161']);
+        $payload = $this->payload([
+            'id' => 'evt_order_e2e_161',
+            'order_number' => 'ORD-E2E-161',
+            'data' => ['shipment' => ['id' => 'carrier-ref-with-no-shipment']],
+        ]);
+
+        $this->postWebhook($payload)
+            ->assertStatus(200)
+            ->assertJsonPath('data.status', 'accepted');
+
+        $event = ShippingWebhookEvent::where('event_key', 'evt_order_e2e_161')->firstOrFail();
+        $this->assertSame($shipment->id, $event->shipment_id);
+        $this->assertSame('matched', $event->match_status);
+        $this->assertSame('matched by unique order number', $event->match_notes);
+        $this->assertSame('ORD-E2E-161', $event->redacted_payload['order_number'] ?? null);
+        $this->assertStringNotContainsString(self::SECRET, json_encode($event->redacted_payload, JSON_THROW_ON_ERROR));
+    }
+
     public function test_duplicate_event_is_acknowledged_once_and_not_processed_twice(): void
     {
         $payload = $this->payload(['id' => 'evt_duplicate_143']);
@@ -162,7 +205,8 @@ class ShippingWebhookInboxTest extends TestCase
         $this->assertSame('evt_limit_first', ShippingWebhookEvent::firstOrFail()->event_key);
     }
 
-    private function createShipment(): Shipment
+    /** @param array<string,mixed> $shipmentAttributes */
+    private function createShipment(array $shipmentAttributes = [], array $orderAttributes = []): Shipment
     {
         $user = User::create([
             'name' => 'Webhook Test User',
@@ -170,7 +214,7 @@ class ShippingWebhookInboxTest extends TestCase
             'password' => bcrypt('password'),
         ]);
 
-        $order = Order::create([
+        $order = Order::create(array_merge([
             'user_id' => $user->id,
             'name' => 'Webhook Test Customer',
             'user_phone' => '01000000000',
@@ -182,12 +226,12 @@ class ShippingWebhookInboxTest extends TestCase
             'total_price' => 100,
             'payment_method' => 'cod',
             'address' => ['city' => 'Cairo'],
-        ]);
+        ], $orderAttributes));
 
-        return Shipment::create([
+        return Shipment::create(array_merge([
             'order_id' => $order->id,
             'status' => 'pending',
-        ]);
+        ], $shipmentAttributes));
     }
 
     /** @param array<string,mixed> $payload */

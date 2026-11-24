@@ -24,6 +24,8 @@ class ShippingWebhookEvent extends Model
         'event_type',
         'provider_shipment_ref',
         'shipment_id',
+        'match_status',
+        'match_notes',
         'redacted_payload',
         'raw_status',
         'status',
