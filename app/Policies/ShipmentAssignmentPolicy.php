@@ -10,6 +10,9 @@ use Illuminate\Contracts\Auth\Authenticatable;
 
 class ShipmentAssignmentPolicy
 {
+    // #164/#173: shipment_assignments is the authoritative representative
+    // scope. Warehouse/staff checks are intentionally absent by design;
+    // inactive assignments remain readable as attempt/POD history.
     public function view(Authenticatable $user, ShipmentAssignment $assignment): bool
     {
         $representative = $this->representative($user);

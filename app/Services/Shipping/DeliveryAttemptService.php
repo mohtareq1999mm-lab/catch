@@ -11,6 +11,7 @@ use App\Models\Shipping\ShipmentAssignment;
 use App\Models\Shipping\ShipmentDeliveryAttempt;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -24,14 +25,16 @@ class DeliveryAttemptService
             ->first();
 
         if (!$representative) {
-            abort(403, 'Active delivery representative profile required.');
+            abort(403, __('shipping.delivery_attempt.representative_required'));
         }
 
         return $representative;
     }
 
-    public function findOwnedAssignment(DeliveryRepresentative $representative, int $assignmentId): ShipmentAssignment
+    public function findActiveOwnedAssignment(DeliveryRepresentative $representative, int $assignmentId): ShipmentAssignment
     {
+        // #164/#173: shipment_assignments is the authoritative representative
+        // scope. Warehouse/staff checks are intentionally absent by design.
         return ShipmentAssignment::query()
             ->whereKey($assignmentId)
             ->where('delivery_representative_id', $representative->id)
@@ -40,37 +43,32 @@ class DeliveryAttemptService
             ->firstOrFail();
     }
 
-    public function listOwnedAssignments(DeliveryRepresentative $representative)
+    public function recordAttempt(int $representativeId, ShipmentAssignment $assignment, array $data): ShipmentDeliveryAttempt
     {
-        return ShipmentAssignment::query()
-            ->where('delivery_representative_id', $representative->id)
-            ->with(['shipment'])
-            ->orderByDesc('id')
-            ->paginate(15);
-    }
-
-    public function recordAttempt(ShipmentAssignment $assignment, array $data): ShipmentDeliveryAttempt
-    {
-        $status = DeliveryAttemptStatus::from((string) $data['status']);
-        $reason = isset($data['failure_reason']) ? trim((string) $data['failure_reason']) : null;
-        $reason = $reason === '' ? null : $reason;
-
-        if ($status->requiresReason() && $reason === null) {
+        $normalized = DeliveryAttemptStatus::normalizeAttempt($data);
+        if ($normalized['error'] !== null) {
             throw ValidationException::withMessages([
-                'failure_reason' => ['failure_reason is required when status is other.'],
+                (string) $normalized['error_field'] => [__('shipping.delivery_attempt.' . $normalized['error'])],
             ]);
         }
 
+        $status = (string) $normalized['status'];
+        $reason = $normalized['failure_reason'];
         $maxAttempts = max(1, (int) config('shipping.delivery.max_attempts', 3));
 
-        return DB::transaction(function () use ($assignment, $status, $reason, $maxAttempts, $data): ShipmentDeliveryAttempt {
+        return DB::transaction(function () use ($representativeId, $assignment, $status, $reason, $maxAttempts, $data): ShipmentDeliveryAttempt {
+            // Ownership is rechecked under the same lock as the write: an
+            // authorization-time assignment can be reassigned before this point.
             $lockedAssignment = ShipmentAssignment::query()
                 ->whereKey($assignment->id)
+                ->where('delivery_representative_id', $representativeId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             if ($lockedAssignment->status !== ShipmentAssignment::STATUS_ACTIVE) {
-                throw ValidationException::withMessages(['assignment' => ['Assignment is not active.']]);
+                throw ValidationException::withMessages([
+                    'assignment' => [__('shipping.delivery_attempt.assignment_inactive')],
+                ]);
             }
 
             $shipment = Shipment::query()->whereKey($lockedAssignment->shipment_id)->lockForUpdate()->firstOrFail();
@@ -84,7 +82,7 @@ class DeliveryAttemptService
             $nextNumber = ((int) ($lastAttempt?->attempt_number ?? 0)) + 1;
             if ($nextNumber > $maxAttempts) {
                 throw ValidationException::withMessages([
-                    'attempt_number' => ["Maximum delivery attempts ({$maxAttempts}) exceeded."],
+                    'attempt_number' => [__('shipping.delivery_attempt.max_exceeded', ['max' => $maxAttempts])],
                 ]);
             }
 
@@ -93,16 +91,15 @@ class DeliveryAttemptService
                     'shipment_id' => $shipment->id,
                     'shipment_assignment_id' => $lockedAssignment->id,
                     'attempt_number' => $nextNumber,
-                    'status' => $status->value,
+                    'status' => $status,
                     'attempted_at' => $data['attempted_at'] ?? now(),
-                    'failure_reason' => $status === DeliveryAttemptStatus::DELIVERED ? null : $reason,
+                    'failure_reason' => $reason,
                     'metadata' => $data['metadata'] ?? null,
                 ]);
             } catch (QueryException $e) {
-                // Concurrent insert hit unique (shipment_id, attempt_number): retry-safe refusal.
                 if ($this->isAttemptNumberConflict($e)) {
                     throw ValidationException::withMessages([
-                        'attempt_number' => ['Delivery attempt number conflict; retry not allowed beyond maximum.'],
+                        'attempt_number' => [__('shipping.delivery_attempt.number_conflict')],
                     ]);
                 }
                 throw $e;
@@ -110,12 +107,10 @@ class DeliveryAttemptService
         }, 3);
     }
 
-    private function isAttemptNumberConflict(QueryException $e): bool
+    public function isAttemptNumberConflict(QueryException $e): bool
     {
-        $msg = $e->getMessage();
-        return str_contains($msg, 'shipment_attempts_shipment_number_unique')
-            || str_contains($msg, 'shipment_delivery_attempts_shipment_id_attempt_number_unique')
-            || str_contains($msg, 'UNIQUE constraint failed');
+        return $e instanceof UniqueConstraintViolationException
+            || ($e->errorInfo[1] ?? null) === 1062
+            || (string) $e->getCode() === '23505';
     }
 }
-
