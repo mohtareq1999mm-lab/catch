@@ -51,4 +51,8 @@ return [
         'key' => env('RESEND_API_KEY'),
     ],
 
+    'shipment_notifications' => [
+        'recipient_secret' => env('SHIPMENT_NOTIFICATION_RECIPIENT_SECRET'),
+    ],
+
 ];
