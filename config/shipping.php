@@ -107,6 +107,9 @@ return [
             'mode' => env('SHIPPING_NULL_MODE', 'sandbox'),
             // Non-secret identity, stable across credential rotation.
             'account_code' => env('SHIPPING_NULL_ACCOUNT_CODE', 'null-local'),
+            // #179: production enablement requires recorded approvals in
+            // addition to capability verification evidence. Never credentials.
+            'production_approvals' => [],
             // Customer-facing service level only; never a carrier brand.
             'service_level' => 'standard',
             'channels' => ['web', 'mobile'],
@@ -185,6 +188,7 @@ return [
             'adapter' => App\Services\Shipment\Providers\InternalDeliveryGateway::class,
             'mode' => 'internal',
             'account_code' => 'internal-local',
+            'production_approvals' => [],
             // Customer-facing service level only; never a carrier brand.
             'service_level' => 'standard',
             'channels' => ['web', 'mobile'],

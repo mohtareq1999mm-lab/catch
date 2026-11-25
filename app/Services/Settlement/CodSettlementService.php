@@ -4,9 +4,11 @@ namespace App\Services\Settlement;
 
 use App\Audit\ActivityAuditService;
 use App\Audit\ActivitySnapshot;
+use App\Enums\CodStatementAcceptanceStatus;
 use App\Enums\CodSettlementMatchMethod;
 use App\Enums\CodSettlementMatchStatus;
 use App\Enums\CodSettlementStatementStatus;
+use App\Enums\CodStatementType;
 use App\Enums\SettlementMode;
 use App\Exceptions\CodSettlementPrecisionException;
 use App\Exceptions\CodSettlementVarianceException;
@@ -379,10 +381,97 @@ class CodSettlementService
         return max($variances);
     }
 
+    /**
+     * #179: explicit finance acceptance is the only event that may supersede
+     * a prior statement. Closing or creating a correction alone is not enough.
+     */
+    public function acceptStatement(int $statementId, int $actorId, ?string $reason = null): CodSettlementStatement
+    {
+        $reason = $reason !== null ? $this->stringField($reason, 'reason', 1000) : null;
+
+        return DB::transaction(function () use ($statementId, $actorId, $reason): CodSettlementStatement {
+            $statement = CodSettlementStatement::query()->lockForUpdate()->findOrFail($statementId);
+            $current = $statement->acceptance_status ?? CodStatementAcceptanceStatus::PENDING->value;
+
+            if ($current === CodStatementAcceptanceStatus::ACCEPTED->value) {
+                return $statement;
+            }
+            if ($current !== CodStatementAcceptanceStatus::PENDING->value) {
+                throw $this->invalidPayload('acceptance_status');
+            }
+
+            $target = null;
+            $targetId = $statement->supersedes_statement_id !== null
+                ? (int) $statement->supersedes_statement_id
+                : null;
+            if ($targetId !== null) {
+                if ($targetId === (int) $statement->id) {
+                    throw $this->invalidPayload('supersedes_statement_id');
+                }
+                $target = CodSettlementStatement::query()->lockForUpdate()->findOrFail($targetId);
+                if (($target->acceptance_status ?? CodStatementAcceptanceStatus::PENDING->value)
+                    !== CodStatementAcceptanceStatus::ACCEPTED->value
+                ) {
+                    throw $this->invalidPayload('supersession_target_not_accepted');
+                }
+            }
+
+            $reviewedAt = now();
+            $statement->forceFill([
+                'acceptance_status' => CodStatementAcceptanceStatus::ACCEPTED->value,
+                'reviewed_by' => $actorId,
+                'reviewed_at' => $reviewedAt,
+                'review_reason' => $reason,
+            ])->save();
+
+            if ($target !== null) {
+                $target->forceFill([
+                    'acceptance_status' => CodStatementAcceptanceStatus::SUPERSEDED->value,
+                    'superseded_at' => $reviewedAt,
+                ])->save();
+            }
+
+            return $statement->fresh('lines');
+        });
+    }
+
+    /**
+     * #179: rejecting a correction only records the rejection; the statement
+     * it references is never read or written here.
+     */
+    public function rejectStatement(int $statementId, int $actorId, string $reason): CodSettlementStatement
+    {
+        $reason = $this->stringField($reason, 'reason', 1000);
+
+        return DB::transaction(function () use ($statementId, $actorId, $reason): CodSettlementStatement {
+            $statement = CodSettlementStatement::query()->lockForUpdate()->findOrFail($statementId);
+            $current = $statement->acceptance_status ?? CodStatementAcceptanceStatus::PENDING->value;
+
+            if ($current === CodStatementAcceptanceStatus::REJECTED->value) {
+                return $statement;
+            }
+            if ($current !== CodStatementAcceptanceStatus::PENDING->value) {
+                throw $this->invalidPayload('acceptance_status');
+            }
+
+            $statement->forceFill([
+                'acceptance_status' => CodStatementAcceptanceStatus::REJECTED->value,
+                'reviewed_by' => $actorId,
+                'reviewed_at' => now(),
+                'review_reason' => $reason,
+            ])->save();
+
+            return $statement->fresh('lines');
+        });
+    }
+
     private function persistStatement(array $identity, array $lines, array $totals): CodSettlementStatement
     {
         unset($identity['currency_code']);
-        $statement = CodSettlementStatement::create($identity + $totals + ['status' => CodSettlementStatementStatus::OPEN->value]);
+        $statement = CodSettlementStatement::create($identity + $totals + [
+            'status' => CodSettlementStatementStatus::OPEN->value,
+            'acceptance_status' => CodStatementAcceptanceStatus::PENDING->value,
+        ]);
 
         foreach ($lines as $line) {
             $statement->lines()->create($line);
@@ -844,6 +933,44 @@ class CodSettlementService
         ];
     }
 
+    /** @return array{statement_type:string,supersedes_statement_id:?int} */
+    private function validateLineage(array $payload): array
+    {
+        $type = $payload['statement_type'] ?? CodStatementType::ORIGINAL->value;
+        $type = $type instanceof CodStatementType ? $type : CodStatementType::tryFrom((string) $type);
+        if ($type === null) {
+            throw $this->invalidPayload('statement_type');
+        }
+
+        $supersedes = $payload['supersedes_statement_id'] ?? null;
+        if ($supersedes !== null) {
+            if (!is_int($supersedes) && !(is_string($supersedes) && ctype_digit($supersedes))) {
+                throw $this->invalidPayload('supersedes_statement_id');
+            }
+            $supersedes = (int) $supersedes;
+            if ($supersedes <= 0) {
+                throw $this->invalidPayload('supersedes_statement_id');
+            }
+        }
+
+        if ($type === CodStatementType::ORIGINAL && $supersedes !== null) {
+            throw $this->invalidPayload('supersedes_statement_id');
+        }
+        if ($type === CodStatementType::CORRECTED && $supersedes === null) {
+            throw $this->invalidPayload('supersedes_statement_id');
+        }
+        if ($supersedes !== null
+            && !CodSettlementStatement::query()->whereKey($supersedes)->exists()
+        ) {
+            throw $this->invalidPayload('supersedes_statement_id');
+        }
+
+        return [
+            'statement_type' => $type->value,
+            'supersedes_statement_id' => $supersedes,
+        ];
+    }
+
     private function validateIdentity(array $payload, bool $requireFileHash = false): array
     {
         $mode = $payload['mode'] ?? null;
@@ -863,7 +990,7 @@ class CodSettlementService
             throw $this->invalidPayload('metadata');
         }
 
-    $identity = [
+        $identity = $this->validateLineage($payload) + [
             'statement_key' => $this->stringField($payload['statement_key'] ?? null, 'statement_key', 191),
             'provider_code' => $this->stringField($payload['provider_code'] ?? null, 'provider_code', 32),
             'mode' => $mode->value,
@@ -1059,13 +1186,31 @@ class CodSettlementService
 
     private function duplicateStatementQuery(array $identity)
     {
+        // #179: the dedupe identity is scoped per statement type. A correction
+        // is the lineage mechanism that replaces a prior statement for the
+        // same scope, so it must not collide with the original it supersedes;
+        // duplicates within the same type still fail closed. Legacy rows
+        // written before lineage existed carry a NULL statement_type and are
+        // treated as originals.
+        $type = $identity['statement_type'] ?? CodStatementType::ORIGINAL->value;
+
         return CodSettlementStatement::query()
             ->where('provider_code', $identity['provider_code'])
             ->where('mode', $identity['mode'])
             ->where('account_code', $identity['account_code'])
             ->whereDate('period_start', $identity['period_start'])
             ->whereDate('period_end', $identity['period_end'])
-            ->where('currency_code', $identity['currency_code']);
+            ->where('currency_code', $identity['currency_code'])
+            ->where(function ($query) use ($type) {
+                if ($type === CodStatementType::ORIGINAL->value) {
+                    $query->whereNull('statement_type')
+                        ->orWhere('statement_type', CodStatementType::ORIGINAL->value);
+
+                    return;
+                }
+
+                $query->where('statement_type', $type);
+            });
     }
 
     private function duplicateStatementException(): ValidationException

@@ -35,6 +35,7 @@ class CarrierGatewayFactory
         $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
 
         $block = $this->requireModeBlock($providerCode, $modes, $mode);
+        $this->assertProductionEnablement($providerCode, $provider, $mode, $block);
         $this->requireCredentials($providerCode, $block);
         $this->requireCapabilityVerification($providerCode, $block, $capability);
 
@@ -51,6 +52,20 @@ class CarrierGatewayFactory
         $providers = $this->config->get('shipping.providers', []);
 
         return is_array($providers) && array_key_exists($providerCode, $providers);
+    }
+
+    /**
+     * #179: explicit enablement authority for assignment and status consumers.
+     * A production flag without verification evidence and approvals is never
+     * treated as enabled, even when the caller does not construct a gateway.
+     */
+    public function assertEnabled(string $providerCode): void
+    {
+        [$provider, $mode] = $this->providerWithValidatedMode($providerCode);
+        $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
+        $block = $this->requireModeBlock($providerCode, $modes, $mode);
+
+        $this->assertProductionEnablement($providerCode, $provider, $mode, $block);
     }
 
     /**
@@ -143,11 +158,12 @@ class CarrierGatewayFactory
         [$provider, $mode] = $this->providerWithValidatedMode($providerCode);
         $modes = is_array($provider['modes'] ?? null) ? $provider['modes'] : [];
         $block = $modes[$mode] ?? null;
+        $block = is_array($block) ? $block : [];
 
         return [
             'provider' => $providerCode,
             'mode' => $mode,
-            'enabled' => is_array($block) && ($block['enabled'] ?? false) === true,
+            'enabled' => self::isEnabled($providerCode, $provider, $mode, $block),
             'verified_capabilities' => is_array($block) ? self::verifiedCapabilities($block) : [],
             'mapping_version_present' => is_array($block) && $this->hasMappingVersion($block),
         ];
@@ -248,6 +264,86 @@ class CarrierGatewayFactory
         }
 
         return $block;
+    }
+
+    /**
+     * @param array<string,mixed> $provider
+     * @param array<string,mixed> $block
+     */
+    private function assertProductionEnablement(
+        string $providerCode,
+        array $provider,
+        string $mode,
+        array $block,
+    ): void {
+        if ($mode === ProviderMode::PRODUCTION->value) {
+            $this->requireProductionEnablement($providerCode, $provider, $block);
+        }
+    }
+
+    /**
+     * Read-only enablement projection. No evidence value is copied into the
+     * status response; only the derived boolean and verified capability names
+     * are exposed.
+     *
+     * @param array<string,mixed> $provider
+     * @param array<string,mixed> $block
+     */
+    private static function isEnabled(string $providerCode, array $provider, string $mode, array $block): bool
+    {
+        if (ProviderMode::tryFrom($mode) === null || ($block['enabled'] ?? false) !== true) {
+            return false;
+        }
+
+        return $mode !== ProviderMode::PRODUCTION->value
+            || self::productionEnablementFailure($providerCode, $provider, $block) === null;
+    }
+
+    /**
+     * #179: production enablement is deployment evidence, not a flag flip.
+     * Verification records already carry the evidence; approvals are stored
+     * beside provider configuration and never exposed through status reads.
+     *
+     * @param array<string,mixed> $provider
+     * @param array<string,mixed> $block
+     */
+    private function requireProductionEnablement(string $providerCode, array $provider, array $block): void
+    {
+        $failure = self::productionEnablementFailure($providerCode, $provider, $block);
+        if ($failure !== null) {
+            throw new CarrierConfigurationException($failure);
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $provider
+     * @param array<string,mixed> $block
+     */
+    private static function productionEnablementFailure(
+        string $providerCode,
+        array $provider,
+        array $block,
+    ): ?string {
+        if (self::verifiedCapabilities($block) === []) {
+            return CarrierConfigurationException::missingProductionVerification($providerCode)->getMessage();
+        }
+
+        $approvals = $provider['production_approvals'] ?? [];
+        if (!is_array($approvals) || $approvals === []) {
+            return CarrierConfigurationException::missingProductionApprovals($providerCode)->getMessage();
+        }
+        foreach ($approvals as $approval) {
+            if (!is_array($approval)
+                || !is_string($approval['approver'] ?? null)
+                || trim($approval['approver']) === ''
+                || !is_string($approval['approved_at'] ?? null)
+                || trim($approval['approved_at']) === ''
+            ) {
+                return CarrierConfigurationException::missingProductionApprovals($providerCode)->getMessage();
+            }
+        }
+
+        return null;
     }
 
     /** @param array<string,mixed> $block */

@@ -20,6 +20,8 @@ class CodSettlementStatement extends Model
     protected $fillable = [
         'statement_key',
         'file_hash',
+        'statement_type',
+        'supersedes_statement_id',
         'provider_code',
         'mode',
         'account_code',
@@ -32,6 +34,11 @@ class CodSettlementStatement extends Model
         'variance_minor',
         'metadata',
         'status',
+        'acceptance_status',
+        'reviewed_by',
+        'reviewed_at',
+        'review_reason',
+        'superseded_at',
         'closed_by',
         'closed_at',
         'close_reason',
@@ -45,6 +52,8 @@ class CodSettlementStatement extends Model
         'received_minor' => 'integer',
         'variance_minor' => 'integer',
         'metadata' => 'array',
+        'reviewed_at' => 'datetime',
+        'superseded_at' => 'datetime',
         'closed_at' => 'datetime',
     ];
 
