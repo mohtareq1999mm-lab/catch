@@ -41,6 +41,9 @@ class ShippingWebhookInboxTest extends TestCase
             'shipping.providers.null.modes.sandbox.webhook.version' => 'v1',
             'shipping.webhook_rate_limit.max_attempts' => 60,
             'shipping.webhook_rate_limit.decay_seconds' => 60,
+            // Tests run with a direct REMOTE_ADDR; trust the loopback as the
+            // configured proxy boundary so the limiter can derive source IP.
+            'shipping.webhook_rate_limit.trusted_proxies' => ['127.0.0.1'],
         ]);
     }
 
@@ -160,6 +163,60 @@ class ShippingWebhookInboxTest extends TestCase
         $second->assertStatus(429)->assertJson(['success' => false]);
         $this->assertSame(1, ShippingWebhookEvent::count());
         $this->assertSame('evt_limit_first', ShippingWebhookEvent::firstOrFail()->event_key);
+    }
+
+    public function test_unconfigured_trusted_proxies_fail_closed_before_verification_or_inbox(): void
+    {
+        config(['shipping.webhook_rate_limit.trusted_proxies' => []]);
+
+        $response = $this->postWebhook($this->payload(), 'v1='.str_repeat('0', 64), [
+            'X-Forwarded-For' => '203.0.113.10',
+        ]);
+
+        $response->assertStatus(503)->assertJson(['success' => false]);
+        $this->assertSame(0, ShippingWebhookEvent::count());
+    }
+
+    public function test_source_ip_is_derived_only_through_configured_trusted_proxies(): void
+    {
+        config([
+            'shipping.webhook_rate_limit.max_attempts' => 1,
+            'shipping.webhook_rate_limit.trusted_proxies' => ['127.0.0.1'],
+        ]);
+
+        // Request arrives through a configured trusted proxy; the client IP is
+        // derived from the forwarded chain, not from an untrusted peer.
+        $first = $this->postWebhook($this->payload(['id' => 'evt_proxy_first']), false, [
+            'X-Forwarded-For' => '198.51.100.10',
+        ]);
+        $second = $this->postWebhook($this->payload(['id' => 'evt_proxy_second']), false, [
+            'X-Forwarded-For' => '198.51.100.10',
+        ]);
+        $differentClient = $this->postWebhook($this->payload(['id' => 'evt_proxy_third']), false, [
+            'X-Forwarded-For' => '198.51.100.20',
+        ]);
+
+        $first->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $second->assertStatus(429)->assertJson(['success' => false]);
+        $differentClient->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $this->assertSame(2, ShippingWebhookEvent::count());
+
+        // Direct request from an untrusted remote peer must fail closed even if
+        // it supplies forwarded headers.
+        config(['shipping.webhook_rate_limit.trusted_proxies' => ['10.0.0.1']]);
+        $untrusted = $this->postWebhook($this->payload(['id' => 'evt_proxy_untrusted']), false, [
+            'X-Forwarded-For' => '198.51.100.30',
+        ]);
+        $untrusted->assertStatus(503)->assertJson(['success' => false]);
+        $this->assertSame(2, ShippingWebhookEvent::count());
+    }
+
+    public function test_signature_verification_still_precedes_processing_when_limiter_allows(): void
+    {
+        $response = $this->postWebhook($this->payload(['id' => 'evt_sig_order']), 'v1='.str_repeat('0', 64));
+
+        $response->assertStatus(401)->assertJson(['success' => false]);
+        $this->assertSame(0, ShippingWebhookEvent::count());
     }
 
     private function createShipment(): Shipment

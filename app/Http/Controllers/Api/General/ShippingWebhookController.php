@@ -28,11 +28,13 @@ class ShippingWebhookController extends Controller
 
     public function handle(Request $request, string $provider): JsonResponse
     {
+        $server = $request->server->all();
         $result = $this->ingest->ingest(
             $provider,
-            $request->ip() ?? 'unknown',
+            (string) ($server['REMOTE_ADDR'] ?? $request->server->get('REMOTE_ADDR', '')),
             $request->getContent(),
             $request->headers->all(),
+            $server,
         );
 
         $outcome = $result->outcome;

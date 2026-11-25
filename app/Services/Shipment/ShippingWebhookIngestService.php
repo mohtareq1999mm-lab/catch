@@ -28,14 +28,18 @@ final class ShippingWebhookIngestService
         private readonly ShippingWebhookInbox $inbox,
     ) {}
 
-    /** @param array<string,mixed> $headers Lower-cased HTTP header map from the request. */
+    /**
+     * @param array<string,mixed> $headers Lower-cased HTTP header map from the request.
+     * @param array<string,mixed> $server  Raw server vars for trusted proxy source-IP derivation.
+     */
     public function ingest(
         string $providerCode,
-        string $sourceIp,
+        string $remoteAddr,
         string $rawPayload,
         array $headers = [],
+        array $server = [],
     ): ShippingWebhookIngestResult {
-        $limiterResult = $this->limiterResult($providerCode, $sourceIp);
+        $limiterResult = $this->limiterResult($providerCode, $remoteAddr, $server);
         if ($limiterResult !== null) {
             return $limiterResult;
         }
@@ -48,12 +52,13 @@ final class ShippingWebhookIngestService
         return $this->storeEvent($event);
     }
 
-    private function limiterResult(string $providerCode, string $sourceIp): ?ShippingWebhookIngestResult
+    /**
+     * @param array<string,mixed> $server
+     */
+    private function limiterResult(string $providerCode, string $remoteAddr, array $server): ?ShippingWebhookIngestResult
     {
-        // Source IP comes from Request::ip(), which honours global TrustProxies.
-        // Deployment must keep that list correct; no per-route proxy guessing
-        // is safe here.
-        $decision = $this->limiter->evaluate($providerCode, $sourceIp);
+        // #153: source IP is derived only through configured trusted proxies.
+        $decision = $this->limiter->evaluate($providerCode, $remoteAddr, $server);
 
         return match ($decision['outcome']) {
             WebhookRateLimitOutcome::UNAVAILABLE => new ShippingWebhookIngestResult(
