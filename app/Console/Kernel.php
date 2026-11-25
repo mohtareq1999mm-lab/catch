@@ -29,6 +29,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\SyncCurrencyRates::class,
         \App\Console\Commands\SweepExpiredPickingClaims::class,
         \App\Console\Commands\PollShippingProviders::class,
+        \App\Console\Commands\RetryShipmentNotifications::class,
     ];
 
     protected function schedule(Schedule $schedule)
@@ -116,6 +117,14 @@ class Kernel extends ConsoleKernel
         // rows; sweep recovers lost queue messages and stale leases, and
         // reconciles UNKNOWN rows through provider lookup before any retry.
         $schedule->command('shipping:publish-outbox --batch=100')->everyMinute()->withoutOverlapping()->onOneServer();
+
+        // #183: bounded shipment-notification retries. The command claims due
+        // rows atomically; the overlap lock expires after 10 minutes so a
+        // stalled sweep cannot suppress the next two ticks indefinitely.
+        $schedule->command('shipping:retry-notifications')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(10)
+            ->onOneServer();
     }
 
     /**
