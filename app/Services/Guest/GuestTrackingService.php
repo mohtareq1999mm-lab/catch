@@ -3,7 +3,9 @@
 namespace App\Services\Guest;
 
 use App\Exceptions\GuestCheckoutConflictException;
+use App\Http\Resources\Tracking\CustomerShipmentDetailResource;
 use App\Models\OrderTrackingEvent;
+use App\Services\Tracking\TrackingAggregateService;
 use Marvel\Database\Models\Order;
 
 /**
@@ -14,8 +16,10 @@ use Marvel\Database\Models\Order;
  */
 class GuestTrackingService
 {
-    public function __construct(private GuestOrderTokenService $tokenService)
-    {
+    public function __construct(
+        private GuestOrderTokenService $tokenService,
+        private TrackingAggregateService $aggregates,
+    ) {
     }
 
     /**
@@ -35,17 +39,33 @@ class GuestTrackingService
             throw new GuestCheckoutConflictException(__('guest_checkout.tracking_link_invalid'), 404);
         }
 
+        $aggregate = $this->aggregates->forOrder($order);
+
+        // The token is the possession proof for the detail surface. The
+        // Resource is an allowlist: no internal/provider ids, payloads or
+        // settlement/representative data is serialised.
         return [
             'order' => [
                 'order_number' => $order->order_number,
-                'status' => $order->status,
+                'status' => $aggregate['status'],
                 'payment_status' => $order->payment_status,
                 'fulfillment_status' => $order->fulfillment_status,
                 'created_at' => $order->created_at?->toIso8601String(),
                 'last_updated_at' => $order->updated_at?->toIso8601String(),
             ],
+            'aggregate' => [
+                'status' => $aggregate['status'],
+                'eta' => $aggregate['eta']?->toIso8601String(),
+                'delivered_at' => $aggregate['delivered_at']?->toIso8601String(),
+                'has_shipments' => $aggregate['has_shipments'],
+            ],
+            'estimated_delivery' => $this->aggregates->estimatedDelivery($aggregate),
+            'shipments' => CustomerShipmentDetailResource::collection(
+                $this->aggregates->shipmentsFor($order)
+            )->resolve(),
             'timeline' => $this->publicTimeline($order),
-            'tracking_expires_at' => $this->tokenService->trackingExpiresAt($order)?->toIso8601String(),
+            'tracking_expires_at' => $this->tokenService
+                ->trackingExpiresAt($order, $aggregate)?->toIso8601String(),
         ];
     }
 
@@ -85,6 +105,8 @@ class GuestTrackingService
                     'description' => $description,
                 ];
             })
+            // Read-only projection: identical customer-visible rows collapse.
+            ->unique(fn (array $event): string => implode('|', $event))
             ->values()
             ->all();
     }

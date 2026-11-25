@@ -3,6 +3,7 @@
 namespace App\Services\Guest;
 
 use App\Enums\GuestCredentialDomain;
+use App\Services\Tracking\TrackingAggregateService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
@@ -16,8 +17,10 @@ use Marvel\Database\Models\Order;
  */
 class GuestOrderTokenService
 {
-    public function __construct(private GuestCredentialService $credentials)
-    {
+    public function __construct(
+        private GuestCredentialService $credentials,
+        private TrackingAggregateService $aggregates,
+    ) {
     }
 
     public function hash(string $rawToken): string
@@ -113,10 +116,16 @@ class GuestOrderTokenService
     /**
      * Tracking follows the order lifecycle, then a 30-day grace period after
      * the terminal timestamp. Active orders have no hard expiry.
+     *
+     * When shipment aggregates exist they are authoritative for delivery:
+     * legacy order mirrors (actual_delivery_at/completed_at) must never
+     * manufacture a delivery timestamp for a returned/outstanding aggregate.
+     *
+     * @param array{status:string,eta:?\Carbon\CarbonInterface,delivered_at:?\Carbon\CarbonInterface,has_shipments:bool}|null $aggregate
      */
-    public function trackingExpiresAt(Order $order): ?CarbonInterface
+    public function trackingExpiresAt(Order $order, ?array $aggregate = null): ?CarbonInterface
     {
-        $terminalAt = $this->terminalAt($order);
+        $terminalAt = $this->terminalAt($order, $aggregate);
 
         if ($terminalAt === null) {
             return null;
@@ -148,14 +157,31 @@ class GuestOrderTokenService
         return $updated > 0;
     }
 
-    private function terminalAt(Order $order): ?CarbonInterface
+    /**
+     * @param array{status:string,eta:?\Carbon\CarbonInterface,delivered_at:?\Carbon\CarbonInterface,has_shipments:bool}|null $aggregate
+     */
+    private function terminalAt(Order $order, ?array $aggregate = null): ?CarbonInterface
     {
+        // Cancellation remains an order-lifecycle fact; the aggregate never
+        // triggers it, but an explicit cancellation still bounds the link.
         if ($order->status === Order::ORDER_STATUS_CANCELLED) {
             return $order->cancelled_at
                 ?? $order->updated_at
                 ?? $order->created_at;
         }
 
+        $aggregate ??= $this->aggregates->forOrder($order);
+
+        if ($aggregate['has_shipments']) {
+            // Round 12: only a genuinely delivered aggregate is terminal.
+            // A stale order mirror must not restart the grace period for a
+            // returned or still-outstanding split shipment.
+            return $aggregate['status'] === 'delivered'
+                ? $aggregate['delivered_at']
+                : null;
+        }
+
+        // Legacy orders without shipment data keep the historical fallback.
         if (in_array($order->status, [Order::ORDER_STATUS_DELIVERED, Order::ORDER_STATUS_COMPLETED], true)) {
             return $order->actual_delivery_at
                 ?? $order->completed_at

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\User;
 use App\Http\Controllers\Controller;
 use App\Models\UserNotificationPreference;
 use App\Models\UserDeviceToken;
+use App\Services\Notifications\UnifiedNotificationHistoryService;
 use Illuminate\Http\Request;
 use Marvel\Traits\ApiResponse;
 
@@ -12,7 +13,7 @@ class NotificationPreferencesController extends Controller
 {
     use ApiResponse;
 
-    public function __construct()
+    public function __construct(private UnifiedNotificationHistoryService $history)
     {
         $this->middleware('auth:sanctum');
     }
@@ -93,10 +94,11 @@ class NotificationPreferencesController extends Controller
     {
         $perPage = min(max((int) $request->get('per_page', 20), 1), 50);
 
-        $notifications = \App\Models\OrderNotification::where('user_id', $request->user()->id)
-            ->with('order:id,order_number,status')
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage);
+        $notifications = $this->history->forUser(
+            (int) $request->user()->id,
+            $perPage,
+            (int) $request->get('page', 1)
+        );
 
         return $this->apiResponse(__('message.MESSAGE.NOTIF_HISTORY_RETRIEVED'), 200, true, $notifications);
     }

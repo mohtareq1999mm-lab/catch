@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\Api\General;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Tracking\CustomerShipmentDetailResource;
+use App\Http\Resources\Tracking\PublicTrackingAggregateResource;
+use App\Http\Resources\Tracking\PublicTrackingStatusResource;
 use App\Models\OrderStatusHistory;
 use App\Models\OrderTrackingEvent;
 use App\Services\Guest\GuestTrackingService;
+use App\Services\Tracking\TrackingAggregateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Marvel\Database\Models\Order;
@@ -15,8 +19,10 @@ class OrderTrackingController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private GuestTrackingService $guestTracking)
-    {
+    public function __construct(
+        private GuestTrackingService $guestTracking,
+        private TrackingAggregateService $aggregates,
+    ) {
     }
 
     /**
@@ -38,7 +44,7 @@ class OrderTrackingController extends Controller
             $query->where('user_phone', $validated['user_phone']);
         }
 
-        $order = $query->with(['orderItems'])->first();
+        $order = $query->first();
 
         if (!$order) {
             return $this->apiResponse(__('message.ERROR.TRACKING_ORDER_NOT_FOUND'), 404, false);
@@ -49,11 +55,19 @@ class OrderTrackingController extends Controller
             \App\Services\Metrics\OrderTrackingMetrics::incrementTrackingAccess('customer_public');
         } catch (\Throwable $e) {}
 
+        $aggregate = $this->aggregates->forOrder($order);
+
         return $this->apiResponse(__('message.MESSAGE.TRACKING_RETRIEVED_SUCCESSFULLY'), 200, true, [
-            'order' => $this->formatOrderForTracking($order),
+            'order' => (new PublicTrackingAggregateResource([
+                'order_number' => $order->order_number,
+                'status' => $aggregate['status'],
+                'fulfillment_status' => $order->fulfillment_status,
+                'created_at' => $order->created_at?->toIso8601String(),
+                'aggregate' => $aggregate,
+            ]))->resolve(),
             'timeline' => $this->publicTimeline($order),
-            'current_status' => $this->getCurrentStatusInfo($order),
-            'estimated_delivery' => $this->getEstimatedDelivery($order),
+            'current_status' => (new PublicTrackingStatusResource($aggregate))->resolve(),
+            'estimated_delivery' => $this->aggregates->estimatedDelivery($aggregate),
         ]);
     }
 
@@ -77,11 +91,24 @@ class OrderTrackingController extends Controller
             \App\Services\Metrics\OrderTrackingMetrics::incrementTrackingAccess('customer_auth');
         } catch (\Throwable $e) {}
 
+        $aggregate = $this->aggregates->forOrder($order);
+
         return $this->apiResponse(__('message.MESSAGE.TRACKING_RETRIEVED_SUCCESSFULLY'), 200, true, [
             'order' => $this->formatOrderForTracking($order),
             'timeline' => $this->timeline($order),
             'current_status' => $this->getCurrentStatusInfo($order),
-            'estimated_delivery' => $this->getEstimatedDelivery($order),
+            'estimated_delivery' => $this->aggregates->estimatedDelivery($aggregate),
+            'aggregate' => [
+                'status' => $aggregate['status'],
+                'eta' => $aggregate['eta']?->toIso8601String(),
+                'delivered_at' => $aggregate['delivered_at']?->toIso8601String(),
+                'has_shipments' => $aggregate['has_shipments'],
+            ],
+            // Owner-only: the guest-token surface has its own identical
+            // Resource projection; the public lookup never receives this key.
+            'shipments' => CustomerShipmentDetailResource::collection(
+                $this->aggregates->shipmentsFor($order)
+            )->resolve(),
             'can_cancel' => $this->canCancel($order),
             'progress' => $this->progress($order),
         ]);
@@ -335,42 +362,6 @@ class OrderTrackingController extends Controller
         }
 
         return $statusInfo;
-    }
-
-    private function getEstimatedDelivery(Order $order): ?array
-    {
-        if ($order->status === Order::ORDER_STATUS_DELIVERED) {
-            return [
-                'delivered_at' => $order->completed_at?->toIso8601String(),
-                'message' => __('tracking.delivery.delivered'),
-            ];
-        }
-
-        if ($order->status === Order::ORDER_STATUS_CANCELLED) {
-            return null;
-        }
-
-        $estimatedDays = match ($order->fulfillment_type) {
-            'pickup' => 2,
-            'delivery' => 5,
-            default => 5,
-        };
-
-        $estimatedDate = $order->created_at ? $order->created_at->copy()->addDays($estimatedDays) : now()->addDays($estimatedDays);
-
-        $daysRemaining = (int) max(0, now()->diffInDays($estimatedDate, false));
-
-        // Dates stay locale-neutral (ISO + Y-m-d); only the sentence is
-        // translated. The previous English-only diffForHumans() relative
-        // string is intentionally replaced (see endpoint audit D4).
-        return [
-            'estimated_date' => $estimatedDate->toIso8601String(),
-            'estimated_date_formatted' => $estimatedDate->format('Y-m-d'),
-            'days_remaining' => $daysRemaining,
-            'message' => $estimatedDate->isPast()
-                ? __('tracking.delivery.overdue')
-                : __('tracking.delivery.estimated_on', ['date' => $estimatedDate->format('Y-m-d')]),
-        ];
     }
 
     /**
