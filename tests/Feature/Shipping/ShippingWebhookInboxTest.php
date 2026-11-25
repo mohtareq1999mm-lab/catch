@@ -218,9 +218,9 @@ class ShippingWebhookInboxTest extends TestCase
             'X-Forwarded-For' => '198.51.100.20',
         ]);
 
-        $first->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $first->assertStatus(202)->assertJsonPath('data.status', 'accepted');
         $second->assertStatus(429)->assertJson(['success' => false]);
-        $differentClient->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $differentClient->assertStatus(202)->assertJsonPath('data.status', 'accepted');
         $this->assertSame(2, ShippingWebhookEvent::count());
 
         // Direct request from an untrusted remote peer must fail closed even if
