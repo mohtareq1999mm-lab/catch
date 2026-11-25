@@ -447,19 +447,27 @@ Schema::create('categories', function (Blueprint $table) {
 
         Schema::create('order_tracking_events', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->string('event_type', 64);
-            $table->string('old_status', 64)->nullable();
-            $table->string('new_status', 64)->nullable();
-            $table->string('source', 64)->nullable();
-            $table->string('actor_type', 32)->nullable();
+            $table->unsignedBigInteger('order_id')->index();
+            $table->unsignedBigInteger('shipment_id')->nullable();
+            $table->string('event_type', 50)->index();
+            $table->timestamp('event_timestamp')->index();
+            $table->string('actor_type', 50)->nullable();
             $table->unsignedBigInteger('actor_id')->nullable();
+            $table->string('actor_name', 100)->nullable();
+            $table->string('old_status', 50)->nullable();
+            $table->string('new_status', 50)->nullable()->index();
             $table->json('metadata')->nullable();
-            $table->boolean('customer_visible')->default(true);
-            $table->json('label_keys')->nullable();
-            $table->timestamp('timestamp')->nullable();
+            $table->boolean('customer_visible')->default(true)->index();
+            $table->string('customer_label_key', 100)->nullable();
+            $table->text('customer_description_key')->nullable();
+            $table->text('admin_notes')->nullable();
+            $table->string('source', 50)->default('system');
+            $table->string('ip_address', 45)->nullable();
             $table->timestamps();
-            $table->index('order_id');
+
+            $table->index(['order_id', 'event_timestamp']);
+            $table->index(['order_id', 'customer_visible']);
+            $table->index(['shipment_id', 'event_timestamp'], 'order_tracking_events_shipment_event_ts_idx');
         });
 
         Schema::create('delivery_representatives', function (Blueprint $table) {
