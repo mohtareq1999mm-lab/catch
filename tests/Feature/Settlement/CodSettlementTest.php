@@ -362,4 +362,305 @@ class CodSettlementTest extends TestCase
         $this->assertSame(0, CodSettlementStatement::query()->count());
         $this->assertSame(0, DB::table('cod_settlement_lines')->count());
     }
+
+    public function test_mixed_currency_statements_and_header_currency_conflicts_are_rejected(): void
+    {
+        $this->currency('EGP');
+        $this->currency('USD');
+        $egpOrder = $this->order('EGP');
+        $usdOrder = $this->order('USD');
+        $service = app(CodSettlementService::class);
+
+        try {
+            $service->createStatement($this->statementPayload($egpOrder, [
+                'statement_key' => 'stmt-mixed-lines',
+                'lines' => [
+                    ['order_id' => $egpOrder->id, 'expected' => '10.00', 'received' => '10.00'],
+                    ['order_id' => $usdOrder->id, 'expected' => '5.00', 'received' => '5.00'],
+                ],
+            ]));
+            $this->fail('Mixed-currency statements must be rejected.');
+        } catch (CodSettlementPrecisionException $e) {
+            $this->assertSame(__('cod_settlement.currency_conflict'), $e->getMessage());
+        }
+
+        try {
+            $service->createStatement($this->statementPayload($egpOrder, [
+                'statement_key' => 'stmt-header-conflict',
+                'currency_code' => 'USD',
+            ]));
+            $this->fail('Header/line currency conflicts must be rejected.');
+        } catch (CodSettlementPrecisionException $e) {
+            $this->assertSame(__('cod_settlement.currency_conflict'), $e->getMessage());
+        }
+
+        $this->assertSame(0, CodSettlementStatement::query()->count());
+        $this->assertSame(0, DB::table('cod_settlement_lines')->count());
+    }
+
+    public function test_duplicate_statements_are_detected_by_provider_mode_account_period_and_currency(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order('EGP');
+        $service = app(CodSettlementService::class);
+
+        $payload = $this->statementPayload($order, [
+            'statement_key' => 'stmt-dup-1',
+            'provider_code' => 'carrier_a',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-1',
+            'period_start' => '2026-11-01',
+            'period_end' => '2026-11-30',
+        ]);
+        $service->createStatement($payload);
+
+        try {
+            $service->createStatement(array_merge($payload, ['statement_key' => 'stmt-dup-2']));
+            $this->fail('Duplicate statement identity must be rejected.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(__('cod_settlement.duplicate_statement'), $e->errors()['statement_key'][0] ?? null);
+        }
+
+        $this->assertSame(1, CodSettlementStatement::query()->count());
+        $this->assertSame(1, DB::table('cod_settlement_lines')->count());
+    }
+
+    public function test_overlapping_statements_are_not_rejected_by_default_and_only_when_explicit_rule_requires_it(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order('EGP');
+        $service = app(CodSettlementService::class);
+
+        $base = [
+            'provider_code' => 'carrier_a',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-1',
+            'lines' => [['order_id' => $order->id, 'expected' => '10.00', 'received' => '10.00']],
+        ];
+
+        $service->createStatement($this->statementPayload($order, $base + [
+            'statement_key' => 'stmt-overlap-base',
+            'period_start' => '2026-11-01',
+            'period_end' => '2026-11-30',
+        ]));
+
+        // Overlap allowed by default.
+        $allowed = $service->createStatement($this->statementPayload($order, $base + [
+            'statement_key' => 'stmt-overlap-allowed',
+            'period_start' => '2026-11-15',
+            'period_end' => '2026-12-15',
+        ]));
+        $this->assertSame('stmt-overlap-allowed', $allowed->statement_key);
+
+        try {
+            $service->createStatement($this->statementPayload($order, $base + [
+                'statement_key' => 'stmt-overlap-rejected',
+                'period_start' => '2026-11-20',
+                'period_end' => '2026-11-25',
+                'overlap_rule' => 'reject',
+            ]));
+            $this->fail('Overlaps must be rejected only under explicit rule.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame(__('cod_settlement.overlapping_statement'), $e->getMessage());
+        }
+
+        $this->assertSame(2, CodSettlementStatement::query()->count());
+    }
+
+    public function test_settlement_processing_never_converts_currency(): void
+    {
+        $this->currency('EGP');
+        $this->currency('USD');
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+        DB::table('currency_rates')->insert([
+            'currency_id' => $usd->id,
+            'exchange_rate' => '48.5000000000',
+            'effective_date' => now()->toDateString(),
+        ]);
+        $order = $this->order('USD');
+        $service = app(CodSettlementService::class);
+
+        $statement = $service->createStatement($this->statementPayload($order, [
+            'statement_key' => 'stmt-no-convert',
+            'currency_code' => 'USD',
+        ]));
+
+        $this->assertSame('USD', $statement->currency_code);
+        $this->assertDatabaseCount('currency_rates', 1);
+        $this->assertDatabaseHas('cod_settlement_statements', [
+            'id' => $statement->id,
+            'currency_code' => 'USD',
+            'expected_minor' => 10050,
+        ]);
+    }
+
+    public function test_duplicate_db_unique_violation_is_translated_to_domain_validation_error(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order('EGP');
+        $service = app(CodSettlementService::class);
+        $payload = $this->statementPayload($order, [
+            'statement_key' => 'stmt-race-1',
+            'provider_code' => 'carrier_race',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-race',
+            'period_start' => '2026-12-01',
+            'period_end' => '2026-12-31',
+        ]);
+
+        $service->createStatement($payload);
+
+        $method = new \ReflectionMethod(CodSettlementService::class, 'isDuplicateStatementViolation');
+        $method->setAccessible(true);
+        $identity = [
+            'provider_code' => 'carrier_race',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-race',
+            'period_start' => '2026-12-01',
+            'period_end' => '2026-12-31',
+            'currency_code' => 'EGP',
+        ];
+
+        $pdo = new \PDOException('duplicate', 23000);
+        $pdo->errorInfo = ['23000', 1062, 'Duplicate entry for uq_cod_settlement_statement_identity'];
+        $queryException = new \Illuminate\Database\QueryException(
+            'mysql',
+            'insert into cod_settlement_statements ...',
+            [],
+            $pdo
+        );
+
+        $this->assertTrue($method->invoke($service, $queryException, $identity));
+
+        $duplicateMethod = new \ReflectionMethod(CodSettlementService::class, 'duplicateStatementException');
+        $duplicateMethod->setAccessible(true);
+        try {
+            throw $duplicateMethod->invoke($service);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(__('cod_settlement.duplicate_statement'), $e->errors()['statement_key'][0] ?? null);
+        }
+    }
+
+    public function test_overlap_flag_accepts_statement_and_records_overlap_evidence(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order('EGP');
+        $service = app(CodSettlementService::class);
+
+        $base = [
+            'provider_code' => 'carrier_flag',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-flag',
+            'lines' => [['order_id' => $order->id, 'expected' => '10.00', 'received' => '10.00']],
+        ];
+
+        $first = $service->createStatement($this->statementPayload($order, $base + [
+            'statement_key' => 'stmt-overlap-flag-base',
+            'period_start' => '2026-11-01',
+            'period_end' => '2026-11-30',
+        ]));
+
+        $flagged = $service->createStatement($this->statementPayload($order, $base + [
+            'statement_key' => 'stmt-overlap-flagged',
+            'period_start' => '2026-11-15',
+            'period_end' => '2026-12-15',
+            'overlap_rule' => 'flag',
+        ]));
+
+        $this->assertSame(2, CodSettlementStatement::query()->count());
+        $this->assertSame('stmt-overlap-flagged', $flagged->statement_key);
+        $this->assertDatabaseHas('cod_settlement_statements', [
+            'id' => $flagged->id,
+            'statement_key' => 'stmt-overlap-flagged',
+        ]);
+
+        $flagged->refresh();
+        $this->assertSame([
+            'rule' => 'flag',
+            'statement_ids' => [$first->id],
+        ], $flagged->metadata['overlap'] ?? null);
+    }
+
+    public function test_statement_key_collision_with_different_identity_maps_to_domain_validation_error(): void
+    {
+        $this->currency('EGP');
+        $order = $this->order('EGP');
+        $service = app(CodSettlementService::class);
+
+        $service->createStatement($this->statementPayload($order, [
+            'statement_key' => 'stmt-key-collision',
+            'provider_code' => 'carrier_key',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-key-a',
+            'period_start' => '2026-11-01',
+            'period_end' => '2026-11-30',
+        ]));
+
+        try {
+            $service->createStatement($this->statementPayload($order, [
+                'statement_key' => 'stmt-key-collision',
+                'provider_code' => 'carrier_key',
+                'mode' => SettlementMode::SANDBOX->value,
+                'account_code' => 'acct-key-b',
+                'period_start' => '2026-12-01',
+                'period_end' => '2026-12-31',
+            ]));
+            $this->fail('Statement key collision with different identity must be rejected.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(
+                __('cod_settlement.duplicate_statement_key'),
+                $e->errors()['statement_key'][0] ?? null
+            );
+        }
+
+        $this->assertSame(1, CodSettlementStatement::query()->count());
+        $this->assertSame(1, DB::table('cod_settlement_lines')->count());
+    }
+
+    public function test_overlap_reject_uses_scope_lock_and_fails_closed_on_timeout(): void
+    {
+        $this->currency('EGP');
+        $service = app(CodSettlementService::class);
+
+        $lockNameMethod = new \ReflectionMethod(CodSettlementService::class, 'statementScopeLockName');
+        $lockNameMethod->setAccessible(true);
+        $identity = [
+            'provider_code' => 'carrier_a',
+            'mode' => SettlementMode::SANDBOX->value,
+            'account_code' => 'acct-1',
+            'currency_code' => 'EGP',
+        ];
+        $lockName = $lockNameMethod->invoke($service, $identity);
+        $this->assertStringStartsWith('cod_settlement:', $lockName);
+        $this->assertSame(55, strlen($lockName));
+
+        $acquire = new \ReflectionMethod(CodSettlementService::class, 'acquireStatementScopeLock');
+        $acquire->setAccessible(true);
+        $release = new \ReflectionMethod(CodSettlementService::class, 'releaseStatementScopeLock');
+        $release->setAccessible(true);
+
+        $connection = DB::connection();
+        if ($connection->getDriverName() !== 'mysql') {
+            $this->markTestSkipped('Scope lock timeout behavior is exercised on MySQL.');
+        }
+
+        config(['cod_settlement.scope_lock_timeout' => 0]);
+        config(['database.connections.mysql_lock_test' => config('database.connections.' . $connection->getName())]);
+        $other = DB::connection('mysql_lock_test');
+        $other->selectOne('SELECT GET_LOCK(?, 1) AS acquired', [$lockName]);
+
+        try {
+            $acquire->invoke($service, $lockName);
+            $this->fail('Lock timeout must fail closed.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame(__('cod_settlement.lock_timeout'), $e->errors()['statement_key'][0] ?? null);
+        } finally {
+            $other->selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName]);
+            DB::disconnect('mysql_lock_test');
+        }
+
+        // lock should be acquirable after release
+        $this->assertTrue($acquire->invoke($service, $lockName));
+        $release->invoke($service, $lockName);
+    }
 }

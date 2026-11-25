@@ -29,7 +29,10 @@ final class CarrierWebhookVerifier
 
     private const SUPPORTED_VERSIONS = ['v1'];
 
-    public function __construct(private readonly Repository $config) {}
+    public function __construct(
+        private readonly Repository $config,
+        private readonly ShippingWebhookFingerprint $fingerprints,
+    ) {}
 
     public function signatureHeader(string $providerCode): string
     {
@@ -133,7 +136,7 @@ final class CarrierWebhookVerifier
     private function normalize(string $providerCode, array $context, array $body): CarrierWebhookEvent
     {
         $identity = $this->extractIdentity($body);
-        $eventKey = $this->eventKey($providerCode, $context, $identity);
+        $eventKey = $this->eventKey($providerCode, $context, $identity, $body);
 
         return new CarrierWebhookEvent(
             $providerCode,
@@ -181,15 +184,45 @@ final class CarrierWebhookVerifier
     /**
      * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
      * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
+     * @param array<string,mixed> $body
      */
-    private function eventKey(string $providerCode, array $context, array $identity): string
+    private function eventKey(string $providerCode, array $context, array $identity, array $body): string
     {
         if ($identity['event_id'] !== null) {
             return $identity['event_id'];
         }
 
-        // No raw bytes: distinct transitions of one object stay distinct and
-        // identical replays collapse to the same scoped identity.
+        $normalized = $this->fingerprintFields($identity, $body);
+        $candidates = $this->fingerprints->candidates(
+            $providerCode,
+            $context['mode'],
+            $context['account_code'],
+            $normalized,
+        );
+
+        $legacy = $this->legacyFallbackFingerprint($providerCode, $context, $identity);
+        if (! in_array($legacy, $candidates, true)) {
+            $candidates[] = $legacy;
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($this->existingFingerprint($providerCode, $context['mode'], $context['account_code'], $candidate)) {
+                return $candidate;
+            }
+        }
+
+        return $candidates[0];
+    }
+
+    /**
+     * Pre-#159 fallback format for dedupe continuity. Must match the legacy
+     * fp:<sha256> identity exactly; never used as the primary format for new rows.
+     *
+     * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
+     */
+    private function legacyFallbackFingerprint(string $providerCode, array $context, array $identity): string
+    {
         return 'fp:'.hash('sha256', implode('|', [
             $providerCode,
             $context['mode'],
@@ -200,6 +233,37 @@ final class CarrierWebhookVerifier
         ]));
     }
 
+    /** @param array<string,mixed> $body
+     *  @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
+     *  @return array<string,string>
+     */
+    private function fingerprintFields(array $identity, array $body): array
+    {
+        // #159: normalized, allowlisted fields only. Never raw bytes, receipt
+        // time, PII, or mutable local processing fields.
+        $fields = [
+            'object_ref' => $identity['object_ref'] ?? '',
+            'provider_shipment_ref' => $identity['provider_shipment_ref'] ?? '',
+            'shipment_uuid' => $identity['shipment_uuid'] ?? '',
+            'status' => $identity['status'],
+            'event_type' => $identity['event_type'],
+        ];
+
+        // Keep only bounded scalar allowlisted values; reject PII-like keys even
+        // when providers send them in odd locations by never reading them.
+        return array_filter($fields, static fn (string $value): bool => $value !== '');
+    }
+
+    private function existingFingerprint(string $providerCode, string $mode, string $accountCode, string $candidate): bool
+    {
+        return \App\Models\Shipping\ShippingWebhookEvent::query()
+            ->where('provider_code', $providerCode)
+            ->where('mode', $mode)
+            ->where('account_code', $accountCode)
+            ->where('event_key', $candidate)
+            ->exists();
+    }
+
     /**
      * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
      * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
@@ -207,7 +271,8 @@ final class CarrierWebhookVerifier
      */
     private function redactedPayload(array $context, array $identity, string $eventKey): array
     {
-        return array_filter([
+        // #159: explicit allowlist. PII keys/values are never stored.
+        $candidate = [
             'event_key' => $eventKey,
             'event_type' => $identity['event_type'],
             'status' => $identity['status'],
@@ -215,7 +280,41 @@ final class CarrierWebhookVerifier
             'shipment_uuid' => $identity['shipment_uuid'],
             'occurred_at' => $identity['occurred_at']->toIso8601String(),
             'webhook_version' => $context['version'],
-        ], static fn (mixed $value): bool => $value !== null && $value !== '');
+        ];
+
+        $redacted = [];
+        foreach ($candidate as $key => $value) {
+            if (! is_string($value) || $value === '') {
+                continue;
+            }
+            $clean = $this->redactPiiValue($key, $value);
+            if ($clean !== null) {
+                $redacted[$key] = $clean;
+            }
+        }
+
+        return $redacted;
+    }
+
+    private function redactPiiValue(string $key, string $value): ?string
+    {
+        $keyLower = strtolower($key);
+        if (preg_match('/email|phone|mobile|address|street|city|postal|zip|national|nid|ssn|passport|iban/', $keyLower) === 1) {
+            return '[REDACTED]';
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_EMAIL) !== false) {
+            return '[REDACTED_EMAIL]';
+        }
+
+        // Phone-like values with explicit separators/+; avoid redacting plain numeric refs.
+        $digits = preg_replace('/\D+/', '', $value);
+        if (is_string($digits) && strlen($digits) >= 10 && strlen($digits) <= 15
+            && preg_match('/^\+[\d\s().-]{9,19}$/', $value) === 1) {
+            return '[REDACTED_PHONE]';
+        }
+
+        return strlen($value) > 191 ? substr($value, 0, 191) : $value;
     }
 
     /**

@@ -370,8 +370,13 @@ class OrderService
                 // ($pendingOrder is guaranteed non-committed here: a
                 // committed pending order was superseded above.)
                 if ($pendingOrder) {
+                    $shippingBreakdownComponents = [
+                        'base_shipping' => (float) ($quote['base_shipping'] ?? $shippingPrice),
+                        'threshold_waiver' => (float) ($quote['threshold_waiver'] ?? 0.0),
+                        'coupon_waiver' => (float) ($quote['coupon_waiver'] ?? 0.0),
+                    ];
                     $order = $this->orderCreationService->updateOrder(
-                        $pendingOrder, $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
+                        $pendingOrder, $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId, $shippingBreakdownComponents,
                     );
 
                     // Release old reservation before creating new one
@@ -422,11 +427,17 @@ class OrderService
                     $checkoutFlowId = (int) $checkoutFlow->id;
                     $checkoutFlowCode = null;
                 }
+                $shippingBreakdownComponents = [
+                    'base_shipping' => (float) ($quote['base_shipping'] ?? $shippingPrice),
+                    'threshold_waiver' => (float) ($quote['threshold_waiver'] ?? 0.0),
+                    'coupon_waiver' => (float) ($quote['coupon_waiver'] ?? 0.0),
+                ];
                 $order = $this->orderCreationService->createOrder(
                     $orderData, $cart, $checkoutTotals, null, null, null, $shippingPrice, $governorateId,
                     $request->input('shipping_type'),
                     $checkoutFlowId,
                     $checkoutFlowCode,
+                    $shippingBreakdownComponents,
                 );
                 if (!$order) {
                     throw new \RuntimeException(__('message.MESSAGE.ORDER_CREATION_FAILED'));

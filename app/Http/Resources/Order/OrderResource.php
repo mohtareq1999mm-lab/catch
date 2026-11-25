@@ -78,6 +78,8 @@ class OrderResource extends JsonResource
             ]),
             'shipping_price' => $this->roundMoney($this->shipping_price),
             'fast_shipping_fee' => $this->roundMoney($this->fast_shipping_fee),
+            'cod_fee' => $this->roundMoney($this->cod_fee),
+            'shipping_breakdown' => $this->shipping_breakdown,
             'pickup_location' => $this->when($this->fulfillment_type === 'pickup', fn() => $this->resolvePickupLocation()),
             'invoice_summary' => $this->when($this->relationLoaded('invoices'), function () {
                 $invoice = $this->invoices->last();

@@ -141,7 +141,7 @@ class OrderItemSnapshotTest extends CurrencyTestCase
 
         $this->assertSame('USD', $order->currency_code);
         $this->assertSame(100.0, $order->total_price);
-        $this->assertSame('0.221000', $order->currency_rate);
+        $this->assertSame('0.2210000000', $order->currency_rate);
 
         \App\Models\CurrencyRate::query()
             ->whereHas('currency', fn($query) => $query->where('code', 'KWD'))
