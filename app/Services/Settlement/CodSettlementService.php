@@ -100,7 +100,12 @@ class CodSettlementService
             return $existing;
         }
 
-        $lines = $this->resolveLines($this->normalizeLines($payload['lines'] ?? null), $identity);
+        $lines = $this->resolveLines(
+            $this->normalizeLines($payload['lines'] ?? null),
+            $identity,
+            $identity['currency_code'],
+        );
+        $identity['currency_code'] = $lines[0]['currency_code'];
 
         return DB::transaction(function () use ($identity, $lines, $fileHash): CodSettlementStatement {
             $locked = $this->findImportByFileHash(
