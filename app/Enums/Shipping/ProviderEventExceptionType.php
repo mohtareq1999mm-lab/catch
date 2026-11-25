@@ -20,4 +20,9 @@ enum ProviderEventExceptionType: string
     case MODE_MISMATCH = 'mode_mismatch';
     case TERMINAL_STATE_REVERSAL = 'terminal_state_reversal';
     case OUT_OF_ORDER_EVENT = 'out_of_order_event';
+
+    // #187: cancellation requires provider confirmation; both refusal modes
+    // are operationally distinct and never fabricate a local transition.
+    case CANCEL_UNSUPPORTED = 'cancel_unsupported';
+    case CANCEL_REJECTED = 'cancel_rejected';
 }

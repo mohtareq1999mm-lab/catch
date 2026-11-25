@@ -13,6 +13,7 @@ use App\Http\Resources\Wms\ShipmentDetailResource;
 use App\Http\Resources\Wms\ShipmentResource;
 use App\Models\Fulfillment\Fulfillment;
 use App\Models\Shipment;
+use App\Services\Shipment\CarrierCancellationService;
 use App\Services\Shipment\ShipmentManualCorrectionService;
 use App\Services\Shipment\ShipmentService;
 use App\Services\Warehouse\WarehouseAccess;
@@ -38,6 +39,7 @@ class ShipmentController extends WmsAdminController
 {
     public function __construct(
         private ShipmentService $shipments,
+        private CarrierCancellationService $cancellations,
         private ShipmentManualCorrectionService $manualCorrections,
     ) {
         $this->middleware('permission:' . Permission::WMS_SHIPMENTS_INDEX, ['only' => ['index']]);
@@ -300,7 +302,7 @@ class ShipmentController extends WmsAdminController
         $this->authorizeWarehouseScope($this->shipmentWarehouseId($shipment), 'update-shipment');
 
         try {
-            $cancelled = $this->shipments->cancelShipment(
+            $cancelled = $this->cancellations->cancel(
                 $shipment->id,
                 (string) $request->validated('reason'),
                 ['cancel_source' => 'admin_api', 'cancelled_by' => $this->actorId()]

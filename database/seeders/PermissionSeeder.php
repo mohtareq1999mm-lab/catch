@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Services\OrderFlow\OrderFlowService;
+use App\Support\FinanceAuthority;
 use Illuminate\Database\Seeder;
 use Marvel\Database\Models\Role;
 use Marvel\Database\Models\User;
@@ -104,8 +105,8 @@ class PermissionSeeder extends Seeder
             'payments.verify',
             'payments.reconcile',
 
-            // 🧾 COD settlement evidence (finance read-only)
-            'cod-settlement.view',
+            // 🧾 COD settlement evidence (finance only; never broadly synced)
+            MarvelPermission::COD_SETTLEMENT_VIEW,
 
             // 👤 Customer
             'view-profile',
@@ -752,15 +753,20 @@ class PermissionSeeder extends Seeder
             ['name' => 'editor', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Editor', 'ar' => 'محرر']],
         );
+        $roleFinance = Role::firstOrCreate(
+            ['name' => FinanceAuthority::ROLE, 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Finance', 'ar' => 'مالية']],
+        );
 
         // Seed dedicated WMS roles
         $this->seedWarehouseRoles();
 
-        // 🌟 CRITICAL ENTERPRISE FIX:
-        // Super Admin MUST receive 100% of all permissions with guard `api` in the database.
-        // This ensures super_admin never loses any permission on re-seed, regardless of when
-        // or where a permission was defined.
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        // Finance is explicit: only the dedicated role holds finance authority.
+        $roleFinance->syncPermissions(FinanceAuthority::permissions());
+
+        // Super Admin receives all broadly delegable permissions. Finance
+        // permissions are deliberately excluded from this automatic path.
+        $allApiPermissions = FinanceAuthority::broadlyGrantablePermissions();
         $roleSuperAdmin->syncPermissions($allApiPermissions);
 
         // Staff maintains its baseline + all granular target status transition permissions
