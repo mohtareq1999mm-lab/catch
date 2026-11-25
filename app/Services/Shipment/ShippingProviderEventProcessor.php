@@ -56,7 +56,15 @@ final class ShippingProviderEventProcessor
         }
 
         $this->applyTransition($event, $mapping, $modeMismatch);
-        $this->evidence->record($webhook, $event->fresh());
+
+        // #181: evidence is additive and must never poison an already-normalized
+        // transition or create a replay poison row. Validation failures are
+        // reported operationally; the normalized event remains authoritative.
+        try {
+            $this->evidence->record($webhook, $event->fresh());
+        } catch (\Throwable $evidenceFailure) {
+            report($evidenceFailure);
+        }
 
         return $event->fresh();
     }
