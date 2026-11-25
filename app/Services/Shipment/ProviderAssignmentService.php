@@ -51,9 +51,10 @@ final class ProviderAssignmentService
             throw CarrierConfigurationException::unknownProvider($code);
         }
 
-        // #149: mixed or invalid mode configuration must fail before an
-        // assignment (and therefore a mode snapshot) can be produced.
+        // #149/#160: mixed/invalid mode, disabled provider, missing creds, or
+        // missing mapping version must fail closed before assignment.
         $mode = $this->factories->resolveMode($code);
+        $this->factories->assertProviderConfigResolvable($code, $mode);
 
         if (!$this->factories->status($code)['enabled']) {
             throw CarrierConfigurationException::disabled($code);
@@ -169,3 +170,4 @@ final class ProviderAssignmentService
             || (is_string($trackingNumber) && trim($trackingNumber) !== '');
     }
 }
+

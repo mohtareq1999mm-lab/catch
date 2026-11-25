@@ -337,6 +337,11 @@ Route::prefix('v1/general/invoices')->middleware(['signed', 'throttle:30,1'])->g
         ->whereUuid('uuid')->name('general.invoices.download');
 });
 
+Route::prefix('v1/general/shipping/labels')->middleware(['signed', 'throttle:30,1'])->group(function () {
+    Route::get('{uuid}', [\App\Http\Controllers\Api\General\ShipmentLabelController::class, 'show'])
+        ->whereUuid('uuid')->name('general.shipping.labels.show');
+});
+
 // NOTE: the signed digital-download route lives inside the `v1/general` group
 // above (same name `general.digital.download`; effective middleware
 // `auth:sanctum` (outer) + `signed` + `throttle:30,1`). A top-level

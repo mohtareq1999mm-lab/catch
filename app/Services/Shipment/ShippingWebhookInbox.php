@@ -24,6 +24,11 @@ final class ShippingWebhookInbox
 {
     public function store(CarrierWebhookEvent $event): ?InboxRow
     {
+        // #160: internal delivery actions must never create external inbox rows.
+        if ($event->mode === 'internal' || $event->providerCode === 'internal') {
+            return null;
+        }
+
         $shipmentId = null;
         if ($event->shipmentUuid !== null) {
             $shipmentId = Shipment::query()
@@ -53,3 +58,4 @@ final class ShippingWebhookInbox
         }
     }
 }
+

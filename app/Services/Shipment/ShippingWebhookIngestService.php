@@ -99,6 +99,12 @@ final class ShippingWebhookIngestService
 
     private function storeEvent(CarrierWebhookEvent $event): ShippingWebhookIngestResult
     {
+        // #160: internal delivery actions/events must never create external
+        // inbox rows. Internal mode has no external webhook contract.
+        if ($this->isInternalEvent($event)) {
+            return new ShippingWebhookIngestResult(ShippingWebhookIngestOutcome::UNAVAILABLE);
+        }
+
         // The row is committed before the HTTP layer acknowledges acceptance.
         // A scoped-key collision is a successful no-op, never a second pass.
         $record = $this->inbox->store($event);
@@ -113,6 +119,11 @@ final class ShippingWebhookIngestService
         );
     }
 
+    private function isInternalEvent(CarrierWebhookEvent $event): bool
+    {
+        return $event->mode === 'internal' || $event->providerCode === 'internal';
+    }
+
     /** @param array<string,mixed> $headers */
     private function presentedSignature(array $headers, string $header): ?string
     {
@@ -122,3 +133,4 @@ final class ShippingWebhookIngestService
         return is_string($signature) ? $signature : null;
     }
 }
+
