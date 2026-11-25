@@ -145,6 +145,9 @@ final class CarrierWebhookVerifier
             throw CarrierConfigurationException::unknownProvider($providerCode);
         }
 
+        // #192: the webhook boundary must use the same validated, single mode
+        // as the factory. Reading the raw flag here would let mixed sandbox and
+        // production configuration accept signed evidence from either mode.
         // #175: reuse the factory's validated mode so polling capability is
         // authoritative for webhook config reads too.
         $mode = $this->factory()->resolveMode($providerCode);

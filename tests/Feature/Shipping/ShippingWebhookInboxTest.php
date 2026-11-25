@@ -8,10 +8,12 @@ use App\Models\Shipment;
 use App\Models\Shipping\ShippingWebhookEvent;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
 use Mockery;
+use Psr\Log\LoggerInterface;
 use Tests\TestCase;
 
 /**
@@ -145,6 +147,9 @@ class ShippingWebhookInboxTest extends TestCase
         $sandbox->assertStatus(202)->assertJsonPath('data.status', 'accepted');
 
         config([
+            // Only one mode may be active; the old sandbox block must be
+            // disabled before the production identity can be used (#192).
+            'shipping.providers.null.modes.sandbox.enabled' => false,
             'shipping.providers.null.mode' => 'production',
             'shipping.providers.null.modes.sandbox.enabled' => false,
             'shipping.providers.null.account_code' => 'null-production',
@@ -166,6 +171,80 @@ class ShippingWebhookInboxTest extends TestCase
         $this->assertSame(['evt_scoped_identity_143', 'evt_scoped_identity_143'], $rows->pluck('event_key')->all());
         $this->assertSame(['sandbox', 'production'], $rows->pluck('mode')->all());
         $this->assertSame(['null-local', 'null-production'], $rows->pluck('account_code')->all());
+    }
+
+    public function test_sandbox_webhook_is_not_linked_to_a_production_shipment(): void
+    {
+        $shipment = $this->createShipment('production');
+        $payload = $this->payload([
+            'id' => 'evt_mode_isolation_192',
+            'metadata' => ['shipment_uuid' => $shipment->uuid],
+        ]);
+
+        $response = $this->postWebhook($payload);
+
+        $response->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+
+        $event = ShippingWebhookEvent::firstOrFail();
+        $this->assertSame('sandbox', $event->mode);
+        $this->assertNull($event->shipment_id);
+        $this->assertSame('production', $shipment->fresh()->provider_mode);
+        $this->assertSame('pending', $shipment->fresh()->status);
+    }
+
+    public function test_production_webhook_is_not_linked_to_a_sandbox_shipment(): void
+    {
+        $shipment = $this->createShipment('sandbox');
+        $payload = $this->payload([
+            'id' => 'evt_mode_isolation_reverse_192',
+            'metadata' => ['shipment_uuid' => $shipment->uuid],
+        ]);
+
+        config([
+            // Only one mode may be active; replace the default sandbox block
+            // before the production identity is used (#192).
+            'shipping.providers.null.modes.sandbox.enabled' => false,
+            'shipping.providers.null.mode' => 'production',
+            'shipping.providers.null.account_code' => 'null-production',
+            'shipping.providers.null.modes.production.enabled' => true,
+            'shipping.providers.null.modes.production.webhook.secret' => self::SECRET,
+            'shipping.providers.null.modes.production.webhook.version' => 'v1',
+        ]);
+
+        $response = $this->postWebhook($payload);
+
+        $response->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+
+        $event = ShippingWebhookEvent::firstOrFail();
+        $this->assertSame('production', $event->mode);
+        $this->assertNull($event->shipment_id);
+        $this->assertSame('sandbox', $shipment->fresh()->provider_mode);
+        $this->assertSame('pending', $shipment->fresh()->status);
+    }
+
+    public function test_mixed_mode_configuration_fails_closed_alerts_and_does_not_retry(): void
+    {
+        config([
+            'shipping.providers.null.mode' => 'production',
+            'shipping.providers.null.modes.production.enabled' => true,
+            'shipping.providers.null.modes.production.webhook.secret' => self::SECRET,
+            'shipping.providers.null.modes.production.webhook.version' => 'v1',
+        ]);
+
+        $logger = Mockery::spy(LoggerInterface::class);
+        $this->app->instance(LoggerInterface::class, $logger);
+        Queue::fake();
+
+        $response = $this->postWebhook($this->payload(['id' => 'evt_mixed_modes_192']));
+
+        $response->assertStatus(503)->assertJson(['success' => false]);
+        $response->assertHeaderMissing('Retry-After');
+        $this->assertSame(0, ShippingWebhookEvent::count());
+        Queue::assertNothingPushed();
+        $logger->shouldHaveReceived('error', fn (mixed $message): bool => str_contains(
+            (string) $message,
+            'mixed sandbox/production configuration',
+        ));
     }
 
     public function test_limiter_backend_failure_fails_closed_with_503_before_verification(): void
@@ -247,7 +326,7 @@ class ShippingWebhookInboxTest extends TestCase
         $this->assertSame(0, ShippingWebhookEvent::count());
     }
 
-    private function createShipment(): Shipment
+    private function createShipment(string $mode = 'sandbox'): Shipment
     {
         $user = User::create([
             'name' => 'Webhook Test User',
@@ -272,6 +351,8 @@ class ShippingWebhookInboxTest extends TestCase
         return Shipment::create([
             'order_id' => $order->id,
             'status' => 'pending',
+            'provider_code' => 'null',
+            'provider_mode' => $mode,
         ]);
     }
 

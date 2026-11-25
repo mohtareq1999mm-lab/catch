@@ -7,10 +7,12 @@ namespace Tests\Feature\Settlement;
 use App\Enums\SettlementMode;
 use App\Exceptions\CodSettlementPrecisionException;
 use App\Models\Currency;
+use App\Models\Shipment;
 use App\Models\Settlement\ShipmentCodAdjustment;
 use App\Services\Settlement\CodSettlementService;
 use App\Services\Settlement\ShipmentCodAdjustmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
 use Tests\Feature\Currency\CurrencyTestCase;
@@ -135,6 +137,68 @@ class ShipmentCodAdjustmentTest extends CurrencyTestCase
 
         $this->assertSame(0, ShipmentCodAdjustment::query()->count());
         $this->assertSame($before, $order->fresh()->only(array_keys($before)));
+    }
+
+    public function test_idempotent_approval_only_writes_approval_evidence(): void
+    {
+        $this->seedCurrencyData();
+        $order = $this->order(['currency_code' => 'USD', 'total_price' => 100]);
+        $actor = $this->createCustomer();
+        $approver = $this->createCustomer();
+
+        $shipment = Shipment::create([
+            'order_id' => $order->id,
+            'status' => 'pending',
+            'provider_code' => 'null',
+            'provider_mode' => 'sandbox',
+        ]);
+        $transactionId = DB::table('transactions')->insertGetId([
+            'order_id' => $order->id,
+            'payment_method' => 'cod',
+            'status' => 'pending',
+            'amount' => 100,
+            'currency' => 'USD',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $beforeOrder = $order->fresh()->only(['status', 'payment_status', 'total_price', 'currency_code']);
+        $beforeShipment = $shipment->fresh()->only(['status', 'provider_code', 'provider_mode']);
+        $beforeTransaction = (array) DB::table('transactions')->where('id', $transactionId)->first([
+            'status', 'amount', 'currency', 'paid_at',
+        ]);
+
+        $payload = [
+            'order_id' => $order->id,
+            'currency_code' => 'USD',
+            'original_collectible_minor' => 10000,
+            'old_collectible_minor' => 10000,
+            'new_collectible_minor' => 9000,
+            'reason' => 'Approved reconciliation',
+            'actor_id' => $actor->id,
+            'idempotency_key' => 'adj-approved-192',
+        ];
+
+        $service = app(ShipmentCodAdjustmentService::class);
+        $first = $service->record($payload);
+        $replay = $service->record($payload);
+
+        $this->assertSame($first->id, $replay->id);
+        $this->assertSame(1, ShipmentCodAdjustment::query()->count());
+
+        $approved = $service->approve($first, $approver->id);
+
+        $this->assertSame('approved', $approved->status);
+        $this->assertSame($approver->id, $approved->approved_by);
+        $this->assertNotNull($approved->approved_at);
+        $this->assertSame(10000, $approved->original_collectible_minor);
+        $this->assertSame(10000, $approved->old_collectible_minor);
+        $this->assertSame(9000, $approved->new_collectible_minor);
+        $this->assertSame($beforeOrder, $order->fresh()->only(array_keys($beforeOrder)));
+        $this->assertSame($beforeShipment, $shipment->fresh()->only(array_keys($beforeShipment)));
+        $this->assertSame($beforeTransaction, (array) DB::table('transactions')->where('id', $transactionId)->first([
+            'status', 'amount', 'currency', 'paid_at',
+        ]));
     }
 
     public function test_settlement_line_has_expected_received_variance_and_adjustment_records_do_not_change_order_status(): void
