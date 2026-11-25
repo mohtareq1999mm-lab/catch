@@ -342,6 +342,14 @@ Route::prefix('v1/general/shipping/labels')->middleware(['signed', 'throttle:30,
         ->whereUuid('uuid')->name('general.shipping.labels.show');
 });
 
+// Proof of delivery files are private and served only via short-lived signed URLs.
+// Signed link is bound to actor uid + permission/ownership check in controller.
+Route::prefix('v1/general/shipments')->middleware(['signed', 'auth:sanctum', 'throttle:30,1'])->group(function () {
+    Route::get('pods/{pod}/file', [\App\Http\Controllers\Api\Shipping\ShipmentPodFileController::class, 'show'])
+        ->whereNumber('pod')
+        ->name('api.v1.shipments.pods.file');
+});
+
 // NOTE: the signed digital-download route lives inside the `v1/general` group
 // above (same name `general.digital.download`; effective middleware
 // `auth:sanctum` (outer) + `signed` + `throttle:30,1`). A top-level

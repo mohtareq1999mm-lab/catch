@@ -122,6 +122,9 @@ return [
             'search' => 'Cursor pagination cannot be combined with search.',
             'order_price' => 'Cursor pagination cannot be combined with order_price.',
         ],
+        'shipment_pod' => [
+            'duplicate_successful' => 'A successful proof of delivery already exists for this shipment.',
+        ],
     ],
 
     'attributes' => [

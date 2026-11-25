@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -27,6 +27,9 @@ return new class extends Migration
             $table->index(['shipment_id', 'status']);
         });
 
+        // MySQL-only invariant. On non-MySQL drivers the generated-column index is
+        // unavailable; ProofOfDeliveryService still enforces one successful POD via
+        // a shipment row lock + recheck before insert.
         if (Schema::getConnection()->getDriverName() === 'mysql') {
             DB::statement(
                 "ALTER TABLE `shipment_pods` ADD COLUMN `successful_shipment_id` BIGINT UNSIGNED " .
