@@ -32,8 +32,7 @@ final class TrackingAggregateService
     /**
      * @return array{status:string,eta:?\Carbon\CarbonInterface,delivered_at:?\Carbon\CarbonInterface,has_shipments:bool}
      */
-    public function forOrder(Order $order): array
-    {
+    public function forOrder(Order $order): array    {
         $shipments = $this->shipmentsFor($order);
 
         if ($shipments->isEmpty()) {
@@ -52,7 +51,7 @@ final class TrackingAggregateService
         $nonCancelled = $shipments->where('status', '!=', 'cancelled');
 
         if ($nonCancelled->isEmpty()) {
-            return $this->result('cancelled');
+            return $this->terminalResult('cancelled', null);
         }
 
         $outstanding = $nonCancelled->filter(
@@ -61,7 +60,17 @@ final class TrackingAggregateService
 
         if ($outstanding->isEmpty()) {
             if ($nonCancelled->contains('status', 'returned')) {
-                return $this->result('returned');
+                // Returned is terminal. Use genuine shipment-side evidence:
+                // a returned delivery timestamp when present, otherwise the
+                // shipment's own mutation time. Never the stale order mirror.
+                $returnedAt = $nonCancelled
+                    ->where('status', 'returned')
+                    ->pluck('delivered_at')
+                    ->filter()
+                    ->max()
+                    ?? $nonCancelled->max('updated_at');
+
+                return $this->terminalResult('returned', $returnedAt);
             }
 
             $deliveredAt = $nonCancelled
@@ -70,12 +79,7 @@ final class TrackingAggregateService
                 ->filter()
                 ->max();
 
-            return [
-                'status' => 'delivered',
-                'eta' => null,
-                'delivered_at' => $deliveredAt,
-                'has_shipments' => true,
-            ];
+            return $this->terminalResult('delivered', $deliveredAt);
         }
 
         $status = 'pending';
@@ -101,7 +105,7 @@ final class TrackingAggregateService
     {
         return Shipment::query()
             ->where('order_id', $order->id)
-            ->select(['id', 'status', 'shipped_at', 'estimated_delivery_at', 'delivered_at', 'cancelled_at'])
+            ->select(['id', 'status', 'shipped_at', 'estimated_delivery_at', 'delivered_at', 'cancelled_at', 'updated_at'])
             ->orderBy('id')
             ->get();
     }
@@ -148,6 +152,20 @@ final class TrackingAggregateService
             'status' => $status,
             'eta' => null,
             'delivered_at' => null,
+            'has_shipments' => true,
+        ];
+    }
+
+    /**
+     * @param ?\Carbon\CarbonInterface $terminalAt
+     * @return array{status:string,eta:?\Carbon\CarbonInterface,delivered_at:?\Carbon\CarbonInterface,has_shipments:bool}
+     */
+    private function terminalResult(string $status, ?\Carbon\CarbonInterface $terminalAt): array
+    {
+        return [
+            'status' => $status,
+            'eta' => null,
+            'delivered_at' => $terminalAt,
             'has_shipments' => true,
         ];
     }

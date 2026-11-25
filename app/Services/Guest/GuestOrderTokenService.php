@@ -173,10 +173,10 @@ class GuestOrderTokenService
         $aggregate ??= $this->aggregates->forOrder($order);
 
         if ($aggregate['has_shipments']) {
-            // Round 12: only a genuinely delivered aggregate is terminal.
-            // A stale order mirror must not restart the grace period for a
-            // returned or still-outstanding split shipment.
-            return $aggregate['status'] === 'delivered'
+            // Round 12: both delivered and returned shipment aggregates are
+            // terminal. A stale order mirror must not manufacture the
+            // timestamp, and an outstanding split shipment has no hard expiry.
+            return in_array($aggregate['status'], ['delivered', 'returned'], true)
                 ? $aggregate['delivered_at']
                 : null;
         }

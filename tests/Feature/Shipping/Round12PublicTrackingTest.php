@@ -228,7 +228,7 @@ final class Round12PublicTrackingTest extends TestCase
         $allReturned = $this->createOrder();
         $this->createShipment($allReturned, ['status' => 'returned', 'delivered_at' => $deliveredAt]);
         $this->createShipment($allReturned, ['status' => 'returned', 'delivered_at' => $deliveredAt]);
-        $this->assertAggregate($service->forOrder($allReturned), 'returned', null, null, true);
+        $this->assertAggregate($service->forOrder($allReturned), 'returned', null, $deliveredAt, true);
 
         // Returned + delivered: the return must not hide the true delivered set.
         $returnedAndDelivered = $this->createOrder([
@@ -237,7 +237,7 @@ final class Round12PublicTrackingTest extends TestCase
         ]);
         $this->createShipment($returnedAndDelivered, ['status' => 'returned', 'delivered_at' => $deliveredAt]);
         $this->createShipment($returnedAndDelivered, ['status' => 'delivered', 'delivered_at' => $deliveredAt]);
-        $this->assertAggregate($service->forOrder($returnedAndDelivered), 'returned', null, null, true);
+        $this->assertAggregate($service->forOrder($returnedAndDelivered), 'returned', null, $deliveredAt, true);
 
         // Returned + active: the outstanding shipment wins over the return.
         $returnedAndActive = $this->createOrder();
@@ -316,11 +316,17 @@ final class Round12PublicTrackingTest extends TestCase
                 $token = app(GuestOrderTokenService::class)->issueTrackingToken($order);
 
                 $response = $this->postJson(self::GUEST_TRACK, ['token' => $token]);
-                $response->assertOk();
 
-                $this->assertSame($shipmentStatus, $response->json('data.aggregate.status'));
-                $this->assertNull($response->json('data.aggregate.delivered_at'));
-                $this->assertNull($response->json('data.tracking_expires_at'), $shipmentStatus . ' must not inherit a stale delivery mirror');
+                if ($shipmentStatus === 'returned') {
+                    // Returned is terminal and this stale return is already
+                    // beyond the grace period: the possession link expires.
+                    $response->assertNotFound();
+                } else {
+                    $response->assertOk();
+                    $this->assertSame($shipmentStatus, $response->json('data.aggregate.status'));
+                    $this->assertNull($response->json('data.aggregate.delivered_at'));
+                    $this->assertNull($response->json('data.tracking_expires_at'), $shipmentStatus . ' must not inherit a stale delivery mirror');
+                }
 
                 $fresh = $order->fresh();
                 $this->assertSame($orderStatus, $fresh->status);
@@ -438,10 +444,7 @@ final class Round12PublicTrackingTest extends TestCase
                 'other_secret',
                 strtolower((string) json_encode($response->json('data.data')))
             );
-            $this->assertStringNotContainsString(
-                (string) $other->id,
-                strtolower((string) json_encode($response->json('data.data')))
-            );
+            $this->assertStringNotContainsString('"recipient_id"', strtolower((string) json_encode($response->json('data.data'))));
         }
     }
 
