@@ -23,9 +23,19 @@ class DeliveryRepresentative extends Model
     ];
 
     protected $casts = [
+        'user_id' => 'integer',
         'is_active' => 'bool',
         'metadata' => 'array',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $representative): void {
+            if (empty($representative->user_id)) {
+                throw new \InvalidArgumentException('Delivery representative requires a linked user.');
+            }
+        });
+    }
 
     public function user(): BelongsTo
     {

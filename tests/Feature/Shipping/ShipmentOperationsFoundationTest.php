@@ -25,8 +25,8 @@ class ShipmentOperationsFoundationTest extends TestCase
     public function test_only_one_active_assignment_per_shipment_is_database_enforced(): void
     {
         $shipment = $this->createShipment();
-        $repA = DeliveryRepresentative::create(['name' => 'Rep A', 'phone' => '100', 'is_active' => true]);
-        $repB = DeliveryRepresentative::create(['name' => 'Rep B', 'phone' => '200', 'is_active' => true]);
+        $repA = $this->createRepresentative('rep-a@example.test', 'Rep A', '100');
+        $repB = $this->createRepresentative('rep-b@example.test', 'Rep B', '200');
 
         ShipmentAssignment::create([
             'shipment_id' => $shipment->id,
@@ -48,8 +48,8 @@ class ShipmentOperationsFoundationTest extends TestCase
     public function test_assignment_history_allows_non_active_rows_for_same_shipment(): void
     {
         $shipment = $this->createShipment();
-        $repA = DeliveryRepresentative::create(['name' => 'Rep A', 'phone' => '100', 'is_active' => true]);
-        $repB = DeliveryRepresentative::create(['name' => 'Rep B', 'phone' => '200', 'is_active' => true]);
+        $repA = $this->createRepresentative('rep-a@example.test', 'Rep A', '100');
+        $repB = $this->createRepresentative('rep-b@example.test', 'Rep B', '200');
 
         ShipmentAssignment::create([
             'shipment_id' => $shipment->id,
@@ -303,6 +303,22 @@ class ShipmentOperationsFoundationTest extends TestCase
         return Shipment::query()->create([
             'order_id' => $order->id,
             'status' => 'pending',
+        ]);
+    }
+
+    private function createRepresentative(string $email, string $name, string $phone): DeliveryRepresentative
+    {
+        $user = \Marvel\Database\Models\User::factory()->create([
+            'email' => $email,
+            'is_active' => true,
+        ]);
+
+        return DeliveryRepresentative::create([
+            'user_id' => $user->id,
+            'name' => $name,
+            'phone' => $phone,
+            'email' => $email,
+            'is_active' => true,
         ]);
     }
 }

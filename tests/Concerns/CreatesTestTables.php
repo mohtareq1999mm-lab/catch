@@ -472,12 +472,15 @@ Schema::create('categories', function (Blueprint $table) {
 
         Schema::create('delivery_representatives', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->string('name');
             $table->string('phone', 32)->nullable();
             $table->string('email')->nullable();
             $table->boolean('is_active')->default(true);
             $table->json('metadata')->nullable();
             $table->timestamps();
+            $table->unique('user_id', 'delivery_representatives_user_id_unique');
+            $table->index(['is_active', 'id']);
         });
 
         Schema::create('shipment_assignments', function (Blueprint $table) {

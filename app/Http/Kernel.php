@@ -76,7 +76,9 @@ class Kernel extends HttpKernel
         'guest.origin' => \App\Http\Middleware\GuestOrigin::class,
         'guest.session' => \App\Http\Middleware\GuestSession::class,
         'guest.cookie_refresh' => \App\Http\Middleware\GuestCookieRefresh::class,
+        'representative' => \App\Http\Middleware\EnsureDeliveryRepresentative::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'lang' => \App\Http\Middleware\CheckLangMiddleware::class,
     ];
 }
+
