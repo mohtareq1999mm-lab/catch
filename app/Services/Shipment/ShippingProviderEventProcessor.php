@@ -26,6 +26,7 @@ final class ShippingProviderEventProcessor
         private readonly ShipmentService $shipments,
         private readonly CarrierGatewayFactory $factories,
         private readonly LinksCarrierReturns $returnLinks,
+        private readonly CarrierEvidenceRecorder $evidence,
     ) {}
 
     public function process(ShippingWebhookEvent $webhook): ShippingProviderEvent
@@ -55,6 +56,7 @@ final class ShippingProviderEventProcessor
         }
 
         $this->applyTransition($event, $mapping, $modeMismatch);
+        $this->evidence->record($webhook, $event->fresh());
 
         return $event->fresh();
     }
