@@ -19,6 +19,8 @@ class ShipmentNotification extends Model
         'channel',
         'recipient_type',
         'recipient_id',
+        'recipient_contact_encrypted',
+        'recipient_fingerprint_version',
         'status',
         'dedupe_key',
         'payload',
@@ -31,6 +33,10 @@ class ShipmentNotification extends Model
         'payload' => 'array',
         'sent_at' => 'datetime',
         'failed_at' => 'datetime',
+    ];
+
+    protected $hidden = [
+        'recipient_contact_encrypted',
     ];
 
     public function shipment(): BelongsTo
