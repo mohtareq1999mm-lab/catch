@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Services\OrderFlow\OrderFlowService;
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Marvel\Database\Models\Role;
 use Marvel\Database\Models\User;
@@ -104,10 +105,11 @@ class PermissionSeeder extends Seeder
             'payments.verify',
             'payments.reconcile',
 
-            // 🧾 COD settlement evidence (finance read-only)
-            'cod-settlement.view',
-            'cod-settlement.match',
-            'cod-settlement.close',
+            // 🧾 COD settlement evidence (finance only; never broadly seeded)
+            MarvelPermission::COD_SETTLEMENT_VIEW,
+            MarvelPermission::COD_SETTLEMENT_MATCH,
+            MarvelPermission::COD_SETTLEMENT_CLOSE,
+            MarvelPermission::COD_ADJUSTMENT_APPROVE,
 
             // 👤 Customer
             'view-profile',
@@ -615,6 +617,8 @@ class PermissionSeeder extends Seeder
             'delete-hero',
         ];
 
+        $financePermission = FinanceAccess::permissions();
+
         $superAdminPermission = [
             'view-admins',
             'manage-digital-licenses',
@@ -682,14 +686,7 @@ class PermissionSeeder extends Seeder
             'set-catalog-currency',
         ];
 
-        // #156: COD settlement authority is deliberately delegated to a
-        // dedicated finance role. It is never swept into super_admin by the
-        // "all api permissions" sync below.
-        $financePermission = [
-            MarvelPermission::COD_SETTLEMENT_VIEW,
-            MarvelPermission::COD_SETTLEMENT_MATCH,
-            MarvelPermission::COD_SETTLEMENT_CLOSE,
-        ];
+        $financePermission = FinanceAccess::permissions();
 
         $viewPermission = [
             'view-products',
@@ -729,6 +726,7 @@ class PermissionSeeder extends Seeder
             $staffAndOnwner ?? [],
             $onwnerPermission ?? [],
             $editorPermission ?? [],
+            $financePermission ?? [],
             $superAdminPermission ?? [],
             $viewPermission ?? [],
             $granularPermissionNames ?? [],
@@ -764,22 +762,22 @@ class PermissionSeeder extends Seeder
             ['display_name' => ['en' => 'Editor', 'ar' => 'محرر']],
         );
         $roleFinance = Role::firstOrCreate(
-            ['name' => 'finance', 'guard_name' => 'api'],
+            ['name' => FinanceAccess::ROLE, 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Finance', 'ar' => 'مالية']],
         );
 
         // Seed dedicated WMS roles
         $this->seedWarehouseRoles();
 
+        // Finance authority is isolated: the role holds only the granular
+        // finance permissions and is never assigned to another role or user.
         $roleFinance->syncPermissions($financePermission);
 
-        // 🌟 CRITICAL ENTERPRISE FIX:
-        // Super Admin receives every permission EXCEPT the #156 COD finance
-        // permissions. Those are granted only through the dedicated finance
-        // role so financial close authority remains separable.
-        $allApiPermissions = Permission::where('guard_name', 'api')
-            ->whereNotIn('name', $financePermission)
-            ->get();
+        // 🌟 CRITICAL ENTERPRISE FIX (#156/#191):
+        // Super Admin receives every broadly delegable permission EXCEPT the
+        // COD finance permissions. Those are granted only through the dedicated
+        // finance role so financial close authority remains separable.
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
         $roleSuperAdmin->syncPermissions($allApiPermissions);
 
         // Staff maintains its baseline + all granular target status transition permissions

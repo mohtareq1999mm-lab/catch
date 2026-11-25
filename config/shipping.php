@@ -90,6 +90,16 @@ return [
         'max_attempts' => max(1, (int) env('SHIPPING_DELIVERY_MAX_ATTEMPTS', 3)),
     ],
 
+    /*
+     * #191: unmappable provider statuses fail closed into an owned exception.
+     * The team is a named operational owner; the SLA is expressed in business
+     * days so a Friday evening event is not due on a weekend.
+     */
+    'exceptions' => [
+        'owner_team' => env('SHIPPING_EXCEPTION_OWNER_TEAM', 'shipping-operations'),
+        'sla_business_days' => max(1, (int) env('SHIPPING_EXCEPTION_SLA_BUSINESS_DAYS', 1)),
+    ],
+
     'providers' => [
         'null' => [
             // Local placeholder only: no outbound calls, no capabilities.

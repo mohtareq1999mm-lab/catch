@@ -16,6 +16,7 @@ use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderStatus;
 use App\Models\Shipment;
 use App\Models\WarehouseWorkflowVersion;
+use App\Support\FinanceAccess;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -83,7 +84,7 @@ class FulfillmentSeeder extends Seeder
         }
 
         $superAdminRole = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'api']);
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
         $superAdminRole->syncPermissions($allApiPermissions);
         $demoAdmin = User::where('email', 'admin@demo.com')->first();
         if ($demoAdmin) {

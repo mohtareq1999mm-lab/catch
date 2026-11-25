@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Marvel\Database\Models\Role;
@@ -16,7 +17,7 @@ class Admin2UserSeeder extends Seeder
      */
     public function run(): void
     {
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
 
         $roleSuperAdmin = Role::firstOrCreate(
             ['name' => 'super_admin', 'guard_name' => 'api'],
