@@ -21,6 +21,15 @@ class CodSettlementStatementResource extends JsonResource
             'expected_minor' => (int) $this->expected_minor,
             'received_minor' => (int) $this->received_minor,
             'variance_minor' => (int) $this->variance_minor,
+            'acceptance_status' => $this->acceptance_status?->value,
+            'accepted_at' => $this->accepted_at?->toIso8601String(),
+            'accepted_by' => $this->accepted_by === null ? null : (int) $this->accepted_by,
+            'supersedes_statement_id' => $this->supersedes_statement_id === null
+                ? null
+                : (int) $this->supersedes_statement_id,
+            'statement_role' => is_array($this->metadata)
+                ? ($this->metadata['statement_role'] ?? 'correction')
+                : 'correction',
             'lines' => $this->whenLoaded(
                 'lines',
                 fn () => CodSettlementLineResource::collection($this->lines)

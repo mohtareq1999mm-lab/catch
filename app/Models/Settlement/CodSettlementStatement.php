@@ -3,6 +3,7 @@
 namespace App\Models\Settlement;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -27,6 +28,10 @@ class CodSettlementStatement extends Model
         'received_minor',
         'variance_minor',
         'metadata',
+        'acceptance_status',
+        'accepted_at',
+        'accepted_by',
+        'supersedes_statement_id',
     ];
 
     protected $casts = [
@@ -37,10 +42,17 @@ class CodSettlementStatement extends Model
         'received_minor' => 'integer',
         'variance_minor' => 'integer',
         'metadata' => 'array',
+        'accepted_at' => 'datetime',
+        'acceptance_status' => \App\Enums\Settlement\SettlementAcceptanceStatus::class,
     ];
 
     public function lines(): HasMany
     {
         return $this->hasMany(CodSettlementLine::class, 'statement_id');
+    }
+
+    public function supersededStatement(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'supersedes_statement_id');
     }
 }

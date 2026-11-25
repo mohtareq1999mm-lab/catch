@@ -3,17 +3,21 @@
 namespace App\Http\Controllers\Api\Admin\Finance;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\Finance\AcceptCodSettlementStatementRequest;
 use App\Http\Requests\Admin\Finance\ListCodSettlementStatementsRequest;
+use App\Http\Requests\Admin\Finance\RejectCodSettlementStatementRequest;
 use App\Http\Resources\Settlement\CodSettlementStatementResource;
 use App\Services\Settlement\CodSettlementService;
 use Illuminate\Http\JsonResponse;
+use InvalidArgumentException;
 use Marvel\Traits\ApiResponse;
 
 /**
- * #135: read-only finance adapter for COD settlement evidence.
+ * #135: finance adapter for COD settlement evidence.
+ * #182: explicit accept/reject decisions are the only write surface here;
+ * there is no payment, order, or adjustment command on this endpoint.
  *
- * Thin by design: there is no create/update/delete route and no payment or
- * lifecycle command on this surface.
+ * Thin by design: the service owns every business decision.
  */
 class CodSettlementController extends Controller
 {
@@ -44,6 +48,50 @@ class CodSettlementController extends Controller
             200,
             true,
             CodSettlementStatementResource::make($this->settlements->findStatement($id))
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/cod-settlements/statements/{id}/accept
+     */
+    public function accept(AcceptCodSettlementStatementRequest $request, int $id): JsonResponse
+    {
+        try {
+            $statement = $this->settlements->acceptStatement(
+                $id,
+                (int) $request->user()->getKey(),
+                $request->validated('supersedes_statement_id') === null
+                    ? null
+                    : (int) $request->validated('supersedes_statement_id'),
+            );
+        } catch (InvalidArgumentException $exception) {
+            return $this->apiResponse($exception->getMessage(), 422, false);
+        }
+
+        return $this->apiResponse(
+            __('cod_settlement.accepted'),
+            200,
+            true,
+            CodSettlementStatementResource::make($statement)
+        );
+    }
+
+    /**
+     * POST /api/v1/admin/cod-settlements/statements/{id}/reject
+     */
+    public function reject(RejectCodSettlementStatementRequest $request, int $id): JsonResponse
+    {
+        try {
+            $statement = $this->settlements->rejectStatement($id, (int) $request->user()->getKey());
+        } catch (InvalidArgumentException $exception) {
+            return $this->apiResponse($exception->getMessage(), 422, false);
+        }
+
+        return $this->apiResponse(
+            __('cod_settlement.rejected'),
+            200,
+            true,
+            CodSettlementStatementResource::make($statement)
         );
     }
 }

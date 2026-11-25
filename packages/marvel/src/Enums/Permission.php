@@ -498,8 +498,9 @@ final class Permission extends Enum
     public const PAYMENTS_VERIFY = 'payments.verify';
     public const PAYMENTS_RECONCILE = 'payments.reconcile';
 
-    // 🧾 COD settlement evidence (finance read-only)
+    // 🧾 COD settlement evidence (finance read-only + explicit acceptance)
     public const COD_SETTLEMENT_VIEW = 'cod-settlement.view';
+    public const COD_SETTLEMENT_ACCEPT = 'cod-settlement.accept';
 
     // 👥 Admin Users Granular Permissions
     public const ADMIN_USERS_CREATE = 'admin-users.create';

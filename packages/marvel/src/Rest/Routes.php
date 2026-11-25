@@ -736,10 +736,13 @@ Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:a
     Route::get('operations/{key}', [\App\Http\Controllers\Api\Admin\Wms\InventoryController::class, 'operationStatus'])->middleware('permission:' . \Marvel\Enums\Permission::INVENTORY_OPERATIONS_SHOW)->name('api.admin.inventory.operations.show');
 });
 
-// #135: finance-only COD settlement evidence reads. No write/payment route.
+// #135/#182: finance-only COD settlement evidence. The only writes are
+// explicit acceptance decisions; no payment/order/adjustment route exists.
 Route::prefix('admin/cod-settlements')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('statements', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.index');
     Route::get('statements/{id}', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.show');
+    Route::post('statements/{id}/accept', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'accept'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_ACCEPT)->name('api.admin.cod-settlements.statements.accept');
+    Route::post('statements/{id}/reject', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'reject'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_ACCEPT)->name('api.admin.cod-settlements.statements.reject');
 });
 
 // Phase 16: removed public test-card endpoint (exposed test PAN/CVV without

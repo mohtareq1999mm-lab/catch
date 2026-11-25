@@ -572,10 +572,15 @@ Schema::create('categories', function (Blueprint $table) {
                 $table->bigInteger('received_minor');
                 $table->bigInteger('variance_minor');
                 $table->json('metadata')->nullable();
+                $table->string('acceptance_status', 16)->default(\App\Enums\Settlement\SettlementAcceptanceStatus::PENDING->value);
+                $table->timestamp('accepted_at')->nullable();
+                $table->foreignId('accepted_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->foreignId('supersedes_statement_id')->nullable()->constrained('cod_settlement_statements')->nullOnDelete();
                 $table->timestamps();
                 $table->index(['provider_code', 'mode', 'account_code'], 'idx_cod_settlement_identity');
                 $table->index(['period_start', 'period_end'], 'idx_cod_settlement_period');
                 $table->index('currency_code', 'idx_cod_settlement_currency');
+                $table->index(['provider_code', 'mode', 'account_code', 'acceptance_status'], 'idx_cod_settlement_acceptance');
             });
         }
 
