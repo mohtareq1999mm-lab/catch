@@ -31,12 +31,12 @@ final class CarrierWebhookVerifier
     private const SUPPORTED_VERSIONS = ['v1'];
 
     /**
-     * #169 compatibility: the factory is optional so existing one-argument
-     * construction still works; the container injects it when available.
+     * #169 compatibility: existing one-argument construction still works;
+     * the container injects both when available.
      */
     public function __construct(
         private readonly Repository $config,
-        private readonly ShippingWebhookFingerprint $fingerprints,
+        private readonly ?ShippingWebhookFingerprint $fingerprints = null,
         private readonly ?CarrierGatewayFactory $factories = null,
     ) {}
 
@@ -61,6 +61,11 @@ final class CarrierWebhookVerifier
     private function factory(): CarrierGatewayFactory
     {
         return $this->factories ?? app(CarrierGatewayFactory::class);
+    }
+
+    private function fingerprints(): ShippingWebhookFingerprint
+    {
+        return $this->fingerprints ?? app(ShippingWebhookFingerprint::class);
     }
 
     /** @param array<string,mixed> $provider */
@@ -234,7 +239,7 @@ final class CarrierWebhookVerifier
         }
 
         $normalized = $this->fingerprintFields($identity, $body);
-        $candidates = $this->fingerprints->candidates(
+        $candidates = $this->fingerprints()->candidates(
             $providerCode,
             $context['mode'],
             $context['account_code'],
