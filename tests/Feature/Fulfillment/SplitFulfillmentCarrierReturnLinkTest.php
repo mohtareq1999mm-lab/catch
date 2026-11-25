@@ -116,10 +116,13 @@ class SplitFulfillmentCarrierReturnLinkTest extends TestCase
 
         $service = app(ShipmentService::class);
 
-        $service->createForFulfillment($fulfillment, [], null);
+        $first = $service->createForFulfillment($fulfillment, [], null);
 
-        $this->expectException(\App\Exceptions\WmsConflictException::class);
-        $service->createForFulfillment($fulfillment->fresh(), [], null);
+        // #147: an unkeyed repeat returns the canonical active shipment rather
+        // than creating contention. The unique index remains the race backstop.
+        $second = $service->createForFulfillment($fulfillment->fresh(), [], null);
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, Shipment::where('fulfillment_id', $first->fulfillment_id)->count());
     }
 
     public function test_carrier_return_links_to_existing_suitable_return_request_and_preserves_provider_metadata(): void
