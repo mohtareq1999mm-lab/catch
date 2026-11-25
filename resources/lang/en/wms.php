@@ -211,6 +211,7 @@ return [
         'internal_cancel_reason' => 'Cancelled by internal delivery provider',
         'cancel_state' => "Shipment :shipment cannot be cancelled from ':status'",
         'cancel_fulfillment' => 'Cannot cancel shipment #:shipment: fulfillment #:fulfillment is already :status (cancellation never moves fulfillment backward)',
+        'returned_immutable' => 'Returned shipment #:shipment is immutable history and cannot be rewritten or deleted',
         'field_locked' => "Shipment field ':field' is transition-authority owned and cannot be mass-updated",
         'active_exists' => 'Cannot create shipment: fulfillment #:id already has an active shipment',
         'dispatch_quantities' => 'Cannot dispatch shipment: fulfillment item #:item picked :picked, packed :packed',

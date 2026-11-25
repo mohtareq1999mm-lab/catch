@@ -83,6 +83,21 @@ class Shipment extends Model
                 $shipment->uuid = (string) Str::orderedUuid();
             }
         });
+
+        // Round 12 (C-02): returned rows are immutable audit history. The
+        // guard lives on the model so every writer (service, admin, provider
+        // event) is covered, not just ShipmentService's update path.
+        static::updating(function (self $shipment) {
+            if ((string) $shipment->getOriginal('status') === 'returned') {
+                throw new \RuntimeException(__('wms.shipment.returned_immutable', ['shipment' => $shipment->id]));
+            }
+        });
+
+        static::deleting(function (self $shipment) {
+            if ((string) $shipment->status === 'returned') {
+                throw new \RuntimeException(__('wms.shipment.returned_immutable', ['shipment' => $shipment->id]));
+            }
+        });
     }
 
     public function order(): BelongsTo
