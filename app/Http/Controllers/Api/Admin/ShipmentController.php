@@ -12,6 +12,14 @@ use Illuminate\Support\Facades\Log;
 
 use Marvel\Enums\Permission;
 
+/**
+ * #166: Legacy admin order shipment compatibility shim.
+ *
+ * Preserves the existing response shape for current consumers. Status writes
+ * delegate to ShipmentService::recordOrderStatusChange; this controller must
+ * not mutate shipment/order status directly. Removal criteria:
+ * docs/shipping/legacy-shipment-compatibility.md.
+ */
 class ShipmentController extends Controller
 {
     public function __construct(private ShipmentService $shipments)
@@ -53,13 +61,15 @@ class ShipmentController extends Controller
                 'notes' => $request->input('notes'),
             ]);
 
+            $freshOrder = $order->fresh();
+
             return response()->json([
                 'success' => true,
                 'message' => __('message.MESSAGE.SHIPMENT_STATUS_UPDATED_SUCCESSFULLY'),
                 'data' => [
                     'order_id' => $order->id,
-                    'shipment_status' => $order->fresh()->shipment_status,
-                    'tracking_number' => $order->tracking_number,
+                    'shipment_status' => $freshOrder?->shipment_status,
+                    'tracking_number' => $freshOrder?->tracking_number,
                 ],
             ]);
 

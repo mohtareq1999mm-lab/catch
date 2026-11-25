@@ -485,6 +485,9 @@ Route::middleware(['auth:sanctum', 'throttle:refunds', 'lang'])->group(function 
 });
 
 
+// #166: Legacy shipment compatibility shims. Keep response shapes stable and
+// delegate writes to ShipmentService until removal criteria in
+// docs/shipping/legacy-shipment-compatibility.md are met.
 Route::prefix('shipments')->middleware('auth:sanctum', 'lang')->group(function () {
     Route::get('/', [ShipmentController::class, 'index']);
     Route::get('uuid/{uuid}', [ShipmentController::class, 'showByUuid'])->whereUuid('uuid');
@@ -522,6 +525,8 @@ Route::prefix('admin/payment-gateways')->middleware(['api', 'auth:sanctum', 'thr
 });
 
 Route::prefix('admin/orders')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    // #166: Legacy admin order shipment compatibility shims. Preserve response
+    // shape; writes delegate to ShipmentService canonical authority.
     // Order shipment fields are admin-operated: reads ride on shipment /
     // order viewing, writes require shipment management. Never leave these
     // without permission middleware (SEC-1: any authenticated caller could
