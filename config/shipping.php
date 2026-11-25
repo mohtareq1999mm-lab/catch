@@ -62,6 +62,13 @@ return [
         'signed_url_ttl_minutes' => max(1, (int) env('SHIPPING_LABEL_SIGNED_TTL_MINUTES', 10)),
     ],
 
+    // #152 durable outbox: deterministic failures retry until this budget, then
+    // terminal FAILED. UNKNOWN (ambiguous external outcome) is reconciled with
+    // its own budget/age before escalating to FAILED_UNKNOWN for operator review.
+    'outbox_max_attempts' => max(1, (int) env('SHIPPING_OUTBOX_MAX_ATTEMPTS', 25)),
+    'outbox_unknown_max_attempts' => max(1, (int) env('SHIPPING_OUTBOX_UNKNOWN_MAX_ATTEMPTS', 10)),
+    'outbox_unknown_max_age_seconds' => max(60, (int) env('SHIPPING_OUTBOX_UNKNOWN_MAX_AGE_SECONDS', 86400)),
+
     'providers' => [
         'null' => [
             // Local placeholder only: no outbound calls, no capabilities.
