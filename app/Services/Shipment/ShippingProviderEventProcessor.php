@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace App\Services\Shipment;
 
 use App\DTOs\Shipping\ProviderStatusMapping;
+use App\Enums\ShipmentStatus;
 use App\Enums\Shipping\ProviderEventExceptionType;
 use App\Enums\Shipping\ShipmentExceptionSeverity;
 use App\Enums\Shipping\ShipmentExceptionStatus;
 use App\Exceptions\CarrierConfigurationException;
+use App\Exceptions\CarrierReturnLinkSkipped;
 use App\Models\Shipment;
 use App\Models\Shipping\ShipmentException;
 use App\Models\Shipping\ShippingProviderEvent;
 use App\Models\Shipping\ShippingWebhookEvent;
+use App\Services\Shipment\Contracts\LinksCarrierReturns;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -22,6 +25,7 @@ final class ShippingProviderEventProcessor
         private readonly CarrierStatusMapper $mapper,
         private readonly ShipmentService $shipments,
         private readonly CarrierGatewayFactory $factories,
+        private readonly LinksCarrierReturns $returnLinks,
     ) {}
 
     public function process(ShippingWebhookEvent $webhook): ShippingProviderEvent
@@ -184,12 +188,17 @@ final class ShippingProviderEventProcessor
         }
 
         try {
-            DB::transaction(function () use ($event, $mapping): void {
+            DB::transaction(function () use ($event, $mapping, $shipment): void {
                 $this->shipments->updateStatus(
                     (int) $event->shipment_id,
                     $mapping->mappedStatus->value,
                     'provider_status_map_version:'.$mapping->mappingVersion,
                 );
+
+                if ($mapping->mappedStatus === ShipmentStatus::RETURNED) {
+                    $this->linkCarrierReturn($event, $shipment->fresh());
+                }
+
                 $event->update(['applied_at' => now()]);
             });
         } catch (\RuntimeException $exception) {
@@ -197,6 +206,54 @@ final class ShippingProviderEventProcessor
             $event->update(['exception_classification' => ProviderEventExceptionType::INVALID_MAPPING_CONFIG->value]);
             $this->raiseException($event, ProviderEventExceptionType::INVALID_MAPPING_CONFIG, $this->exceptionNotes($event->raw_status, $mapping->mappingVersion, $exception->getMessage()));
         }
+    }
+
+    /**
+     * #174: a returned status links evidence to the existing return request.
+     * Nothing is created here; an unsuitable request is skipped, never
+     * promoted into a parallel return lifecycle.
+     */
+    private function linkCarrierReturn(ShippingProviderEvent $event, ?Shipment $shipment): void
+    {
+        if ($shipment === null) {
+            return;
+        }
+
+        $parameters = $this->returnLinkParameters($event, $shipment);
+        if ($parameters === null) {
+            return;
+        }
+
+        try {
+            $this->returnLinks->linkReturn($parameters);
+        } catch (CarrierReturnLinkSkipped) {
+            // Canonical shipment status is still authoritative. No suitable
+            // return request means no link, not a new return workflow.
+        }
+    }
+
+    /** @return array<string,mixed>|null */
+    private function returnLinkParameters(ShippingProviderEvent $event, Shipment $shipment): ?array
+    {
+        $eventKey = $event->provider_event_key;
+        if (!is_string($eventKey) || trim($eventKey) === '') {
+            return null;
+        }
+
+        return [
+            'shipment_id' => (int) $shipment->id,
+            'provider_code' => (string) $event->provider_code,
+            'mode' => (string) $event->mode,
+            'external_ids' => [
+                'shipment_id' => (string) $shipment->id,
+                'provider_event_key' => $eventKey,
+            ],
+            'redacted_payload_reference' => 'shipping_webhook_event:'.$event->id,
+            'metadata' => [
+                'provider_event_key' => $eventKey,
+                'raw_status' => $event->raw_status,
+            ],
+        ];
     }
 
     private function raiseException(ShippingProviderEvent $event, ProviderEventExceptionType $type, string $notes): void

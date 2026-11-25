@@ -10,6 +10,7 @@ use App\Models\Shipment;
 use App\Services\Fulfillment\ReturnService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Marvel\Database\Models\Order;
 use Tests\TestCase;
 
@@ -95,10 +96,103 @@ class ReturnCarrierLinkTest extends TestCase
         $this->assertNull($approved->fresh()->provider_return_metadata);
     }
 
+    public function test_link_carrier_return_preserves_existing_metadata_keys_on_collision(): void
+    {
+        $shipment = $this->createShipment();
+        $user = \App\Models\User::factory()->create(['type' => 'customer']);
+
+        $return = ReturnRequest::create([
+            'return_number' => 'RET-174-COLLISION-' . uniqid(),
+            'order_id' => $shipment->order_id,
+            'warehouse_id' => $this->createWarehouse()->id,
+            'customer_id' => $user->id,
+            'status' => 'pending',
+            'reason' => 'carrier return',
+            'requested_by' => $user->id,
+            'requested_at' => now(),
+            'provider_return_metadata' => [
+                'carrier_reference' => 'ORIGINAL',
+                'provider_code' => 'kept',
+            ],
+        ]);
+
+        $linked = app(ReturnService::class)->linkCarrierReturn($shipment->fresh(), [
+            'carrier_reference' => 'REPLACEMENT',
+            'new_key' => 'filled',
+        ]);
+
+        $this->assertSame($return->id, $linked?->id);
+        $metadata = $linked->fresh()->provider_return_metadata;
+        $this->assertSame('ORIGINAL', $metadata['carrier_reference'] ?? null);
+        $this->assertSame('kept', $metadata['provider_code'] ?? null);
+        $this->assertSame('filled', $metadata['new_key'] ?? null);
+    }
+
+    public function test_link_carrier_return_skips_request_already_linked_to_another_shipment(): void
+    {
+        $user = \App\Models\User::factory()->create(['type' => 'customer']);
+        $order = $this->createOrder($user->id);
+        $linkedShipment = $this->createShipmentForOrder($order);
+        $otherShipment = $this->createShipmentForOrder($order);
+
+        $return = ReturnRequest::create([
+            'return_number' => 'RET-174-LOCKED-' . uniqid(),
+            'order_id' => $order->id,
+            'warehouse_id' => $this->createWarehouse()->id,
+            'customer_id' => $user->id,
+            'status' => 'pending',
+            'reason' => 'carrier return',
+            'requested_by' => $user->id,
+            'requested_at' => now(),
+            'shipment_id' => $linkedShipment->id,
+            'provider_return_metadata' => ['carrier_reference' => 'LOCKED'],
+        ]);
+
+        Log::spy();
+        $result = app(ReturnService::class)->linkCarrierReturn($otherShipment->fresh(), [
+            'carrier_reference' => 'MUST-NOT-OVERWRITE',
+            'new_key' => 'must-not-write',
+        ]);
+
+        $this->assertNull($result);
+        $fresh = $return->fresh();
+        $this->assertSame((int) $linkedShipment->id, (int) $fresh->shipment_id);
+        $this->assertSame(['carrier_reference' => 'LOCKED'], $fresh->provider_return_metadata);
+        Log::shouldNotHaveReceived('info', [
+            'Carrier return linked to existing return request',
+            \Mockery::any(),
+        ]);
+    }
+
+    public function test_link_carrier_return_returns_null_when_no_suitable_request_exists(): void
+    {
+        $shipment = $this->createShipment();
+
+        Log::spy();
+        $result = app(ReturnService::class)->linkCarrierReturn($shipment->fresh(), [
+            'carrier_reference' => 'NO-RETURN',
+        ]);
+
+        $this->assertNull($result);
+        $this->assertSame(0, ReturnRequest::count());
+        Log::shouldNotHaveReceived('info', [
+            'Carrier return linked to existing return request',
+            \Mockery::any(),
+        ]);
+    }
+
     private function createShipment(): Shipment
     {
         $order = $this->createOrder(\App\Models\User::factory()->create(['type' => 'customer'])->id);
 
+        return Shipment::create([
+            'order_id' => $order->id,
+            'status' => 'pending',
+        ]);
+    }
+
+    private function createShipmentForOrder(Order $order): Shipment
+    {
         return Shipment::create([
             'order_id' => $order->id,
             'status' => 'pending',

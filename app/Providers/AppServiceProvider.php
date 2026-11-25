@@ -44,6 +44,13 @@ class AppServiceProvider extends ServiceProvider
         // A production provider binding must override this; tests bind fakes.
         $this->app->bind(ShippingProviderPoller::class, UnboundShippingProviderPoller::class);
 
+        // #174: carrier-return evidence is link-only. The adapter delegates to
+        // ReturnService so no parallel shipment or return lifecycle is created.
+        $this->app->bind(
+            \App\Services\Shipment\Contracts\LinksCarrierReturns::class,
+            \App\Services\Shipment\CarrierReturnLinkService::class
+        );
+
         // OTP-gated guest order claiming is fail-closed until a real verifier
         // is bound (see GuestOrderClaimService activation steps).
         $this->app->bind(

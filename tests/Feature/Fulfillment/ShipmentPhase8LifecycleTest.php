@@ -63,6 +63,8 @@ class ShipmentPhase8LifecycleTest extends TestCase
         }
         // Message assertions are English (production default is Arabic).
         app()->setLocale('en');
+        // OrderStatusChanged broadcasts on the named `pusher` connection.
+        config(['broadcasting.connections.pusher.driver' => 'log']);
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-8', 'name' => 'Main 8', 'status' => 'active', 'is_default' => true,
