@@ -26,6 +26,10 @@ class Shipment extends Model
         'provider_service_level',
         'provider_override',
         'awb_created_at',
+        'external_booking_state',
+        'external_booking_reference',
+        'external_booking_reconciled_at',
+        'external_booking_reconciliation_note',
         'status',
         'shipping_method',
         'shipping_cost',
@@ -56,6 +60,7 @@ class Shipment extends Model
         'delivered_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'awb_created_at' => 'datetime',
+        'external_booking_reconciled_at' => 'datetime',
         'provider_override' => 'bool',
         'provider_mode' => 'string',
         'mapping_version' => 'string',
@@ -100,6 +105,20 @@ class Shipment extends Model
     }
 
     /**
+     * #147: explicit reconciliation boundary for external carrier booking.
+     * The current shipment flow has no external carrier booking call, but
+     * future post-commit booking/outbox flows must reconcile an ambiguous
+     * provider outcome before retrying. `unknown` is fail-closed: no retry
+     * side effect may occur until reconciliation records a known outcome.
+     */
+    public const EXTERNAL_BOOKING_NONE = null;
+    public const EXTERNAL_BOOKING_PENDING = 'pending';
+    public const EXTERNAL_BOOKING_CONFIRMED = 'confirmed';
+    public const EXTERNAL_BOOKING_UNKNOWN = 'unknown';
+    public const EXTERNAL_BOOKING_RECONCILED = 'reconciled';
+    public const EXTERNAL_BOOKING_FAILED = 'failed';
+
+    /**
      * Phase 8 (D8-1): terminal states whose rows are retained as history and
      * no longer count as the fulfillment's active shipment. Mirrors the
      * active_fulfillment_id generated-column definition in migration
@@ -110,6 +129,16 @@ class Shipment extends Model
     public function isActive(): bool
     {
         return !in_array($this->status, self::TERMINAL_STATUSES, true);
+    }
+
+    public function hasUnknownExternalBooking(): bool
+    {
+        return $this->external_booking_state === self::EXTERNAL_BOOKING_UNKNOWN;
+    }
+
+    public function requiresExternalBookingReconciliation(): bool
+    {
+        return $this->hasUnknownExternalBooking();
     }
 
     public function canTransitionTo(string $target): bool

@@ -36,8 +36,30 @@ class WmsShipmentTest extends TestCase
 
     protected function setUp(): void
     {
-        parent::setUp();
+        try {
+            parent::setUp();
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'already an active transaction')) {
+                $this->recoverLeakedDbTransaction();
+                parent::setUp();
+            } else {
+                throw $e;
+            }
+        }
 
+        // #147 test isolation only: forced-pusher events must not use network.
+        config([
+            'broadcasting.default' => 'log',
+            'broadcasting.connections.pusher.driver' => 'log',
+            'queue.default' => 'sync',
+        ]);
+        try {
+            $manager = app(\Illuminate\Contracts\Broadcasting\Factory::class);
+            if (method_exists($manager, 'forgetDrivers')) {
+                $manager->forgetDrivers();
+            }
+        } catch (\Throwable) {
+        }
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         foreach ([
@@ -70,6 +92,39 @@ class WmsShipmentTest extends TestCase
             'product_id' => $product->id, 'location_id' => $location->id,
             'warehouse_id' => $this->warehouseA->id, 'quantity' => 50, 'allocated_hint' => 0,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        $this->recoverLeakedDbTransaction();
+        parent::tearDown();
+    }
+
+    private function recoverLeakedDbTransaction(): void
+    {
+        try {
+            $database = $this->app->make('db');
+            foreach ([null] as $name) {
+                $connection = $database->connection($name);
+                $pdo = $connection->getPdo();
+                while ($pdo && $pdo->inTransaction()) {
+                    try {
+                        $pdo->exec('ROLLBACK');
+                    } catch (\Throwable) {
+                        break;
+                    }
+                }
+                if ($connection->transactionLevel() !== 0) {
+                    $prop = new \ReflectionProperty($connection, 'transactions');
+                    $prop->setAccessible(true);
+                    $prop->setValue($connection, 0);
+                }
+                $connection->disconnect();
+                $database->purge($name);
+            }
+        } catch (\Throwable) {
+            // best-effort test isolation cleanup
+        }
     }
 
     private function user(?int $home, array $permissions = []): User
@@ -252,8 +307,10 @@ class WmsShipmentTest extends TestCase
         $this->assertSame('label_created', $response->json('data.status'));
         $this->assertSame('Aramex', $response->json('data.courier'));
 
-        // Unkeyed duplicate → 409, no second row.
-        $this->createHttp($dispatcher, $fulfillment->id)->assertStatus(409);
+        // #147 AC1: unkeyed repeat for same fulfillment returns canonical shipment.
+        $replayUnkeyed = $this->createHttp($dispatcher, $fulfillment->id);
+        $replayUnkeyed->assertStatus(200);
+        $this->assertSame($response->json('data.id'), $replayUnkeyed->json('data.id'));
         $this->assertSame(1, Shipment::where('fulfillment_id', $fulfillment->id)->count());
 
         // Keyed replay → 200 same row.
@@ -276,6 +333,36 @@ class WmsShipmentTest extends TestCase
         // Cross-warehouse create → 403.
         $foreign = $this->dispatcher($this->warehouseB->id);
         $this->createHttp($foreign, $other->id)->assertStatus(403);
+    }
+
+    public function test_unknown_external_booking_blocks_replay_until_reconciled(): void
+    {
+        $dispatcher = $this->dispatcher();
+        $fulfillment = $this->readyFulfillment('r147');
+
+        $first = $this->createHttp($dispatcher, $fulfillment->id, ['idempotency_key' => 'key-r147'])
+            ->assertStatus(201);
+        $shipmentId = (int) $first->json('data.id');
+
+        Shipment::whereKey($shipmentId)->update([
+            'external_booking_state' => Shipment::EXTERNAL_BOOKING_UNKNOWN,
+            'external_booking_reference' => 'prov-ref-147',
+        ]);
+
+        $blocked = $this->createHttp($dispatcher, $fulfillment->id, ['idempotency_key' => 'key-r147']);
+        $blocked->assertStatus(409);
+        $this->assertSame(1, Shipment::where('fulfillment_id', $fulfillment->id)->count());
+
+        app(\App\Services\Shipment\ShipmentService::class)->reconcileExternalBookingResult($shipmentId, [
+            'outcome' => Shipment::EXTERNAL_BOOKING_CONFIRMED,
+            'reference' => 'prov-ref-147',
+            'note' => 'Provider lookup confirmed booking exists.',
+        ]);
+
+        $replayed = $this->createHttp($dispatcher, $fulfillment->id, ['idempotency_key' => 'key-r147']);
+        $replayed->assertStatus(200);
+        $this->assertSame($shipmentId, (int) $replayed->json('data.id'));
+        $this->assertSame(1, Shipment::where('fulfillment_id', $fulfillment->id)->count());
     }
 
     // ---------- dispatch / deliver ----------

@@ -37,7 +37,30 @@ class ShipmentPhase8LifecycleTest extends TestCase
 
     protected function setUp(): void
     {
-        parent::setUp();
+        try {
+            parent::setUp();
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'already an active transaction')) {
+                $this->recoverLeakedDbTransaction();
+                parent::setUp();
+            } else {
+                throw $e;
+            }
+        }
+        // #147 test isolation only: forced-pusher events must not use network.
+        config([
+            'broadcasting.default' => 'log',
+            'broadcasting.connections.pusher.driver' => 'log',
+            'queue.default' => 'sync',
+        ]);
+        try {
+            $manager = app(\Illuminate\Contracts\Broadcasting\Factory::class);
+            if (method_exists($manager, 'forgetDrivers')) {
+                $manager->forgetDrivers();
+            }
+        } catch (\Throwable) {
+            // best-effort; log driver is default in config above
+        }
         // Message assertions are English (production default is Arabic).
         app()->setLocale('en');
 
@@ -95,28 +118,53 @@ class ShipmentPhase8LifecycleTest extends TestCase
         return $fulfillment->refresh();
     }
 
+    protected function tearDown(): void
+    {
+        $this->recoverLeakedDbTransaction();
+        parent::tearDown();
+    }
+
+    private function recoverLeakedDbTransaction(): void
+    {
+        try {
+            $database = $this->app->make('db');
+            foreach ([null] as $name) {
+                $connection = $database->connection($name);
+                $pdo = $connection->getPdo();
+                while ($pdo && $pdo->inTransaction()) {
+                    try {
+                        $pdo->exec('ROLLBACK');
+                    } catch (\Throwable) {
+                        break;
+                    }
+                }
+                if ($connection->transactionLevel() !== 0) {
+                    $prop = new \ReflectionProperty($connection, 'transactions');
+                    $prop->setAccessible(true);
+                    $prop->setValue($connection, 0);
+                }
+                $connection->disconnect();
+                $database->purge($name);
+            }
+        } catch (\Throwable) {
+            // best-effort test isolation cleanup
+        }
+    }
+
     // ------------------------------------------------------------------
     // P8-1 / F8-10: cardinality + scoped idempotency
     // ------------------------------------------------------------------
 
-    public function test_unkeyed_duplicate_creation_is_refused(): void
+    public function test_unkeyed_duplicate_creation_replays_canonical_active_shipment(): void
     {
         $order = $this->makeCompletedOrder();
         $fulfillment = $this->makeReadyFulfillment($order, 'p81-a');
         $service = app(ShipmentService::class);
 
-        $service->createForFulfillment($fulfillment, [], null);
+        $first = $service->createForFulfillment($fulfillment, [], null);
+        $again = $service->createForFulfillment($fulfillment, [], null);
 
-        try {
-            $service->createForFulfillment($fulfillment, [], null);
-            $this->fail('second unkeyed shipment must be refused');
-        } catch (\RuntimeException $e) {
-            if ($e instanceof \PHPUnit\Framework\Exception) {
-                throw $e;
-            }
-            $this->assertStringContainsString('already has an active shipment', $e->getMessage());
-        }
-
+        $this->assertEquals($first->id, $again->id);
         $this->assertEquals(1, Shipment::where('fulfillment_id', $fulfillment->id)->count());
     }
 

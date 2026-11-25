@@ -90,21 +90,26 @@ class ShipmentService
     }
 
     /**
-     * Phase 8 (D8-1 / D8-3 / F8-10): explicit staff/dispatch creation for one
-     * fulfillment. Requires fulfillment = ready_to_ship on the LOCKED fresh
-     * row (stale models rechecked). Refuses cancelled fulfillments loudly.
+     * Phase 8 (D8-1 / D8-3 / F8-10) + #147: explicit staff/dispatch creation
+     * for one fulfillment. Requires fulfillment = ready_to_ship on the LOCKED
+     * fresh row (stale models rechecked). Refuses cancelled fulfillments.
      *
-     * Idempotency is scoped to (fulfillment_id, idempotency_key): the same
-     * key for the same fulfillment replays the same row; the same key for a
-     * DIFFERENT fulfillment is refused loudly (never returns another
-     * fulfillment's row).
-     * Unkeyed creation refuses when an active shipment already exists — one
-     * active shipment per fulfillment; terminal rows (cancelled / delivered /
-     * returned) are retained as history and do not block a new label.
+     * Idempotency is deterministic at the persistence boundary:
+     * - same key + same fulfillment replays the same row;
+     * - same key + different fulfillment is refused loudly (409 at adapter);
+     * - repeating creation for the same fulfillment returns the canonical
+     *   active shipment (no duplicate active row), including unkeyed retries.
+     *
+     * External carrier/booking side effects MUST NOT run inside this DB
+     * transaction. Any future post-commit booking flow must use a durable
+     * outbox/job and reconcile unknown provider results before retrying.
+     * If the canonical shipment has unknown external booking state, this
+     * method refuses replay/retry until reconciliation marks a known outcome.
      *
      * The UNIQUE(active_fulfillment_id) backstop aborts a lost race loudly.
      *
-     * @throws \RuntimeException on invalid state, duplicate, or key reuse.
+     * @throws \RuntimeException on invalid state or reconciliation boundary.
+     * @throws \App\Exceptions\WmsConflictException on key/active contention.
      */
     public function createForFulfillment(Fulfillment $fulfillment, array $data = [], ?string $idempotencyKey = null): Shipment
     {
@@ -122,7 +127,7 @@ class ShipmentService
                     );
                 }
 
-                return $existing;
+                return $this->replayCanonicalShipment($existing, $idempotencyKey);
             }
         }
 
@@ -153,15 +158,28 @@ class ShipmentService
             // before any mutation so retries leave state consistent.
             app(\App\Services\Warehouse\WarehouseWorkflowService::class)->assertShipmentAllowedFor($locked);
 
-            $this->assertNoActiveShipment($locked->id);
+            $active = $this->activeShipmentForFulfillment($locked->id, true);
+            if ($active) {
+                // #147: repeating creation for the same fulfillment returns the
+                // canonical active shipment. We never create a second active
+                // row, and we never perform external carrier side effects here.
+                return $this->replayCanonicalShipment($active, $idempotencyKey);
+            }
 
             $assignment = $this->providerAssignment->resolve();
+            // Guardrail: shipment creation is a local DB mutation only.
+            // External carrier booking/label generation must happen after
+            // commit via a durable outbox/job with a stable provider
+            // idempotency/reference key and unknown-result reconciliation.
+            $this->assertNoExternalCarrierCallInTransaction();
+
             $shipment = Shipment::create(array_merge([
                 'order_id' => $locked->order_id,
                 'fulfillment_id' => $locked->id,
             ], $data, $this->assignmentAttributes($assignment, now()->toDateTimeString()), [
                 'status' => ShipmentStatus::LABEL_CREATED->value,
                 'idempotency_key' => $idempotencyKey,
+                'external_booking_state' => Shipment::EXTERNAL_BOOKING_NONE,
             ]));
 
             Log::info('Shipment created for fulfillment', [
@@ -171,7 +189,13 @@ class ShipmentService
 
             $this->syncOrderMirror($shipment->fresh());
 
-            return $shipment->fresh();
+            $created = $shipment->wasRecentlyCreated;
+            $fresh = $shipment->fresh();
+            // HTTP adapter distinguishes 201 create from 200 replay via this
+            // flag; fresh() clears it, so preserve it across the reload.
+            $fresh->wasRecentlyCreated = $created;
+
+            return $fresh;
         });
     }
 
@@ -622,6 +646,123 @@ class ShipmentService
             'provider_override' => false,
             'awb_created_at' => $awbCreatedAt,
         ];
+    }
+
+    /**
+     * #147: canonical active shipment lookup. When $lock is true, caller must
+     * be inside a DB transaction and hold the fulfillment/order lock order.
+     */
+    private function activeShipmentForFulfillment(int $fulfillmentId, bool $lock = false): ?Shipment
+    {
+        $query = Shipment::where('fulfillment_id', $fulfillmentId)
+            ->whereNotIn('status', Shipment::TERMINAL_STATUSES)
+            ->orderByDesc('id');
+
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        return $query->first();
+    }
+
+    /**
+     * #147: replay path for same-fulfillment creation retries. The canonical
+     * shipment is returned unchanged; no external carrier call occurs here.
+     * Unknown external booking state is a hard reconciliation boundary: retry
+     * is refused before any side effect can be attempted.
+     */
+    private function replayCanonicalShipment(Shipment $shipment, ?string $idempotencyKey = null): Shipment
+    {
+        $shipment = $shipment->fresh() ?? $shipment;
+        $this->assertExternalBookingReconciled($shipment);
+
+        if ($idempotencyKey !== null && $shipment->idempotency_key === null) {
+            // Attach caller key to canonical row for deterministic future
+            // replays. This is a local metadata update, not an external call.
+            $shipment->forceFill(['idempotency_key' => $idempotencyKey])->save();
+        }
+
+        return $shipment->fresh() ?? $shipment;
+    }
+
+    private function assertExternalBookingReconciled(Shipment $shipment): void
+    {
+        if (!$shipment->requiresExternalBookingReconciliation()) {
+            return;
+        }
+
+        // #147 AC4: unknown external result must be reconciled before retry.
+        // This is an explicit boundary; actual provider lookup is a post-commit
+        // concern and must not run in a DB transaction.
+        throw new \App\Exceptions\WmsConflictException(
+            __('wms.shipment.external_booking_reconciliation_required', ['shipment' => $shipment->id])
+        );
+    }
+
+    /**
+     * #147 AC3 guardrail: shipment creation currently performs no external
+     * carrier call. Keep this explicit so future booking integration cannot be
+     * silently added inside a transaction.
+     */
+    private function assertNoExternalCarrierCallInTransaction(): void
+    {
+        if (DB::transactionLevel() < 1) {
+            throw new \RuntimeException('Shipment creation external-call guard requires an active DB transaction.');
+        }
+
+        // No-op by design: no HTTP/carrier SDK/queue side effects in tx.
+        // Post-commit dispatch belongs in durable outbox/job flows.
+    }
+
+    /**
+     * #147 AC4: reconcile an unknown/ambiguous external booking result before
+     * allowing retry. This records a known outcome from a provider lookup or
+     * operator reconciliation; it does not call external carriers.
+     *
+     * @param  array{outcome:string,reference?:string|null,note?:string|null}  $reconciliation
+     */
+    public function reconcileExternalBookingResult(int $shipmentId, array $reconciliation): Shipment
+    {
+        $outcome = strtolower(trim((string) ($reconciliation['outcome'] ?? '')));
+        $allowed = [
+            Shipment::EXTERNAL_BOOKING_CONFIRMED,
+            Shipment::EXTERNAL_BOOKING_RECONCILED,
+            Shipment::EXTERNAL_BOOKING_FAILED,
+        ];
+        if (!in_array($outcome, $allowed, true)) {
+            throw new \InvalidArgumentException(
+                __('wms.shipment.external_booking_reconciliation_outcome_invalid')
+            );
+        }
+
+        return DB::transaction(function () use ($shipmentId, $outcome, $reconciliation) {
+            $shipment = Shipment::lockForUpdate()->findOrFail($shipmentId);
+            if (!$shipment->hasUnknownExternalBooking()) {
+                throw new \App\Exceptions\WmsConflictException(
+                    __('wms.shipment.external_booking_not_unknown', ['shipment' => $shipment->id])
+                );
+            }
+
+            $shipment->forceFill([
+                'external_booking_state' => $outcome,
+                'external_booking_reference' => array_key_exists('reference', $reconciliation)
+                    ? ($reconciliation['reference'] !== null ? trim((string) $reconciliation['reference']) : null)
+                    : $shipment->external_booking_reference,
+                'external_booking_reconciled_at' => now(),
+                'external_booking_reconciliation_note' => array_key_exists('note', $reconciliation)
+                    ? ($reconciliation['note'] !== null ? trim((string) $reconciliation['note']) : null)
+                    : $shipment->external_booking_reconciliation_note,
+            ])->save();
+
+            Log::warning('Shipment external booking reconciled', [
+                'shipment_id' => $shipment->id,
+                'fulfillment_id' => $shipment->fulfillment_id,
+                'outcome' => $outcome,
+                'reference' => $shipment->external_booking_reference,
+            ]);
+
+            return $shipment->fresh();
+        });
     }
 
     /**

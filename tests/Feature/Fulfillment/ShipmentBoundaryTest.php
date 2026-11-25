@@ -30,6 +30,19 @@ class ShipmentBoundaryTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // #147 test isolation only: forced-pusher events must not use network.
+        config([
+            'broadcasting.default' => 'log',
+            'broadcasting.connections.pusher.driver' => 'log',
+            'queue.default' => 'sync',
+        ]);
+        try {
+            $manager = app(\Illuminate\Contracts\Broadcasting\Factory::class);
+            if (method_exists($manager, 'forgetDrivers')) {
+                $manager->forgetDrivers();
+            }
+        } catch (\Throwable) {
+        }
 
         $this->warehouse = Warehouse::create([
             'code' => 'WH-1', 'name' => 'Main', 'status' => 'active', 'is_default' => true,
@@ -111,6 +124,10 @@ class ShipmentBoundaryTest extends TestCase
         $this->assertEquals('label_created', $first->status);
         // Creation alone does not ship the fulfillment.
         $this->assertEquals('ready_to_ship', $fulfillment->refresh()->status);
+
+        // #147: unkeyed repeat for the same fulfillment returns canonical shipment.
+        $unkeyed = $service->createForFulfillment($fulfillment, ['courier' => 'DHL'], null);
+        $this->assertEquals($first->id, $unkeyed->id);
 
         $dispatched = $service->dispatch($first->id);
         $this->assertEquals('picked_up', $dispatched->status);

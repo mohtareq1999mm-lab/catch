@@ -211,6 +211,9 @@ return [
         'field_locked' => 'حقل الشحنة \':field\' مملوك لسلطة الانتقال ولا يمكن تحديثه جماعيًا.',
         'active_exists' => 'لا يمكن إنشاء شحنة: التنفيذ #:id لديه بالفعل شحنة نشطة.',
         'dispatch_quantities' => 'لا يمكن إرسال الشحنة: عنصر التنفيذ #:item ملتقط :picked ومعبأ :packed.',
+        'external_booking_reconciliation_required' => 'الشحنة #:shipment لديها نتيجة حجز خارجي غير معروفة ويجب تسويتها قبل إعادة المحاولة.',
+        'external_booking_reconciliation_outcome_invalid' => 'يجب أن تكون نتيجة تسوية الحجز الخارجي مؤكدة أو مسواة أو فاشلة.',
+        'external_booking_not_unknown' => 'حالة الحجز الخارجي للشحنة #:shipment ليست غير معروفة ولا يمكن تسويتها كنتيجة غير معروفة.',
     ],
 
     // Stock / inventory

@@ -45,6 +45,19 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // #147 test isolation only: forced-pusher events must not use network.
+        config([
+            'broadcasting.default' => 'log',
+            'broadcasting.connections.pusher.driver' => 'log',
+            'queue.default' => 'sync',
+        ]);
+        try {
+            $manager = app(\Illuminate\Contracts\Broadcasting\Factory::class);
+            if (method_exists($manager, 'forgetDrivers')) {
+                $manager->forgetDrivers();
+            }
+        } catch (\Throwable) {
+        }
         app()->setLocale('en');
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -309,8 +322,10 @@ class WarehouseWorkflowHttpE2ETest extends TestCase
             "/api/v1/admin/fulfillments/{$fulfillmentId}/shipments", ['courier' => 'WHE2E-Post']
         )->assertStatus(201)->json('data.id');
 
-        // Duplicate unkeyed shipment refused (409), no duplicate row.
-        $auth()->postJson("/api/v1/admin/fulfillments/{$fulfillmentId}/shipments", ['courier' => 'WHE2E-Post'])->assertStatus(409);
+        // #147: repeating creation for the same fulfillment returns the canonical shipment.
+        $replay = $auth()->postJson("/api/v1/admin/fulfillments/{$fulfillmentId}/shipments", ['courier' => 'WHE2E-Post']);
+        $replay->assertStatus(200);
+        $this->assertSame((int) $shipmentId, (int) $replay->json('data.id'));
         $this->assertSame(1, Shipment::where('fulfillment_id', $fulfillmentId)->count());
 
         $auth()->postJson("/api/v1/admin/shipments/{$shipmentId}/dispatch", [])->assertStatus(200);
