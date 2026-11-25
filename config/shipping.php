@@ -96,6 +96,13 @@ return [
             'service_level' => 'standard',
             'channels' => ['web', 'mobile'],
             'geographies' => ['EG'],
+            // #175: explicit polling capability model; null placeholder has no polling.
+            'polling' => [
+                'supported' => false,
+                'cursor_type' => null,
+                'pagination' => null,
+                'overlap_window_seconds' => 0,
+            ],
             'modes' => [
                 'sandbox' => [
                     'enabled' => env('SHIPPING_NULL_SANDBOX_ENABLED', false),
@@ -167,6 +174,13 @@ return [
             'service_level' => 'standard',
             'channels' => ['web', 'mobile'],
             'geographies' => ['EG'],
+            // #175: internal provider has no polling/webhook carrier surface.
+            'polling' => [
+                'supported' => false,
+                'cursor_type' => null,
+                'pagination' => null,
+                'overlap_window_seconds' => 0,
+            ],
             'modes' => [
                 'internal' => [
                     'enabled' => true,

@@ -57,6 +57,12 @@ class ProviderAssignmentOverrideTest extends TestCase
             'service_level' => 'express',
             'channels' => ['web'],
             'geographies' => ['EG'],
+            'polling' => [
+                'supported' => false,
+                'cursor_type' => null,
+                'pagination' => null,
+                'overlap_window_seconds' => 0,
+            ],
             'modes' => ['sandbox' => [
                 'enabled' => true,
                 'credentials' => ['api_key' => 'x'],
@@ -493,6 +499,12 @@ class ProviderAssignmentOverrideTest extends TestCase
             'service_level' => 'express',
             'channels' => ['web'],
             'geographies' => ['EG'],
+            'polling' => [
+                'supported' => false,
+                'cursor_type' => null,
+                'pagination' => null,
+                'overlap_window_seconds' => 0,
+            ],
             'modes' => [
                 'sandbox' => [
                     'enabled' => $mode === 'sandbox',

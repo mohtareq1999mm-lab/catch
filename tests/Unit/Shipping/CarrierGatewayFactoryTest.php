@@ -37,6 +37,12 @@ class CarrierGatewayFactoryTest extends TestCase
         config(['shipping.providers' => [
             'carrier' => [
                 'mode' => 'sandbox',
+                'polling' => [
+                    'supported' => false,
+                    'cursor_type' => null,
+                    'pagination' => null,
+                    'overlap_window_seconds' => 0,
+                ],
                 'modes' => [
                     'sandbox' => ['enabled' => false, 'credentials' => []],
                     'production' => ['enabled' => false, 'credentials' => []],
@@ -234,6 +240,12 @@ class CarrierGatewayFactoryTest extends TestCase
             'account_code' => 'EG-ACCOUNT',
             'channels' => ['web'],
             'geographies' => ['EG'],
+            'polling' => [
+                'supported' => false,
+                'cursor_type' => null,
+                'pagination' => null,
+                'overlap_window_seconds' => 0,
+            ],
             'modes' => [
                 'sandbox' => [
                     'enabled' => true,

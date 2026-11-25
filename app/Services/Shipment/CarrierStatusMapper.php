@@ -6,6 +6,7 @@ namespace App\Services\Shipment;
 
 use App\DTOs\Shipping\ProviderStatusMapping;
 use App\Enums\ShipmentStatus;
+use App\Enums\Shipping\ProviderMode;
 use App\Enums\Shipping\ProviderEventExceptionType;
 use App\Support\ProviderCode;
 use Illuminate\Contracts\Config\Repository;
@@ -78,7 +79,11 @@ final class CarrierStatusMapper
         if (!ProviderCode::isValid($providerCode)) {
             return $invalid(ProviderEventExceptionType::UNREGISTERED_PROVIDER);
         }
-        if (preg_match('/^[a-z0-9_-]{1,16}$/', $mode) !== 1) {
+        $parsedMode = ProviderMode::tryFrom($mode);
+        if (preg_match('/^[a-z0-9_-]{1,16}$/', $mode) !== 1
+            || $parsedMode === null
+            || !$parsedMode->isAllowedFor($providerCode)
+        ) {
             return $invalid(ProviderEventExceptionType::INVALID_MAPPING_CONFIG);
         }
 

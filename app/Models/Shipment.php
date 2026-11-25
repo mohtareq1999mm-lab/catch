@@ -8,6 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
+/**
+ * #175: provider snapshots are intentionally not model-immutable. They are
+ * rewritten only through the audited ProviderAssignmentService::override()
+ * workflow; event-inbox immutability rules do not apply here.
+ */
 class Shipment extends Model
 {
     protected $table = 'shipments';

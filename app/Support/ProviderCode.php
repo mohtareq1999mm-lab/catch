@@ -13,6 +13,9 @@ namespace App\Support;
  */
 final class ProviderCode
 {
+    /** Built-in local delivery is the only provider allowed to use internal mode (#175). */
+    public const INTERNAL = 'internal';
+
     public static function isValid(string $code): bool
     {
         return preg_match('/\A[a-z0-9_-]{1,32}\z/', $code) === 1;

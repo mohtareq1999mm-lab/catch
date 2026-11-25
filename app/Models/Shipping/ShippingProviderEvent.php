@@ -9,7 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * #151: processed provider-event evidence. No observers and no timeline writes.
+ * #151: processed provider-event evidence with no timeline-write authority.
+ *
+ * #175: identity and payload snapshots are restored on Eloquent updates and
+ * enforced by a MySQL BEFORE UPDATE trigger (see the #175 migration). The
+ * model guard is defense-in-depth on non-MySQL connections; DELETE/TRUNCATE
+ * and DDL are outside the trigger's scope.
  */
 class ShippingProviderEvent extends Model
 {
@@ -34,11 +39,37 @@ class ShippingProviderEvent extends Model
         'applied_at',
     ];
 
+    /** @var list<string> */
+    private const SNAPSHOT_FIELDS = [
+        'provider_code',
+        'mode',
+        'account_code',
+        'provider_event_key',
+        'raw_status',
+        'occurred_at',
+        'received_at',
+        'ordering_key',
+        'mapping_version',
+        'payload_reference',
+        'payload_hash',
+    ];
+
     protected $casts = [
         'occurred_at' => 'datetime',
         'received_at' => 'datetime',
         'applied_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::updating(static function (self $event): void {
+            foreach (self::SNAPSHOT_FIELDS as $field) {
+                if ($event->isDirty($field)) {
+                    $event->{$field} = $event->getOriginal($field);
+                }
+            }
+        });
+    }
 
     public function webhookEvent(): BelongsTo
     {

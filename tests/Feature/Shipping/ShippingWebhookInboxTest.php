@@ -146,8 +146,14 @@ class ShippingWebhookInboxTest extends TestCase
 
         config([
             'shipping.providers.null.mode' => 'production',
+            'shipping.providers.null.modes.sandbox.enabled' => false,
             'shipping.providers.null.account_code' => 'null-production',
             'shipping.providers.null.modes.production.enabled' => true,
+            'shipping.providers.null.modes.production.base_url' => 'local://webhook-test',
+            'shipping.providers.null.modes.production.credentials' => [
+                'api_key' => 'test-key',
+                'api_secret' => 'test-secret',
+            ],
             'shipping.providers.null.modes.production.webhook.secret' => self::SECRET,
             'shipping.providers.null.modes.production.webhook.version' => 'v1',
         ]);

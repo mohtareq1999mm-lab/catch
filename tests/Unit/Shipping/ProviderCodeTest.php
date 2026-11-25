@@ -39,12 +39,12 @@ final class ProviderCodeTest extends TestCase
     public function test_registered_code_maps_to_a_canonical_status_case(): void
     {
         $config = new Repository();
-        $config->set('shipping.providers.internal.modes.sandbox.status_map', [
+        $config->set('shipping.providers.internal.modes.internal.status_map', [
             'version' => 3,
             'statuses' => ['in_transit' => ShipmentStatus::IN_TRANSIT->value],
         ]);
 
-        $mapping = (new CarrierStatusMapper($config))->map('internal', 'sandbox', 'in_transit');
+        $mapping = (new CarrierStatusMapper($config))->map('internal', 'internal', 'in_transit');
 
         $this->assertSame(ShipmentStatus::IN_TRANSIT, $mapping->mappedStatus);
     }
