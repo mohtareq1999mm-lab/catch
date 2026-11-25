@@ -97,6 +97,8 @@ return [
         'eta_delayed_description' => 'تأخر التوصيل بمقدار :delay_days أيام. الموعد الجديد: :new_eta',
         'delayed' => 'تأخر التوصيل',
         'delayed_description' => 'تأخر توصيل طردك.',
+        'provider_overridden' => 'تغيير شركة الشحن',
+        'provider_overridden_description' => 'قام المتجر بتغيير شركة الشحن المسؤولة عن طردك.',
     ],
 
     // Refund Events

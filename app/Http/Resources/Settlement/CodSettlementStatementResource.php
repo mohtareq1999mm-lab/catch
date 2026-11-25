@@ -11,6 +11,7 @@ class CodSettlementStatementResource extends JsonResource
         return [
             'id' => (int) $this->id,
             'statement_key' => $this->statement_key,
+            'file_hash' => $this->file_hash,
             'provider_code' => $this->provider_code,
             'mode' => $this->mode,
             'account_code' => $this->account_code,

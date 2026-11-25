@@ -9,6 +9,7 @@ use App\Models\Settlement\CodSettlementStatement;
 use App\Support\UniqueViolation;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,6 +28,13 @@ class CodSettlementService
 {
     public function createStatement(array $payload): CodSettlementStatement
     {
+        // #162: a statement carrying a source-file hash is an import. Route it
+        // through the idempotent path so no caller can bypass deduplication by
+        // using the older service entry point.
+        if (array_key_exists('file_hash', $payload) && $payload['file_hash'] !== null) {
+            return $this->importStatement($payload);
+        }
+
         $identity = $this->validateIdentity($payload);
         $overlapRule = $this->validateOverlapRule($payload['overlap_rule'] ?? null);
         $lines = $this->resolveLines(
@@ -75,6 +83,71 @@ class CodSettlementService
                 $this->releaseStatementScopeLock($lockName);
             }
         }
+    }
+
+    /**
+     * #162: idempotent import by provider + mode + file hash.
+     * Re-importing the same file returns the existing statement without
+     * duplicating statement/line rows.
+     */
+    public function importStatement(array $payload): CodSettlementStatement
+    {
+        $identity = $this->validateIdentity($payload, true);
+        $fileHash = $identity['file_hash'];
+
+        $existing = $this->findImportByFileHash($identity['provider_code'], $identity['mode'], $fileHash);
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $lines = $this->resolveLines(
+            $this->normalizeLines($payload['lines'] ?? null),
+            $identity,
+            $identity['currency_code'],
+        );
+        $identity['currency_code'] = $lines[0]['currency_code'];
+
+        return DB::transaction(function () use ($identity, $lines, $fileHash): CodSettlementStatement {
+            $locked = $this->findImportByFileHash(
+                $identity['provider_code'],
+                $identity['mode'],
+                $fileHash,
+                true
+            );
+            if ($locked !== null) {
+                return $locked;
+            }
+
+            try {
+                return $this->persistStatement($identity, $lines, $this->statementTotals($lines));
+            } catch (UniqueConstraintViolationException $exception) {
+                // The DB unique index is the final concurrency authority. A
+                // racing import may win after our pre-check/gap lock; return
+                // its statement with lines instead of surfacing a duplicate.
+                $winner = $this->findImportByFileHash($identity['provider_code'], $identity['mode'], $fileHash);
+                if ($winner !== null) {
+                    return $winner;
+                }
+
+                throw $exception;
+            }
+        });
+    }
+
+    private function findImportByFileHash(string $providerCode, string $mode, string $fileHash, bool $lock = false): ?CodSettlementStatement
+    {
+        $query = CodSettlementStatement::query()
+            ->with('lines')
+            ->where('provider_code', $providerCode)
+            ->where('mode', $mode)
+            ->where('file_hash', $fileHash)
+            ->orderBy('id');
+
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        return $query->first();
     }
 
     public function findStatement(int $id): CodSettlementStatement
@@ -215,7 +288,7 @@ class CodSettlementService
         ];
     }
 
-    private function validateIdentity(array $payload): array
+    private function validateIdentity(array $payload, bool $requireFileHash = false): array
     {
         $mode = $payload['mode'] ?? null;
         $mode = $mode instanceof SettlementMode ? $mode : SettlementMode::tryFrom((string) $mode);
@@ -234,7 +307,7 @@ class CodSettlementService
             throw $this->invalidPayload('metadata');
         }
 
-        return [
+        $identity = [
             'statement_key' => $this->stringField($payload['statement_key'] ?? null, 'statement_key', 191),
             'provider_code' => $this->stringField($payload['provider_code'] ?? null, 'provider_code', 32),
             'mode' => $mode->value,
@@ -244,6 +317,17 @@ class CodSettlementService
             'currency_code' => $this->optionalCurrencyCode($payload['currency_code'] ?? null),
             'metadata' => $metadata,
         ];
+
+        $fileHash = $payload['file_hash'] ?? null;
+        if ($fileHash !== null || $requireFileHash) {
+            $fileHash = $this->stringField($fileHash, 'file_hash', 64);
+            if (!preg_match('/^[A-Fa-f0-9]{64}$/', $fileHash)) {
+                throw $this->invalidPayload('file_hash');
+            }
+            $identity['file_hash'] = strtolower($fileHash);
+        }
+
+        return $identity;
     }
 
     private function normalizeLines(mixed $lines): array
