@@ -80,6 +80,24 @@ final class CarrierWebhookVerifier
         }
     }
 
+    /**
+     * Canonical account identity for webhook/polling inbox scope.
+     *
+     * Webhook verification, polling cursors, and inbox dedupe share this
+     * provider-level account_code; fail closed on missing/invalid identity.
+     *
+     * @param array<string,mixed> $provider
+     */
+    public static function canonicalAccountCode(array $provider, string $providerCode): string
+    {
+        $account = $provider['account_code'] ?? null;
+        if (! is_string($account) || trim($account) === '' || strlen($account) > 64) {
+            throw CarrierConfigurationException::webhookNotConfigured($providerCode);
+        }
+
+        return $account;
+    }
+
     /** @return array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} */
     private function resolveProvider(string $providerCode): array
     {
@@ -93,7 +111,7 @@ final class CarrierWebhookVerifier
         }
 
         $provider = $this->config->get("shipping.providers.{$providerCode}");
-        if (!is_array($provider)) {
+        if (! is_array($provider)) {
             throw CarrierConfigurationException::unknownProvider($providerCode);
         }
 
@@ -101,21 +119,19 @@ final class CarrierWebhookVerifier
         $block = is_string($mode) && is_array($provider['modes'] ?? null)
             ? ($provider['modes'][$mode] ?? null)
             : null;
-        if (!is_array($block) || ($block['enabled'] ?? false) !== true) {
+        if (! is_array($block) || ($block['enabled'] ?? false) !== true) {
             throw CarrierConfigurationException::disabled($providerCode);
         }
 
         $webhook = is_array($block['webhook'] ?? null) ? $block['webhook'] : [];
         $secret = $webhook['secret'] ?? null;
         $version = $webhook['version'] ?? null;
-        $account = $provider['account_code'] ?? null;
+        $account = self::canonicalAccountCode($provider, $providerCode);
 
-        if (!is_string($secret) || trim($secret) === ''
-            || !is_string($account) || trim($account) === ''
-        ) {
+        if (! is_string($secret) || trim($secret) === '') {
             throw CarrierConfigurationException::webhookNotConfigured($providerCode);
         }
-        if (!is_string($version) || !in_array($version, self::SUPPORTED_VERSIONS, true)) {
+        if (! is_string($version) || ! in_array($version, self::SUPPORTED_VERSIONS, true)) {
             throw CarrierConfigurationException::unsupportedWebhookVersion($providerCode, is_string($version) ? $version : 'unknown');
         }
 

@@ -4,8 +4,10 @@ namespace App\Providers;
 
 use App\Contracts\ExchangeRateProviderInterface;
 use App\Contracts\FrontendWebhookDispatcher;
+use App\Contracts\Shipping\ShippingProviderPoller;
 use App\Mail\Transport\ResendTransport;
 use App\Services\FrontendWebhookService;
+use App\Services\Shipment\Providers\UnboundShippingProviderPoller;
 use App\ValueObjects\WebhookSignature;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
@@ -37,6 +39,10 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(FrontendWebhookDispatcher::class, FrontendWebhookService::class);
+
+        // #169: mandatory poller dependency with a loud, fail-closed default.
+        // A production provider binding must override this; tests bind fakes.
+        $this->app->bind(ShippingProviderPoller::class, UnboundShippingProviderPoller::class);
 
         // OTP-gated guest order claiming is fail-closed until a real verifier
         // is bound (see GuestOrderClaimService activation steps).

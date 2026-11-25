@@ -14,10 +14,10 @@ class ShippingWebhookIngestOutcomeTest extends TestCase
     public function test_status_translation_and_success_mapping_are_pinned(): void
     {
         $expected = [
-            [ShippingWebhookIngestOutcome::ACCEPTED, 200, true],
+            [ShippingWebhookIngestOutcome::ACCEPTED, 202, true],
             [ShippingWebhookIngestOutcome::DUPLICATE, 200, true],
             [ShippingWebhookIngestOutcome::INVALID_SIGNATURE, 401, false],
-            [ShippingWebhookIngestOutcome::INVALID_PAYLOAD, 400, false],
+            [ShippingWebhookIngestOutcome::INVALID_PAYLOAD, 422, false],
             [ShippingWebhookIngestOutcome::UNAVAILABLE, 503, false],
             [ShippingWebhookIngestOutcome::RATE_LIMITED, 429, false],
         ];

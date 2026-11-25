@@ -15,7 +15,7 @@ use Mockery;
 use Tests\TestCase;
 
 /**
- * #143: shipping webhook inbox boundary.
+ * #143/#169: shipping webhook inbox boundary and HTTP contract.
  *
  * The HTTP route is the seam. Every case here proves that an unauthenticated
  * delivery cannot change durable state, and that an authenticated delivery is
@@ -75,7 +75,7 @@ class ShippingWebhookInboxTest extends TestCase
 
         $response = $this->postWebhook($payload);
 
-        $response->assertStatus(200)
+        $response->assertStatus(202)
             ->assertJson(['success' => true, 'data' => ['status' => 'accepted']]);
 
         $event = ShippingWebhookEvent::firstOrFail();
@@ -106,7 +106,7 @@ class ShippingWebhookInboxTest extends TestCase
         $first = $this->postWebhook($payload);
         $second = $this->postWebhook($payload);
 
-        $first->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $first->assertStatus(202)->assertJsonPath('data.status', 'accepted');
         $second->assertStatus(200)->assertJsonPath('data.status', 'duplicate');
         $this->assertSame(1, ShippingWebhookEvent::count());
         $this->assertSame(
@@ -115,12 +115,34 @@ class ShippingWebhookInboxTest extends TestCase
         );
     }
 
+    public function test_malformed_payload_returns_422_after_signature_verification(): void
+    {
+        $raw = '{"id":"evt_bad_payload","type":';
+        $signature = 'v1='.hash_hmac('sha256', $raw, self::SECRET);
+
+        $response = $this->call(
+            'POST',
+            self::URI,
+            [],
+            [],
+            [],
+            $this->transformHeadersToServerVars([
+                'Content-Type' => 'application/json',
+                'X-Shipping-Signature' => $signature,
+            ]),
+            $raw,
+        );
+
+        $response->assertStatus(422)->assertJson(['success' => false]);
+        $this->assertSame(0, ShippingWebhookEvent::count());
+    }
+
     public function test_same_event_id_in_different_mode_and_account_is_not_a_duplicate(): void
     {
         $payload = $this->payload(['id' => 'evt_scoped_identity_143']);
 
         $sandbox = $this->postWebhook($payload);
-        $sandbox->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $sandbox->assertStatus(202)->assertJsonPath('data.status', 'accepted');
 
         config([
             'shipping.providers.null.mode' => 'production',
@@ -131,7 +153,7 @@ class ShippingWebhookInboxTest extends TestCase
         ]);
 
         $production = $this->postWebhook($payload);
-        $production->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $production->assertStatus(202)->assertJsonPath('data.status', 'accepted');
 
         $rows = ShippingWebhookEvent::orderBy('id')->get();
         $this->assertCount(2, $rows);
@@ -159,7 +181,7 @@ class ShippingWebhookInboxTest extends TestCase
         $first = $this->postWebhook($this->payload(['id' => 'evt_limit_first']));
         $second = $this->postWebhook($this->payload(['id' => 'evt_limit_second']));
 
-        $first->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $first->assertStatus(202)->assertJsonPath('data.status', 'accepted');
         $second->assertStatus(429)->assertJson(['success' => false]);
         $this->assertSame(1, ShippingWebhookEvent::count());
         $this->assertSame('evt_limit_first', ShippingWebhookEvent::firstOrFail()->event_key);
@@ -196,9 +218,9 @@ class ShippingWebhookInboxTest extends TestCase
             'X-Forwarded-For' => '198.51.100.20',
         ]);
 
-        $first->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $first->assertStatus(202)->assertJsonPath('data.status', 'accepted');
         $second->assertStatus(429)->assertJson(['success' => false]);
-        $differentClient->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $differentClient->assertStatus(202)->assertJsonPath('data.status', 'accepted');
         $this->assertSame(2, ShippingWebhookEvent::count());
 
         // Direct request from an untrusted remote peer must fail closed even if
