@@ -183,7 +183,7 @@ class ShippingWebhookInboxTest extends TestCase
 
         $response = $this->postWebhook($payload);
 
-        $response->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $response->assertStatus(202)->assertJsonPath('data.status', 'accepted');
 
         $event = ShippingWebhookEvent::firstOrFail();
         $this->assertSame('sandbox', $event->mode);
@@ -213,7 +213,7 @@ class ShippingWebhookInboxTest extends TestCase
 
         $response = $this->postWebhook($payload);
 
-        $response->assertStatus(200)->assertJsonPath('data.status', 'accepted');
+        $response->assertStatus(202)->assertJsonPath('data.status', 'accepted');
 
         $event = ShippingWebhookEvent::firstOrFail();
         $this->assertSame('production', $event->mode);
