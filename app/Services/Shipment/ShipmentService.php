@@ -15,6 +15,7 @@ use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Order\DeliveryCompletionInvariant;
 use App\Services\Order\OrderTransitionService;
 use App\ValueObjects\TransitionActor;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -22,6 +23,21 @@ use Marvel\Database\Models\Order;
 
 class ShipmentService
 {
+    /**
+     * #189: named-state precedence for the informational order mirror.
+     * `returned` is terminal history and is deliberately absent: outstanding
+     * shipments alone determine the aggregate when any exist.
+     */
+    private const OUTSTANDING_PRECEDENCE = [
+        ShipmentStatus::FAILED_DELIVERY,
+        ShipmentStatus::DELAYED,
+        ShipmentStatus::OUT_FOR_DELIVERY,
+        ShipmentStatus::IN_TRANSIT,
+        ShipmentStatus::PICKED_UP,
+        ShipmentStatus::LABEL_CREATED,
+        ShipmentStatus::PENDING,
+    ];
+
     public function __construct(
         private FulfillmentTransition $fulfillmentTransitions,
         private OrderTransitionService $orderTransitions,
@@ -549,14 +565,20 @@ class ShipmentService
     }
 
     /**
-     * Phase 8 (D8-9): shipment rows are the source of truth; the legacy
-     * orders.shipment_* columns are a read-model mirror. Overwrites mirror
-     * status on every shipment transition; carries tracking/courier only
-     * when the shipment row actually holds them (never wipes operator data
-     * with NULL); stamps actual_delivery_at on delivered. Same-transaction,
-     * plain keyed update — the caller already holds the order lock, so no
-     * new lock edge is introduced. The mirror NEVER drives fulfillment,
-     * shipment, flow, or completion state.
+     * #189: the one canonical mirror writer. Shipment rows are the source of
+     * truth and the legacy orders.shipment_* columns are a read-model mirror.
+     *
+     * The amended aggregate uses R = non-cancelled shipments, T = returned,
+     * O = neither delivered nor returned, D = delivered. A returned row is
+     * immutable history: it never overrides an active O, and only decides the
+     * aggregate when no outstanding shipment remains. ETA comes from O only,
+     * is unavailable if any O row lacks a reliable ETA, and is never invented.
+     * actual_delivery_at is set only for a delivered aggregate, from
+     * MAX(delivered_at) over D, and cleared otherwise. No order lifecycle,
+     * fulfillment, inventory, payment, status or completion timestamp is
+     * touched. Tracking/courier stay last-writer-wins and are never wiped by
+     * NULL. Same-transaction, plain keyed update — the caller already holds
+     * the order lock, so no new lock edge is introduced.
      */
     public function syncOrderMirror(Shipment $shipment): void
     {
@@ -564,19 +586,116 @@ class ShipmentService
             return;
         }
 
-        $payload = ['shipment_status' => $shipment->status];
+        $orderId = (int) $shipment->order_id;
+        $shipments = $orderId > 0
+            ? Shipment::where('order_id', $orderId)->get(['status', 'tracking_number', 'courier', 'estimated_delivery_at', 'delivered_at'])
+            : collect();
 
+        if ($shipments->isEmpty()) {
+            return;
+        }
+
+        $aggregate = $this->orderMirrorAggregate($shipments);
+        if ($aggregate['status'] === null) {
+            return;
+        }
+
+        $payload = ['shipment_status' => $aggregate['status']];
+
+        if (Schema::hasColumn('orders', 'estimated_delivery_at')) {
+            $payload['estimated_delivery_at'] = $aggregate['eta'];
+        }
+        if (Schema::hasColumn('orders', 'actual_delivery_at')) {
+            $payload['actual_delivery_at'] = $aggregate['actual_delivery_at'];
+        }
         if (Schema::hasColumn('orders', 'tracking_number') && $shipment->tracking_number !== null) {
             $payload['tracking_number'] = $shipment->tracking_number;
         }
         if (Schema::hasColumn('orders', 'courier_name') && $shipment->courier !== null) {
             $payload['courier_name'] = $shipment->courier;
         }
-        if ($shipment->status === 'delivered' && Schema::hasColumn('orders', 'actual_delivery_at')) {
-            $payload['actual_delivery_at'] = now();
+
+        $this->applyOrderMirror($orderId, $payload);
+    }
+
+    /**
+     * @param  Collection<int, Shipment>  $shipments
+     * @return array{status: ?string, eta: mixed, actual_delivery_at: mixed}
+     */
+    private function orderMirrorAggregate(Collection $shipments): array
+    {
+        $required = $shipments->where('status', '!=', ShipmentStatus::CANCELLED->value)->values();
+        if ($required->isEmpty()) {
+            return $this->mirrorState(ShipmentStatus::CANCELLED->value);
         }
 
-        $this->applyOrderMirror((int) $shipment->order_id, $payload);
+        $outstanding = $required->whereNotIn('status', [
+            ShipmentStatus::DELIVERED->value,
+            ShipmentStatus::RETURNED->value,
+        ])->values();
+
+        if ($outstanding->isEmpty()) {
+            return $this->aggregateTerminalShipments($required);
+        }
+
+        $status = $this->aggregateOutstandingStatus($outstanding);
+        if ($status === null) {
+            // Fail closed: an unknown status never becomes a fabricated state.
+            return $this->mirrorState(null);
+        }
+
+        $state = $this->mirrorState($status);
+        $state['eta'] = $this->aggregateEta($outstanding);
+
+        return $state;
+    }
+
+    /** @param Collection<int, Shipment> $required */
+    private function aggregateTerminalShipments(Collection $required): array
+    {
+        if ($required->contains('status', ShipmentStatus::RETURNED->value)) {
+            return $this->mirrorState(ShipmentStatus::RETURNED->value);
+        }
+
+        $state = $this->mirrorState(ShipmentStatus::DELIVERED->value);
+        $state['actual_delivery_at'] = $required
+            ->where('status', ShipmentStatus::DELIVERED->value)
+            ->pluck('delivered_at')
+            ->filter()
+            ->max();
+
+        return $state;
+    }
+
+    /** @param Collection<int, Shipment> $outstanding */
+    private function aggregateOutstandingStatus(Collection $outstanding): ?string
+    {
+        foreach (self::OUTSTANDING_PRECEDENCE as $case) {
+            if ($outstanding->contains('status', $case->value)) {
+                return $case->value;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param Collection<int, Shipment> $outstanding */
+    private function aggregateEta(Collection $outstanding): mixed
+    {
+        // No shipment-level ETA freshness signal exists here: a failed
+        // attempt's old ETA is unreliable, as is any missing ETA.
+        $unreliable = $outstanding->contains(
+            fn (Shipment $row) => $row->estimated_delivery_at === null
+                || $row->status === ShipmentStatus::FAILED_DELIVERY->value,
+        );
+
+        return $unreliable ? null : $outstanding->pluck('estimated_delivery_at')->max();
+    }
+
+    /** @return array{status: ?string, eta: null, actual_delivery_at: null} */
+    private function mirrorState(?string $status): array
+    {
+        return ['status' => $status, 'eta' => null, 'actual_delivery_at' => null];
     }
 
     /**
