@@ -11,6 +11,8 @@ return [
     'overlapping_statement' => 'A COD settlement statement overlaps an existing statement for this provider, mode, account, and currency.',
     'lock_timeout' => 'Could not acquire settlement scope lock; please retry.',
     'line_matched' => 'COD settlement line matched successfully.',
+    'accepted' => 'COD settlement statement explicitly accepted.',
+    'rejected' => 'COD settlement statement explicitly rejected.',
     'closed' => 'COD settlement statement closed successfully.',
     'invalid_actor' => 'A valid finance actor is required.',
     'already_closed' => 'Settlement statement is already closed.',

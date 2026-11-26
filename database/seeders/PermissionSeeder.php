@@ -108,6 +108,7 @@ class PermissionSeeder extends Seeder
             // 🧾 COD settlement evidence (finance only; never broadly seeded)
             MarvelPermission::COD_SETTLEMENT_VIEW,
             MarvelPermission::COD_SETTLEMENT_MATCH,
+            MarvelPermission::COD_SETTLEMENT_ACCEPT,
             MarvelPermission::COD_SETTLEMENT_CLOSE,
             MarvelPermission::COD_ADJUSTMENT_APPROVE,
 

@@ -22,6 +22,7 @@ final class FinanceAccess
     public const PERMISSIONS = [
         MarvelPermission::COD_SETTLEMENT_VIEW,
         MarvelPermission::COD_SETTLEMENT_MATCH,
+        MarvelPermission::COD_SETTLEMENT_ACCEPT,
         MarvelPermission::COD_SETTLEMENT_CLOSE,
         MarvelPermission::COD_ADJUSTMENT_APPROVE,
     ];

@@ -13,6 +13,7 @@ use App\Models\Shipment;
 use App\Models\Shipping\ShippingProviderEvent;
 use App\Services\Settlement\CodSettlementService;
 use App\Services\Shipment\ShipmentService;
+use App\Support\FinanceAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -44,11 +45,7 @@ class CodSettlementMatchingTest extends TestCase
         parent::setUp();
         app()->setLocale('en');
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
-        foreach ([
-            Permission::COD_SETTLEMENT_VIEW,
-            Permission::COD_SETTLEMENT_MATCH,
-            Permission::COD_SETTLEMENT_CLOSE,
-        ] as $name) {
+        foreach (FinanceAccess::permissions() as $name) {
             SpatiePermission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
     }
@@ -134,10 +131,24 @@ class CodSettlementMatchingTest extends TestCase
         Permission::COD_SETTLEMENT_MATCH,
         Permission::COD_SETTLEMENT_CLOSE,
     ]): User {
+        // #191: finance abilities are granted through the dedicated finance
+        // role, not by direct permission rows on an unrelated admin; the gate
+        // denies direct grants for finance abilities.
+        $role = \Marvel\Database\Models\Role::firstOrCreate(
+            ['name' => FinanceAccess::ROLE, 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Finance', 'ar' => 'مالية']],
+        );
+        $role->syncPermissions(FinanceAccess::permissions());
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
         $user = User::factory()->create(['type' => 'staff']);
         foreach ($perms as $permission) {
-            $user->givePermissionTo($permission);
+            if (! in_array($permission, FinanceAccess::permissions(), true)) {
+                $user->givePermissionTo($permission);
+            }
         }
+        $user->assignRole(FinanceAccess::ROLE);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         return $user;
     }

@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api\Admin\Finance;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\Finance\AcceptCodSettlementStatementRequest;
 use App\Http\Requests\Admin\Finance\CloseCodSettlementRequest;
 use App\Http\Requests\Admin\Finance\ListCodSettlementStatementsRequest;
 use App\Http\Requests\Admin\Finance\ManualMatchCodSettlementLineRequest;
+use App\Http\Requests\Admin\Finance\RejectCodSettlementStatementRequest;
 use App\Http\Resources\Settlement\CodSettlementLineResource;
 use App\Http\Resources\Settlement\CodSettlementStatementResource;
+use App\Exceptions\CodSettlementVarianceException;
 use App\Services\Settlement\CodSettlementService;
 use Illuminate\Http\JsonResponse;
 use Marvel\Traits\ApiResponse;
@@ -68,12 +71,56 @@ class CodSettlementController extends Controller
 
         try {
             $statement = $this->settlements->closeStatement($id, $actorId, $request->validated('reason'));
-        } catch (\InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException|CodSettlementVarianceException $e) {
+            // #191: a blocked closure (unmatched evidence, variance beyond the
+            // approved tolerance, missing approval reference) is a client-
+            // correctable finance state, not a server failure.
             return $this->apiResponse($e->getMessage(), 422, false);
         }
 
         return $this->apiResponse(
             __('cod_settlement.closed'),
+            200,
+            true,
+            CodSettlementStatementResource::make($statement)
+        );
+    }
+
+    /**
+     * #182: explicit finance acceptance is a controlled write. The actor is
+     * the authenticated session; the request never carries business state.
+     */
+    public function accept(AcceptCodSettlementStatementRequest $request, int $id): JsonResponse
+    {
+        $actorId = (int) $request->user()->id;
+
+        try {
+            $statement = $this->settlements->acceptStatement($id, $actorId, $request->validated('reason'));
+        } catch (\InvalidArgumentException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
+
+        return $this->apiResponse(
+            __('cod_settlement.accepted'),
+            200,
+            true,
+            CodSettlementStatementResource::make($statement)
+        );
+    }
+
+    /** #182: rejecting a statement never mutates the previously accepted one. */
+    public function reject(RejectCodSettlementStatementRequest $request, int $id): JsonResponse
+    {
+        $actorId = (int) $request->user()->id;
+
+        try {
+            $statement = $this->settlements->rejectStatement($id, $actorId, (string) $request->validated('reason'));
+        } catch (\InvalidArgumentException $e) {
+            return $this->apiResponse($e->getMessage(), 422, false);
+        }
+
+        return $this->apiResponse(
+            __('cod_settlement.rejected'),
             200,
             true,
             CodSettlementStatementResource::make($statement)
