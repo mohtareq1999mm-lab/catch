@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Shipping;
 
+use App\Enums\Shipping\ShippingOutboxOperationType;
 use App\Enums\Shipping\ShippingOutboxStatus;
 use App\Jobs\Shipping\ProcessShippingOutboxJob;
 use App\Models\Shipment;
@@ -42,10 +43,11 @@ class ShippingOutboxTest extends TestCase
     private function operation(Shipment $shipment, array $overrides = []): ShippingOutboxOperation
     {
         return new ShippingOutboxOperation(
-            operation: $overrides['operation'] ?? 'carrier.create_shipment',
+            operation: $overrides['operation'] ?? ShippingOutboxOperationType::PROVIDER_CREATE_SHIPMENT,
             aggregateType: $overrides['aggregate_type'] ?? 'shipment',
             aggregateId: $overrides['aggregate_id'] ?? (string) $shipment->id,
-            idempotencyKey: $overrides['idempotency_key'] ?? 'idem-' . Str::uuid(),
+            authorizedRequestId: $overrides['authorized_request_id'] ?? ('req-test-'.($overrides['version'] ?? 1)),
+            version: $overrides['version'] ?? 1,
             providerCode: $overrides['provider_code'] ?? 'internal',
             providerMode: $overrides['provider_mode'] ?? 'internal',
             payload: $overrides['payload'] ?? ['shipment_id' => $shipment->id],
@@ -75,7 +77,7 @@ class ShippingOutboxTest extends TestCase
         try {
             DB::transaction(function () use ($service, $shipment) {
                 $shipment->update(['status' => 'label_created']);
-                $service->record($this->operation($shipment, ['idempotency_key' => 'commit-1']));
+                $service->record($this->operation($shipment, ['version' => 1]));
                 throw new \RuntimeException('boom');
             });
         } catch (\RuntimeException) {
@@ -89,7 +91,7 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $op = $this->operation($shipment, ['idempotency_key' => 'dup-1']);
+        $op = $this->operation($shipment, ['version' => 1]);
 
         $first = $service->record($op);
 
@@ -100,6 +102,7 @@ class ShippingOutboxTest extends TestCase
                 'aggregate_type' => $first->aggregate_type,
                 'aggregate_id' => $first->aggregate_id,
                 'idempotency_key' => $first->idempotency_key,
+                'authorized_request_id' => $op->authorizedRequestId,
                 'provider_code' => $first->provider_code,
                 'provider_mode' => $first->provider_mode,
                 'payload' => json_encode(['shipment_id' => 999]),
@@ -121,7 +124,7 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $row = $service->record($this->operation($shipment, ['idempotency_key' => 'recover-1']));
+        $row = $service->record($this->operation($shipment, ['version' => 1]));
 
         $ctx = $this->configuredService();
         $ctx->processor->shouldReceive('process')->once()->withArgs(fn (ShippingOutbox $outbox) => $outbox->id === $row->id)
@@ -138,10 +141,10 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $future = $service->record($this->operation($shipment, ['idempotency_key' => 'future-1']));
+        $future = $service->record($this->operation($shipment, ['version' => 1]));
         $future->update(['available_at' => now()->addMinutes(10)]);
 
-        $stale = $service->record($this->operation($shipment, ['idempotency_key' => 'stale-1']));
+        $stale = $service->record($this->operation($shipment, ['version' => 2]));
         DB::table('shipping_outbox')->where('id', $stale->id)->update([
             'status' => ShippingOutboxStatus::PROCESSING->value,
             'updated_at' => now()->subSeconds(ShippingOutboxService::LEASE_SECONDS + 10),
@@ -164,7 +167,7 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $row = $service->record($this->operation($shipment, ['idempotency_key' => 'unknown-1']));
+        $row = $service->record($this->operation($shipment, ['version' => 1]));
 
         $ctx = $this->configuredService();
         $ctx->processor->shouldReceive('process')->once()->andReturn(ShippingOutboxResult::unknown('timeout'));
@@ -181,8 +184,8 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $timeoutRow = $service->record($this->operation($shipment, ['idempotency_key' => 'conn-timeout']));
-        $localRow = $service->record($this->operation($shipment, ['idempotency_key' => 'conn-local']));
+        $timeoutRow = $service->record($this->operation($shipment, ['version' => 1]));
+        $localRow = $service->record($this->operation($shipment, ['version' => 2]));
 
         $ctx = $this->configuredService();
         $ctx->processor->shouldReceive('process')->twice()->andReturnUsing(function (ShippingOutbox $outbox) use ($timeoutRow) {
@@ -205,7 +208,7 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $row = $service->record($this->operation($shipment, ['idempotency_key' => 'reconcile-1']));
+        $row = $service->record($this->operation($shipment, ['version' => 1]));
         $row->update(['status' => ShippingOutboxStatus::UNKNOWN, 'last_error' => 'timeout']);
 
         $ctx = $this->configuredService();
@@ -224,7 +227,7 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $row = $service->record($this->operation($shipment, ['idempotency_key' => 'reconcile-retry-1']));
+        $row = $service->record($this->operation($shipment, ['version' => 1]));
         $row->update(['status' => ShippingOutboxStatus::UNKNOWN, 'last_error' => 'timeout', 'available_at' => now()->subMinute()]);
 
         $ctx = $this->configuredService();
@@ -241,9 +244,9 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $throwRow = $service->record($this->operation($shipment, ['idempotency_key' => 'reconcile-throw']));
+        $throwRow = $service->record($this->operation($shipment, ['version' => 1]));
         $throwRow->update(['status' => ShippingOutboxStatus::UNKNOWN, 'attempts' => 2, 'available_at' => now()->subMinute()]);
-        $unexpectedRow = $service->record($this->operation($shipment, ['idempotency_key' => 'reconcile-unexpected']));
+        $unexpectedRow = $service->record($this->operation($shipment, ['version' => 2]));
         $unexpectedRow->update(['status' => ShippingOutboxStatus::UNKNOWN, 'attempts' => 2, 'available_at' => now()->subMinute()]);
 
         $ctx = $this->configuredService();
@@ -268,7 +271,7 @@ class ShippingOutboxTest extends TestCase
     {
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $row = $service->record($this->operation($shipment, ['idempotency_key' => 'reconcile-race']));
+        $row = $service->record($this->operation($shipment, ['version' => 1]));
         $row->update(['status' => ShippingOutboxStatus::UNKNOWN, 'attempts' => 1, 'available_at' => now()->subMinute(), 'updated_at' => now()]);
 
         $ctx = $this->configuredService();
@@ -292,9 +295,9 @@ class ShippingOutboxTest extends TestCase
 
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
-        $failedRow = $service->record($this->operation($shipment, ['idempotency_key' => 'fail-max']));
+        $failedRow = $service->record($this->operation($shipment, ['version' => 1]));
         $failedRow->update(['attempts' => 1]);
-        $unknownRow = $service->record($this->operation($shipment, ['idempotency_key' => 'unknown-max']));
+        $unknownRow = $service->record($this->operation($shipment, ['version' => 2]));
         $unknownRow->update(['status' => ShippingOutboxStatus::UNKNOWN, 'attempts' => 1, 'available_at' => now()->subMinute()]);
 
         $ctx = $this->configuredService();
@@ -314,7 +317,7 @@ class ShippingOutboxTest extends TestCase
         $shipment = $this->createShipment();
         $service = app(ShippingOutboxService::class);
 
-        $row = $service->recordAndDispatch($this->operation($shipment, ['idempotency_key' => 'stub-1']));
+        $row = $service->recordAndDispatch($this->operation($shipment, ['version' => 1]));
 
         $this->assertSame(ShippingOutboxStatus::PENDING->value, $row->fresh()->status->value);
         Bus::assertNotDispatched(ProcessShippingOutboxJob::class);
@@ -335,9 +338,9 @@ class ShippingOutboxTest extends TestCase
         $row = null;
 
         DB::transaction(function () use ($service, $shipment, &$row) {
-            $row = $service->recordAndDispatch($this->operation($shipment, ['idempotency_key' => 'after-commit-1']));
+            $row = $service->recordAndDispatch($this->operation($shipment, ['version' => 1]));
             $this->assertDatabaseHas('shipping_outbox', [
-                'idempotency_key' => 'after-commit-1',
+                'idempotency_key' => $row->idempotency_key,
                 'status' => ShippingOutboxStatus::PENDING->value,
             ]);
         });

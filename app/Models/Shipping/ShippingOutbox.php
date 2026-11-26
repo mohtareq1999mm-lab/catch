@@ -16,6 +16,7 @@ class ShippingOutbox extends Model
         'aggregate_type',
         'aggregate_id',
         'idempotency_key',
+        'authorized_request_id',
         'provider_code',
         'provider_mode',
         'payload',

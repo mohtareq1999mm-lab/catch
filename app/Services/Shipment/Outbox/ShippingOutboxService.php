@@ -24,19 +24,53 @@ class ShippingOutboxService
 
     public function record(ShippingOutboxOperation $operation): ShippingOutbox
     {
+        ShippingOutboxPayload::assertIdentifiersOnly($operation->payload);
+
         $attributes = [
-            'operation' => $operation->operation,
+            'operation' => $operation->operation->value,
             'aggregate_type' => $operation->aggregateType,
             'aggregate_id' => $operation->aggregateId,
             'idempotency_key' => $operation->idempotencyKey,
         ];
+        $requestIdentity = [
+            'operation' => $operation->operation->value,
+            'aggregate_type' => $operation->aggregateType,
+            'aggregate_id' => $operation->aggregateId,
+            'authorized_request_id' => $operation->authorizedRequestId,
+        ];
 
         $existing = ShippingOutbox::query()->where($attributes)->first();
         if ($existing !== null) {
-            return $existing;
+            return $this->assertRecordedRequest($existing, $operation);
         }
 
-        $values = $attributes + [
+        // #184 AC4: a version bump is only valid for a distinct authorized
+        // business request. Reusing a request identity at another version is
+        // rejected in application code and by the DB unique index.
+        $sameRequest = ShippingOutbox::query()->where($requestIdentity)->first();
+        if ($sameRequest !== null) {
+            throw ValidationException::withMessages([
+                'version' => 'An authorized request cannot create a new outbox version.',
+            ]);
+        }
+
+        $versions = ShippingOutbox::query()
+            ->where([
+                'operation' => $operation->operation->value,
+                'aggregate_type' => $operation->aggregateType,
+                'aggregate_id' => $operation->aggregateId,
+            ])
+            ->pluck('idempotency_key')
+            ->map(static fn (string $key): int => (int) substr((string) strrchr($key, ':'), 1))
+            ->all();
+
+        if ($operation->version > 1 && ! in_array($operation->version - 1, $versions, true)) {
+            throw ValidationException::withMessages([
+                'version' => 'Outbox versions must be created sequentially.',
+            ]);
+        }
+
+        $values = $attributes + $requestIdentity + [
             'provider_code' => $operation->providerCode,
             'provider_mode' => $operation->providerMode,
             'payload' => json_encode($operation->payload, JSON_THROW_ON_ERROR),
@@ -48,17 +82,39 @@ class ShippingOutboxService
         ];
 
         try {
-            $inserted = ShippingOutbox::query()->insertOrIgnore($values);
-            if ($inserted === 1) {
-                return ShippingOutbox::query()->where($attributes)->firstOrFail();
-            }
+            // MySQL suppresses duplicate conflicts here and returns 0, so both
+            // insertOrIgnore() and the unique-violation path must re-read and
+            // verify the winner before treating the row as this request's own.
+            ShippingOutbox::query()->insertOrIgnore($values);
         } catch (QueryException $e) {
             if (! $this->isUniqueViolation($e)) {
                 throw $e;
             }
         }
 
-        return ShippingOutbox::query()->where($attributes)->firstOrFail();
+        return $this->assertRecordedRequest(
+            ShippingOutbox::query()->where($attributes)->first(),
+            $operation,
+        );
+    }
+
+    private function assertRecordedRequest(?ShippingOutbox $row, ShippingOutboxOperation $operation): ShippingOutbox
+    {
+        if ($row === null) {
+            // A concurrent writer can win a version key or the authorized
+            // request key and leave no row for this version to re-read.
+            throw ValidationException::withMessages([
+                'version' => 'The outbox version could not be recorded for this authorized request.',
+            ]);
+        }
+
+        if ($row->authorized_request_id !== $operation->authorizedRequestId) {
+            throw ValidationException::withMessages([
+                'authorized_request_id' => 'This outbox version belongs to a different authorized request.',
+            ]);
+        }
+
+        return $row;
     }
 
     public function recordAndDispatch(ShippingOutboxOperation $operation): ShippingOutbox

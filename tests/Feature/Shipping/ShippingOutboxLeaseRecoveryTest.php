@@ -41,10 +41,10 @@ final class ShippingOutboxLeaseRecoveryTest extends TestCase
     private function operation(Shipment $shipment, string $key): ShippingOutboxOperation
     {
         return new ShippingOutboxOperation(
-            operation: 'carrier.create_shipment',
+            operation: 'provider.create_shipment',
             aggregateType: 'shipment',
             aggregateId: (string) $shipment->id,
-            idempotencyKey: $key,
+            authorizedRequestId: $key,
             providerCode: 'internal',
             providerMode: 'internal',
             payload: ['shipment_id' => $shipment->id],
