@@ -19,6 +19,8 @@ class ShipmentDeliveryAttemptResource extends JsonResource
             'attempt_number' => $this->attempt_number,
             'status' => $this->status,
             'attempted_at' => optional($this->attempted_at)->toISOString(),
+            'failure_reason' => $this->failure_reason,
+            'metadata' => $this->metadata,
             'created_at' => optional($this->created_at)->toISOString(),
         ];
     }

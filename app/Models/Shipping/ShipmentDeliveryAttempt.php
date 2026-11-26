@@ -41,6 +41,6 @@ class ShipmentDeliveryAttempt extends Model
 
     public function pod(): HasOne
     {
-        return $this->hasOne(ShipmentPod::class);
+        return $this->hasOne(ShipmentPod::class, 'shipment_delivery_attempt_id');
     }
 }

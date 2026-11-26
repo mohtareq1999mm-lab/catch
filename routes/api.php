@@ -402,4 +402,5 @@ Route::prefix('v1/representative')->middleware(['api', 'auth:sanctum', 'represen
     Route::get('assignments/{assignment}', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'showAssignment'])->whereNumber('assignment')->name('api.representative.assignments.show');
     Route::get('attempts/{attempt}', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'showAttempt'])->whereNumber('attempt')->name('api.representative.attempts.show');
     Route::get('pods/{pod}', [\App\Http\Controllers\Api\Representative\RepresentativeController::class, 'showPod'])->whereNumber('pod')->name('api.representative.pods.show');
+    Route::post('assignments/{assignment}/attempts', [\App\Http\Controllers\Api\Representative\AssignmentController::class, 'storeAttempt'])->whereNumber('assignment')->name('api.representative.assignments.attempts.store');
 });
