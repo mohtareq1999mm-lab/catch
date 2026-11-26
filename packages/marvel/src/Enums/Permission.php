@@ -498,9 +498,10 @@ final class Permission extends Enum
     public const PAYMENTS_VERIFY = 'payments.verify';
     public const PAYMENTS_RECONCILE = 'payments.reconcile';
 
-    // 🧾 COD settlement evidence (finance read-only / write guarded)
+    // 🧾 COD settlement evidence (finance read, explicit acceptance and closure)
     public const COD_SETTLEMENT_VIEW = 'cod-settlement.view';
     public const COD_SETTLEMENT_MATCH = 'cod-settlement.match';
+    public const COD_SETTLEMENT_ACCEPT = 'cod-settlement.accept';
     public const COD_SETTLEMENT_CLOSE = 'cod-settlement.close';
     public const COD_ADJUSTMENT_APPROVE = 'cod-adjustment.approve';
 
