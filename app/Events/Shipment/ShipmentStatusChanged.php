@@ -67,4 +67,51 @@ class ShipmentStatusChanged implements ShouldDispatchAfterCommit
             source: (string) ($context['source'] ?? 'direct'),
         );
     }
+
+    /**
+     * Rebuild the same event from the persisted timeline identity.
+     *
+     * Timeline rows are written inside the transition transaction (actor,
+     * source and old/new status included), so replay can recover the canonical
+     * payload from the timeline id alone. Recorder dedupe keys on that same id
+     * make a replay safe: no second notification or history row is created.
+     */
+    public static function forTimelineEvent(
+        OrderTrackingEvent $timeline,
+        ?Shipment $shipment = null,
+        array $context = [],
+    ): self {
+        $metadata = is_array($timeline->metadata) ? $timeline->metadata : [];
+        $estimated = $context['estimated_delivery_at'] ?? ($metadata['estimated_delivery'] ?? null);
+
+        if (is_string($estimated)) {
+            try {
+                $estimated = new \DateTimeImmutable($estimated);
+            } catch (\Exception) {
+                $estimated = null;
+            }
+        }
+
+        $shipmentId = $shipment ? (int) $shipment->id : (isset($context['shipment_id']) ? (int) $context['shipment_id'] : null);
+
+        return new self(
+            order: Order::withoutGlobalScopes()->whereKey((int) $timeline->order_id)->firstOrFail(),
+            oldStatus: (string) $timeline->old_status,
+            newStatus: (string) $timeline->new_status,
+            trackingNumber: isset($context['tracking_number'])
+                ? (string) $context['tracking_number']
+                : (isset($metadata['tracking_number']) ? (string) $metadata['tracking_number'] : null),
+            courierName: isset($context['courier_name'])
+                ? (string) $context['courier_name']
+                : (isset($metadata['courier_name']) ? (string) $metadata['courier_name'] : null),
+            locationData: $context['location_data'] ?? ($metadata['location_data'] ?? null),
+            estimatedDelivery: $estimated instanceof \DateTimeInterface ? $estimated : null,
+            timelineEventId: (int) $timeline->id,
+            shipmentId: $shipmentId ?: null,
+            orderId: (int) $timeline->order_id,
+            actorId: $timeline->actor_id !== null ? (int) $timeline->actor_id : null,
+            actorType: (string) ($timeline->actor_type ?: 'system'),
+            source: (string) ($timeline->source ?: 'direct'),
+        );
+    }
 }

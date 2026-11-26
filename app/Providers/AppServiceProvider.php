@@ -4,10 +4,12 @@ namespace App\Providers;
 
 use App\Contracts\ExchangeRateProviderInterface;
 use App\Contracts\FrontendWebhookDispatcher;
+use App\Contracts\Shipping\ShipmentNotificationDispatcher;
 use App\Contracts\Shipping\ShippingProviderPoller;
 use App\Mail\Transport\ResendTransport;
 use App\Services\FrontendWebhookService;
 use App\Services\Shipment\Providers\UnboundShippingProviderPoller;
+use App\Services\Shipment\UnconfiguredShipmentNotificationDispatcher;
 use App\ValueObjects\WebhookSignature;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
@@ -50,6 +52,10 @@ class AppServiceProvider extends ServiceProvider
             \App\Services\Shipment\Contracts\LinksCarrierReturns::class,
             \App\Services\Shipment\CarrierReturnLinkService::class
         );
+
+        // #183: fail closed until a real shipment channel adapter is bound;
+        // an unconfigured sweep marks rows ambiguous instead of blind-retrying.
+        $this->app->bind(ShipmentNotificationDispatcher::class, UnconfiguredShipmentNotificationDispatcher::class);
 
         // OTP-gated guest order claiming is fail-closed until a real verifier
         // is bound (see GuestOrderClaimService activation steps).

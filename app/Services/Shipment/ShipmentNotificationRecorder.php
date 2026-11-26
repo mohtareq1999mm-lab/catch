@@ -6,6 +6,7 @@ namespace App\Services\Shipment;
 
 use App\Events\Shipment\ShipmentStatusChanged;
 use App\Models\Shipping\ShipmentNotification;
+use App\Models\Shipping\ShipmentNotificationHistory;
 use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
@@ -54,6 +55,7 @@ class ShipmentNotificationRecorder
                 'recipient_type' => 'user',
                 'recipient_id' => $userId,
                 'status' => 'pending',
+                'source' => (string) ($event->source ?: 'direct'),
                 'dedupe_key' => $this->dedupeKey((int) $event->timelineEventId, $channel, 'user', $userId),
                 'payload' => $this->basePayload($event),
             ]);
@@ -99,6 +101,7 @@ class ShipmentNotificationRecorder
                 'recipient_contact_encrypted' => $encryptedContact,
                 'recipient_fingerprint_version' => 'v1',
                 'status' => 'pending',
+                'source' => (string) ($event->source ?: 'direct'),
                 'dedupe_key' => $this->dedupeKey((int) $event->timelineEventId, $channel, 'guest_contact', $fingerprint),
                 'payload' => $this->basePayload($event),
             ]);
@@ -124,6 +127,7 @@ class ShipmentNotificationRecorder
             'recipient_fingerprint_version' => 'v1',
             'status' => 'skipped',
             'failure_reason' => $reason,
+            'source' => (string) ($event->source ?: 'direct'),
             'dedupe_key' => $this->dedupeKey((int) $event->timelineEventId, $channel, 'guest_contact', $fingerprint),
             'payload' => $this->basePayload($event),
         ];
@@ -150,6 +154,7 @@ class ShipmentNotificationRecorder
                 'recipient_fingerprint_version' => 'v1',
                 'status' => 'skipped',
                 'failure_reason' => 'missing_recipient_secret',
+                'source' => (string) ($event->source ?: 'direct'),
                 'dedupe_key' => $this->dedupeKey((int) $event->timelineEventId, $channel, 'guest_contact', $recipientId),
                 'payload' => $this->basePayload($event),
             ]);
@@ -159,7 +164,9 @@ class ShipmentNotificationRecorder
     private function storeIntent(array $attributes): void
     {
         try {
-            ShipmentNotification::query()->create($attributes);
+            $notification = ShipmentNotification::query()->create($attributes);
+            // #183: every recorded intent opens its append-only history trail.
+            ShipmentNotificationHistory::appendFor($notification, 'recorded', 0);
         } catch (QueryException $e) {
             if (UniqueViolation::detect($e)) {
                 return;

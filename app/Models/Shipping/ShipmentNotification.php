@@ -22,15 +22,23 @@ class ShipmentNotification extends Model
         'recipient_contact_encrypted',
         'recipient_fingerprint_version',
         'status',
+        'source',
+        'attempts',
+        'max_attempts',
+        'next_retry_at',
         'dedupe_key',
         'payload',
         'sent_at',
         'failed_at',
         'failure_reason',
+        'last_error',
     ];
 
     protected $casts = [
         'payload' => 'array',
+        'attempts' => 'integer',
+        'max_attempts' => 'integer',
+        'next_retry_at' => 'datetime',
         'sent_at' => 'datetime',
         'failed_at' => 'datetime',
     ];
