@@ -15,6 +15,33 @@ $repoRoot = dirname(__DIR__, 2);
 
 require $repoRoot . '/vendor/autoload.php';
 
+// Spawned probes use the shared composer classmap, which canonicalizes to the
+// main tree. Keep branch-local App\ classes authoritative, as tests/bootstrap.php
+// does for PHPUnit. Anchor to $repoRoot (this file is inside tests/Concurrency/,
+// so __DIR__ . '/../' would resolve into tests/ instead of the repo root).
+spl_autoload_register(static function (string $class) use ($repoRoot): void {
+    foreach ([
+        'App\\' => $repoRoot . '/app/',
+        'Tests\\' => $repoRoot . '/tests/',
+        'Database\\Factories\\' => $repoRoot . '/database/factories/',
+        'Database\\Seeders\\' => $repoRoot . '/database/seeders/',
+        'Marvel\\Stubs\\' => $repoRoot . '/packages/marvel/stubs/',
+        'Marvel\\' => $repoRoot . '/packages/marvel/src/',
+    ] as $prefix => $dir) {
+        if (str_starts_with($class, $prefix)) {
+            $file = $dir . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+
+            if (is_file($file)) {
+                require $file;
+
+                return;
+            }
+            // Class belongs to a repo-owned namespace but is absent in this
+            // worktree: fall through to composer (status-quo resolution).
+        }
+    }
+}, true, true);
+
 $app = require $repoRoot . '/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
