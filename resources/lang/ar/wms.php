@@ -208,6 +208,7 @@ return [
         'internal_cancel_reason' => 'أُلغيت بواسطة مزود التوصيل الداخلي.',
         'cancel_state' => 'الشحنة :shipment لا يمكن إلغاؤها من الحالة \':status\'.',
         'cancel_fulfillment' => 'لا يمكن إلغاء الشحنة #:shipment: التنفيذ #:fulfillment حالته بالفعل :status (الإلغاء لا يرجع التنفيذ للخلف أبدًا).',
+        'returned_immutable' => 'الشحنة المُرجعة #:shipment سجل تاريخي غير قابل للتعديل أو الحذف.',
         'field_locked' => 'حقل الشحنة \':field\' مملوك لسلطة الانتقال ولا يمكن تحديثه جماعيًا.',
         'active_exists' => 'لا يمكن إنشاء شحنة: التنفيذ #:id لديه بالفعل شحنة نشطة.',
         'dispatch_quantities' => 'لا يمكن إرسال الشحنة: عنصر التنفيذ #:item ملتقط :picked ومعبأ :packed.',
