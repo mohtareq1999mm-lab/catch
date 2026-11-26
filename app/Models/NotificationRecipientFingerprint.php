@@ -13,6 +13,7 @@ class NotificationRecipientFingerprint extends Model
 
     protected $fillable = [
         'recipient_id',
+        'channel',
         'key_version',
         'fingerprint_hash',
         'metadata',

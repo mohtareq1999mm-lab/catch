@@ -36,7 +36,7 @@ class RecipientIdentityService
      * or `guest` model instances in context; scalar user_id/guest_id values are
      * never trusted.
      *
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @return array{status:'resolved'|'ambiguous', recipient?:NotificationRecipient, conflict?:NotificationIdentityConflict}
      */
     public function resolveRecipient(array $aliases, string $recipientType = 'guest_contact', array $context = []): array
@@ -56,7 +56,8 @@ class RecipientIdentityService
             // silently grafted onto the matched recipient or hits a UNIQUE
             // violation with no conflict case.
             $rows = NotificationRecipientFingerprint::query()
-                ->whereIn('key_version', array_keys($versionHashes))
+                ->where('channel', $this->singleAliasChannel($aliases))
+                ->whereIn('key_version', $this->aliasVersions($aliases))
                 ->lockForUpdate()
                 ->get();
 
@@ -70,7 +71,12 @@ class RecipientIdentityService
             $createdRecipientId = null;
             $createdAliasIds = [];
 
-            $stableKey = $this->stableKeyForIdentity($recipientType, $identity);
+            // #180: when a channel-scoped contact is supplied, that contact is
+            // the identity and user_id is only an account association. Without
+            // this, one user id would collapse email and phone identities.
+            $stableKey = $this->singleAliasChannel($aliases) !== ''
+                ? null
+                : $this->stableKeyForIdentity($recipientType, $identity);
             $contactEncrypted = $this->normalizeContactEncrypted($context['contact_encrypted'] ?? null);
             $recipientMetadata = $this->normalizeSmallMetadata($context['metadata'] ?? null);
 
@@ -92,9 +98,13 @@ class RecipientIdentityService
                     return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context, 'recipient_ownership_mismatch');
                 }
 
-                $divergent = $rows->first(fn ($row) => (int) $row->recipient_id === (int) $recipient->id
-                    && isset($versionHashes[$row->key_version])
-                    && $versionHashes[$row->key_version] !== $row->fingerprint_hash);
+                $divergent = $rows->first(function ($row) use ($versionHashes, $recipient) {
+                    $key = $row->channel . "\x1f" . $row->key_version;
+
+                    return (int) $row->recipient_id === (int) $recipient->id
+                        && isset($versionHashes[$key])
+                        && $versionHashes[$key] !== $row->fingerprint_hash;
+                });
 
                 if ($divergent) {
                     return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context);
@@ -117,7 +127,8 @@ class RecipientIdentityService
             }
 
             foreach ($aliases as $alias) {
-                $stored = $rows->first(fn ($row) => $row->key_version === $alias['key_version']
+                $stored = $rows->first(fn ($row) => $row->channel === $alias['channel']
+                    && $row->key_version === $alias['key_version']
                     && $row->fingerprint_hash === $alias['fingerprint_hash']);
 
                 if ($stored && (int) $stored->recipient_id === (int) $recipient->id) {
@@ -129,6 +140,7 @@ class RecipientIdentityService
                 // its ownership is verified below.
                 $inserted = DB::table('notification_recipient_fingerprints')->insertOrIgnore([
                     'recipient_id' => $recipient->id,
+                    'channel' => $alias['channel'],
                     'key_version' => $alias['key_version'],
                     'fingerprint_hash' => $alias['fingerprint_hash'],
                     'created_at' => now(),
@@ -140,6 +152,7 @@ class RecipientIdentityService
                 }
 
                 $stored = NotificationRecipientFingerprint::query()
+                    ->where('channel', $alias['channel'])
                     ->where('key_version', $alias['key_version'])
                     ->where('fingerprint_hash', $alias['fingerprint_hash'])
                     ->lockForUpdate()
@@ -172,7 +185,7 @@ class RecipientIdentityService
      * same conflict/audit semantics as resolveRecipient and never auto-merges
      * two recipients: divergence always becomes an open conflict.
      *
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @return array{status:'resolved'|'ambiguous', recipient?:NotificationRecipient, conflict?:NotificationIdentityConflict}
      */
     public function resolveForRecipientKey(
@@ -190,7 +203,13 @@ class RecipientIdentityService
         $aliases = $this->normalizeAliasSet($aliases);
         $versionHashes = $this->assertOneHashPerVersion($aliases);
         $identity = $this->authoritativeIdentity($context);
-        $key = $this->validateRecipientKey($type, $recipientKey, $identity);
+        $channelScoped = $this->singleAliasChannel($aliases) !== '';
+        $key = $this->validateRecipientKey(
+            $type,
+            $channelScoped ? null : $recipientKey,
+            $identity,
+            $channelScoped,
+        );
 
         if ($key === null && $aliases === []) {
             throw ValidationException::withMessages(['fingerprints' => 'A stable key or fingerprint alias is required.']);
@@ -246,10 +265,12 @@ class RecipientIdentityService
         NotificationRecipient $recipient,
         string $version,
         string $fingerprintHash,
-        ?array $metadata = null
+        ?array $metadata = null,
+        ?string $channel = null
     ): NotificationRecipient {
         $version = trim($version);
         $hash = strtolower(trim($fingerprintHash));
+        $channel = $this->normalizeFingerprintChannel($channel);
         if (preg_match('/^[A-Za-z0-9_.:-]{1,32}$/', $version) !== 1) {
             throw ValidationException::withMessages(['key_version' => 'Invalid fingerprint version.']);
         }
@@ -260,10 +281,11 @@ class RecipientIdentityService
 
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
-                return DB::transaction(function () use ($recipient, $version, $hash, $cleanMetadata) {
+                return DB::transaction(function () use ($recipient, $version, $hash, $cleanMetadata, $channel) {
                     $locked = NotificationRecipient::query()->lockForUpdate()->findOrFail($recipient->id);
 
                     $owner = NotificationRecipientFingerprint::query()
+                        ->where('channel', $channel)
                         ->where('key_version', $version)
                         ->where('fingerprint_hash', $hash)
                         ->lockForUpdate()
@@ -280,6 +302,14 @@ class RecipientIdentityService
                         ->lockForUpdate()
                         ->first();
 
+                    // One version belongs to one channel identity on a
+                    // recipient; never silently rewrite an existing channel.
+                    if ($existing && $existing->channel !== $channel) {
+                        throw ValidationException::withMessages([
+                            'fingerprint_hash' => 'Recipient already has a fingerprint for another channel.',
+                        ]);
+                    }
+
                     if ($existing) {
                         if ($existing->fingerprint_hash === $hash && $cleanMetadata === null) {
                             return $locked->fresh();
@@ -294,6 +324,7 @@ class RecipientIdentityService
 
                     NotificationRecipientFingerprint::query()->create([
                         'recipient_id' => $locked->id,
+                        'channel' => $channel,
                         'key_version' => $version,
                         'fingerprint_hash' => $hash,
                         'metadata' => $cleanMetadata,
@@ -314,10 +345,16 @@ class RecipientIdentityService
     /**
      * @param array{user:?User,guest:?GuestIdentity} $identity
      */
-    private function validateRecipientKey(string $recipientType, ?string $recipientKey, array $identity): ?string
-    {
+    private function validateRecipientKey(
+        string $recipientType,
+        ?string $recipientKey,
+        array $identity,
+        bool $channelScoped = false,
+    ): ?string {
         if ($recipientKey === null || trim($recipientKey) === '') {
-            if ($recipientType === 'user') {
+            // #180: a channel-scoped contact is the identity; the user id is
+            // only an association and must not collapse email/sms contacts.
+            if ($recipientType === 'user' && ! $channelScoped) {
                 throw ValidationException::withMessages(['recipient_key' => 'User recipients require a stable key.']);
             }
 
@@ -348,7 +385,7 @@ class RecipientIdentityService
     }
 
     /**
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @param array<string,string> $versionHashes
      * @param array{user:?User,guest:?GuestIdentity} $identity
      * @return array{status:'resolved'|'ambiguous', recipient?:NotificationRecipient, conflict?:NotificationIdentityConflict}
@@ -373,7 +410,8 @@ class RecipientIdentityService
         }
 
         $rows = NotificationRecipientFingerprint::query()
-            ->whereIn('key_version', array_keys($versionHashes))
+            ->where('channel', $this->singleAliasChannel($aliases))
+            ->whereIn('key_version', $this->aliasVersions($aliases))
             ->lockForUpdate()
             ->get();
         $candidateIds = $rows->pluck('recipient_id')->unique()->values()->map(fn ($id) => (int) $id)->all();
@@ -412,9 +450,13 @@ class RecipientIdentityService
                 return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context, 'recipient_ownership_mismatch');
             }
 
-            $divergent = $rows->first(fn ($row) => (int) $row->recipient_id === (int) $recipient->id
-                && isset($versionHashes[$row->key_version])
-                && $versionHashes[$row->key_version] !== $row->fingerprint_hash);
+            $divergent = $rows->first(function ($row) use ($versionHashes, $recipient) {
+                $key = $row->channel . "\x1f" . $row->key_version;
+
+                return (int) $row->recipient_id === (int) $recipient->id
+                    && isset($versionHashes[$key])
+                    && $versionHashes[$key] !== $row->fingerprint_hash;
+            });
             if ($divergent) {
                 return $this->ambiguousResult([(int) $recipient->id], $aliases, $recipientType, $context);
             }
@@ -435,7 +477,8 @@ class RecipientIdentityService
         }
 
         foreach ($aliases as $alias) {
-            $stored = $rows->first(fn ($row) => $row->key_version === $alias['key_version']
+            $stored = $rows->first(fn ($row) => $row->channel === $alias['channel']
+                && $row->key_version === $alias['key_version']
                 && $row->fingerprint_hash === $alias['fingerprint_hash']);
             if ($stored && (int) $stored->recipient_id === (int) $recipient->id) {
                 continue;
@@ -443,6 +486,7 @@ class RecipientIdentityService
 
             NotificationRecipientFingerprint::query()->create([
                 'recipient_id' => $recipient->id,
+                'channel' => $alias['channel'],
                 'key_version' => $alias['key_version'],
                 'fingerprint_hash' => $alias['fingerprint_hash'],
                 'metadata' => $metadata,
@@ -506,7 +550,7 @@ class RecipientIdentityService
     }
 
     /**
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @return array{status:'ambiguous',conflict:NotificationIdentityConflict}|null
      */
     private function stableKeyConflict(
@@ -553,7 +597,7 @@ class RecipientIdentityService
      * Service-level authorization boundary for recipient lookups, analogous
      * to the conflict-resolution hook.
      *
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @param array{user:?User,guest:?GuestIdentity} $identity
      */
     private function authorizeRecipientResolution(array $aliases, string $recipientType, array $context, array $identity): void
@@ -565,7 +609,7 @@ class RecipientIdentityService
 
     /**
      * @param array<int,int> $candidateIds
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @return array{status:'ambiguous', conflict:NotificationIdentityConflict}
      */
     private function ambiguousResult(
@@ -588,7 +632,7 @@ class RecipientIdentityService
 
     /**
      * @param array<int,int> $candidateIds
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      */
     private function recordConflict(
         array $candidateIds,
@@ -644,7 +688,7 @@ class RecipientIdentityService
         }
 
         return NotificationIdentityConflict::query()->create([
-            'channel' => $context['channel'] ?? null,
+            'channel' => $context['channel'] ?? ($primary['channel'] ?? null),
             'key_version' => $primary['key_version'] ?? null,
             'fingerprint_hash' => $primary['fingerprint_hash'] ?? null,
             'candidate_recipient_ids' => $candidateIds,
@@ -924,8 +968,8 @@ class RecipientIdentityService
     }
 
     /**
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
-     * @return array<int,array{key_version:string,fingerprint_hash:string}>
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
+     * @return array<int,array{channel:string,key_version:string,fingerprint_hash:string}>
      */
     private function normalizeAliasSet(array $aliases): array
     {
@@ -934,15 +978,16 @@ class RecipientIdentityService
             ->map(fn ($a) => [
                 'key_version' => trim((string) $a['key_version']),
                 'fingerprint_hash' => strtolower(trim((string) $a['fingerprint_hash'])),
+                'channel' => $this->normalizeFingerprintChannel($a['channel'] ?? null),
             ])
             ->filter(fn ($a) => preg_match('/^[A-Za-z0-9_.:-]{1,32}$/', $a['key_version']) === 1
                 && preg_match('/^[a-f0-9]{64}$/', $a['fingerprint_hash']) === 1)
-            ->unique(fn ($a) => $a['key_version'] . ':' . $a['fingerprint_hash'])
+            ->unique(fn ($a) => $a['channel'] . "\x1f" . $a['key_version'] . "\x1f" . $a['fingerprint_hash'])
             ->values()
             ->all();
 
-        usort($normalized, fn (array $a, array $b) => [$a['key_version'], $a['fingerprint_hash']]
-            <=> [$b['key_version'], $b['fingerprint_hash']]);
+        usort($normalized, fn (array $a, array $b) => [$a['channel'], $a['key_version'], $a['fingerprint_hash']]
+            <=> [$b['channel'], $b['key_version'], $b['fingerprint_hash']]);
 
         return $normalized;
     }
@@ -951,21 +996,66 @@ class RecipientIdentityService
      * One hash per version is a hard input invariant: divergent hashes for
      * the same version cannot both belong to one recipient.
      *
-     * @param array<int,array{key_version:string,fingerprint_hash:string}> $aliases
+     * @param array<int,array{channel:string,key_version:string,fingerprint_hash:string}> $aliases
      * @return array<string,string>
      */
     private function assertOneHashPerVersion(array $aliases): array
     {
         $versionHashes = [];
         foreach ($aliases as $alias) {
-            $version = $alias['key_version'];
-            if (array_key_exists($version, $versionHashes) && $versionHashes[$version] !== $alias['fingerprint_hash']) {
+            // #180: channel is part of identity. The empty channel is the
+            // legacy sentinel and remains backwards compatible.
+            $key = $alias['channel'] . "\x1f" . $alias['key_version'];
+            if (array_key_exists($key, $versionHashes) && $versionHashes[$key] !== $alias['fingerprint_hash']) {
                 throw ValidationException::withMessages(['fingerprints' => 'Only one fingerprint hash is allowed per key version.']);
             }
-            $versionHashes[$version] = $alias['fingerprint_hash'];
+            $versionHashes[$key] = $alias['fingerprint_hash'];
         }
 
         return $versionHashes;
+    }
+
+    /**
+     * #180: a fingerprint alias set belongs to exactly one channel. Mixing
+     * channels in one set would be an identity merge, which is never allowed.
+     */
+    private function normalizeFingerprintChannel(mixed $channel): string
+    {
+        if ($channel === null) {
+            return '';
+        }
+        if (!is_string($channel)) {
+            throw ValidationException::withMessages(['fingerprints' => 'Invalid fingerprint channel.']);
+        }
+
+        $channel = strtolower(trim($channel));
+        if ($channel !== '' && preg_match('/^[a-z0-9_.:-]{1,16}$/', $channel) !== 1) {
+            throw ValidationException::withMessages(['fingerprints' => 'Invalid fingerprint channel.']);
+        }
+
+        return $channel;
+    }
+
+    /**
+     * @param array<int,array{channel:string}> $aliases
+     */
+    private function singleAliasChannel(array $aliases): string
+    {
+        $channels = array_values(array_unique(array_column($aliases, 'channel')));
+        if (count($channels) > 1) {
+            throw ValidationException::withMessages(['fingerprints' => 'Fingerprints must not mix channels.']);
+        }
+
+        return $channels[0] ?? '';
+    }
+
+    /**
+     * @param array<int,array{key_version:string}> $aliases
+     * @return array<int,string>
+     */
+    private function aliasVersions(array $aliases): array
+    {
+        return array_values(array_unique(array_column($aliases, 'key_version')));
     }
 
     /**
