@@ -16,6 +16,7 @@ use App\Services\Shipment\ShipmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Marvel\Database\Models\Order;
 use Marvel\Database\Models\User;
@@ -208,7 +209,7 @@ class CodSettlementMatchingTest extends TestCase
             'order_number' => $orderC->order_number,
             'expected' => '10.00',
             'received' => '10.00',
-        ]]));
+        ]], ['account_code' => 'account-precedence-b']));
         $this->assertSame($orderB->id, (int) $second->lines->first()->order_id);
         $this->assertSame('provider_shipment_id', $second->lines->first()->match_method);
 
@@ -216,7 +217,7 @@ class CodSettlementMatchingTest extends TestCase
             'order_number' => $orderC->order_number,
             'expected' => '10.00',
             'received' => '10.00',
-        ]]));
+        ]], ['account_code' => 'account-precedence-c']));
         $this->assertSame($orderC->id, (int) $third->lines->first()->order_id);
         $this->assertSame('order_number', $third->lines->first()->match_method);
     }
@@ -305,7 +306,7 @@ class CodSettlementMatchingTest extends TestCase
             $this->shipment($this->order(), $overrides);
             $outOfScope = $this->service()->createStatement($this->payload([[
                 'awb' => $overrides['tracking_number'], 'expected' => '10.00', 'received' => '10.00',
-            ]]));
+            ]], ['account_code' => 'scope-'.Str::slug($overrides['tracking_number'])]));
             $this->assertNull($outOfScope->lines->first()->order_id);
             $this->assertSame('unmatched', $outOfScope->lines->first()->match_status);
         }
@@ -314,7 +315,7 @@ class CodSettlementMatchingTest extends TestCase
         $this->shipment($wrongCurrencyOrder, ['tracking_number' => 'AWB-SCOPE-CURRENCY']);
         $wrongCurrency = $this->service()->createStatement($this->payload([[
             'awb' => 'AWB-SCOPE-CURRENCY', 'expected' => '10.00', 'received' => '10.00',
-        ]]));
+        ]], ['account_code' => 'scope-currency']));
         $this->assertNull($wrongCurrency->lines->first()->order_id);
 
         $wrongAccountShipment = $this->shipment($this->order(), ['tracking_number' => 'AWB-SCOPE-ACCOUNT']);
@@ -326,10 +327,10 @@ class CodSettlementMatchingTest extends TestCase
 
         $inScopeOrder = $this->order();
         $inScopeShipment = $this->shipment($inScopeOrder, ['tracking_number' => 'AWB-SCOPE-IN']);
-        $this->providerEvent($inScopeShipment);
+        $this->providerEvent($inScopeShipment, 'scope-in');
         $inScope = $this->service()->createStatement($this->payload([[
             'awb' => 'AWB-SCOPE-IN', 'expected' => '10.00', 'received' => '10.00',
-        ]]));
+        ]], ['account_code' => 'scope-in']));
         $this->assertSame($inScopeOrder->id, (int) $inScope->lines->first()->order_id);
     }
 

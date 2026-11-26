@@ -12,6 +12,7 @@ use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\Settlement\CodSettlementMatchAudit;
 use App\Models\Shipment;
+use App\Models\Shipping\ShippingProviderEvent;
 use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Settlement\CodSettlementService;
@@ -186,7 +187,34 @@ class CodSettlementHardeningTest extends TestCase
                 'awb' => 'UNKNOWN-AWB', 'expected' => '10.00', 'received' => '10.00',
             ]],
         ]));
-        $matched = $service->createStatement($this->statementPayload());
+
+        // #162 scope uniqueness means a second statement must use another
+        // account. Add matching provider evidence for that account.
+        $webhookId = DB::table('shipping_webhook_events')->insertGetId([
+            'provider_code' => 'carrier_a',
+            'mode' => 'sandbox',
+            'account_code' => 'acct-matched',
+            'webhook_version' => 'v1',
+            'event_key' => 'evt-evidence-'.uniqid(),
+            'redacted_payload' => '{}',
+            'received_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        ShippingProviderEvent::create([
+            'webhook_event_id' => $webhookId,
+            'shipment_id' => Shipment::where('tracking_number', 'AWB-EVIDENCE')->value('id'),
+            'provider_code' => 'carrier_a',
+            'mode' => 'sandbox',
+            'account_code' => 'acct-matched',
+            'provider_event_key' => 'key-evidence-'.uniqid(),
+            'raw_status' => 'in_transit',
+            'payload_reference' => 'ref-evidence-'.uniqid(),
+            'payload_hash' => str_repeat('a', 64),
+            'applied_at' => now(),
+        ]);
+
+        $matched = $service->createStatement(array_merge($this->statementPayload(), ['account_code' => 'acct-matched']));
         $this->assertNull($unmatched->lines->first()->order_id);
         $this->assertNotNull($matched->lines->first()->order_id);
 
