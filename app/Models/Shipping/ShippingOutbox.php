@@ -24,6 +24,7 @@ class ShippingOutbox extends Model
         'attempts',
         'available_at',
         'processing_started_at',
+        'dispatch_started_at',
         'processed_at',
         'last_error',
     ];
@@ -35,6 +36,7 @@ class ShippingOutbox extends Model
         'attempts' => 'integer',
         'available_at' => 'datetime',
         'processing_started_at' => 'datetime',
+        'dispatch_started_at' => 'datetime',
         'processed_at' => 'datetime',
     ];
 }

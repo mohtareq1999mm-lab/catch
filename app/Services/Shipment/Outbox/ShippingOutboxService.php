@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Shipment\Outbox;
 
+use App\Audit\ActivityAuditService;
 use App\Enums\Shipping\ShippingOutboxStatus;
 use App\Jobs\Shipping\ProcessShippingOutboxJob;
 use App\Models\Shipping\ShippingOutbox;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class ShippingOutboxService
 {
@@ -100,6 +102,71 @@ class ShippingOutboxService
         return $row === null ? false : $this->processRow($row);
     }
 
+    /**
+     * #178: manual requeue is an explicit operator action. It requires a
+     * non-empty reason and an authenticated actor, and writes an audit record
+     * with the before/after state. It never runs the provider inline.
+     */
+    public function requeue(ShippingOutbox $row, int $actorId, string $reason): ShippingOutbox
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw ValidationException::withMessages(['reason' => 'A reason is required for manual requeue.']);
+        }
+        if (mb_strlen($reason) > 400) {
+            throw ValidationException::withMessages(['reason' => 'Reason must not exceed 400 characters.']);
+        }
+        if ($row->status === ShippingOutboxStatus::SUCCEEDED) {
+            throw ValidationException::withMessages(['outbox' => 'A succeeded outbox row cannot be requeued.']);
+        }
+
+        $before = $row->toArray();
+
+        DB::transaction(function () use ($row, $actorId, $reason, $before) {
+            $updated = ShippingOutbox::query()
+                ->where('id', $row->id)
+                ->whereNotIn('status', [ShippingOutboxStatus::SUCCEEDED->value])
+                ->update([
+                    'status' => ShippingOutboxStatus::PENDING->value,
+                    'processing_started_at' => null,
+                    'dispatch_started_at' => null,
+                    'attempts' => 0,
+                    'available_at' => now(),
+                    'last_error' => 'manual requeue: '.$reason,
+                    'updated_at' => now(),
+                ]);
+
+            // Do not write an audit event for a state change that did not
+            // happen (for example a concurrent SUCCEEDED write).
+            if ($updated === 0) {
+                throw ValidationException::withMessages([
+                    'outbox' => 'The outbox row changed concurrently and was not requeued.',
+                ]);
+            }
+
+            ActivityAuditService::recordSubject(
+                subjectType: ShippingOutbox::class,
+                subjectId: (int) $row->id,
+                event: 'shipping.outbox.requeued',
+                logName: 'shipping_outbox',
+                description: 'Shipping outbox row manually requeued',
+                old: $before,
+                new: $row->fresh()?->toArray(),
+                context: ['reason' => $reason, 'actor_id' => $actorId],
+                causerId: $actorId,
+                reason: $reason,
+            );
+        });
+
+        Log::warning('shipping.outbox.manual_requeue', [
+            'outbox_id' => $row->id,
+            'actor_id' => $actorId,
+            'reason' => $reason,
+        ]);
+
+        return $row->fresh();
+    }
+
     public function processDue(int $batchSize): int
     {
         $leaseCutoff = now()->subSeconds(self::LEASE_SECONDS);
@@ -146,22 +213,22 @@ class ShippingOutboxService
             return $this->reconcileUnknown($row);
         }
 
-        $leaseCutoff = now()->subSeconds(self::LEASE_SECONDS);
+        // #178: an expired PROCESSING lease is only safe to reclaim when the
+        // external call demonstrably never started. If a dispatch was marked,
+        // the outcome is unknown and must be reconciled, never retried blindly.
+        if ($row->status === ShippingOutboxStatus::PROCESSING) {
+            return $this->recoverStaleProcessing($row);
+        }
+
         $claimed = ShippingOutbox::query()
             ->where('id', $row->id)
-            ->where(function ($q) use ($leaseCutoff) {
-                $q->where(function ($pending) {
-                    $pending->where('status', ShippingOutboxStatus::PENDING->value)
-                        ->where('available_at', '<=', now());
-                })->orWhere(function ($stale) use ($leaseCutoff) {
-                    $stale->where('status', ShippingOutboxStatus::PROCESSING->value)
-                        ->where('updated_at', '<', $leaseCutoff);
-                });
-            })
+            ->where('status', ShippingOutboxStatus::PENDING->value)
+            ->where('available_at', '<=', now())
             ->update([
                 'status' => ShippingOutboxStatus::PROCESSING->value,
                 'attempts' => DB::raw('attempts + 1'),
                 'processing_started_at' => now(),
+                'dispatch_started_at' => null,
                 'updated_at' => now(),
             ]);
 
@@ -171,15 +238,88 @@ class ShippingOutboxService
 
         $row->refresh();
 
+        // The claim token binds every later write to this worker's lease. A
+        // stalled worker that wakes after lease takeover must not dispatch or
+        // overwrite the newer state.
+        $claim = $this->claimToken($row);
+        $marked = $this->ownedUpdate($claim, ['dispatch_started_at' => now()]);
+        if ($marked === 0) {
+            return false;
+        }
+        $row->refresh();
+
         try {
             $result = $this->processor->process($row);
         } catch (\Throwable $e) {
             $result = $this->resultFromThrowable($e);
         }
 
-        $this->applyResult($row, $result);
+        return $this->applyResult($row, $result, $claim);
+    }
 
-        return $result->status === ShippingOutboxStatus::SUCCEEDED;
+    /**
+     * #178: recover an expired PROCESSING lease.
+     *
+     * The dispatch marker is authoritative:
+     * - no marker => the provider call never started; safe to requeue.
+     * - marker present => a call may be in flight or already delivered; the
+     *   row becomes UNKNOWN and is reconciled by provider lookup.
+     */
+    private function recoverStaleProcessing(ShippingOutbox $row): bool
+    {
+        $leaseCutoff = now()->subSeconds(self::LEASE_SECONDS);
+
+        if ($row->updated_at === null || $row->updated_at->gte($leaseCutoff)) {
+            // Lease still held by another worker.
+            return false;
+        }
+
+        if ($row->dispatch_started_at !== null) {
+            $claimed = ShippingOutbox::query()
+                ->where('id', $row->id)
+                ->where('status', ShippingOutboxStatus::PROCESSING->value)
+                ->where('updated_at', '<', $leaseCutoff)
+                ->whereNotNull('dispatch_started_at')
+                ->update([
+                    'status' => ShippingOutboxStatus::UNKNOWN->value,
+                    'processing_started_at' => null,
+                    'last_error' => 'shipping.outbox.lease_expired_after_dispatch_start',
+                    'available_at' => now()->addSeconds($this->backoffFor(max(1, (int) $row->attempts))),
+                    'updated_at' => now(),
+                ]);
+
+            if ($claimed === 1) {
+                Log::warning('shipping.outbox.lease_expired_after_dispatch_start', [
+                    'outbox_id' => $row->id,
+                    'attempts' => $row->attempts,
+                ]);
+            }
+
+            return false;
+        }
+
+        $released = ShippingOutbox::query()
+            ->where('id', $row->id)
+            ->where('status', ShippingOutboxStatus::PROCESSING->value)
+            ->where('updated_at', '<', $leaseCutoff)
+            ->whereNull('dispatch_started_at')
+            ->update([
+                'status' => ShippingOutboxStatus::PENDING->value,
+                'processing_started_at' => null,
+                'available_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        if ($released === 0) {
+            return false;
+        }
+
+        Log::warning('shipping.outbox.lease_released_without_dispatch', [
+            'outbox_id' => $row->id,
+            'attempts' => $row->attempts,
+        ]);
+
+        return $this->processById((int) $row->id);
     }
 
     private function reconcileUnknown(ShippingOutbox $row): bool
@@ -210,9 +350,10 @@ class ShippingOutboxService
         }
 
         $row->refresh();
+        $claim = $this->claimToken($row);
 
         if ($this->shouldEscalateUnknown($row)) {
-            $this->escalateUnknown($row);
+            $this->escalateUnknown($row, $claim);
             return false;
         }
 
@@ -226,35 +367,36 @@ class ShippingOutboxService
                 'aggregate_id' => $row->aggregate_id,
                 'error' => $e->getMessage(),
             ]);
-            $this->applyResult($row, ShippingOutboxResult::unknown(substr(get_class($e).': '.$e->getMessage(), 0, 500)));
+            $this->applyResult($row, ShippingOutboxResult::unknown(substr(get_class($e).': '.$e->getMessage(), 0, 500)), $claim);
             return false;
         }
 
         if ($result->status === ShippingOutboxStatus::SUCCEEDED) {
-            $this->applyResult($row, $result);
+            $this->applyResult($row, $result, $claim);
             return true;
         }
 
         if ($result->status === ShippingOutboxStatus::FAILED) {
-            $this->applyResult($row, $result);
+            $this->applyResult($row, $result, $claim);
             return false;
         }
 
         if ($result->status === ShippingOutboxStatus::PENDING) {
             // Explicit reconciler signal: external operation proved absent; retry safely.
-            $row->update([
-                'status' => ShippingOutboxStatus::PENDING,
+            $released = $this->ownedUpdate($claim, [
+                'status' => ShippingOutboxStatus::PENDING->value,
                 'processing_started_at' => null,
+                'dispatch_started_at' => null,
                 'available_at' => now(),
                 'last_error' => $result->error !== null ? substr($result->error, 0, 500) : null,
                 'updated_at' => now(),
-            ]);
+            ], [ShippingOutboxStatus::UNKNOWN]);
 
-            return $this->processRow($row->fresh());
+            return $released > 0 ? $this->processRow($row->fresh()) : false;
         }
 
         if ($result->status === ShippingOutboxStatus::UNKNOWN) {
-            $this->applyResult($row, $result);
+            $this->applyResult($row, $result, $claim);
             return false;
         }
 
@@ -262,42 +404,92 @@ class ShippingOutboxService
             'outbox_id' => $row->id,
             'status' => $result->status->value,
         ]);
-        $this->applyResult($row, ShippingOutboxResult::unknown('shipping.outbox.reconcile_unexpected_result'));
+        $this->applyResult($row, ShippingOutboxResult::unknown('shipping.outbox.reconcile_unexpected_result'), $claim);
 
         return false;
     }
 
-    private function applyResult(ShippingOutbox $row, ShippingOutboxResult $result): void
+    /**
+     * #178: every post-claim write must be bound to the worker's lease. A
+     * stalled worker that wakes after lease takeover must be a no-op.
+     *
+     * @param array{id:int,attempts:int,processing_started_at:?string} $claim
+     * @param array<int,ShippingOutboxStatus> $statuses
+     */
+    private function ownedUpdate(array $claim, array $values, array $statuses = [ShippingOutboxStatus::PROCESSING, ShippingOutboxStatus::UNKNOWN]): int
+    {
+        $query = ShippingOutbox::query()
+            ->where('id', $claim['id'])
+            ->where('attempts', $claim['attempts']);
+
+        if ($claim['processing_started_at'] === null) {
+            $query->whereNull('processing_started_at');
+        } else {
+            $query->where('processing_started_at', $claim['processing_started_at']);
+        }
+
+        if ($statuses !== []) {
+            $query->whereIn('status', array_map(
+                static fn (ShippingOutboxStatus $status): string => $status->value,
+                $statuses,
+            ));
+        }
+
+        return $query->update($values);
+    }
+
+    /**
+     * @return array{id:int,attempts:int,processing_started_at:?string}
+     */
+    private function claimToken(ShippingOutbox $row): array
+    {
+        return [
+            'id' => (int) $row->id,
+            'attempts' => (int) $row->attempts,
+            'processing_started_at' => $row->processing_started_at?->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * @param array{id:int,attempts:int,processing_started_at:?string} $claim
+     */
+    private function applyResult(ShippingOutbox $row, ShippingOutboxResult $result, array $claim): bool
     {
         if ($result->status === ShippingOutboxStatus::SUCCEEDED) {
-            $row->update([
-                'status' => ShippingOutboxStatus::SUCCEEDED,
+            $updated = $this->ownedUpdate($claim, [
+                'status' => ShippingOutboxStatus::SUCCEEDED->value,
                 'result' => $result->payload,
                 'processed_at' => now(),
                 'last_error' => null,
                 'updated_at' => now(),
             ]);
-            return;
+            $row->refresh();
+            if ($updated > 0) {
+                Log::info('shipping.outbox.succeeded', ['outbox_id' => $row->id]);
+            }
+            return $updated > 0;
         }
 
         if ($result->status === ShippingOutboxStatus::UNKNOWN) {
-            $this->persistUnknown($row, $result);
-            return;
+            $this->persistUnknown($row, $result, $claim);
+            return false;
         }
 
         $max = (int) config('shipping.outbox_max_attempts', 25);
         $status = $row->attempts >= $max ? ShippingOutboxStatus::FAILED : ShippingOutboxStatus::PENDING;
 
-        $row->update([
-            'status' => $status,
+        $updated = $this->ownedUpdate($claim, [
+            'status' => $status->value,
             'result' => $result->payload,
             'last_error' => substr((string) ($result->error ?? 'failed'), 0, 500),
             'available_at' => now()->addSeconds($this->backoffFor(max(1, (int) $row->attempts))),
             'processed_at' => $status === ShippingOutboxStatus::FAILED ? now() : $row->processed_at,
+            'dispatch_started_at' => null,
             'updated_at' => now(),
         ]);
+        $row->refresh();
 
-        if ($status === ShippingOutboxStatus::FAILED) {
+        if ($updated > 0 && $status === ShippingOutboxStatus::FAILED) {
             Log::error('shipping.outbox.failed_terminal', [
                 'outbox_id' => $row->id,
                 'operation' => $row->operation,
@@ -305,26 +497,33 @@ class ShippingOutboxService
                 'error' => $row->last_error,
             ]);
         }
+
+        return false;
     }
 
-    private function persistUnknown(ShippingOutbox $row, ShippingOutboxResult $result): void
+    /**
+     * @param array{id:int,attempts:int,processing_started_at:?string} $claim
+     */
+    private function persistUnknown(ShippingOutbox $row, ShippingOutboxResult $result, array $claim): void
     {
         if ($this->shouldEscalateUnknown($row)) {
-            $row->update([
+            $this->ownedUpdate($claim, [
                 'result' => $result->payload,
                 'last_error' => substr((string) ($result->error ?? 'unknown'), 0, 500),
             ]);
-            $this->escalateUnknown($row->fresh());
+            $row->refresh();
+            $this->escalateUnknown($row, $claim);
             return;
         }
 
-        $row->update([
-            'status' => ShippingOutboxStatus::UNKNOWN,
+        $this->ownedUpdate($claim, [
+            'status' => ShippingOutboxStatus::UNKNOWN->value,
             'result' => $result->payload,
             'last_error' => substr((string) ($result->error ?? 'unknown'), 0, 500),
             'available_at' => now()->addSeconds($this->backoffFor(max(1, (int) $row->attempts))),
             'updated_at' => now(),
         ]);
+        $row->refresh();
     }
 
     private function shouldEscalateUnknown(ShippingOutbox $row): bool
@@ -336,14 +535,34 @@ class ShippingOutboxService
         return $row->attempts >= $maxAttempts || $ageSeconds >= $maxAgeSeconds;
     }
 
-    private function escalateUnknown(ShippingOutbox $row): void
+    /**
+     * @param array{id:int,attempts:int,processing_started_at:?string}|null $claim
+     */
+    private function escalateUnknown(ShippingOutbox $row, ?array $claim = null): void
     {
-        $row->update([
-            'status' => ShippingOutboxStatus::FAILED_UNKNOWN,
-            'processed_at' => now(),
-            'last_error' => substr((string) ($row->last_error ?: 'shipping.outbox.unknown_escalated'), 0, 500),
-            'updated_at' => now(),
-        ]);
+        if ($claim !== null) {
+            $updated = $this->ownedUpdate($claim, [
+                'status' => ShippingOutboxStatus::FAILED_UNKNOWN->value,
+                'processed_at' => now(),
+                'last_error' => substr((string) ($row->last_error ?: 'shipping.outbox.unknown_escalated'), 0, 500),
+                'updated_at' => now(),
+            ], [ShippingOutboxStatus::UNKNOWN]);
+        } else {
+            $updated = ShippingOutbox::query()
+                ->where('id', $row->id)
+                ->where('status', ShippingOutboxStatus::UNKNOWN->value)
+                ->update([
+                    'status' => ShippingOutboxStatus::FAILED_UNKNOWN->value,
+                    'processed_at' => now(),
+                    'last_error' => substr((string) ($row->last_error ?: 'shipping.outbox.unknown_escalated'), 0, 500),
+                    'updated_at' => now(),
+                ]);
+        }
+        $row->refresh();
+
+        if ($updated === 0) {
+            return;
+        }
 
         Log::error('shipping.outbox.unknown_escalated', [
             'outbox_id' => $row->id,
