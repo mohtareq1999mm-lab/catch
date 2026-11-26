@@ -7,13 +7,23 @@ namespace App\Services\Shipment;
 use App\Events\Shipment\ShipmentStatusChanged;
 use App\Models\Shipping\ShipmentNotification;
 use App\Models\Shipping\ShipmentNotificationHistory;
+use App\Services\Notification\RecipientIdentityService;
 use App\Support\UniqueViolation;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
+use Marvel\Database\Models\User;
 
 class ShipmentNotificationRecorder
 {
+    private static ?bool $stableIdentityAvailable = null;
+
+    public function __construct(private readonly RecipientIdentityService $identities)
+    {
+    }
+
     private const APPROVED_MILESTONES = [
         'picked_up',
         'out_for_delivery',
@@ -24,8 +34,10 @@ class ShipmentNotificationRecorder
 
     /**
      * Record shipment notification intents for a canonical transition.
-     * Dedupe is enforced by DB unique (timeline_event_id, channel, recipient_type, recipient_id).
-     * Registered users keep existing behavior (#146). Guest orders record email+sms intents for approved milestones;
+     * Dedupe is enforced by DB unique (timeline_event_id, channel, recipient_type, recipient_id)
+     * and, when the canonical tables exist (#167), additionally by the stable
+     * recipient identity. Registered users keep existing behavior (#146).
+     * Guest orders record email+sms intents for approved milestones;
      * external guest delivery remains gated by #125's legal approval decision.
      */
     public function record(ShipmentStatusChanged $event): void
@@ -47,8 +59,10 @@ class ShipmentNotificationRecorder
 
     private function recordRegisteredUser(ShipmentStatusChanged $event, string $userId): void
     {
+        $stableRecipientId = $this->stableRecipientId($event);
+
         foreach (['email', 'sms', 'push'] as $channel) {
-            $this->storeIntent([
+            $attributes = [
                 'shipment_id' => $event->shipmentId,
                 'timeline_event_id' => $event->timelineEventId,
                 'channel' => $channel,
@@ -58,8 +72,63 @@ class ShipmentNotificationRecorder
                 'source' => (string) ($event->source ?: 'direct'),
                 'dedupe_key' => $this->dedupeKey((int) $event->timelineEventId, $channel, 'user', $userId),
                 'payload' => $this->basePayload($event),
-            ]);
+            ];
+
+            if ($stableRecipientId !== null) {
+                $attributes['notification_recipient_id'] = $stableRecipientId;
+            }
+
+            $this->storeIntent($attributes);
         }
+    }
+
+    /**
+     * Resolve the canonical stable recipient for the order owner (#167).
+     *
+     * Ambiguous or non-authoritative identities deliberately return null: the
+     * notification is still recorded with the legacy identity, but no stable
+     * link is invented and no two recipients are auto-merged. Divergence is
+     * surfaced by RecipientIdentityService as an audited conflict case.
+     */
+    private function stableRecipientId(ShipmentStatusChanged $event): ?int
+    {
+        if (!$this->stableIdentityAvailable()) {
+            return null;
+        }
+
+        $user = $event->order->user;
+        if (!$user instanceof User) {
+            return null;
+        }
+
+        try {
+            $result = $this->identities->resolveForRecipientKey(
+                'user',
+                'user:' . (int) $user->id,
+                [],
+                null,
+                ['user' => $user]
+            );
+        } catch (ValidationException) {
+            return null;
+        }
+
+        return $result['status'] === 'resolved'
+            ? (int) $result['recipient']->id
+            : null;
+    }
+
+    private function stableIdentityAvailable(): bool
+    {
+        // Only a positive probe is memoized: a long-running worker that booted
+        // before the migration must recover once the tables exist instead of
+        // permanently disabling stable links for its whole lifetime.
+        if (self::$stableIdentityAvailable === true) {
+            return true;
+        }
+
+        return self::$stableIdentityAvailable = Schema::hasTable('notification_recipients')
+            && Schema::hasColumn('shipment_notifications', 'notification_recipient_id');
     }
 
     private function recordGuest(ShipmentStatusChanged $event): void

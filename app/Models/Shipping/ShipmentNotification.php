@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Shipping;
 
+use App\Models\NotificationRecipient;
 use App\Models\OrderTrackingEvent;
 use App\Models\Shipment;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,7 @@ class ShipmentNotification extends Model
         'channel',
         'recipient_type',
         'recipient_id',
+        'notification_recipient_id',
         'recipient_contact_encrypted',
         'recipient_fingerprint_version',
         'status',
@@ -55,5 +57,14 @@ class ShipmentNotification extends Model
     public function timelineEvent(): BelongsTo
     {
         return $this->belongsTo(OrderTrackingEvent::class, 'timeline_event_id');
+    }
+
+    /**
+     * Stable recipient identity. Survives fingerprint key rotation; the legacy
+     * `recipient_id` string stays for backward compatibility only.
+     */
+    public function notificationRecipient(): BelongsTo
+    {
+        return $this->belongsTo(NotificationRecipient::class, 'notification_recipient_id');
     }
 }
