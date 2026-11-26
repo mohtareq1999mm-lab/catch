@@ -17,4 +17,10 @@ return [
     'closure_variance_blocked' => 'فرق التسوية :variance يتجاوز الحد المعتمد :tolerance لعملة :currency.',
     'closure_approval_reference_required' => 'الحد المعتمد للفرق يتطلب رقم مرجع اعتماد.',
     'ambiguous_order_match' => 'رقم الطلب :order_number يطابق عدة طلبات (:candidates)؛ يلزم مطابقة يدوية.',
+    'invalid_file' => 'ملف التسوية غير صالح.',
+    'invalid_mime' => 'نوع محتوى ملف التسوية غير مدعوم.',
+    'invalid_content' => 'ملف التسوية ليس ملف كشف صالحًا.',
+    'file_too_large' => 'يتجاوز ملف التسوية الحد الأقصى المسموح وهو :max بايت.',
+    'parser_unavailable' => 'لا يوجد محلل تسوية مُعدّ لهذا المزود.',
+    'storage_failed' => 'تعذر حفظ ملف التسوية في التخزين الخاص.',
 ];

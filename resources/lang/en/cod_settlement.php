@@ -17,4 +17,10 @@ return [
     'closure_variance_blocked' => 'Settlement variance :variance exceeds the approved :tolerance tolerance for :currency.',
     'closure_approval_reference_required' => 'An approved variance threshold requires an approval reference.',
     'ambiguous_order_match' => 'Order number :order_number matches multiple orders (:candidates); manual matching is required.',
+    'invalid_file' => 'The settlement file is invalid.',
+    'invalid_mime' => 'The settlement file content type is not supported.',
+    'invalid_content' => 'The settlement file is not a valid statement export.',
+    'file_too_large' => 'The settlement file exceeds the maximum allowed size of :max bytes.',
+    'parser_unavailable' => 'No settlement parser is configured for this provider.',
+    'storage_failed' => 'The settlement file could not be stored on private storage.',
 ];
