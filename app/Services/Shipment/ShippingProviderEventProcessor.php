@@ -16,6 +16,7 @@ use App\Models\Shipping\ShipmentException;
 use App\Models\Shipping\ShippingProviderEvent;
 use App\Models\Shipping\ShippingWebhookEvent;
 use App\Services\Shipment\Contracts\LinksCarrierReturns;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -276,9 +277,42 @@ final class ShippingProviderEventProcessor
                 'severity' => ShipmentExceptionSeverity::HIGH->value,
                 'status' => ShipmentExceptionStatus::OPEN->value,
                 'notes' => $notes,
+                'owner_team' => $this->exceptionOwnerTeam(),
+                'sla_due_at' => $this->exceptionSlaDueAt(),
                 'opened_at' => now(),
             ],
         );
+    }
+
+    /**
+     * #191: every fail-closed exception has a named operational owner even
+     * before an individual assignee is chosen.
+     */
+    private function exceptionOwnerTeam(): string
+    {
+        $owner = config('shipping.exceptions.owner_team');
+        $owner = is_string($owner) ? trim($owner) : '';
+
+        return $owner !== '' ? substr($owner, 0, 64) : 'shipping-operations';
+    }
+
+    /**
+     * #191: an unknown status gets a real response deadline. Business days
+     * keep the SLA from expiring over a weekend.
+     */
+    private function exceptionSlaDueAt(): CarbonImmutable
+    {
+        $days = max(1, min(30, (int) config('shipping.exceptions.sla_business_days', 1)));
+        $due = CarbonImmutable::now();
+
+        while ($days > 0) {
+            $due = $due->addDay();
+            if (! $due->isWeekend()) {
+                $days--;
+            }
+        }
+
+        return $due;
     }
 
     private function orderingKey(ShippingWebhookEvent $webhook): string

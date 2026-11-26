@@ -8,6 +8,7 @@ use App\Models\OrderFlow\FlowInput;
 use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderStatus;
 use App\Services\OrderFlow\OrderFlowService;
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Marvel\Database\Models\Order;
@@ -81,7 +82,7 @@ class AdminOrderOperationsSeeder extends Seeder
         ]);
 
         // Also update admin@demo.com if it exists
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
         $demoAdmin = User::where('email', 'admin@demo.com')->first();
         if ($demoAdmin) {
             if (! $demoAdmin->hasRole('super_admin')) {

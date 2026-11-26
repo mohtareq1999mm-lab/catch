@@ -14,6 +14,7 @@ use App\Models\Fulfillment\ProductLocation;
 use App\Models\Fulfillment\Warehouse;
 use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderStatus;
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Marvel\Database\Models\Order;
@@ -247,7 +248,7 @@ class WmsOperationsSeeder extends Seeder
             'is_active' => true,
         ]);
         $adminDemo->syncRoles(['super_admin', 'warehouse-manager']);
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
         $superAdminRole->syncPermissions($allApiPermissions);
         $adminDemo->syncPermissions($allApiPermissions);
 

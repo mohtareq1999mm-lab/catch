@@ -12,4 +12,9 @@ return [
     'lock_timeout' => 'تعذر الحصول على قفل نطاق التسوية؛ يرجى المحاولة مرة أخرى.',
     'line_matched' => 'تمت مطابقة سطر تسوية الدفع عند الاستلام بنجاح.',
     'closed' => 'تم إغلاق كشف تسوية الدفع عند الاستلام بنجاح.',
+    'invalid_actor' => 'مطلوب ممثل مالي صالح.',
+    'already_closed' => 'كشف التسوية مغلق بالفعل.',
+    'closure_variance_blocked' => 'فرق التسوية :variance يتجاوز الحد المعتمد :tolerance لعملة :currency.',
+    'closure_approval_reference_required' => 'الحد المعتمد للفرق يتطلب رقم مرجع اعتماد.',
+    'ambiguous_order_match' => 'رقم الطلب :order_number يطابق عدة طلبات (:candidates)؛ يلزم مطابقة يدوية.',
 ];

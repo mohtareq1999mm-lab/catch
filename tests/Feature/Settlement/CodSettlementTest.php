@@ -11,6 +11,7 @@ use App\Exceptions\CodSettlementPrecisionException;
 use App\Models\Currency;
 use App\Models\Settlement\CodSettlementStatement;
 use App\Services\Settlement\CodSettlementService;
+use App\Support\FinanceAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
@@ -18,9 +19,10 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Marvel\Database\Models\Order;
+use Marvel\Database\Models\Role;
 use Marvel\Database\Models\User;
-use Marvel\Enums\Permission;
 use Spatie\Permission\Models\Permission as SpatiePermission;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 /**
@@ -43,9 +45,18 @@ class CodSettlementTest extends TestCase
         app()->setLocale('en');
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
-        foreach ([Permission::COD_SETTLEMENT_VIEW] as $name) {
+        foreach (FinanceAccess::permissions() as $name) {
             SpatiePermission::firstOrCreate(['name' => $name, 'guard_name' => 'api']);
         }
+
+        // #191: finance abilities are granted through the dedicated role, not
+        // by direct permission rows on an unrelated admin.
+        $financeRole = Role::firstOrCreate(
+            ['name' => FinanceAccess::ROLE, 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Finance', 'ar' => 'مالية']],
+        );
+        $financeRole->syncPermissions(FinanceAccess::permissions());
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
     private function currency(string $code, int $decimalPlaces = 2): Currency
@@ -107,7 +118,7 @@ class CodSettlementTest extends TestCase
         $user = User::factory()->create(['type' => 'staff']);
 
         if ($withPermission) {
-            $user->givePermissionTo(Permission::COD_SETTLEMENT_VIEW);
+            $user->assignRole(FinanceAccess::ROLE);
         }
 
         return $user;

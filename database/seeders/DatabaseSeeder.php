@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Marvel\Database\Models\User;
@@ -62,7 +63,7 @@ class DatabaseSeeder extends Seeder
             if (! $user->hasRole('super_admin')) {
                 $user->assignRole('super_admin');
             }
-            $user->syncPermissions(\Spatie\Permission\Models\Permission::where('guard_name', 'api')->get());
+            $user->syncPermissions(FinanceAccess::broadlyGrantablePermissions());
             //        $userEdit->assignRole("editor");
             //        $customer->assignRole("customer");
 
@@ -133,7 +134,7 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // Final reconciliation: guarantee super_admin role and admin user hold 100% of all permissions
-        $allApiPermissions = \Spatie\Permission\Models\Permission::where('guard_name', 'api')->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
         $superAdminRole = \Marvel\Database\Models\Role::where('name', 'super_admin')->where('guard_name', 'api')->first();
         if ($superAdminRole) {
             $superAdminRole->syncPermissions($allApiPermissions);

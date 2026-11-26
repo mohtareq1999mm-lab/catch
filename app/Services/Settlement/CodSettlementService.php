@@ -2,11 +2,14 @@
 
 namespace App\Services\Settlement;
 
+use App\Audit\ActivityAuditService;
+use App\Audit\ActivitySnapshot;
 use App\Enums\CodSettlementMatchMethod;
 use App\Enums\CodSettlementMatchStatus;
 use App\Enums\CodSettlementStatementStatus;
 use App\Enums\SettlementMode;
 use App\Exceptions\CodSettlementPrecisionException;
+use App\Exceptions\CodSettlementVarianceException;
 use App\Models\Currency;
 use App\Models\Settlement\CodSettlementLine;
 use App\Models\Settlement\CodSettlementMatchAudit;
@@ -272,12 +275,20 @@ class CodSettlementService
                 throw $this->invalidPayload('unmatched_lines');
             }
 
-            if ((int) $statement->variance_minor !== 0) {
-                throw $this->invalidPayload('unresolved_variances');
+            // #191: closure is a finance decision, never an automatic
+            // consequence of importing evidence. A non-zero variance requires
+            // an explicitly approved per-currency threshold and an approval
+            // reference; no tolerance is invented by the service itself.
+            $currencyCode = strtoupper(trim((string) ($statement->currency_code ?? '')));
+            $maxVariance = $this->maxAbsoluteVariance($statement);
+            $tolerance = $this->approvedVarianceTolerance($currencyCode);
+
+            if ($maxVariance > $tolerance) {
+                throw CodSettlementVarianceException::exceedsThreshold($maxVariance, $tolerance, $currencyCode);
             }
-            $lineVariance = $statement->lines->first(fn ($line) => (int) $line->variance_minor !== 0);
-            if ($lineVariance !== null) {
-                throw $this->invalidPayload('unresolved_variances');
+
+            if ($maxVariance > 0 && $reason === null) {
+                throw CodSettlementVarianceException::approvalReferenceRequired();
             }
 
             $identity = $this->statementIdentity($statement);
@@ -306,15 +317,66 @@ class CodSettlementService
                 }
             }
 
+            $closureMetadata = $statement->metadata;
+            $closureMetadata = is_array($closureMetadata) ? $closureMetadata : [];
+            $closureMetadata['closure'] = [
+                'approved_variance_tolerance_minor' => $tolerance,
+                'max_absolute_variance_minor' => $maxVariance,
+                'approval_reference' => $reason,
+            ];
+
             $statement->forceFill([
                 'status' => CodSettlementStatementStatus::CLOSED->value,
                 'closed_by' => $actorId,
                 'closed_at' => now(),
                 'close_reason' => $reason,
+                'metadata' => $closureMetadata,
             ])->save();
+
+            ActivityAuditService::record(new ActivitySnapshot(
+                logName: 'finance',
+                event: 'settlement.closed',
+                description: 'COD settlement statement closed.',
+                subjectType: CodSettlementStatement::class,
+                subjectId: (int) $statement->id,
+                causerType: User::class,
+                causerId: $actorId,
+                old: ['status' => $statement->getOriginal('status')],
+                new: ['status' => CodSettlementStatementStatus::CLOSED->value],
+                context: [
+                    'currency_code' => $currencyCode,
+                    'variance_minor' => (int) $statement->variance_minor,
+                    'tolerance_minor' => $tolerance,
+                ],
+                reason: $reason,
+            ));
 
             return $statement->fresh('lines');
         });
+    }
+
+    /**
+     * #191: the per-currency closure tolerance is a deployment-controlled
+     * approval, never a service-invented number.
+     */
+    private function approvedVarianceTolerance(string $currencyCode): int
+    {
+        $tolerance = config('finance.settlement.variance_tolerance_minor.'.$currencyCode, 0);
+        if (! is_int($tolerance) && ! (is_string($tolerance) && ctype_digit($tolerance))) {
+            return 0;
+        }
+
+        return max(0, (int) $tolerance);
+    }
+
+    private function maxAbsoluteVariance(CodSettlementStatement $statement): int
+    {
+        $variances = [abs((int) $statement->variance_minor)];
+        foreach ($statement->lines as $line) {
+            $variances[] = abs((int) $line->variance_minor);
+        }
+
+        return max($variances);
     }
 
     private function persistStatement(array $identity, array $lines, array $totals): CodSettlementStatement

@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Marvel\Database\Models\Role;
@@ -24,9 +25,7 @@ class AdminSeeder extends Seeder
         // 1. Ensure every system permission exists (skip existing, create missing).
         $this->call(PermissionSeeder::class);
 
-        $allApiPermissions = Permission::query()
-            ->where('guard_name', 'api')
-            ->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
 
         // 2. super_admin role holds 100% of the system permissions.
         $roleSuperAdmin = Role::firstOrCreate(

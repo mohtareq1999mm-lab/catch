@@ -12,4 +12,9 @@ return [
     'lock_timeout' => 'Could not acquire settlement scope lock; please retry.',
     'line_matched' => 'COD settlement line matched successfully.',
     'closed' => 'COD settlement statement closed successfully.',
+    'invalid_actor' => 'A valid finance actor is required.',
+    'already_closed' => 'Settlement statement is already closed.',
+    'closure_variance_blocked' => 'Settlement variance :variance exceeds the approved :tolerance tolerance for :currency.',
+    'closure_approval_reference_required' => 'An approved variance threshold requires an approval reference.',
+    'ambiguous_order_match' => 'Order number :order_number matches multiple orders (:candidates); manual matching is required.',
 ];

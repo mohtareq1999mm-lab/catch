@@ -16,6 +16,7 @@ use App\Models\Fulfillment\Warehouse;
 use App\Models\OrderFlow\OrderFlow;
 use App\Models\OrderFlow\OrderStatus;
 use App\Models\Shipment;
+use App\Support\FinanceAccess;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -257,7 +258,7 @@ class WarehouseDashboardSeeder extends Seeder
         $rolePicker->syncPermissions($pickerPermissions);
         $rolePacker->syncPermissions($packerPermissions);
 
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        $allApiPermissions = FinanceAccess::broadlyGrantablePermissions();
         $roleSuperAdmin->syncPermissions($allApiPermissions);
 
         $demoAdmin = User::where('email', 'admin@demo.com')->first();

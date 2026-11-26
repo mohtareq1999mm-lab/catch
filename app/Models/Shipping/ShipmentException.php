@@ -24,6 +24,7 @@ class ShipmentException extends Model
         'status',
         'notes',
         'owner_id',
+        'owner_team',
         'sla_due_at',
         'opened_at',
         'resolved_at',
