@@ -64,6 +64,18 @@ class CarrierConfigurationException extends RuntimeException
         return new self("Carrier provider [{$providerCode}] has no verification for capability [{$capability}]");
     }
 
+    /** #179: production cannot be enabled on verification evidence alone. */
+    public static function missingProductionVerification(string $providerCode): self
+    {
+        return new self("Carrier provider [{$providerCode}] has no production verification evidence");
+    }
+
+    /** #179: approvals are deployment evidence, never credentials. */
+    public static function missingProductionApprovals(string $providerCode): self
+    {
+        return new self("Carrier provider [{$providerCode}] has no recorded production approvals");
+    }
+
     public static function channelNotConfigured(string $providerCode, string $channel): self
     {
         return new self("Carrier provider [{$providerCode}] channel [{$channel}] is not configured");

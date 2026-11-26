@@ -505,6 +505,10 @@ class ProviderAssignmentOverrideTest extends TestCase
                 'pagination' => null,
                 'overlap_window_seconds' => 0,
             ],
+            'production_approvals' => [[
+                'approver' => 'release-manager',
+                'approved_at' => '2026-11-25T00:00:00Z',
+            ]],
             'modes' => [
                 'sandbox' => [
                     'enabled' => $mode === 'sandbox',
@@ -514,6 +518,12 @@ class ProviderAssignmentOverrideTest extends TestCase
                 'production' => [
                     'enabled' => $mode === 'production',
                     'credentials' => $mode === 'production' ? ['api_key' => 'production-key'] : [],
+                    'capability_verification' => [
+                        'quote' => [
+                            'verified_at' => '2026-11-25T00:00:00Z',
+                            'evidence' => 'recorded production fixture',
+                        ],
+                    ],
                     'status_map' => ['version' => 1, 'statuses' => []],
                 ],
             ],
