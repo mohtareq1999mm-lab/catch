@@ -106,6 +106,8 @@ class PermissionSeeder extends Seeder
 
             // 🧾 COD settlement evidence (finance read-only)
             'cod-settlement.view',
+            'cod-settlement.match',
+            'cod-settlement.close',
 
             // 👤 Customer
             'view-profile',
@@ -680,6 +682,15 @@ class PermissionSeeder extends Seeder
             'set-catalog-currency',
         ];
 
+        // #156: COD settlement authority is deliberately delegated to a
+        // dedicated finance role. It is never swept into super_admin by the
+        // "all api permissions" sync below.
+        $financePermission = [
+            MarvelPermission::COD_SETTLEMENT_VIEW,
+            MarvelPermission::COD_SETTLEMENT_MATCH,
+            MarvelPermission::COD_SETTLEMENT_CLOSE,
+        ];
+
         $viewPermission = [
             'view-products',
             'view-product',
@@ -752,15 +763,23 @@ class PermissionSeeder extends Seeder
             ['name' => 'editor', 'guard_name' => 'api'],
             ['display_name' => ['en' => 'Editor', 'ar' => 'محرر']],
         );
+        $roleFinance = Role::firstOrCreate(
+            ['name' => 'finance', 'guard_name' => 'api'],
+            ['display_name' => ['en' => 'Finance', 'ar' => 'مالية']],
+        );
 
         // Seed dedicated WMS roles
         $this->seedWarehouseRoles();
 
+        $roleFinance->syncPermissions($financePermission);
+
         // 🌟 CRITICAL ENTERPRISE FIX:
-        // Super Admin MUST receive 100% of all permissions with guard `api` in the database.
-        // This ensures super_admin never loses any permission on re-seed, regardless of when
-        // or where a permission was defined.
-        $allApiPermissions = Permission::where('guard_name', 'api')->get();
+        // Super Admin receives every permission EXCEPT the #156 COD finance
+        // permissions. Those are granted only through the dedicated finance
+        // role so financial close authority remains separable.
+        $allApiPermissions = Permission::where('guard_name', 'api')
+            ->whereNotIn('name', $financePermission)
+            ->get();
         $roleSuperAdmin->syncPermissions($allApiPermissions);
 
         // Staff maintains its baseline + all granular target status transition permissions

@@ -29,7 +29,7 @@ final class InternalDeliveryGateway implements CarrierGatewayContract, CreatesCa
      * ShipmentService owns them.
      */
     private const CREATE_FIELDS = [
-        'tracking_number', 'shipping_method', 'origin_address',
+        'provider_shipment_id', 'tracking_number', 'shipping_method', 'origin_address',
         'destination_address', 'items', 'total_weight', 'weight_unit',
         'estimated_delivery_at', 'notes', 'metadata',
     ];

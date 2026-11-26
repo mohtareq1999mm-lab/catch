@@ -4,9 +4,11 @@ namespace App\Models\Settlement;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Marvel\Database\Models\User;
 
 /**
- * #135: per-order financial evidence line. Read-only by convention.
+ * #135/#156: per-order financial evidence line. Mutations belong to
+ * CodSettlementService only and always append a match audit.
  */
 class CodSettlementLine extends Model
 {
@@ -26,6 +28,14 @@ class CodSettlementLine extends Model
         'expected_minor',
         'received_minor',
         'variance_minor',
+        'match_status',
+        'match_method',
+        'awb',
+        'provider_shipment_id',
+        'order_number',
+        'matched_by',
+        'matched_at',
+        'match_reason',
     ];
 
     protected $casts = [
@@ -35,10 +45,16 @@ class CodSettlementLine extends Model
         'expected_minor' => 'integer',
         'received_minor' => 'integer',
         'variance_minor' => 'integer',
+        'matched_at' => 'datetime',
     ];
 
     public function statement(): BelongsTo
     {
         return $this->belongsTo(CodSettlementStatement::class, 'statement_id');
+    }
+
+    public function matcher(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'matched_by');
     }
 }
