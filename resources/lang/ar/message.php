@@ -696,5 +696,8 @@ return [
     'ERROR.INVOICE_CORRECT_STATE' => 'الفاتورة :id لا يمكن تصحيحها من الحالة \':status\'',
     'ERROR.INVOICE_CANCEL_STATE' => 'الفاتورة :id لا يمكن إلغاؤها من الحالة \':status\'',
 
+    // Shipping outbox (#178)
+    'MESSAGE.SHIPPING_OUTBOX_REQUEUED' => 'تمت إعادة إدراج عنصر صندوق الشحن بنجاح',
+
     'too_many_requests' => 'طلبات كثيرة جدًا. يرجى المحاولة لاحقًا.',
 ];

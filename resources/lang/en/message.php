@@ -785,5 +785,8 @@ return [
     'ERROR.INVOICE_CORRECT_STATE' => "Invoice :id cannot be corrected from status ':status'",
     'ERROR.INVOICE_CANCEL_STATE' => "Invoice :id cannot be cancelled from status ':status'",
 
+    // Shipping outbox (#178)
+    'MESSAGE.SHIPPING_OUTBOX_REQUEUED' => 'Shipping outbox row requeued successfully',
+
     'too_many_requests' => 'Too many requests. Please try again later.',
 ];

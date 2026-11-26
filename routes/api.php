@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\General\Guest\GuestOrderController;
 use App\Http\Controllers\Api\General\Guest\GuestPublicOrderController;
 use App\Http\Controllers\Api\General\Guest\GuestSessionController;
 use App\Http\Controllers\Api\Admin\ShipmentController as AdminShipmentController;
+use App\Http\Controllers\Api\Admin\ShippingOutboxController as AdminShippingOutboxController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -363,6 +364,13 @@ Route::prefix('v1/admin/tracking')->middleware(['api', 'auth:sanctum', 'throttle
     Route::get('orders', [AdminOrderTrackingController::class, 'listOrders'])->name('api.admin.tracking.orders');
     Route::get('orders/{orderId}', [AdminOrderTrackingController::class, 'trackOrder'])->whereNumber('orderId')->name('api.admin.tracking.order');
     Route::get('requires-attention', [AdminOrderTrackingController::class, 'requiresAttention'])->name('api.admin.tracking.attention');
+});
+
+// #178: manual outbox requeue is an admin-only, audited operator action.
+Route::prefix('v1/admin/shipping-outbox')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
+    Route::post('{outbox}/requeue', [AdminShippingOutboxController::class, 'requeue'])
+        ->whereNumber('outbox')
+        ->name('api.admin.shipping-outbox.requeue');
 });
 
 // Guest public-tracking revocation (admin action; invalidates the hash).
