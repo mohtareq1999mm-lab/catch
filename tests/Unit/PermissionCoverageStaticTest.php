@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Support\FinanceAccess;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -77,6 +78,12 @@ class PermissionCoverageStaticTest extends TestCase
             // Granular per-status permissions are created dynamically by
             // OrderStatusPermissionSeeder, not the master list.
             if (str_starts_with($name, 'change-order-status.')) {
+                continue;
+            }
+
+            // #187: finance permissions are seeded through the authoritative
+            // FinanceAccess boundary, not a broad string grant.
+            if (in_array($name, FinanceAccess::permissions(), true)) {
                 continue;
             }
             if (!str_contains($seeder, "'" . $name . "'") && !str_contains($seeder, '"' . $name . '"')) {
