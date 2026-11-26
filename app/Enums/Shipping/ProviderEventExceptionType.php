@@ -20,4 +20,5 @@ enum ProviderEventExceptionType: string
     case MODE_MISMATCH = 'mode_mismatch';
     case TERMINAL_STATE_REVERSAL = 'terminal_state_reversal';
     case OUT_OF_ORDER_EVENT = 'out_of_order_event';
+    case GUEST_CARRIER_RETURN = 'guest_carrier_return';
 }

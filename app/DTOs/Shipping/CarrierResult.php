@@ -29,8 +29,10 @@ abstract class CarrierResult
             throw new InvalidArgumentException('Carrier result requires at least one external identifier.');
         }
         foreach ($externalIds as $name => $value) {
-            if (!is_string($name) || trim($name) === '' || !is_string($value) || trim($value) === '') {
-                throw new InvalidArgumentException('Carrier external identifiers must be non-empty strings.');
+            if (!is_string($name) || trim($name) === '' || strlen($name) > 64
+                || !is_string($value) || trim($value) === '' || strlen($value) > 191
+            ) {
+                throw new InvalidArgumentException('Carrier external identifiers must be bounded non-empty strings.');
             }
         }
         if (trim($redactedPayloadReference) === '') {

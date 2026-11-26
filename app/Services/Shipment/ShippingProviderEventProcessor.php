@@ -26,6 +26,7 @@ final class ShippingProviderEventProcessor
         private readonly ShipmentService $shipments,
         private readonly CarrierGatewayFactory $factories,
         private readonly LinksCarrierReturns $returnLinks,
+        private readonly CarrierEvidenceRecorder $evidence,
     ) {}
 
     public function process(ShippingWebhookEvent $webhook): ShippingProviderEvent
@@ -55,6 +56,15 @@ final class ShippingProviderEventProcessor
         }
 
         $this->applyTransition($event, $mapping, $modeMismatch);
+
+        // #181: evidence is additive and must never poison an already-normalized
+        // transition or create a replay poison row. Validation failures are
+        // reported operationally; the normalized event remains authoritative.
+        try {
+            $this->evidence->record($webhook, $event->fresh());
+        } catch (\Throwable $evidenceFailure) {
+            report($evidenceFailure);
+        }
 
         return $event->fresh();
     }
