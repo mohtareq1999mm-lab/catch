@@ -17,8 +17,10 @@ use Illuminate\Support\Facades\Date;
  * The insert is committed before the HTTP layer acknowledges the delivery.
  * A collision on the scoped unique key (provider + mode + account + event_key)
  * is a replay: it returns NULL and the caller does no further work. The raw
- * event_key is stored verbatim. Shipment linkage is a read-only UUID lookup;
- * this service never writes to a shipment or any other lifecycle table.
+ * event_key is stored verbatim. Shipment linkage is a read-only UUID lookup
+ * scoped to the event's provider and mode, so sandbox evidence never attaches
+ * to a production shipment (or vice versa). This service never writes to a
+ * shipment or any other lifecycle table.
  */
 final class ShippingWebhookInbox
 {
@@ -33,6 +35,8 @@ final class ShippingWebhookInbox
         if ($event->shipmentUuid !== null) {
             $shipmentId = Shipment::query()
                 ->where('uuid', $event->shipmentUuid)
+                ->where('provider_code', $event->providerCode)
+                ->where('provider_mode', $event->mode)
                 ->value('id');
         }
 

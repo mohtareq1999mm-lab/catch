@@ -91,8 +91,13 @@ final class ShippingWebhookIngestService
             return new ShippingWebhookIngestResult(ShippingWebhookIngestOutcome::INVALID_SIGNATURE);
         } catch (InvalidCarrierWebhookPayload) {
             return new ShippingWebhookIngestResult(ShippingWebhookIngestOutcome::INVALID_PAYLOAD);
-        } catch (CarrierConfigurationException) {
-            // Misconfiguration must fail closed; there is nothing safe to retry.
+        } catch (CarrierConfigurationException $exception) {
+            // #192: mixed or invalid provider configuration is an operational
+            // alert, not a transient delivery failure. It fails closed with no
+            // queue dispatch or automatic retry; correction is a controlled
+            // deployment action.
+            report($exception);
+
             return new ShippingWebhookIngestResult(ShippingWebhookIngestOutcome::UNAVAILABLE);
         }
     }
