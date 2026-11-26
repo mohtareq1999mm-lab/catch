@@ -10,7 +10,8 @@ use InvalidArgumentException;
 /**
  * #143: normalized, authenticated carrier delivery.
  *
- * Only redacted identity fields are carried. The raw body and the presented
+ * Only redacted identity fields are carried. Bounded AWB/order-number identity
+ * is included for deterministic matching; the raw body and the presented
  * signature never enter this DTO, the inbox row, or application logs.
  */
 final class CarrierWebhookEvent extends CarrierResult
@@ -31,6 +32,8 @@ final class CarrierWebhookEvent extends CarrierResult
         public readonly array $redactedPayload,
         public readonly ?string $shipmentUuid = null,
         public readonly ?string $rawStatus = null,
+        public readonly ?string $awb = null,
+        public readonly ?string $orderNumber = null,
     ) {
         parent::__construct($providerCode, $mode, $externalIds, $amount, $redactedPayloadReference);
 
@@ -51,6 +54,11 @@ final class CarrierWebhookEvent extends CarrierResult
         }
         if ($rawStatus !== null && strlen($rawStatus) > 191) {
             throw new InvalidArgumentException('Carrier webhook raw status is too long.');
+        }
+        foreach (['awb' => $awb, 'order number' => $orderNumber] as $label => $identity) {
+            if ($identity !== null && (trim($identity) === '' || strlen($identity) > 191)) {
+                throw new InvalidArgumentException("Carrier webhook {$label} identity must be a bounded non-empty string.");
+            }
         }
         foreach ($redactedPayload as $name => $value) {
             if (!is_string($name) || trim($name) === '' || (!is_scalar($value) && $value !== null)) {
