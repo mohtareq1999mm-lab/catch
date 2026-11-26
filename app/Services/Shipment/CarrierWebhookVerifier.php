@@ -203,12 +203,14 @@ final class CarrierWebhookVerifier
             $this->redactedPayload($context, $identity, $eventKey),
             $identity['shipment_uuid'],
             $identity['status'],
+            $identity['awb'],
+            $identity['order_number'],
         );
     }
 
     /**
      * @param array<string,mixed> $body
-     * @return array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string}
+     * @return array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string}
      */
     private function extractIdentity(array $body): array
     {
@@ -228,6 +230,13 @@ final class CarrierWebhookVerifier
             ]),
             'shipment_uuid' => $this->stringField($body, ['metadata.shipment_uuid', 'data.metadata.shipment_uuid']),
             'occurred_at' => $this->parseTimestamp($occurredRaw) ?? CarbonImmutable::now(),
+            'awb' => $this->stringField($body, [
+                'awb', 'awb_number', 'awbNumber', 'airwaybill', 'airway_bill',
+                'data.awb', 'data.awb_number', 'data.awbNumber', 'metadata.awb',
+            ]),
+            'order_number' => $this->stringField($body, [
+                'order_number', 'orderNumber', 'data.order_number', 'data.orderNumber', 'metadata.order_number',
+            ]),
             'order_ref' => $this->stringField($body, ['data.order.id', 'order_id']),
             'delivery_attempt_ref' => $this->stringField($body, [
                 'data.delivery_attempt.id',
@@ -253,7 +262,7 @@ final class CarrierWebhookVerifier
 
     /**
      * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
-     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
      * @param array<string,mixed> $body
      */
     private function eventKey(string $providerCode, array $context, array $identity, array $body): string
@@ -289,7 +298,7 @@ final class CarrierWebhookVerifier
      * fp:<sha256> identity exactly; never used as the primary format for new rows.
      *
      * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
-     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string} $identity
      */
     private function legacyFallbackFingerprint(string $providerCode, array $context, array $identity): string
     {
@@ -304,7 +313,7 @@ final class CarrierWebhookVerifier
     }
 
     /** @param array<string,mixed> $body
-     *  @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable} $identity
+     *  @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string} $identity
      *  @return array<string,string>
      */
     private function fingerprintFields(array $identity, array $body): array
@@ -336,7 +345,7 @@ final class CarrierWebhookVerifier
 
     /**
      * @param array{header:string,algorithm:string,secret:string,version:string,mode:string,account_code:string} $context
-     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
      * @return array<string,string>
      */
     private function redactedPayload(array $context, array $identity, string $eventKey): array
@@ -348,6 +357,8 @@ final class CarrierWebhookVerifier
             'status' => $identity['status'],
             'provider_shipment_ref' => $identity['provider_shipment_ref'],
             'shipment_uuid' => $identity['shipment_uuid'],
+            'awb' => $identity['awb'],
+            'order_number' => $identity['order_number'],
             'order_id' => $identity['order_ref'],
             'delivery_attempt_id' => $identity['delivery_attempt_ref'],
             'pod_id' => $identity['pod_ref'],
@@ -395,7 +406,7 @@ final class CarrierWebhookVerifier
     }
 
     /**
-     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
      * @return array<string,string>
      */
     private function externalIds(array $identity, string $eventKey): array
@@ -410,7 +421,7 @@ final class CarrierWebhookVerifier
     }
 
     /**
-     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
+     * @param array{event_id:?string,event_type:string,status:string,object_ref:?string,provider_shipment_ref:?string,shipment_uuid:?string,occurred_at:CarbonImmutable,awb:?string,order_number:?string,order_ref:?string,delivery_attempt_ref:?string,pod_ref:?string,cash_minor:?string,cash_currency:?string,actor_type:?string,actor_id:?string} $identity
      */
     private function cashMoney(array $identity): ?CarrierMoney
     {

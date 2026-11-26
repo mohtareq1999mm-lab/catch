@@ -6,32 +6,41 @@ namespace App\Services\Shipment;
 
 use App\Enums\Shipping\ShipmentExceptionStatus;
 use App\Models\Shipping\ShipmentException;
+use App\Services\Warehouse\WarehouseAccess;
 use DomainException;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 class ShipmentExceptionService
 {
-    public function markInvestigating(ShipmentException $exception, int $actorId, ?string $notes = null): ShipmentException
+    public function __construct(private readonly WarehouseAccess $warehouseAccess)
     {
-        return $this->transition($exception, ShipmentExceptionStatus::INVESTIGATING, $actorId, $notes);
     }
 
-    public function resolve(ShipmentException $exception, int $actorId, string $notes): ShipmentException
+    public function markInvestigating(ShipmentException $exception, Authenticatable $actor, ?string $notes = null): ShipmentException
     {
-        return $this->transition($exception, ShipmentExceptionStatus::RESOLVED, $actorId, $notes);
+        return $this->transition($exception, ShipmentExceptionStatus::INVESTIGATING, $actor, $notes);
     }
 
-    public function dismiss(ShipmentException $exception, int $actorId, string $notes): ShipmentException
+    public function resolve(ShipmentException $exception, Authenticatable $actor, string $notes): ShipmentException
     {
-        return $this->transition($exception, ShipmentExceptionStatus::DISMISSED, $actorId, $notes);
+        return $this->transition($exception, ShipmentExceptionStatus::RESOLVED, $actor, $notes);
     }
 
-    private function transition(ShipmentException $exception, ShipmentExceptionStatus $to, int $actorId, ?string $notes): ShipmentException
+    public function dismiss(ShipmentException $exception, Authenticatable $actor, string $notes): ShipmentException
     {
-        if ($actorId <= 0) {
-            throw new DomainException('Actor is required.');
-        }
+        return $this->transition($exception, ShipmentExceptionStatus::DISMISSED, $actor, $notes);
+    }
 
+    private function transition(
+        ShipmentException $exception,
+        ShipmentExceptionStatus $to,
+        Authenticatable $actor,
+        ?string $notes,
+    ): ShipmentException {
+        $actorId = $this->authenticatedActorId($actor);
         $from = ShipmentExceptionStatus::from((string) $exception->status);
 
         if (!$this->canTransition($from, $to)) {
@@ -39,23 +48,38 @@ class ShipmentExceptionService
         }
 
         $trimmedNotes = $notes !== null ? trim($notes) : null;
-        if (in_array($to, [ShipmentExceptionStatus::RESOLVED, ShipmentExceptionStatus::DISMISSED], true) && ($trimmedNotes === null || $trimmedNotes === '')) {
-            throw new DomainException('Resolution notes are required.');
+        if ($trimmedNotes === null || $trimmedNotes === '') {
+            throw new DomainException('Notes are required for exception investigation actions.');
         }
 
-        return DB::transaction(function () use ($exception, $to, $actorId, $trimmedNotes): ShipmentException {
-            $locked = ShipmentException::query()->lockForUpdate()->findOrFail($exception->id);
+        return DB::transaction(function () use ($exception, $to, $actor, $actorId, $trimmedNotes): ShipmentException {
+            $locked = ShipmentException::query()
+                ->with('shipment.fulfillment')
+                ->lockForUpdate()
+                ->findOrFail($exception->id);
+
+            $this->assertWarehouseScope($actor, $locked);
+
             $current = ShipmentExceptionStatus::from((string) $locked->status);
             if (!$this->canTransition($current, $to)) {
                 throw new DomainException("Invalid shipment exception transition: {$current->value} -> {$to->value}");
             }
 
+            // Diagnostic/base notes are append-only: an action note must never
+            // replace the evidence that opened the exception.
+            $actionNote = '['.$to->value.'] '.$trimmedNotes;
+            $existingNotes = trim((string) $locked->notes);
+
             $payload = [
                 'status' => $to->value,
-                'notes' => $trimmedNotes ?? $locked->notes,
+                'notes' => $existingNotes === '' ? $actionNote : $existingNotes."\n".$actionNote,
             ];
 
-            if ($to === ShipmentExceptionStatus::RESOLVED || $to === ShipmentExceptionStatus::DISMISSED) {
+            if ($to === ShipmentExceptionStatus::INVESTIGATING) {
+                $payload['owner_id'] = $actorId;
+            }
+
+            if (in_array($to, [ShipmentExceptionStatus::RESOLVED, ShipmentExceptionStatus::DISMISSED], true)) {
                 $payload['resolved_at'] = now();
                 $payload['resolved_by'] = $actorId;
             }
@@ -64,6 +88,36 @@ class ShipmentExceptionService
 
             return $locked->fresh();
         });
+    }
+
+    private function authenticatedActorId(Authenticatable $actor): int
+    {
+        $id = $actor->getAuthIdentifier();
+
+        if (!is_numeric($id) || (int) $id <= 0) {
+            throw new AuthorizationException('Authenticated actor required.');
+        }
+
+        return (int) $id;
+    }
+
+    private function assertWarehouseScope(Authenticatable $actor, ShipmentException $exception): void
+    {
+        $warehouseId = $exception->shipment?->fulfillment?->warehouse_id;
+
+        if ($warehouseId !== null && $this->warehouseAccess->allows($actor, (int) $warehouseId, 'update-shipment')) {
+            return;
+        }
+
+        if (
+            $warehouseId === null
+            && $this->warehouseAccess->allows($actor, null, 'update-shipment')
+            && $this->warehouseAccess->allows($actor, null, 'manage-warehouse')
+        ) {
+            return;
+        }
+
+        throw (new ModelNotFoundException())->setModel(ShipmentException::class);
     }
 
     private function canTransition(ShipmentExceptionStatus $from, ShipmentExceptionStatus $to): bool
