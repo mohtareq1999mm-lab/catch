@@ -85,13 +85,23 @@ class LaunchApiInventoryTest extends TestCase
 
     public function test_settlement_routes_enforce_finance_permissions(): void
     {
+        // R13-Q3 (#140) froze the finance vocabulary to exactly these four
+        // permissions; every cod-settlements route must be gated by one of
+        // them (view for reads, match/accept/close for finance writes).
+        $financePermissions = [
+            Permission::COD_SETTLEMENT_VIEW,
+            Permission::COD_SETTLEMENT_MATCH,
+            Permission::COD_SETTLEMENT_ACCEPT,
+            Permission::COD_SETTLEMENT_CLOSE,
+        ];
         foreach ($this->routeRows() as $row) {
             if (!str_contains($row['uri'], 'admin/cod-settlements')) {
                 continue;
             }
             $this->assertContains('auth:sanctum', $row['middleware']);
             $perm = implode('|', array_filter($row['middleware'], fn ($m) => is_string($m) && str_starts_with($m, 'permission:')));
-            $this->assertStringContainsString(Permission::COD_SETTLEMENT_VIEW, $perm);
+            $gates = array_values(array_filter($financePermissions, fn ($p) => str_contains($perm, $p)));
+            $this->assertNotEmpty($gates, 'Settlement route must be gated by a finance permission: ' . $row['uri']);
         }
         SpatiePermission::firstOrCreate(['name' => Permission::COD_SETTLEMENT_VIEW, 'guard_name' => 'api']);
         Sanctum::actingAs(User::factory()->create(['type' => 'staff']));
@@ -110,10 +120,12 @@ class LaunchApiInventoryTest extends TestCase
 
     public function test_webhook_responses_match_approved_contract(): void
     {
-        $this->assertSame(200, ShippingWebhookIngestOutcome::ACCEPTED->httpStatus());
+        // The #212 webhook HTTP contract answers `accepted` with 202 (the
+        // dedicated webhook feature tests assert the same status).
+        $this->assertSame(202, ShippingWebhookIngestOutcome::ACCEPTED->httpStatus());
         $this->assertSame(200, ShippingWebhookIngestOutcome::DUPLICATE->httpStatus());
         $this->assertSame(401, ShippingWebhookIngestOutcome::INVALID_SIGNATURE->httpStatus());
-        $this->assertSame(400, ShippingWebhookIngestOutcome::INVALID_PAYLOAD->httpStatus());
+        $this->assertSame(422, ShippingWebhookIngestOutcome::INVALID_PAYLOAD->httpStatus());
         $this->assertSame(503, ShippingWebhookIngestOutcome::UNAVAILABLE->httpStatus());
         $this->assertSame(429, ShippingWebhookIngestOutcome::RATE_LIMITED->httpStatus());
 
@@ -124,6 +136,10 @@ class LaunchApiInventoryTest extends TestCase
             'shipping.providers.null.modes.sandbox.webhook.version' => 'v1',
             'shipping.webhook_rate_limit.max_attempts' => 60,
             'shipping.webhook_rate_limit.decay_seconds' => 60,
+            // The fail-closed limiter derives the source IP through trusted
+            // proxies only; tests run with a direct REMOTE_ADDR (same fake as
+            // ShippingWebhookInboxTest).
+            'shipping.webhook_rate_limit.trusted_proxies' => ['127.0.0.1'],
         ]);
 
         $payload = ['id' => 'evt_188_contract', 'type' => 'shipment.status_changed', 'status' => 'in_transit'];
@@ -132,7 +148,7 @@ class LaunchApiInventoryTest extends TestCase
         $headers = fn ($s) => $this->transformHeadersToServerVars(['Content-Type' => 'application/json', 'X-Shipping-Signature' => $s]);
 
         $this->call('POST', '/api/v1/general/shipping/webhooks/null', [], [], [], $headers($sig), $raw)
-            ->assertStatus(200)->assertJson(['success' => true])->assertJsonPath('data.status', 'accepted')->assertJsonPath('data.event_id', 'evt_188_contract');
+            ->assertStatus(202)->assertJson(['success' => true])->assertJsonPath('data.status', 'accepted')->assertJsonPath('data.event_id', 'evt_188_contract');
         $this->call('POST', '/api/v1/general/shipping/webhooks/null', [], [], [], $headers($sig), $raw)
             ->assertStatus(200)->assertJson(['success' => true])->assertJsonPath('data.status', 'duplicate');
         $this->call('POST', '/api/v1/general/shipping/webhooks/null', [], [], [], $headers('v1=' . str_repeat('0', 64)), $raw)

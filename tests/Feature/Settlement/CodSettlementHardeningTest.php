@@ -17,6 +17,7 @@ use App\Services\Fulfillment\FulfillmentService;
 use App\Services\Fulfillment\FulfillmentTransition;
 use App\Services\Settlement\CodSettlementService;
 use App\Services\Shipment\CarrierGatewayFactory;
+use App\Support\FinanceAccess;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,7 +26,6 @@ use Marvel\Database\Models\Order;
 use Marvel\Database\Models\Product;
 use Marvel\Database\Models\Role;
 use Marvel\Database\Models\User;
-use Marvel\Enums\Permission;
 use Tests\TestCase;
 
 /**
@@ -35,11 +35,16 @@ class CodSettlementHardeningTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const COD_PERMISSIONS = [
-        Permission::COD_SETTLEMENT_VIEW,
-        Permission::COD_SETTLEMENT_MATCH,
-        Permission::COD_SETTLEMENT_CLOSE,
-    ];
+    /**
+     * The finance permission boundary is owned by `FinanceAccess` (#191):
+     * cod-settlement view/match/accept/close plus cod-adjustment.approve.
+     * Asserting against the single source of truth keeps this guard from
+     * drifting when the approved vocabulary is extended.
+     */
+    private function codPermissions(): array
+    {
+        return FinanceAccess::permissions();
+    }
 
     protected function setUp(): void
     {
@@ -98,16 +103,16 @@ class CodSettlementHardeningTest extends TestCase
 
         $finance = Role::findByName('finance', 'api');
         $financePermissions = $finance->permissions->pluck('name')->sort()->values()->all();
-        $expected = collect(self::COD_PERMISSIONS)->sort()->values()->all();
+        $expected = collect($this->codPermissions())->sort()->values()->all();
         $this->assertSame($expected, $financePermissions);
 
         $superAdmin = Role::findByName('super_admin', 'api');
-        foreach (self::COD_PERMISSIONS as $permission) {
+        foreach ($this->codPermissions() as $permission) {
             $this->assertFalse($superAdmin->hasPermissionTo($permission, 'api'));
         }
 
         foreach (User::where('type', 'admin')->get() as $admin) {
-            foreach (self::COD_PERMISSIONS as $permission) {
+            foreach ($this->codPermissions() as $permission) {
                 $this->assertFalse($admin->hasPermissionTo($permission, 'api'));
             }
         }
