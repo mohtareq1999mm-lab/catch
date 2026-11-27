@@ -745,6 +745,11 @@ Route::prefix('admin/inventory')->middleware(['api', 'auth:sanctum', 'throttle:a
 Route::prefix('admin/cod-settlements')->middleware(['api', 'auth:sanctum', 'throttle:admin'])->group(function () {
     Route::get('statements', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'index'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.index');
     Route::get('statements/{id}', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'show'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_VIEW)->name('api.admin.cod-settlements.statements.show');
+    // #240: manual statement file intake is a finance reconciliation write,
+    // not a view action; view-only shipping administrators stay read-only
+    // (Round 2 #121). It stores private evidence only and never accepts,
+    // reconciles, or closes a statement.
+    Route::post('statements/import', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'import'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_MATCH)->name('api.admin.cod-settlements.statements.import');
     Route::post('statements/{id}/lines/{lineId}/match', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'manualMatch'])->whereNumber(['id','lineId'])->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_MATCH)->name('api.admin.cod-settlements.statements.lines.match');
     Route::post('statements/{id}/close', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'close'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_CLOSE)->name('api.admin.cod-settlements.statements.close');
     Route::post('statements/{id}/accept', [\App\Http\Controllers\Api\Admin\Finance\CodSettlementController::class, 'accept'])->whereNumber('id')->middleware('permission:' . \Marvel\Enums\Permission::COD_SETTLEMENT_ACCEPT)->name('api.admin.cod-settlements.statements.accept');

@@ -25,4 +25,6 @@ return [
     'file_too_large' => 'The settlement file exceeds the maximum allowed size of :max bytes.',
     'parser_unavailable' => 'No settlement parser is configured for this provider.',
     'storage_failed' => 'The settlement file could not be stored on private storage.',
+    'imported' => 'COD settlement statement file imported successfully.',
+    'imported_duplicate' => 'A statement file with the same content was already imported; the existing import was returned.',
 ];
